@@ -94,7 +94,7 @@ func TestBootstrapEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testin
 	check("retain final for live deployment")
 	createScheduledInstanceForTest(s, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	check("supersede final")
-	commit := func(mutate func(q *pq.Queries, seq int64) (*Update, error)) {
+	commit := func(mutate func(q *pq.Queries, seq int64) (*WriteUpdate, error)) {
 		t.Helper()
 		if err := s.Commit(ctx, nil, mutate); err != nil {
 			t.Fatal(err)
@@ -104,7 +104,7 @@ func TestBootstrapEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testin
 	configEvent := apigen.ConfigEvent{EventTime: now, CreatedTime: now, Author: 1, ConfigID: 1, Version: 1, ValueVersion: 1,
 		Value: apigen.Config{Fs: &apigen.ConfigFs{Name: "config"}, SpaceID: 1, Value: "one"}, EventType: apigen.EventType_EVENT_TYPE_CREATE}
 	writeConfig := func(eventType apigen.EventType, name string) {
-		commit(func(q *pq.Queries, seq int64) (*Update, error) {
+		commit(func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 			event := configEvent
 			event.EventID, event.Seq, event.EventType = 0, seq, eventType
 			event.Value.Fs = &apigen.ConfigFs{Name: name}
@@ -129,7 +129,7 @@ func TestBootstrapEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testin
 	deleteAssetForTest(s, a.AssetID)
 	check("delete asset removes history")
 	sealed := pq.SealedValue{SmkVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{1}}
-	commit(func(q *pq.Queries, seq int64) (*Update, error) {
+	commit(func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		written, err := q.InsertSecretEvent(ctx, pq.SecretEvent{GlobalSeq: seq, EventTime: now, CreatedTime: now, Author: 1, SecretID: 1,
 			Version: 1, ValueVersion: 1, ValueChanged: 1, Name: "secret", SpaceID: 1,
 			SmkVersion: sealed.SmkVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, EventType: pq.EventCreate})
@@ -139,7 +139,7 @@ func TestBootstrapEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testin
 		return pq.NewUpdate(pq.SecretMutation(written, sealed)), nil
 	})
 	check("create secret")
-	commit(func(q *pq.Queries, seq int64) (*Update, error) {
+	commit(func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		written, carried, err := q.InsertSecretCarryEvent(ctx, pq.SecretEvent{GlobalSeq: seq, EventTime: now, CreatedTime: now, SecretID: 1,
 			Version: 2, ValueVersion: 1, Name: "renamed", SpaceID: 1, EventType: pq.EventUpdate})
 		if err != nil {
@@ -148,7 +148,7 @@ func TestBootstrapEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testin
 		return pq.NewUpdate(pq.SecretMutation(written, carried)), nil
 	})
 	check("rename secret carries the sealed value")
-	commit(func(q *pq.Queries, seq int64) (*Update, error) {
+	commit(func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		written, carried, err := q.InsertSecretCarryEvent(ctx, pq.SecretEvent{GlobalSeq: seq, EventTime: now, CreatedTime: now, SecretID: 1,
 			Version: 3, ValueVersion: 1, Name: "renamed", SpaceID: 1, EventType: pq.EventDelete})
 		if err != nil {
@@ -162,7 +162,7 @@ func TestBootstrapEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testin
 	deleteSpaceForTest(s, space.ID)
 	check("delete space")
 	var dir *apigen.ValueDirectory
-	commit(func(q *pq.Queries, seq int64) (*Update, error) {
+	commit(func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		id, err := q.NextValueDirectoryID(ctx)
 		if err != nil {
 			return nil, err
@@ -175,7 +175,7 @@ func TestBootstrapEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testin
 		return pq.NewUpdate(m), nil
 	})
 	check("create value directory")
-	commit(func(q *pq.Queries, seq int64) (*Update, error) {
+	commit(func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		_, m, err := q.InsertValueDirectoryEvent(ctx, pq.ValueDirectoryEvent(dir, pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_DELETE}))
 		if err != nil {
 			return nil, err

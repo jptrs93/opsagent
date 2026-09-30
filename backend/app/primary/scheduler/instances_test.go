@@ -162,7 +162,7 @@ func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 	if count, err := nodes.InvalidateNodeRuntimeState(s, node.ID); err != nil || count != 1 {
 		t.Fatalf("invalidation = %d, %v", count, err)
 	}
-	var update state.Update
+	var update state.WriteUpdate
 	select {
 	case published := <-sub:
 		if hasCore(published) || !hasObserved(published) || published.Seq != beforeSeq+1 {
@@ -228,7 +228,7 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	fail := errors.New("scheduler rejected transaction")
 	reject := true
 	calls := 0
-	s.RegisterUpdateTrigger(func(ctx context.Context, q *pq.Queries, update *state.Update) error {
+	s.RegisterUpdateTrigger(func(ctx context.Context, q *pq.Queries, update *state.WriteUpdate) error {
 		seq := update.Seq
 		if !update.Has(instanceStatusType) {
 			return nil

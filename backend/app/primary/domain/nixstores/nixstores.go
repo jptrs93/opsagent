@@ -57,7 +57,7 @@ func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var items []*apigen.NixStoreReset
-	err := s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		eventType := apigen.AuthzVerb_AUTHZ_VERB_CREATE
 		if exists, err := q.NixStoreResetExists(ctx, repo); err != nil {
 			return nil, err

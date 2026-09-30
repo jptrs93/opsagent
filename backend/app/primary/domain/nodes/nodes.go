@@ -75,7 +75,7 @@ func EnsurePrimaryNode(store *state.Service, name, identifier string) *Node {
 	ctx := context.Background()
 	row, err := store.Queries().GetNodeRowByIdentifier(ctx, identifier)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+		err = store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 			now := time.Now().UnixMilli()
 			var txErr error
 			row, txErr = q.InsertNodeRow(ctx, pq.InsertNodeParams{
@@ -154,7 +154,7 @@ func appendNodeVersion(ctx context.Context, q *pq.Queries, seq, now int64, curre
 func mustAppendNodeVersion(store *state.Service, id int32, what string, mutate func(*nodeEventSpec)) *Node {
 	ctx := context.Background()
 	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByID(ctx, int64(id))
 		if err != nil {
 			return nil, err
@@ -263,7 +263,7 @@ func ListClusterNodes(q *pq.Queries) []*apigen.NodeEvent {
 
 func SetNodeStatusByIdentifier(store *state.Service, identifier string, connected bool, connectedAt time.Time) {
 	ctx := context.Background()
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		now := time.Now().UnixMilli()
 		status, err := q.SetNodeConnectionStatus(ctx, seq, now, identifier, connected, time.UnixMilli(connectedAt.UnixMilli()))
 		if err != nil {
@@ -311,7 +311,7 @@ func PrimaryNodeID(q *pq.Queries) (int32, error) {
 func RenameNode(store *state.Service, identifier, name string) (*apigen.NodeEvent, error) {
 	ctx := context.Background()
 	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
 		if err != nil {
 			return nil, err
@@ -339,7 +339,7 @@ func SetNodeAllowedSpaces(store *state.Service, identifier string, spaces []int3
 	ctx := context.Background()
 	allowed := allowedSpacesJSON(spaces)
 	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
 		if err != nil {
 			return nil, err
@@ -381,7 +381,7 @@ func updateAllNodeAllowedSpaces(ctx context.Context, q *pq.Queries, seq, now int
 }
 func UpdateNodeObservedMeta(store *state.Service, identifier, remoteAddress, opendeployVersion, runtimeVersions string) {
 	ctx := context.Background()
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		id, err := q.GetNodeIDByIdentifier(ctx, identifier)
 		if err != nil {
 			return nil, err

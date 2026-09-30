@@ -23,8 +23,8 @@ func TestCommitRollbackPreservesIDsAndPublishesWriterUpdate(t *testing.T) {
 	defer unsub()
 	stop := errors.New("abort after writes")
 	var firstID, firstEventID int64
-	var returned *Update
-	write := func(q *pq.Queries, seq int64) (*Update, error) {
+	var returned *WriteUpdate
+	write := func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		id, err := q.NextDeploymentID(ctx)
 		if err != nil {
 			return nil, err
@@ -41,7 +41,7 @@ func TestCommitRollbackPreservesIDsAndPublishesWriterUpdate(t *testing.T) {
 		returned = pq.NewUpdate(pq.DeploymentMutation(event))
 		return returned, nil
 	}
-	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		update, err := write(q, seq)
 		if err != nil {
 			return nil, err
@@ -126,7 +126,7 @@ func insertGrantForTest(t *testing.T, s *Service, userID, author, createdAt int6
 	t.Helper()
 	ctx := context.Background()
 	var id int64
-	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextAuthzGrantID(ctx)
 		if err != nil {
@@ -147,7 +147,7 @@ func insertGrantForTest(t *testing.T, s *Service, userID, author, createdAt int6
 func deleteGrantForTest(t *testing.T, s *Service, id int64) {
 	t.Helper()
 	ctx := context.Background()
-	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		prev, err := q.GetLatestAuthzGrantEvent(ctx, id)
 		if err != nil {
 			return nil, err

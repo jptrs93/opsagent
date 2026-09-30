@@ -32,7 +32,7 @@ func TestMergedCommitConditionallyStoresSequence(t *testing.T) {
 	if erru.Must(s.q.GetGlobalSeq(ctx)) != before+1 {
 		t.Fatal("observed-only write did not consume sequence")
 	}
-	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		if seq != before+2 {
 			t.Errorf("candidate = %d, want %d", seq, before+2)
 		}
@@ -70,7 +70,7 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 		defer wg.Done()
 		<-start
 		for i := 0; i < writes; i++ {
-			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 				runtime.Gosched()
 				now := time.Now().UnixMilli()
 				status, err := q.SetNodeConnectionStatus(ctx, seq, now, node.Identifier, true, time.Now())
@@ -90,7 +90,7 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 		<-start
 		for i := 0; i < writes; i++ {
 			id := fmt.Sprintf("session-%d", i)
-			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 				if err := q.InsertAgentSessionEvent(ctx, pq.AgentSessionEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, SessionID: id, UserID: 1, CreatedAt: time.Now().Unix(), TokenHash: []byte{}}); err != nil {
 					return nil, err
 				}

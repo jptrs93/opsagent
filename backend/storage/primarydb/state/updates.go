@@ -14,18 +14,18 @@ import (
 const SubscriberBuffer = 1_000
 
 type updateHandler struct {
-	notify func(context.Context, Update)
+	notify func(context.Context, WriteUpdate)
 	drop   func()
 }
 
-func Subscribe[S, T any](s *Service, read func() S, project func(Update) (T, bool)) (S, chan T, func()) {
+func Subscribe[S, T any](s *Service, read func() S, project func(WriteUpdate) (T, bool)) (S, chan T, func()) {
 	ch := make(chan T, SubscriberBuffer)
 	handler := &updateHandler{}
 	handler.drop = sync.OnceFunc(func() {
 		s.onUpdate = slices.DeleteFunc(s.onUpdate, func(h *updateHandler) bool { return h == handler })
 		close(ch)
 	})
-	handler.notify = func(ctx context.Context, u Update) {
+	handler.notify = func(ctx context.Context, u WriteUpdate) {
 		item, send := project(u)
 		if !send {
 			return
@@ -50,8 +50,8 @@ func Subscribe[S, T any](s *Service, read func() S, project func(Update) (T, boo
 	}
 }
 
-func (s *Service) SubscribeUpdates() (chan Update, func()) {
-	_, ch, unsubscribe := Subscribe(s, func() struct{} { return struct{}{} }, func(u Update) (Update, bool) { return u, true })
+func (s *Service) SubscribeUpdates() (chan WriteUpdate, func()) {
+	_, ch, unsubscribe := Subscribe(s, func() struct{} { return struct{}{} }, func(u WriteUpdate) (WriteUpdate, bool) { return u, true })
 	return ch, unsubscribe
 }
 
@@ -60,7 +60,7 @@ func (s *Service) MustFetchScheduledSnapshotAndSubscribe(predicate storage.Sched
 	q := s.q
 	return Subscribe(s, func() []apigen.ScheduledInstanceState {
 		return liveScheduledStates(q, predicate)
-	}, func(u Update) ([]apigen.ScheduledInstanceState, bool) {
+	}, func(u WriteUpdate) ([]apigen.ScheduledInstanceState, bool) {
 		var out []apigen.ScheduledInstanceState
 		for _, id := range affectedInstanceIDs(u) {
 			state, err := q.GetScheduledInstanceState(ctx, id)
@@ -79,13 +79,13 @@ func (s *Service) FetchScheduledSnapshot(predicate storage.ScheduledInstancePred
 	return liveScheduledStates(s.q, predicate)
 }
 
-func (s *Service) notifyLocked(ctx context.Context, update Update) {
+func (s *Service) notifyLocked(ctx context.Context, update WriteUpdate) {
 	for _, handler := range slices.Clone(s.onUpdate) {
 		handler.notify(ctx, update)
 	}
 }
 
-func affectedInstanceIDs(u Update) []int32 {
+func affectedInstanceIDs(u WriteUpdate) []int32 {
 	seen := map[int32]bool{}
 	var ids []int32
 	add := func(id int32) {

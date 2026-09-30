@@ -12,13 +12,13 @@ func TestSubscriberOverflowClosesOnlyTheSlowSubscriber(t *testing.T) {
 	s := Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	node := testNode(s, "primary")
-	_, slow, unsubscribeSlow := Subscribe(s, func() struct{} { return struct{}{} }, func(Update) (int, bool) { return 0, true })
+	_, slow, unsubscribeSlow := Subscribe(s, func() struct{} { return struct{}{} }, func(WriteUpdate) (int, bool) { return 0, true })
 	defer unsubscribeSlow()
-	_, fast, unsubscribeFast := Subscribe(s, func() struct{} { return struct{}{} }, func(u Update) (Update, bool) {
+	_, fast, unsubscribeFast := Subscribe(s, func() struct{} { return struct{}{} }, func(u WriteUpdate) (WriteUpdate, bool) {
 		return u, u.Has(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT)
 	})
 	defer unsubscribeFast()
-	receive := func(want string, check func(Update) bool) {
+	receive := func(want string, check func(WriteUpdate) bool) {
 		t.Helper()
 		select {
 		case got, ok := <-fast:
@@ -30,12 +30,12 @@ func TestSubscriberOverflowClosesOnlyTheSlowSubscriber(t *testing.T) {
 		}
 	}
 	dep := mustCreateDeploymentForNode(s, apigen.Context{}, defaultSpaceID, "overflow", node.ID, envRefSpec(nil, nil))
-	receive("create", func(u Update) bool {
+	receive("create", func(u WriteUpdate) bool {
 		return len(u.Mutations) == 1 && u.Mutations[0].EntityID() == int64(dep.DeploymentID) && u.Mutations[0].Kind() == apigen.AuthzVerb_AUTHZ_VERB_CREATE
 	})
 	s.Mu.Lock()
 	for i := 0; i <= SubscriberBuffer; i++ {
-		s.notifyLocked(t.Context(), Update{})
+		s.notifyLocked(t.Context(), WriteUpdate{})
 	}
 	s.Mu.Unlock()
 	drained := 0
@@ -47,7 +47,7 @@ func TestSubscriberOverflowClosesOnlyTheSlowSubscriber(t *testing.T) {
 	}
 	unsubscribeSlow()
 	deleteDeployment(s, apigen.Context{}, dep.DeploymentID)
-	receive("delete", func(u Update) bool {
+	receive("delete", func(u WriteUpdate) bool {
 		return len(u.Mutations) == 1 && u.Mutations[0].EntityID() == int64(dep.DeploymentID) && u.Mutations[0].Kind() == apigen.AuthzVerb_AUTHZ_VERB_DELETE
 	})
 }

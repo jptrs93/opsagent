@@ -18,7 +18,7 @@ func LatestRevision(q *pq.Queries) (pq.SystemConfigRevision, error) {
 func AppendRevision(store *state.Service, author int32, blob []byte, inlockValidate func(*pq.Queries) error) (int64, error) {
 	ctx := context.Background()
 	var id int64
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
 				return nil, err

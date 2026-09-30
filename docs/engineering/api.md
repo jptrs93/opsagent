@@ -198,9 +198,11 @@ correctness of its update and code review is what keeps it so;
 are `func(*pq.Queries) error` parameters on the domain functions invoked
 inside `mutate`. Registered `UpdateTrigger`s (the scheduler registers one) run
 inside the same transaction and extend the update. If the final update has any
-mutation the store sets its `seq`, persists the sequence, commits, and
-publishes that one update to every subscriber; an empty update commits
-without consuming a sequence and publishes nothing. A failed callback rolls
+mutation the store sets its `seq`, appends the update to the write log
+(`write_events` and `write_event_mutations`, see below), persists the
+sequence, commits, and publishes that one update to every subscriber; an
+empty update commits without consuming a sequence, writes no log row, and
+publishes nothing. A failed callback rolls
 back, consumes no ids or sequence, and publishes nothing. Callbacks are not
 retried. The store holds no in-memory state and `pq` has no caches.
 
@@ -270,6 +272,31 @@ session. Both collections are owner-filtered: a session reaches only the
 browser of the user who holds it, and `visibleUpdate` drops the rest. The
 token hash is stripped by `browserEntity`. Sessions are never deleted, so the
 collections are latest-only entities and grow unbounded, deliberately.
+
+#### The write log
+
+`write_events (seq, time, actor)` and `write_event_mutations (seq, idx,
+entity_type, entity_id, op, payload)` hold every committed
+`CoreWriteUpdate`: one envelope row per consumed `global_seq` and one row per
+mutation in publication order, `op` the `AuthzVerb`, `payload` the encoded
+`CoreEntity` (NULL for a delete). `Commit` appends them in the same
+transaction as the entity rows, from the update it is about to publish, so
+the log row and the stream message are the same bytes. The entity tables
+(the 21 registered logs and the two observed-status tables) are materialised
+views of this log: what each one retains is whatever its readers need (the
+newest row, every version of a live value, the versions a live instance
+pins) and it can be regenerated from the log. `asset_store` is not: it is
+node-local placement state reconciled from the asset root and S3, and asset
+content itself lives outside the database. `global_seq` is the counter the
+log is keyed by. The log is never
+updated, deleted from, or compacted. `pq.WriteEventsInRange(after, upTo)`
+reads it back as events; `pq.Open` brings it level with the entity tables at
+startup by replaying `MutationsInRange` over any sequences the log lacks
+(genesis rows at seq 0 included when the log is empty), which is how
+databases from before the log, or written by a build without it, catch up.
+The index `(entity_type, entity_id, seq)` serves per-entity history reads.
+The stream and bootstrap readers still read the entity tables; moving them
+to the log is separate work.
 
 #### Append-only tables behind the latest-only collections
 

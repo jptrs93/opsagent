@@ -34,12 +34,12 @@ func New(store *state.Service, barrier routeBarrier) *Scheduler {
 }
 
 func (s *Scheduler) Start(ctx context.Context) error {
-	s.store.RegisterUpdateTrigger(func(ctx context.Context, q *pq.Queries, update *state.Update) error {
+	s.store.RegisterUpdateTrigger(func(ctx context.Context, q *pq.Queries, update *state.WriteUpdate) error {
 		return s.reconcile(ctx, q, update, nil)
 	})
-	return s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		s.bootSeq, s.bootTime = seq-1, s.now()
-		update := &state.Update{Seq: seq}
+		update := &state.WriteUpdate{Seq: seq}
 		err := s.reconcile(ctx, q, update, func() ([]int32, error) {
 			rows, err := q.ListLatestDeploymentEvents(ctx)
 			if err != nil {
@@ -56,8 +56,8 @@ func (s *Scheduler) Start(ctx context.Context) error {
 }
 
 func (s *Scheduler) Sweep(ctx context.Context) error {
-	return s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		update := &state.Update{Seq: seq}
+	return s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
+		update := &state.WriteUpdate{Seq: seq}
 		err := s.reconcile(ctx, q, update, func() ([]int32, error) { return q.ListDrainingDeploymentIDs(ctx) })
 		return update, err
 	})
@@ -83,7 +83,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 	}
 }
 
-func (s *Scheduler) reconcile(ctx context.Context, q *pq.Queries, update *state.Update, scope func() ([]int32, error)) error {
+func (s *Scheduler) reconcile(ctx context.Context, q *pq.Queries, update *state.WriteUpdate, scope func() ([]int32, error)) error {
 	affected := map[int32]bool{}
 	for _, m := range update.Mutations {
 		switch m.Type() {
@@ -158,7 +158,7 @@ type transaction struct {
 	ctx       context.Context
 	q         *pq.Queries
 	seq       int64
-	update    *state.Update
+	update    *state.WriteUpdate
 	now       time.Time
 	scheduler *Scheduler
 	evicted   map[int32]bool

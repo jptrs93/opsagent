@@ -20,7 +20,7 @@ import (
 
 func createDeployment(s *state.Service, ctx apigen.Context, def *apigen.Deployment, inlockValidate func(*pq.Queries) error) (*apigen.DeploymentEvent, error) {
 	var event *apigen.DeploymentEvent
-	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
 				return nil, err
@@ -41,7 +41,7 @@ func createDeployment(s *state.Service, ctx apigen.Context, def *apigen.Deployme
 
 func updateDeployment(s *state.Service, ctx apigen.Context, deploymentID int32, mutate func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error) *apigen.DeploymentEvent {
 	var event *apigen.DeploymentEvent
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		existing, err := q.GetLatestDeploymentEvent(ctx, int64(deploymentID))
 		if err != nil {
 			return nil, err
@@ -143,7 +143,7 @@ func MoveDeploymentSpace(s *state.Service, ctx apigen.Context, deploymentID, spa
 
 func DeleteDeployment(s *state.Service, ctx apigen.Context, deploymentID int32) *apigen.DeploymentEvent {
 	var event *apigen.DeploymentEvent
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		event, err = q.WriteDeploymentDelete(ctx, int64(deploymentID), seq, time.Now())
 		if err != nil {
@@ -165,7 +165,7 @@ func CreateScheduledInstance(s *state.Service, deploymentID, deploymentVersion, 
 		InstanceOrdinal:   instanceOrdinal,
 		State:             target,
 	}
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(deploymentID), Version: int64(deploymentVersion)})
 		if err != nil {
 			return nil, err
@@ -184,7 +184,7 @@ func CreateScheduledInstance(s *state.Service, deploymentID, deploymentVersion, 
 
 func SetScheduledInstanceState(s *state.Service, instanceID int32, target apigen.ScheduledInstanceTarget) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetScheduledInstance(ctx, instanceID)
 		if err != nil {
 			return nil, err
@@ -263,7 +263,7 @@ func DeploymentEnvRef(t testing.TB, cfg *apigen.DeploymentEvent, key string, sec
 
 // Canonical encodes an update with its mutations in a fixed order so two
 // updates that carry the same facts compare equal.
-func Canonical(update state.Update) []byte {
+func Canonical(update state.WriteUpdate) []byte {
 	cp := update
 	cp.Mutations = slices.Clone(update.Mutations)
 	sort.Slice(cp.Mutations, func(i, j int) bool { return bytes.Compare(cp.Mutations[i].Encode(), cp.Mutations[j].Encode()) < 0 })
@@ -273,7 +273,7 @@ func Canonical(update state.Update) []byte {
 // AssertUpdateMatchesRows checks a published update against the rows the
 // commit wrote: the same seq as the database, and the same mutations as the
 // event stream replays for that seq.
-func AssertUpdateMatchesRows(t testing.TB, s *state.Service, update state.Update) {
+func AssertUpdateMatchesRows(t testing.TB, s *state.Service, update state.WriteUpdate) {
 	t.Helper()
 	ctx := context.Background()
 	seq := erru.Must(s.Queries().GetGlobalSeq(ctx))

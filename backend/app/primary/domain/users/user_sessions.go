@@ -45,7 +45,7 @@ func userSessionFromRow(row pq.UserSession) UserSession {
 	}
 }
 
-func sessionUpdate(ctx context.Context, q *pq.Queries, id string) (*state.Update, error) {
+func sessionUpdate(ctx context.Context, q *pq.Queries, id string) (*state.WriteUpdate, error) {
 	row, err := q.GetUserSession(ctx, id)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func sessionUpdate(ctx context.Context, q *pq.Queries, id string) (*state.Update
 
 func InsertUserSession(store *state.Service, rec UserSession) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if err := q.InsertUserSessionEvent(ctx, pq.UserSessionEventParams{
 			EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(rec.UserID), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE},
 			SessionID: rec.ID, UserID: int64(rec.UserID), CreatedAt: rec.CreatedAt.Unix(), ExpiresAt: unixOrZero(rec.ExpiresAt), TokenHash: rec.TokenHash,
@@ -93,7 +93,7 @@ func ListUserSessions(q *pq.Queries, userID int32) ([]UserSession, error) {
 func RevokeUserSession(store *state.Service, id string, userID int32, at time.Time) (bool, error) {
 	ctx := context.Background()
 	var revoked bool
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		row, err := q.GetUserSession(ctx, id)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil

@@ -131,7 +131,7 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 			out, err := h.openEventsLocked(ctx, req.AfterSeq)
 			openErr = err
 			return out
-		}, func(u state.Update) (state.Update, bool) { return u, true })
+		}, func(u state.WriteUpdate) (state.WriteUpdate, bool) { return u, true })
 		defer unsubscribe()
 		if openErr != nil {
 			yield(nil, openErr)
@@ -153,7 +153,7 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 				reset.Stop()
 			}
 		}()
-		send := func(update state.Update) bool {
+		send := func(update state.WriteUpdate) bool {
 			if update.Seq <= seq {
 				return true
 			}

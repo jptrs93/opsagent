@@ -43,7 +43,7 @@ func (m *Manager) migrateSealsLocked() error {
 		if err != nil {
 			return err
 		}
-		if err := m.q.UpdateSecretSeal(ctx, row.ID, ct, nonce); err != nil {
+		if err := m.q.UpdateSecretSeal(ctx, row, ct, nonce); err != nil {
 			return err
 		}
 		resealed++

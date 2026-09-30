@@ -37,7 +37,7 @@ func testSpecWithVersion(version string) *apigen.DeploymentSpec {
 
 func createDeploymentForTest(s *Service, ctx apigen.Context, def *apigen.Deployment, inlockValidate func(*pq.Queries) error) (*apigen.DeploymentEvent, error) {
 	var event *apigen.DeploymentEvent
-	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
 				return nil, err
@@ -58,7 +58,7 @@ func createDeploymentForTest(s *Service, ctx apigen.Context, def *apigen.Deploym
 
 func updateDeploymentForTest(s *Service, ctx apigen.Context, deploymentID int32, mutate func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error) *apigen.DeploymentEvent {
 	var event *apigen.DeploymentEvent
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		existing, err := q.GetLatestDeploymentEvent(ctx, int64(deploymentID))
 		if err != nil {
 			return nil, err
@@ -119,7 +119,7 @@ func moveDeploymentSpace(s *Service, ctx apigen.Context, deploymentID, spaceID i
 
 func deleteDeployment(s *Service, ctx apigen.Context, deploymentID int32) *apigen.DeploymentEvent {
 	var event *apigen.DeploymentEvent
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		event, err = q.WriteDeploymentDelete(ctx, int64(deploymentID), seq, time.Now())
 		if err != nil {
@@ -172,7 +172,7 @@ func createScheduledInstanceForTest(s *Service, deploymentID, deploymentVersion,
 		InstanceOrdinal:   instanceOrdinal,
 		State:             target,
 	}
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(deploymentID), Version: int64(deploymentVersion)})
 		if err != nil {
 			return nil, err
@@ -191,7 +191,7 @@ func createScheduledInstanceForTest(s *Service, deploymentID, deploymentVersion,
 
 func setScheduledInstanceState(s *Service, instanceID int32, target apigen.ScheduledInstanceTarget) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		current, err := q.GetScheduledInstance(ctx, instanceID)
 		if err != nil {
 			return nil, err
@@ -210,7 +210,7 @@ func setScheduledInstanceState(s *Service, instanceID int32, target apigen.Sched
 
 func writeInstanceStatusForTest(s *Service, instanceID int32, f func(*apigen.ScheduledInstanceStatus)) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		event, err := q.GetScheduledInstance(ctx, instanceID)
 		if err != nil {
 			return nil, err
@@ -273,7 +273,7 @@ func testNode(s *Service, identifier string) testNodeRef {
 		return testNodeRef{ID: row.Event.NodeID, Identifier: identifier}
 	}
 	var row pq.CurrentNode
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		now := time.Now().UnixMilli()
 		var err error
 		row, err = q.InsertNodeRow(ctx, pq.InsertNodeParams{CreatedAt: now, EnrolledAt: now, Name: identifier, Identifier: identifier, Status: int64(apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL), RolesJSON: "[0]", AddressesJSON: "[]", GlobalSeq: seq})
@@ -287,7 +287,7 @@ func testNode(s *Service, identifier string) testNodeRef {
 
 func setNodeStatusForTest(s *Service, identifier string, connected bool, at time.Time) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		now := time.Now().UnixMilli()
 		status, err := q.SetNodeConnectionStatus(ctx, seq, now, identifier, connected, time.UnixMilli(at.UnixMilli()))
 		if err != nil {
@@ -300,7 +300,7 @@ func setNodeStatusForTest(s *Service, identifier string, connected bool, at time
 func createSpaceForTest(s *Service, name string) *apigen.Space {
 	ctx := context.Background()
 	var space apigen.Space
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		id, err := q.NextSpaceID(ctx)
 		if err != nil {
 			return nil, err
@@ -317,7 +317,7 @@ func createSpaceForTest(s *Service, name string) *apigen.Space {
 
 func deleteSpaceForTest(s *Service, id int32) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		current, err := q.GetSpace(ctx, int64(id))
 		if err != nil {
 			return nil, err
@@ -348,7 +348,7 @@ func setAssetByKeyForTest(s *Service, key string, blob []byte) *apigen.AssetEven
 	sha, storageKey := putAssetContentForTest(s, blob)
 	now := time.Now().UnixMilli()
 	var event apigen.AssetEvent
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		existing, err := q.GetAssetInDirectoryByKey(ctx, pq.GetAssetInDirectoryByKeyParams{SpaceID: int64(defaultSpaceID), AssetDirectoryID: 0, Key: key})
 		if err == nil {
 			prev := erru.Must(q.GetLatestAssetEvent(ctx, existing.ID))
@@ -374,7 +374,7 @@ func setAssetByKeyForTest(s *Service, key string, blob []byte) *apigen.AssetEven
 
 func deleteAssetForTest(s *Service, assetID int32) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		prev, err := q.GetLatestAssetEvent(ctx, int64(assetID))
 		if err != nil {
 			return nil, err
@@ -393,7 +393,7 @@ func deleteAssetForTest(s *Service, assetID int32) {
 func createAssetDirectoryForTest(s *Service, spaceID, parentID int32, key string, author int32) apigen.AssetDirectory {
 	ctx := context.Background()
 	var d apigen.AssetDirectory
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		id, err := q.NextAssetDirectoryID(ctx)
 		if err != nil {
 			return nil, err
@@ -411,7 +411,7 @@ func createAssetDirectoryForTest(s *Service, spaceID, parentID int32, key string
 
 func deleteAssetDirectoryForTest(s *Service, id int32) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		d, err := q.GetAssetDirectoryByID(ctx, int64(id))
 		if err != nil {
 			return nil, err

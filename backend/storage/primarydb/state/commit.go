@@ -7,9 +7,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-type Update = apigen.CoreWriteUpdate
+type WriteUpdate = apigen.CoreWriteUpdate
 
-type UpdateTrigger func(ctx context.Context, q *pq.Queries, update *Update) error
+type UpdateTrigger func(ctx context.Context, q *pq.Queries, update *WriteUpdate) error
 
 func (s *Service) RegisterUpdateTrigger(trigger UpdateTrigger) {
 	s.Mu.Lock()
@@ -17,7 +17,7 @@ func (s *Service) RegisterUpdateTrigger(trigger UpdateTrigger) {
 	s.updateTriggers = append(s.updateTriggers, trigger)
 }
 
-func (s *Service) Commit(ctx context.Context, preLockValidate func(*pq.Queries) error, mutate func(*pq.Queries, int64) (*Update, error)) error {
+func (s *Service) Commit(ctx context.Context, preLockValidate func(*pq.Queries) error, mutate func(*pq.Queries, int64) (*WriteUpdate, error)) error {
 	if preLockValidate != nil {
 		if err := preLockValidate(s.q); err != nil {
 			return err
@@ -25,7 +25,7 @@ func (s *Service) Commit(ctx context.Context, preLockValidate func(*pq.Queries) 
 	}
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
-	var update *Update
+	var update *WriteUpdate
 	err := s.q.Tx(ctx, func(q *pq.Queries) error {
 		previous, err := q.GetGlobalSeq(ctx)
 		if err != nil {
@@ -37,7 +37,7 @@ func (s *Service) Commit(ctx context.Context, preLockValidate func(*pq.Queries) 
 			return err
 		}
 		if update == nil {
-			update = &Update{}
+			update = &WriteUpdate{}
 		}
 		update.Seq = seq
 		for _, trigger := range s.updateTriggers {
@@ -48,6 +48,9 @@ func (s *Service) Commit(ctx context.Context, preLockValidate func(*pq.Queries) 
 		if update.IsEmpty() {
 			update = nil
 			return nil
+		}
+		if err := q.InsertWriteEvent(ctx, update); err != nil {
+			return err
 		}
 		return q.SetGlobalSeq(ctx, seq)
 	})

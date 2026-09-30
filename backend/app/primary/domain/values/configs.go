@@ -92,7 +92,7 @@ func nextConfigEvent(prev *apigen.ConfigEvent, now int64, author int32, eventTyp
 	return event
 }
 
-func appendConfigEvent(ctx context.Context, q *pq.Queries, seq int64, event apigen.ConfigEvent) (*apigen.ConfigEvent, *state.Update, error) {
+func appendConfigEvent(ctx context.Context, q *pq.Queries, seq int64, event apigen.ConfigEvent) (*apigen.ConfigEvent, *state.WriteUpdate, error) {
 	event.Seq = seq
 	if err := q.InsertConfigEvent(ctx, &event); err != nil {
 		return nil, nil, err
@@ -116,7 +116,7 @@ func CreateConfig(store *state.Service, name string, spaceID, directoryID, autho
 	space := int64(nodes.NormalizedUserSpaceID(spaceID))
 	now := time.Now().UnixMilli()
 	var created *apigen.ConfigEvent
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		dirID, err := ResolveDirectory(ctx, q, space, directoryID)
 		if err != nil {
 			return nil, err
@@ -148,7 +148,7 @@ func CreateConfig(store *state.Service, name string, spaceID, directoryID, autho
 func AppendConfigVersion(store *state.Service, configID int32, value string, author int32, updateDeployments bool, expected []*apigen.DeploymentExpectedSeq) (*apigen.ConfigEvent, []int32, error) {
 	ctx := context.Background()
 	var written *apigen.ConfigEvent
-	insert := func(q *pq.Queries, globalSeq, now int64) (int32, *state.Update, error) {
+	insert := func(q *pq.Queries, globalSeq, now int64) (int32, *state.WriteUpdate, error) {
 		prev, err := latestConfigEvent(ctx, q, configID)
 		if err != nil {
 			return 0, nil, err
@@ -180,7 +180,7 @@ func RenameConfig(store *state.Service, configID int32, newName string) (*apigen
 	}
 	ctx := logu.AddTag(context.Background(), "Values")
 	var current *apigen.ConfigEvent
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := latestConfigEvent(ctx, q, configID)
 		if err != nil {
 			return nil, err
@@ -209,7 +209,7 @@ func RenameConfig(store *state.Service, configID int32, newName string) (*apigen
 
 func MoveConfigDirectory(store *state.Service, configID, newDirectoryID int32) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := latestConfigEvent(ctx, q, configID)
 		if err != nil {
 			return nil, err
@@ -239,7 +239,7 @@ func MoveConfigDirectory(store *state.Service, configID, newDirectoryID int32) e
 
 func MoveConfigSpace(store *state.Service, configID, newSpaceID, newDirectoryID, author int32, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
 				return nil, err
@@ -277,7 +277,7 @@ func MoveConfigSpace(store *state.Service, configID, newSpaceID, newDirectoryID,
 func DeleteConfig(store *state.Service, configID int32, inlockValidate func(*pq.Queries) error) (*apigen.ConfigEvent, error) {
 	ctx := context.Background()
 	var deleted *apigen.ConfigEvent
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
 				return nil, err

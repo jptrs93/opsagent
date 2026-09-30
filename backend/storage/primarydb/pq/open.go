@@ -37,6 +37,7 @@ func Open(dbPath string) *Queries {
 	sqlitedb.ApplyMigrations(db, migrations)
 	copyLegacyEventTables(db, legacy)
 	migrateValueRefs(db)
+	backfillWriteEvents(db)
 	return &Queries{db: &conn{DBTX: db, root: db}}
 }
 

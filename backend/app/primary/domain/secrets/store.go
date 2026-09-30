@@ -28,7 +28,7 @@ func listKeyslots(q *pq.Queries) []Keyslot {
 
 func writeKeyslot(store *state.Service, k Keyslot, author int32) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		eventType := apigen.AuthzVerb_AUTHZ_VERB_CREATE
 		if _, ok := findSlot(listKeyslots(q), k.Kind, k.NodeID); ok {
 			eventType = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
@@ -119,7 +119,7 @@ func nextSecretEvent(prev *apigen.SecretEvent, now int64, author int32, eventTyp
 	}
 }
 
-func appendSecretEvent(ctx context.Context, q *pq.Queries, seq int64, event pq.SecretEvent) (*state.Update, error) {
+func appendSecretEvent(ctx context.Context, q *pq.Queries, seq int64, event pq.SecretEvent) (*state.WriteUpdate, error) {
 	event.GlobalSeq = seq
 	written, sealed, err := q.InsertSecretCarryEvent(ctx, event)
 	if err != nil {
@@ -144,7 +144,7 @@ func CreateWithVersion(store *state.Service, name string, spaceID, directoryID, 
 	space := int64(spaceID)
 	now := time.Now().UnixMilli()
 	var record Record
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		dirID, err := values.ResolveDirectory(ctx, q, space, directoryID)
 		if err != nil {
 			return nil, err
@@ -187,7 +187,7 @@ func CreateWithVersion(store *state.Service, name string, spaceID, directoryID, 
 func appendVersionWithDeploymentUpdates(store *state.Service, secretID, author int32, seal SealFunc, updateDeployments bool, expected []*apigen.DeploymentExpectedSeq, afterCommit func(Record)) (Record, []int32, error) {
 	ctx := context.Background()
 	var record Record
-	insert := func(q *pq.Queries, globalSeq, now int64) (int32, *state.Update, error) {
+	insert := func(q *pq.Queries, globalSeq, now int64) (int32, *state.WriteUpdate, error) {
 		prev, err := latestSecretEvent(ctx, q, secretID)
 		if err != nil {
 			return 0, nil, err
@@ -230,7 +230,7 @@ func renameSecret(store *state.Service, secretID int32, newName string) error {
 		return values.ErrNameInvalid
 	}
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := latestSecretEvent(ctx, q, secretID)
 		if err != nil {
 			return nil, err
@@ -253,7 +253,7 @@ func renameSecret(store *state.Service, secretID int32, newName string) error {
 
 func MoveDirectory(store *state.Service, secretID, newDirectoryID int32) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := latestSecretEvent(ctx, q, secretID)
 		if err != nil {
 			return nil, err
@@ -286,7 +286,7 @@ func MoveDirectory(store *state.Service, secretID, newDirectoryID int32) error {
 
 func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID, author int32, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
 				return nil, err
@@ -326,7 +326,7 @@ func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID, autho
 
 func deleteSecret(store *state.Service, secretID int32, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
 				return nil, err

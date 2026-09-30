@@ -181,7 +181,7 @@ func (v *streamVisibility) instanceVisible(id int32) bool {
 // authorization changes, a space move, a node allowed-space change, or a
 // network policy whose visibility flips. The stream answers with the compacted
 // history rather than forwarding the commit.
-func (v *streamVisibility) needsReset(u *state.Update) bool {
+func (v *streamVisibility) needsReset(u *state.WriteUpdate) bool {
 	for _, m := range u.Mutations {
 		e := m.Entity()
 		id := m.EntityID()
@@ -382,7 +382,7 @@ func (v *streamVisibility) visible(m *apigen.CoreMutation, current *apigen.CoreE
 
 // visibleUpdate returns a live commit with only the mutations the viewer may
 // see and with server-only fields cleared, or nil when nothing remains.
-func (v *streamVisibility) visibleUpdate(u *state.Update) *state.Update {
+func (v *streamVisibility) visibleUpdate(u *state.WriteUpdate) *state.WriteUpdate {
 	if u == nil {
 		return nil
 	}
@@ -392,8 +392,8 @@ func (v *streamVisibility) visibleUpdate(u *state.Update) *state.Update {
 	return v.filterUpdate(u, (*apigen.CoreMutation).Entity)
 }
 
-func (v *streamVisibility) filterUpdate(u *state.Update, current func(*apigen.CoreMutation) *apigen.CoreEntity) *state.Update {
-	out := &state.Update{Seq: u.Seq, Time: u.Time, Actor: u.Actor}
+func (v *streamVisibility) filterUpdate(u *state.WriteUpdate, current func(*apigen.CoreMutation) *apigen.CoreEntity) *state.WriteUpdate {
+	out := &state.WriteUpdate{Seq: u.Seq, Time: u.Time, Actor: u.Actor}
 	for _, m := range u.Mutations {
 		if !v.visible(m, current(m)) {
 			continue
@@ -431,7 +431,7 @@ func (v *streamVisibility) visibleEvents(events []*apigen.CoreWriteUpdate) []*ap
 	return out
 }
 
-func (h *Handler) visibleUpdate(ctx apigen.Context, u *state.Update) *state.Update {
+func (h *Handler) visibleUpdate(ctx apigen.Context, u *state.WriteUpdate) *state.WriteUpdate {
 	return newStreamVisibility(h, ctx).visibleUpdate(u)
 }
 

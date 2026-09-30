@@ -47,7 +47,7 @@ func (s *Service) Create(ctx apigen.Context, dep *apigen.Deployment) (*apigen.De
 	var event *apigen.DeploymentEvent
 	err := s.Store.Commit(ctx, func(q *pq.Queries) error {
 		return preLockValidateDeploymentCreate(q, s.Secrets, s.GitVersions, ctx, newDep)
-	}, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	}, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if err := inLockValidateDeploymentCreate(ctx, q, s.reservations(), newDep); err != nil {
 			return nil, err
 		}
@@ -101,7 +101,7 @@ func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, r
 	var event *apigen.DeploymentEvent
 	err = s.Store.Commit(ctx, func(q *pq.Queries) error {
 		return preLockValidateDeploymentUpdate(q, s.Secrets, s.GitVersions, ctx, existing, req, updated)
-	}, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	}, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if err := inLockValidateDeploymentUpdate(ctx, q, s.reservations(), updated, req.ExpectedSeq); err != nil {
 			return nil, err
 		}
@@ -121,7 +121,7 @@ func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, r
 // Delete removes the deployment as long as it has no event newer than
 // expectedSeq; zero skips the check.
 func (s *Service) Delete(ctx apigen.Context, deploymentID int32, expectedSeq int64) error {
-	return s.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return s.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if err := inLockValidateDeploymentDelete(ctx, q, s.Cluster, s.PrimaryNodeID, deploymentID, expectedSeq); err != nil {
 			return nil, err
 		}

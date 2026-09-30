@@ -73,7 +73,7 @@ func EnsureRunInstance(store *state.Service, deploymentID, deploymentVersion, no
 		InstanceOrdinal:   instanceOrdinal,
 		State:             initial,
 	}
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		events, err := q.ListNonFinalScheduledInstancesForDeployment(ctx, deploymentID)
 		if err != nil {
 			return nil, err

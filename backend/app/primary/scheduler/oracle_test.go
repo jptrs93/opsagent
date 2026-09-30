@@ -22,7 +22,7 @@ func globalSeq(t testing.TB, store *state.Service) int64 {
 	return erru.Must(store.Queries().GetGlobalSeq(context.Background()))
 }
 
-func mutationsOf(update state.Update, typ apigen.CoreEntityType) []*apigen.CoreMutation {
+func mutationsOf(update state.WriteUpdate, typ apigen.CoreEntityType) []*apigen.CoreMutation {
 	var out []*apigen.CoreMutation
 	for _, m := range update.Mutations {
 		if m.Type() == typ {
@@ -32,11 +32,11 @@ func mutationsOf(update state.Update, typ apigen.CoreEntityType) []*apigen.CoreM
 	return out
 }
 
-func hasCore(update state.Update) bool {
+func hasCore(update state.WriteUpdate) bool {
 	return update.Has(deploymentType) || update.Has(instanceType)
 }
 
-func hasObserved(update state.Update) bool {
+func hasObserved(update state.WriteUpdate) bool {
 	return update.Has(instanceStatusType) || update.Has(nodeStatusType)
 }
 

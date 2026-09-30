@@ -45,7 +45,7 @@ func Live(ctx context.Context, q *pq.Queries, instanceID int32) (*apigen.Schedul
 
 func WriteStatus(store *state.Service, instanceID int32, f func(*apigen.ScheduledInstanceStatus) bool) {
 	ctx := context.Background()
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		inst, err := Live(ctx, q, instanceID)
 		if err != nil || inst == nil {
 			return nil, err
@@ -74,14 +74,14 @@ func WriteReplicatedStatus(store *state.Service, st *apigen.ScheduledInstanceSta
 	}
 	ctx := context.Background()
 	current := *st
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		return writeStatus(ctx, q, seq, &current)
 	}); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		panic(fmt.Sprintf("write replicated instance status: %v", err))
 	}
 }
 
-func writeStatus(ctx context.Context, q *pq.Queries, seq int64, st *apigen.ScheduledInstanceStatus) (*state.Update, error) {
+func writeStatus(ctx context.Context, q *pq.Queries, seq int64, st *apigen.ScheduledInstanceStatus) (*state.WriteUpdate, error) {
 	event, err := q.GetScheduledInstance(ctx, st.ScheduledInstanceID)
 	if err != nil {
 		return nil, err

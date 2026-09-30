@@ -20,7 +20,7 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 	now := time.Now().UnixMilli()
 	requestingMachineID := reported.Identifier
 	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByIdentifier(ctx, requestingMachineID)
 		isNew := errors.Is(err, sql.ErrNoRows)
 		if err != nil && !isNew {
@@ -40,7 +40,7 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 		spec.AddressesJSON = nodeAddressesJSON([]string{reported.UnderlayAddress})
 		spec.WGPublicKey = reported.WgPublicKey
 		changed := isNew || current.Event.Value.EnrollmentRequestedAt == 0 || spec != nodeEventSpecOf(current)
-		var update state.Update
+		var update state.WriteUpdate
 		row = current
 		if changed {
 			if isNew {
@@ -85,7 +85,7 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 func MarkEnrollmentDisconnected(store *state.Service, id int32, requestingMachineID string) {
 	ctx := context.Background()
 	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		row, err = q.GetNodeRowByID(ctx, int64(id))
 		if err != nil {
@@ -128,7 +128,7 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByID(ctx, int64(id))
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrEnrollmentRequestChanged
@@ -169,7 +169,7 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 }
 func EndEnrollmentRequest(store *state.Service, id int32, requestedAt int64, expired bool) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByID(ctx, int64(id))
 		if err != nil {
 			return nil, err

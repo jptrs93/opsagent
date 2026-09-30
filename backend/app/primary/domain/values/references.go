@@ -38,12 +38,12 @@ func SetVersionedValueWithDeploymentUpdates(
 	updateDeployments bool,
 	expected []*apigen.DeploymentExpectedSeq,
 	author int32,
-	insert func(q *pq.Queries, seq, now int64) (int32, *state.Update, error),
+	insert func(q *pq.Queries, seq, now int64) (int32, *state.WriteUpdate, error),
 	afterCommit func([]int32),
 ) ([]int32, error) {
 	ctx := context.Background()
 	var updatedEvents []*apigen.DeploymentEvent
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		updates, err := prepareDeploymentReferenceUpdates(ctx, q, referenceType, stableID, updateDeployments, expected)
 		if err != nil {
 			return nil, err
@@ -54,7 +54,7 @@ func SetVersionedValueWithDeploymentUpdates(
 			return nil, err
 		}
 		if published == nil {
-			published = &state.Update{}
+			published = &state.WriteUpdate{}
 		}
 		updatedEvents = make([]*apigen.DeploymentEvent, 0, len(updates))
 		for _, update := range updates {

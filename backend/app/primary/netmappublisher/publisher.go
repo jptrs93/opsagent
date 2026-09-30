@@ -41,7 +41,7 @@ type Publisher struct {
 	// in force encodes it.
 	lastRenderedSeq int64
 	subscribers     map[*subscriber]struct{}
-	updates         chan state.Update
+	updates         chan state.WriteUpdate
 	unsubscribe     func()
 	closeOnce       sync.Once
 

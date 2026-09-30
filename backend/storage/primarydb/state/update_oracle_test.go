@@ -19,14 +19,14 @@ import (
 
 type foldState = map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity
 
-func canonicalUpdate(update Update) []byte {
+func canonicalUpdate(update WriteUpdate) []byte {
 	cp := update
 	cp.Mutations = slices.Clone(update.Mutations)
 	sort.Slice(cp.Mutations, func(i, j int) bool { return bytes.Compare(cp.Mutations[i].Encode(), cp.Mutations[j].Encode()) < 0 })
 	return cp.Encode()
 }
 
-func assertUpdateMatchesRows(t *testing.T, s *Service, update Update) {
+func assertUpdateMatchesRows(t *testing.T, s *Service, update WriteUpdate) {
 	t.Helper()
 	ctx := context.Background()
 	seq := erru.Must(s.q.GetGlobalSeq(ctx))
@@ -36,7 +36,7 @@ func assertUpdateMatchesRows(t *testing.T, s *Service, update Update) {
 	assertUpdateReplays(t, s, update)
 }
 
-func assertUpdateReplays(t *testing.T, s *Service, update Update) {
+func assertUpdateReplays(t *testing.T, s *Service, update WriteUpdate) {
 	t.Helper()
 	events := pq.Events(erru.Must(s.q.MutationsInRange(context.Background(), update.Seq-1, update.Seq)))
 	if len(events) != 1 {
@@ -257,7 +257,7 @@ func assertFoldMatchesLiveTables(t *testing.T, s *Service, fold foldState) {
 func createSecretForTest(s *Service, name string) int64 {
 	ctx := context.Background()
 	var id int64
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextSecretID(ctx)
 		if err != nil {
@@ -278,7 +278,7 @@ func createSecretForTest(s *Service, name string) int64 {
 
 func carrySecretForTest(s *Service, id int64, name string, eventType int64) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		prev, err := q.GetLatestSecretEvent(ctx, id)
 		if err != nil {
 			return nil, err
@@ -295,7 +295,7 @@ func carrySecretForTest(s *Service, id int64, name string, eventType int64) {
 func createConfigForTest(s *Service, name, value string) int64 {
 	ctx := context.Background()
 	var id int64
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextConfigID(ctx)
 		if err != nil {
@@ -314,7 +314,7 @@ func createConfigForTest(s *Service, name, value string) int64 {
 
 func writeConfigForTest(s *Service, id int64, eventType apigen.EventType, value string) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		prev, err := q.GetLatestConfigEvent(ctx, id)
 		if err != nil {
 			return nil, err
@@ -338,7 +338,7 @@ func writeConfigForTest(s *Service, id int64, eventType apigen.EventType, value 
 func createNetworkPolicyForTest(s *Service, author int32) int32 {
 	ctx := context.Background()
 	var event apigen.NetworkPolicyEvent
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		id, err := q.NextNetworkPolicyID(ctx)
 		if err != nil {
 			return nil, err
@@ -358,7 +358,7 @@ func createNetworkPolicyForTest(s *Service, author int32) int32 {
 
 func deleteNetworkPolicyForTest(s *Service, id int32) {
 	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		prev, err := q.GetLatestNetworkPolicyEvent(ctx, int64(id))
 		if err != nil {
 			return nil, err
@@ -376,7 +376,7 @@ func deleteNetworkPolicyForTest(s *Service, id int32) {
 func createUserForTest(s *Service, name string) int64 {
 	ctx := context.Background()
 	var id int64
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextUserID(ctx)
 		if err != nil {

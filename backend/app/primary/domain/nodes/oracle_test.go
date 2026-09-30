@@ -33,7 +33,7 @@ func latestNodeEvent(t testing.TB, store *state.Service, identifier string) apig
 	return row.Event
 }
 
-func mutationsOf(update state.Update, typ apigen.CoreEntityType) []*apigen.CoreMutation {
+func mutationsOf(update state.WriteUpdate, typ apigen.CoreEntityType) []*apigen.CoreMutation {
 	var out []*apigen.CoreMutation
 	for _, m := range update.Mutations {
 		if m.Type() == typ {

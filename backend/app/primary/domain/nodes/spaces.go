@@ -31,12 +31,12 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 	}
 	ctx := context.Background()
 	var invalidated int64
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if _, err := q.GetNodeRowByID(ctx, int64(nodeID)); err != nil {
 			return nil, err
 		}
 		now := time.Now().UnixMilli()
-		update := &state.Update{}
+		update := &state.WriteUpdate{}
 		instances, err := q.ListLatestScheduledInstanceEvents(ctx)
 		if err != nil {
 			return nil, err
@@ -108,7 +108,7 @@ func spaceEvent(seq, now int64, author int32, eventType apigen.AuthzVerb, id int
 func CreateSpace(store *state.Service, name string, author int32) (*apigen.Space, error) {
 	ctx := context.Background()
 	var space *apigen.Space
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		id, err := q.NextSpaceID(ctx)
 		if err != nil {
 			return nil, err
@@ -132,7 +132,7 @@ func CreateSpace(store *state.Service, name string, author int32) (*apigen.Space
 func UpdateSpace(store *state.Service, id int32, name string, author int32) (*apigen.Space, error) {
 	ctx := context.Background()
 	var space *apigen.Space
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if _, err := q.GetSpace(ctx, int64(id)); err != nil {
 			return nil, err
 		}
@@ -148,7 +148,7 @@ func UpdateSpace(store *state.Service, id int32, name string, author int32) (*ap
 
 func DeleteSpace(store *state.Service, id int32, author int32) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetSpace(ctx, int64(id))
 		if err != nil {
 			return nil, err

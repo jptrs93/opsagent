@@ -69,7 +69,7 @@ func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing
 	webInst := statetest.CreateScheduledInstance(store, web.DeploymentID, web.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	netproxy := statetest.MustCreateDeploymentForNode(store, ctx, internaldeploy.SpaceID, internaldeploy.NetproxyName, node.ID, internaldeploy.NetproxySpec())
 	statetest.CreateScheduledInstance(store, netproxy.DeploymentID, netproxy.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		st := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: webInst.ID, DeploymentID: web.DeploymentID, Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}}
 		st.BumpUpdatedAt()
 		now := time.Now().UnixMilli()

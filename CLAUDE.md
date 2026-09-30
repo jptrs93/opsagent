@@ -19,7 +19,7 @@ app/primary/{webuihandler,clusterhandler,enrollmenthandler,scheduler,netmappubli
 app/primary/domain/{deployments,scheduledinstances,nodes,networkpolicies,assets,secrets,values,authz,users,agentsessions,systemconfig,pki,acmeissue}
                                  primary domain logic: functions over *state.Service / *pq.Queries
 storage/primarydb/{state,pq}
-                                 state = Commit, write mutex, update triggers, pubsub; pq = SQL only
+                                 state = Commit (entity rows + write log append), write mutex, update triggers, pubsub; pq = SQL only
 storage, storage/secondarydb/*, storage/sqlitedb, storage/logdb
 lib/*                            shared by primary and secondary; never imports app/* or a concrete store
 apigen, util, ainit
@@ -30,7 +30,7 @@ apigen, util, ainit
 ## Documentation index
 
 - [docs/documentation.md](docs/documentation.md) — Documentation design and organisation.
-- [docs/engineering/api.md](docs/engineering/api.md) — HTTP API design, code generation, and handler flow, including the primary → browser event stream (`/v1/global/event-stream` with `after_seq`, replay versus compacted bootstrap with `reset`, `browserEntity` strip, per-connection visibility and delete forwarding) and the `Commit(ctx, preLockValidate, mutate)` write contract: one `CoreWriteUpdate` per commit built by `mutate` from the rows it wrote, one clock per commit, `expected_seq` tokens, `state.Subscribe`, observed HLC merge, and sidecars. Consult when making API changes or touching the store write path.
+- [docs/engineering/api.md](docs/engineering/api.md) — HTTP API design, code generation, and handler flow, including the primary → browser event stream (`/v1/global/event-stream` with `after_seq`, replay versus compacted bootstrap with `reset`, `browserEntity` strip, per-connection visibility and delete forwarding) and the `Commit(ctx, preLockValidate, mutate)` write contract: one `CoreWriteUpdate` per commit built by `mutate` from the rows it wrote, one clock per commit, `expected_seq` tokens, the `write_events`/`write_event_mutations` log the entity tables are materialised views of (`asset_store` excepted), `state.Subscribe`, observed HLC merge, and sidecars. Consult when making API changes or touching the store write path.
 - [docs/engineering/auth.md](docs/engineering/auth.md) — Authentication, passkeys, master password bootstrap, and access control.
 - [docs/engineering/security-severity.md](docs/engineering/security-severity.md) — Security audit severity guidance: attacker prerequisites, impact, contextual severity, evidence, priority, and generic classification examples.
 - [docs/engineering/assets.md](docs/engineering/assets.md) — Versioned file assets: the event log carries `sha256` and `storage_key` on every row, content of every size lives in the large-asset root and S3 by storage key with node-local placement flags in `asset_store`, the reconciler converges placement without a migration record, backup and retention semantics, and read-only container mounts.

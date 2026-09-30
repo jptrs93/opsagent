@@ -45,7 +45,7 @@ func isPrimaryRow(row pq.CurrentNode) bool {
 
 func SetNodeDraining(ctx apigen.Context, store *state.Service, identifier string, draining bool) (*apigen.NodeEvent, error) {
 	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
 		if err != nil {
 			return nil, err
@@ -82,7 +82,7 @@ func SetNodeDraining(ctx apigen.Context, store *state.Service, identifier string
 // expectedSeq; zero skips the check.
 func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expectedSeq int64, force bool) (*apigen.NodeEvent, error) {
 	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
 		if err != nil {
 			return nil, err
@@ -98,7 +98,7 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 		}
 		nodeID := current.Event.NodeID
 		now := time.Now()
-		update := &state.Update{}
+		update := &state.WriteUpdate{}
 		active, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return nil, err

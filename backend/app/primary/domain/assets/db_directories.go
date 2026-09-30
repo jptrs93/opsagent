@@ -42,7 +42,7 @@ func CreateDirectory(store *state.Service, spaceID, parentID int32, key string, 
 	space := int64(nodes.NormalizedUserSpaceID(spaceID))
 	parent := int64(parentID)
 	var d apigen.AssetDirectory
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if parent != 0 {
 			p, err := getAssetDirectory(ctx, q, parent)
 			if err != nil {
@@ -117,7 +117,7 @@ func RenameDirectory(store *state.Service, directoryID int32, newKey string, aut
 	}
 	ctx := context.Background()
 	var d apigen.AssetDirectory
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		d, err = getAssetDirectory(ctx, q, int64(directoryID))
 		if err != nil {
@@ -158,7 +158,7 @@ func MoveDirectory(store *state.Service, directoryID, newParentID int32, author 
 	ctx := context.Background()
 	parent := int64(newParentID)
 	var d apigen.AssetDirectory
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		d, err = getAssetDirectory(ctx, q, int64(directoryID))
 		if err != nil {
@@ -199,7 +199,7 @@ func MoveDirectory(store *state.Service, directoryID, newParentID int32, author 
 
 func DeleteDirectory(store *state.Service, directoryID int32, author int32) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		d, err := getAssetDirectory(ctx, q, int64(directoryID))
 		if err != nil {
 			return nil, err

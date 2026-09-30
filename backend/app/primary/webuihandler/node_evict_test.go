@@ -66,8 +66,8 @@ func TestEvictEndpointRefusesPinnedDeploymentsThenForces(t *testing.T) {
 	if _, err := h.PostV1NodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq - 1, Force: true}); !errors.Is(err, NodeVersionChangedErr) {
 		t.Fatalf("evict with stale seq: got %v, want NodeVersionChangedErr", err)
 	}
-	if err := h.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		return &state.Update{}, q.InsertSecretKeyslotEvent(ctx, pq.SecretKeyslotEventParams{
+	if err := h.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
+		return &state.WriteUpdate{}, q.InsertSecretKeyslotEvent(ctx, pq.SecretKeyslotEventParams{
 			EventMeta:     pq.EventMeta{GlobalSeq: seq, EventTime: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE},
 			SecretKeyslot: pq.SecretKeyslot{Kind: apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE, NodeID: int64(node.ID), SmkVersion: 1, WrappedSmk: []byte{1}, Nonce: []byte{2}},
 		})

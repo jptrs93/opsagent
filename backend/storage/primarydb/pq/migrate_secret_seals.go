@@ -1,6 +1,12 @@
 package pq
 
-import "context"
+import (
+	"bytes"
+	"context"
+	"fmt"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
+)
 
 // The secret AEAD bound (secret_id, value_version) until v0.0.614, and the
 // unreleased v0.0.614 builds bound (secret_id, seal_id). Both are re-sealed
@@ -55,9 +61,56 @@ func (q *Queries) ListSecretSealRows(ctx context.Context) ([]SecretSealRow, erro
 	return out, rows.Err()
 }
 
-func (q *Queries) UpdateSecretSeal(ctx context.Context, id int64, ciphertext, nonce []byte) error {
-	_, err := q.db.ExecContext(ctx, `UPDATE secret_event_log SET ciphertext = ?, nonce = ? WHERE id = ?`, ciphertext, nonce, id)
-	return err
+// UpdateSecretSeal replaces the sealed bytes of one value version: the
+// secret_event_log row and every write log payload of that secret carrying
+// that value version, in one transaction, so the log never holds bytes the
+// table no longer does.
+func (q *Queries) UpdateSecretSeal(ctx context.Context, row SecretSealRow, ciphertext, nonce []byte) error {
+	return q.Tx(ctx, func(tx *Queries) error {
+		if _, err := tx.db.ExecContext(ctx, `UPDATE secret_event_log SET ciphertext = ?, nonce = ? WHERE id = ?`, ciphertext, nonce, row.ID); err != nil {
+			return err
+		}
+		return tx.resealLoggedPayloads(ctx, row, ciphertext, nonce)
+	})
+}
+
+func (q *Queries) resealLoggedPayloads(ctx context.Context, row SecretSealRow, ciphertext, nonce []byte) error {
+	type logged struct {
+		seq, idx int64
+		payload  []byte
+	}
+	rows, err := q.db.QueryContext(ctx, `SELECT seq, idx, payload FROM write_event_mutations WHERE entity_type = ? AND entity_id = ? AND payload IS NOT NULL ORDER BY seq, idx`,
+		int64(apigen.CoreEntityType_CORE_ENTITY_SECRET), row.SecretID)
+	if err != nil {
+		return err
+	}
+	var entries []logged
+	for rows.Next() {
+		var l logged
+		if err := rows.Scan(&l.seq, &l.idx, &l.payload); err != nil {
+			rows.Close()
+			return err
+		}
+		entries = append(entries, l)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, l := range entries {
+		e, err := apigen.DecodeCoreEntity(l.payload)
+		if err != nil {
+			return fmt.Errorf("secret payload at seq %d: %w", l.seq, err)
+		}
+		if e.Secret == nil || int64(e.Secret.ValueVersion) != row.ValueVersion || !bytes.Equal(e.Secret.Ciphertext, row.Ciphertext) {
+			continue
+		}
+		e.Secret.Ciphertext, e.Secret.Nonce = ciphertext, nonce
+		if _, err := q.db.ExecContext(ctx, `UPDATE write_event_mutations SET payload = ? WHERE seq = ? AND idx = ?`, e.Encode(), l.seq, l.idx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (q *Queries) ListLegacySystemSecrets(ctx context.Context) ([]LegacySystemSecret, error) {

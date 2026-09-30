@@ -143,7 +143,7 @@ func nextAssetEvent(prev apigen.AssetEvent, now int64, author int32, eventType a
 // receives the commit time in unix milliseconds and returns nil to write
 // nothing.
 func commitAssetEvent(store *state.Service, ctx context.Context, inlockValidate func(*pq.Queries) error, build func(q *pq.Queries, now int64) (*apigen.AssetEvent, error)) error {
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		event, err := build(q, time.Now().UnixMilli())
 		if err != nil || event == nil {
 			return nil, err

@@ -51,7 +51,7 @@ func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) 
 		panic("EnsureSystem requires an explicit OpenDeploy version")
 	}
 	ctx := apigen.Context{Ctx: logu.AddTag(context.Background(), "Store")}
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		events, err := q.ListLatestDeploymentEvents(ctx)
 		if err != nil {
 			return nil, err
@@ -105,7 +105,7 @@ func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *
 	}
 	ctx := apigen.Context{Ctx: logu.AddTag(context.Background(), "Store")}
 	var event *apigen.DeploymentEvent
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		events, err := q.ListLatestDeploymentEvents(ctx)
 		if err != nil {
 			return nil, err

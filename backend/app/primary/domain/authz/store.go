@@ -19,7 +19,7 @@ func notNullBlob(b []byte) []byte {
 	return b
 }
 
-func templateUpdate(event pq.AuthzRuleTemplateEvent) (*state.Update, error) {
+func templateUpdate(event pq.AuthzRuleTemplateEvent) (*state.WriteUpdate, error) {
 	m, err := pq.AuthzRuleTemplateMutation(event)
 	if err != nil {
 		return nil, err
@@ -27,7 +27,7 @@ func templateUpdate(event pq.AuthzRuleTemplateEvent) (*state.Update, error) {
 	return pq.NewUpdate(m), nil
 }
 
-func globalRuleUpdate(event pq.GlobalAccessRuleEvent) (*state.Update, error) {
+func globalRuleUpdate(event pq.GlobalAccessRuleEvent) (*state.WriteUpdate, error) {
 	m, err := pq.GlobalAccessRuleMutation(event)
 	if err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func listRuleTemplates(q *pq.Queries) ([]RuleTemplateRow, error) {
 func insertRuleTemplate(store *state.Service, row RuleTemplateRow) (int64, error) {
 	ctx := context.Background()
 	var id int64
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		id, err = q.NextAuthzRuleTemplateID(ctx)
 		if err != nil {
@@ -76,7 +76,7 @@ func insertRuleTemplate(store *state.Service, row RuleTemplateRow) (int64, error
 
 func updateRuleTemplate(store *state.Service, id int64, name string, blob []byte, author, updatedAt int64) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := q.GetLatestAuthzRuleTemplateEvent(ctx, id)
 		if err != nil {
 			return nil, err
@@ -94,7 +94,7 @@ func updateRuleTemplate(store *state.Service, id int64, name string, blob []byte
 
 func deleteRuleTemplate(store *state.Service, id int64) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := q.GetLatestAuthzRuleTemplateEvent(ctx, id)
 		if err != nil {
 			return nil, err
@@ -112,7 +112,7 @@ func deleteRuleTemplate(store *state.Service, id int64) error {
 
 func upsertBuiltinRuleTemplate(store *state.Service, id int64, name string, blob []byte) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := q.GetLatestAuthzRuleTemplateEvent(ctx, id)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
@@ -159,7 +159,7 @@ func listGrants(q *pq.Queries) ([]GrantRow, error) {
 func insertGrant(store *state.Service, row GrantRow) (int64, error) {
 	ctx := context.Background()
 	var id int64
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		id, err = q.NextAuthzGrantID(ctx)
 		if err != nil {
@@ -184,7 +184,7 @@ func insertGrant(store *state.Service, row GrantRow) (int64, error) {
 
 func deleteGrant(store *state.Service, id int64) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := q.GetLatestAuthzGrantEvent(ctx, id)
 		if err != nil {
 			return nil, err
@@ -219,7 +219,7 @@ func listGlobalRules(q *pq.Queries) ([]GlobalRuleRow, error) {
 func insertGlobalRule(store *state.Service, row GlobalRuleRow) (int64, error) {
 	ctx := context.Background()
 	var id int64
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		id, err = q.NextGlobalAccessRuleID(ctx)
 		if err != nil {
@@ -239,7 +239,7 @@ func insertGlobalRule(store *state.Service, row GlobalRuleRow) (int64, error) {
 
 func deleteGlobalRule(store *state.Service, id int64) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := q.GetLatestGlobalAccessRuleEvent(ctx, id)
 		if err != nil {
 			return nil, err
@@ -257,7 +257,7 @@ func deleteGlobalRule(store *state.Service, id int64) error {
 
 func seedGlobalRule(store *state.Service, name string, blob []byte) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		count, err := q.CountGlobalAccessRuleEventsByName(ctx, name)
 		if err != nil {
 			return nil, err

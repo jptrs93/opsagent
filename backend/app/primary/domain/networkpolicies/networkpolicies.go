@@ -104,7 +104,7 @@ func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	var event *apigen.NetworkPolicyEvent
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		id, err := q.NextNetworkPolicyID(ctx)
 		if err != nil {
 			return nil, err
@@ -135,7 +135,7 @@ func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*
 func Update(store *state.Service, id int32, expectedSeq int64, author int32, policy *apigen.NetworkPolicy) (*apigen.NetworkPolicyEvent, error) {
 	ctx := context.Background()
 	var updated *apigen.NetworkPolicyEvent
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := livePrevious(ctx, q, id)
 		if err != nil {
 			return nil, err
@@ -157,7 +157,7 @@ func Update(store *state.Service, id int32, expectedSeq int64, author int32, pol
 
 func Delete(store *state.Service, id, author int32) error {
 	ctx := context.Background()
-	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := livePrevious(ctx, q, id)
 		if err != nil {
 			return nil, err

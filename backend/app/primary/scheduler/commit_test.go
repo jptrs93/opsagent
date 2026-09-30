@@ -15,7 +15,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
-func assertInstanceMutationsMatchRows(t *testing.T, store *state.Service, update state.Update) {
+func assertInstanceMutationsMatchRows(t *testing.T, store *state.Service, update state.WriteUpdate) {
 	t.Helper()
 	for _, m := range mutationsOf(update, instanceType) {
 		persisted := erru.Must(store.Queries().GetScheduledInstance(context.Background(), int32(m.EntityID())))

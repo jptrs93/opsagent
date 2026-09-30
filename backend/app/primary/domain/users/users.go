@@ -16,7 +16,7 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-func appendUser(ctx context.Context, q *pq.Queries, seq int64, user *apigen.InternalUser) (*state.Update, error) {
+func appendUser(ctx context.Context, q *pq.Queries, seq int64, user *apigen.InternalUser) (*state.WriteUpdate, error) {
 	now := time.Now().UnixMilli()
 	meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(user.ID), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
 	createdAt := now
@@ -41,7 +41,7 @@ func appendUser(ctx context.Context, q *pq.Queries, seq int64, user *apigen.Inte
 
 func Write(store *state.Service, user *apigen.InternalUser) {
 	ctx := context.Background()
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		return appendUser(ctx, q, seq, user)
 	}); err != nil {
 		panic(err)
@@ -156,7 +156,7 @@ func Matching(q *pq.Queries, predicate func(*apigen.InternalUser) bool) (*apigen
 
 func UpdateMatching(store *state.Service, predicate func(*apigen.InternalUser) bool, f func(*apigen.InternalUser)) {
 	ctx := context.Background()
-	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		user, err := matching(ctx, q, predicate)
 		if err != nil {
 			return nil, err

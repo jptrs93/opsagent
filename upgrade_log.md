@@ -112,8 +112,9 @@ and what to expect during and after the rollout.
   `local_runtime_inputs`, and `local_scheduled_instance_cache` tables that
   older installs still carry. Nothing reads any of them.
 - After the secrets store unlocks, re-seals every `secret_event_log` row
-  under the `secret_id` binding, appends each `system_secrets` row to the
-  event log in space 0, and drops `system_secrets` (and the `seal_id` column
+  under the `secret_id` binding (and the copy of its bytes in the write log,
+  which was filled from the table before this pass), appends each
+  `system_secrets` row to the event log in space 0, and drops `system_secrets` (and the `seal_id` column
   on databases from unreleased v0.0.614 builds). One log line with the row
   counts. A row that opens under no known binding is logged and left, the
   artifacts stay, and the pass retries at the next unlock.

@@ -184,7 +184,7 @@ func (s *Service) RevokeAgentSession(id string, userID int32, status apigen.Agen
 func (s *Service) mutateAgentSession(id string, mutate func(*pq.Queries, int64) (bool, error)) (bool, error) {
 	ctx := context.Background()
 	var changed bool
-	err := s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	err := s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		changed, err = mutate(q, seq)
 		if err != nil || !changed {

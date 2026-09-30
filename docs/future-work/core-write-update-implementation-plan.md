@@ -806,6 +806,14 @@ Deviations from the sections above:
 - **Delete forwarding.** A viewer receives a delete only for an entity it was
   sent, tracked per connection, with a `pq.LatestMutation` lookup for entities
   first seen after a reconnect; a delete of a grant it never saw is a reset.
+- **The write log (2026-09-30).** `Commit` appends the update it publishes
+  to `write_events` and `write_event_mutations` in the same transaction as
+  the entity rows, and `pq.Open` backfills any sequences the log lacks from
+  the entity tables. The entity tables are from here on materialised views
+  of that log, each retaining whatever its readers need; `asset_store`
+  (node-local placement reconciled from disk and S3) and `global_seq` stay
+  outside it. The log grows unbounded with no compaction planned. The stream
+  and bootstrap still read the entity tables.
 - **Opening visibility is per entity.** In a bootstrap or replay the newest
   payload of an entity decides for every one of its rows, so a value carries
   its whole history into a space (including versions written elsewhere) and

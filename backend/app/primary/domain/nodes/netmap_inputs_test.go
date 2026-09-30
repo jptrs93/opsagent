@@ -38,7 +38,7 @@ func createNetworkPolicyForTest(s *state.Service, policy *apigen.NetworkPolicy, 
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	var event *apigen.NetworkPolicyEvent
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		id, err := q.NextNetworkPolicyID(ctx)
 		if err != nil {
 			return nil, err
