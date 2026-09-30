@@ -115,7 +115,7 @@ func (s *Service) grantTouchesSpaceLocked(g *apigen.AuthzGrantRecord, spaceID in
 		return ruleTouchesSpace(content.Rule, nil, spaceID, delegated)
 	}
 	t := s.templates[g.TemplateID]
-	if t == nil || t.Deleted || t.Template == nil {
+	if t == nil || t.Template == nil {
 		return false
 	}
 	for _, rule := range t.Template.Rules {
@@ -149,7 +149,7 @@ func (s *Service) grantMatchesLocked(g *apigen.AuthzGrantRecord, req RequestedAc
 		return ruleMatches(content.Rule, nil, req)
 	}
 	t := s.templates[g.TemplateID]
-	if t == nil || t.Deleted || t.Template == nil {
+	if t == nil || t.Template == nil {
 		return false
 	}
 	for _, rule := range t.Template.Rules {

@@ -43,7 +43,7 @@ const latestRefs = (refs, selectedKey = "") => {
     }
     const options = Array.from(latest.values());
     const selected = byKey.get(selectedKey || "");
-    if (selected && !options.some(ref => Number(ref.id) === Number(selected.id))) options.push(selected);
+    if (selected && !options.some(ref => catalogRefKey(ref) === catalogRefKey(selected))) options.push(selected);
     return options.sort((a, b) => (a.name || "").localeCompare(b.name || "") || Number(a.version || 0) - Number(b.version || 0));
 };
 const refLabel = (ref) => `${ref.name} v${ref.version || 0}`;
@@ -314,13 +314,13 @@ export function settingsPage() {
         setDraft({...current, [key]: {...current[key], ...next}});
     };
 
-    const currentSettings = () => systemConfigS.val?.config?.settings || null;
-    let loadedConfigVersion = 0;
+    const currentSettings = () => systemConfigS.val?.settings || null;
+    let loadedConfigSeq = 0;
     van.derive(() => {
         const versioned = systemConfigS.val;
-        const settings = versioned?.config?.settings;
+        const settings = versioned?.settings;
         if (!settings) {
-            loadedConfigVersion = 0;
+            loadedConfigSeq = 0;
             if (loaded.val) {
                 draft.val = null;
                 dirtyCount.val = 0;
@@ -329,8 +329,8 @@ export function settingsPage() {
             }
             return;
         }
-        if (Number(versioned.version) === loadedConfigVersion) return;
-        loadedConfigVersion = Number(versioned.version);
+        if (Number(versioned.seq) === loadedConfigSeq) return;
+        loadedConfigSeq = Number(versioned.seq);
         loaded.val = true;
         if (!draft.val || dirtySettingsFor(draft.val).length === 0) {
             setDraft(configDraft(settings));
@@ -384,10 +384,9 @@ export function settingsPage() {
             error.val = null;
             const meta = findRef(secretRefsS.val, key);
             if (!meta) throw new Error("Selected secret metadata is unavailable");
-            const res = await capi.postV1SecretsReveal({id: Number(meta.id)});
+            const res = await capi.postV1SecretsReveal({secretId: Number(meta.stableId || 0), version: Number(meta.version || 0)});
             editSecretTarget.val = {
                 settingKey: setting.key,
-                id: Number(meta.id),
                 stableId: Number(meta.stableId || 0),
                 name: meta.name,
                 version: Number(meta.version || 0),

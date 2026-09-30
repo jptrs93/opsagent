@@ -41,6 +41,7 @@ message Node {
   int64 enrollment_requested_at = 2;
   NodeOperator operator = 3 [(cp.go_value) = true];
   NodeReported reported = 4 [(cp.go_value) = true];
+  int64 created_time = 5;  // epoch ms of the node's first row
 }
 
 message NodeEvent {

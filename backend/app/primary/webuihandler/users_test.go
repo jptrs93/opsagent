@@ -1,7 +1,6 @@
 package webuihandler
 
 import (
-	"context"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"path/filepath"
 	"reflect"
@@ -21,8 +20,11 @@ func TestUserWritersPublishSequencedPersistedState(t *testing.T) {
 		t.Helper()
 		update := <-sub
 		statetest.AssertUpdateMatchesRows(t, s, update)
-		snapshot := s.BuildSnapshot(context.Background())
-		if len(update.Users) != 1 || !reflect.DeepEqual(update.Users, snapshot.Users) {
+		live := statetest.Live(t, s.Queries(), apigen.CoreEntityType_CORE_ENTITY_USER)
+		if len(update.Mutations) != 1 || update.Mutations[0].Type() != apigen.CoreEntityType_CORE_ENTITY_USER {
+			t.Fatalf("user publication must carry exactly one user mutation: %+v", update.Mutations)
+		}
+		if got := update.Mutations[0].Entity(); !reflect.DeepEqual(got, live[update.Mutations[0].EntityID()]) {
 			t.Fatal("user publication differs from persisted public state")
 		}
 	}

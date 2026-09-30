@@ -63,8 +63,8 @@ func TestCreateResolveRoundTrip(t *testing.T) {
 	if !ok || got != "hunter2" {
 		t.Fatalf("Resolve = %q, %v; want hunter2, true", got, ok)
 	}
-	if m, ok := mgr.MetaByID(meta.ID); !ok || m.Name != "staging.db.password" || m.SecretID != meta.SecretID {
-		t.Fatalf("MetaByID = %+v, %v", m, ok)
+	if m, ok := mgr.MetaByRef(meta.Ref()); !ok || m.Name != "staging.db.password" || m.SecretID != meta.SecretID {
+		t.Fatalf("MetaByRef = %+v, %v", m, ok)
 	}
 	info, err := os.Stat(filepath.Join(dir, machinekey.FileName))
 	if err != nil {
@@ -173,14 +173,11 @@ func TestSystemSecretsLiveInSpaceZero(t *testing.T) {
 	if _, ok := mgr.Resolve(ref); ok {
 		t.Fatal("Resolve exposed a space 0 secret")
 	}
-	if _, err := mgr.RevealByID(records[0].ID); err != ErrNotFound {
-		t.Fatalf("RevealByID on a space 0 secret err = %v; want ErrNotFound", err)
-	}
 	if _, err := mgr.RevealByRef(ref); err != ErrNotFound {
 		t.Fatalf("RevealByRef on a space 0 secret err = %v; want ErrNotFound", err)
 	}
-	if _, ok := mgr.MetaByID(records[0].ID); ok {
-		t.Fatal("MetaByID exposed a space 0 secret")
+	if _, ok := mgr.MetaByRef(ref); ok {
+		t.Fatal("MetaByRef exposed a space 0 secret")
 	}
 	got, err := mgr.RevealInternal("opendeploy.cluster.ca.key")
 	if err != nil || string(got) != "ca-key" {

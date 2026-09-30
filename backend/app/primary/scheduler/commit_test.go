@@ -3,73 +3,84 @@ package scheduler
 import (
 	"bytes"
 	"context"
-	"github.com/jptrs93/goutil/erru"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/scheduledinstances"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/scheduledinstances"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
+func assertInstanceMutationsMatchRows(t *testing.T, store *state.Service, update state.Update) {
+	t.Helper()
+	for _, m := range mutationsOf(update, instanceType) {
+		persisted := erru.Must(store.Queries().GetScheduledInstance(context.Background(), int32(m.EntityID())))
+		if persisted.Seq != update.Seq || !bytes.Equal(persisted.Value.Encode(), m.Entity().ScheduledInstance.Encode()) {
+			t.Fatal("published instance differs from written row")
+		}
+	}
+}
+
 func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	ctx := context.Background()
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	startScheduler(t, store, newFakeBarrier())
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()
-	before := store.BuildSnapshot(ctx).Seq
+	before := globalSeq(t, store)
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
 	created := <-sub
-	if created.Seq != before+1 || !created.HasCore() || len(created.DeploymentEvents) != 1 || len(created.ScheduledInstanceEvents) != 1 {
+	statetest.AssertUpdateMatchesRows(t, store, created)
+	if created.Seq != before+1 || len(mutationsOf(created, deploymentType)) != 1 || len(mutationsOf(created, instanceType)) != 1 {
 		t.Fatalf("create did not include scheduling: %+v", created)
 	}
-	inst := created.ScheduledInstanceEvents[0].Value
+	inst := *mutationsOf(created, instanceType)[0].Entity().ScheduledInstance
 	markRunning(t, store, inst.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
 	running := <-sub
-	if running.HasCore() || !running.HasObserved() || running.Seq != created.Seq+1 {
+	statetest.AssertUpdateMatchesRows(t, store, running)
+	if hasCore(running) || !running.Has(instanceStatusType) || running.Seq != created.Seq+1 {
 		t.Fatalf("status with no target changes published core: %+v", running)
 	}
-	if store.BuildSnapshot(ctx).Seq != running.Seq {
-		t.Fatal("observed commit and snapshot disagree on sequence")
+	if globalSeq(t, store) != running.Seq {
+		t.Fatal("observed commit and database disagree on sequence")
 	}
 	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, testRunningSpec("v2"))
 	stopping := <-sub
-	if stopping.Seq != running.Seq+1 || !stopping.HasCore() || len(stopping.DeploymentEvents) != 1 || len(stopping.ScheduledInstanceEvents) != 1 || stopping.ScheduledInstanceEvents[0].Value.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+	statetest.AssertUpdateMatchesRows(t, store, stopping)
+	stopped := mutationsOf(stopping, instanceType)
+	if stopping.Seq != running.Seq+1 || len(mutationsOf(stopping, deploymentType)) != 1 || len(stopped) != 1 || stopped[0].Entity().ScheduledInstance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
 		t.Fatalf("RECREATE did not atomically stop previous placement: %+v", stopping)
 	}
 	markRunning(t, store, inst.ID, cfg.SpecVersion, apigen.RunningStatus_STOPPED)
 	finalized := <-sub
-	if finalized.Seq != stopping.Seq+1 || !finalized.HasCore() || len(finalized.ScheduledInstanceEvents) != 2 || !finalized.HasObserved() || len(finalized.InstanceStatuses) != 1 {
+	statetest.AssertUpdateMatchesRows(t, store, finalized)
+	if finalized.Seq != stopping.Seq+1 || len(mutationsOf(finalized, instanceType)) != 2 || len(mutationsOf(finalized, instanceStatusType)) != 1 {
 		t.Fatalf("finalization and replacement not one commit: %+v", finalized)
 	}
-	for _, event := range finalized.ScheduledInstanceEvents {
-		persisted := erru.Must(store.Queries().GetScheduledInstance(context.Background(), event.ScheduledInstanceID))
-		if event.Seq != finalized.Seq || !bytes.Equal(persisted.Encode(), event.Encode()) {
-			t.Fatal("published event differs from written row")
-		}
-	}
+	assertInstanceMutationsMatchRows(t, store, finalized)
 	active := statetest.NonFinalInstances(store, cfg.DeploymentID)
 	if len(active) != 1 || active[0].ID == inst.ID || active[0].DeploymentVersion != updated.Version {
 		t.Fatalf("cache not final: %+v", active)
 	}
-	// The terminal observation and final target are visible in one later snapshot,
-	// and both HLC history and authored history retain the retired placement.
-	snapshot := store.BuildSnapshot(ctx)
-	if snapshot.Seq != finalized.Seq || len(erru.Must(store.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), inst.ID, time.Time{}))) != 2 {
-		t.Fatal("snapshot or retained history disagrees with commit")
+	// The terminal observation and final target are visible to a later
+	// subscriber, and both HLC history and authored history retain the retired
+	// placement.
+	if globalSeq(t, store) != finalized.Seq || len(erru.Must(store.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), inst.ID, time.Time{}))) != 2 {
+		t.Fatal("database or retained history disagrees with commit")
+	}
+	if liveEntity(t, store, instanceType, active[0].ID).ScheduledInstance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+		t.Fatal("bootstrap does not carry the replacement")
 	}
 }
 
 func TestStaleReportIsHistoryAndCannotDriveScheduler(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	ctx := context.Background()
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	barrier := newFakeBarrier()
 	barrier.held = true
@@ -85,15 +96,16 @@ func TestStaleReportIsHistoryAndCannotDriveScheduler(t *testing.T) {
 			standby = inst.ID
 		}
 	}
-	before := store.BuildSnapshot(ctx)
+	before := fingerprint(t, store)
+	beforeSeq := globalSeq(t, store)
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()
 	stale := current
 	stale.UpdatedAt = current.UpdatedAt.Add(-time.Nanosecond)
 	stale.Runner.Status = apigen.RunningStatus_STOPPED
 	scheduledinstances.WriteReplicatedStatus(store, &stale)
-	if !bytes.Equal(before.Encode(), store.BuildSnapshot(ctx).Encode()) {
-		t.Fatal("delayed STOPPED report changed snapshot")
+	if !bytes.Equal(before, fingerprint(t, store)) {
+		t.Fatal("delayed STOPPED report changed the bootstrap or the sequence")
 	}
 	if len(erru.Must(store.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), older.ID, time.Time{}))) != 2 {
 		t.Fatal("delayed history discarded")
@@ -105,14 +117,11 @@ func TestStaleReportIsHistoryAndCannotDriveScheduler(t *testing.T) {
 	}
 	markRunning(t, store, standby, updated.SpecVersion, apigen.RunningStatus_RUNNING)
 	promoted := <-sub
-	if !promoted.HasCore() || len(promoted.ScheduledInstanceEvents) != 2 || !promoted.HasObserved() || promoted.Seq != before.Seq+1 {
+	statetest.AssertUpdateMatchesRows(t, store, promoted)
+	if len(mutationsOf(promoted, instanceType)) != 2 || !promoted.Has(instanceStatusType) || promoted.Seq != beforeSeq+1 {
 		t.Fatalf("promotion is not atomic: %+v", promoted)
 	}
-	for _, event := range promoted.ScheduledInstanceEvents {
-		if event.Seq != promoted.Seq || !bytes.Equal(event.Encode(), erru.Must(store.Queries().GetScheduledInstance(context.Background(), event.ScheduledInstanceID)).Encode()) {
-			t.Fatal("promotion publication differs from rows")
-		}
-	}
+	assertInstanceMutationsMatchRows(t, store, promoted)
 }
 
 func TestDrainDeadlineSurvivesRepeatedTriggers(t *testing.T) {
@@ -140,14 +149,20 @@ func TestDrainDeadlineSurvivesRepeatedTriggers(t *testing.T) {
 	}
 	markRunning(t, store, newer, updated.SpecVersion, apigen.RunningStatus_RUNNING)
 	drain := erru.Must(store.Queries().GetScheduledInstance(context.Background(), older.ID))
-	before := store.BuildSnapshot(ctx).Seq
-	now = now.Add(drainTimeout - time.Millisecond)
+	if drain.Value.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
+		t.Fatalf("older placement = %v, want draining", drain.Value.State)
+	}
+	// The deadline is measured from the persisted event time, which the
+	// promoting commit stamped, not from the scheduler clock.
+	drainedAt := time.UnixMilli(drain.EventTime)
+	before := globalSeq(t, store)
+	now = drainedAt.Add(drainTimeout - time.Millisecond)
 	sweep(t, store)
 	sweep(t, store)
-	if store.BuildSnapshot(ctx).Seq != before || !bytes.Equal(drain.Encode(), erru.Must(store.Queries().GetScheduledInstance(context.Background(), older.ID)).Encode()) {
+	if globalSeq(t, store) != before || !bytes.Equal(drain.Encode(), erru.Must(store.Queries().GetScheduledInstance(context.Background(), older.ID)).Encode()) {
 		t.Fatal("reconcile reset persisted wait or consumed a sequence")
 	}
-	now = now.Add(2 * time.Millisecond)
+	now = drainedAt.Add(drainTimeout + time.Millisecond)
 	sweep(t, store)
 	if erru.Must(store.Queries().GetScheduledInstance(context.Background(), older.ID)).Value.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
 		t.Fatal("persisted deadline did not retire drain")

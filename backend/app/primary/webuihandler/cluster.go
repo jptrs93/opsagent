@@ -192,7 +192,7 @@ func (h *Handler) PostV1NodesEvict(ctx apigen.Context, req *apigen.NodeEvictRequ
 	if err := h.requireAccess(ctx, vDelete, eNode, 0, int64(node.ID)); err != nil {
 		return nil, err
 	}
-	event, err := nodes.EvictNode(ctx, h.Store, node.Identifier, req.ExpectedVersion, req.Force)
+	event, err := nodes.EvictNode(ctx, h.Store, node.Identifier, req.ExpectedSeq, req.Force)
 	if err != nil {
 		return nil, mapNodeLifecycleErr(err)
 	}

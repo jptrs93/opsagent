@@ -7,7 +7,9 @@ import (
 )
 
 func (q *Queries) InsertNetworkPolicyEvent(ctx context.Context, e *apigen.NetworkPolicyEvent) error {
-	blob := e.Value.Encode()
+	value := e.Value
+	value.CreatedTime = 0
+	blob := value.Encode()
 	if blob == nil {
 		blob = []byte{}
 	}

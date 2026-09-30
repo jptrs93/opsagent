@@ -1,6 +1,7 @@
 package webuihandler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
@@ -30,7 +31,7 @@ func newGlobalStateTestHandler(t *testing.T) *Handler {
 	return &Handler{Store: store, Queries: store.Queries(), Secrets: secretManager}
 }
 
-func TestGetV1GlobalSnapshotReturnsEachSection(t *testing.T) {
+func TestPostV1GlobalEventsReturnsEachSection(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
 	space, err := nodes.CreateSpace(h.Store, "prod", 0)
 	if err != nil {
@@ -41,49 +42,42 @@ func TestGetV1GlobalSnapshotReturnsEachSection(t *testing.T) {
 	}
 	cfg := createTestDeployment(h.Store, "node-a", space.ID, "api", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 
-	res, err := h.GetV1GlobalSnapshot(apigen.Context{Ctx: context.Background()})
+	res, err := h.PostV1GlobalEvents(apigen.Context{Ctx: context.Background()}, &apigen.EventStreamRequest{})
 	if err != nil {
-		t.Fatalf("GetV1GlobalSnapshot: %v", err)
+		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	if res.Seq == 0 {
-		t.Fatalf("expected every section to be populated, got %+v", res)
+	if res.Seq == 0 || !res.Reset || !res.Synced || len(res.Events) == 0 {
+		t.Fatalf("expected a synced bootstrap with events, got %+v", res)
 	}
-	if len(res.Spaces) == 0 {
+	fold := statetest.Fold(res.Events)
+	if len(fold[apigen.CoreEntityType_CORE_ENTITY_SPACE]) == 0 {
 		t.Error("expected at least the created space")
 	}
 	var foundConfig bool
-	for _, c := range res.ConfigEvents {
-		if c.Value.Fs.Name == "log_level" && len(statetest.ValueVersions(h.Store, c)) > 0 && statetest.ValueVersions(h.Store, c)[0].Value == "debug" {
+	for _, c := range fold[apigen.CoreEntityType_CORE_ENTITY_CONFIG] {
+		if c.Config.Fs.Name == "log_level" && c.Config.Value == "debug" {
 			foundConfig = true
 		}
 	}
 	if !foundConfig {
-		t.Errorf("expected log_level config, got %+v", res.ConfigEvents)
+		t.Errorf("expected log_level config, got %+v", fold[apigen.CoreEntityType_CORE_ENTITY_CONFIG])
 	}
-	var foundDeployment bool
-	for _, d := range res.DeploymentEvents {
-		if d.DeploymentID == cfg.DeploymentID {
-			foundDeployment = true
-		}
-	}
-	if !foundDeployment {
-		t.Errorf("expected deployment %d in snapshot", cfg.DeploymentID)
+	if fold[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][int64(cfg.DeploymentID)] == nil {
+		t.Errorf("expected deployment %d in the bootstrap", cfg.DeploymentID)
 	}
 }
 
-func TestGetV1GlobalSnapshotExcludesDeletedDeployments(t *testing.T) {
+func TestPostV1GlobalEventsExcludesDeletedDeployments(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
 	cfg := createTestDeployment(h.Store, "node-a", 0, "gone", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	markDeleted(t, h, cfg)
 
-	res, err := h.GetV1GlobalSnapshot(apigen.Context{Ctx: context.Background()})
+	res, err := h.PostV1GlobalEvents(apigen.Context{Ctx: context.Background()}, &apigen.EventStreamRequest{})
 	if err != nil {
-		t.Fatalf("GetV1GlobalSnapshot: %v", err)
+		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	for _, d := range res.DeploymentEvents {
-		if d.DeploymentID == cfg.DeploymentID {
-			t.Fatalf("deleted deployment %d must not appear", cfg.DeploymentID)
-		}
+	if statetest.Fold(res.Events)[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][int64(cfg.DeploymentID)] != nil {
+		t.Fatalf("deleted deployment %d must not appear", cfg.DeploymentID)
 	}
 }
 
@@ -153,8 +147,9 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 		},
 	})
 
-	t.Run("global-state", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodGet, "/v1/global/snapshot", nil)
+	t.Run("global-events", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodPost, "/v1/global/events", strings.NewReader(`{}`))
+		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Accept", "application/json")
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, r)
@@ -168,7 +163,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatalf("body is not JSON: %v (%s)", err, w.Body.String())
 		}
-		for _, key := range []string{"spaces", "deployment_events", "node_events", "seq"} {
+		for _, key := range []string{"events", "seq", "synced", "reset"} {
 			if _, ok := body[key]; !ok {
 				t.Errorf("missing %q in JSON body, got keys %v", key, keysOf(body))
 			}
@@ -198,13 +193,13 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 	})
 
 	t.Run("protobuf stays the default", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodGet, "/v1/global/snapshot", nil)
+		r := httptest.NewRequest(http.MethodPost, "/v1/global/events", bytes.NewReader((&apigen.EventStreamRequest{}).Encode()))
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, r)
 		if ct := w.Header().Get("Content-Type"); ct != "application/protobuf" {
 			t.Fatalf("Content-Type = %q, want application/protobuf", ct)
 		}
-		if _, err := apigen.DecodeSnapshot(w.Body.Bytes()); err != nil {
+		if _, err := apigen.DecodeEventStreamMsg(w.Body.Bytes()); err != nil {
 			t.Fatalf("body did not decode as protobuf: %v", err)
 		}
 	})

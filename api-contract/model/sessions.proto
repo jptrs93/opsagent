@@ -31,6 +31,7 @@ message AgentSession {
   string requesting_address = 7;
   string approval_code = 8;
   int64 approved_at = 9 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  bytes token_hash = 10; // replica class only, never sent to a browser
 }
 
 message UserSession {
@@ -44,6 +45,7 @@ message UserSession {
   reserved 8; // current: the client compares id with LoginResponse.session_id.
   int32 user_id = 9;
   UserSessionKind kind = 10;
+  bytes token_hash = 11; // replica class only, never sent to a browser
 }
 
 message AgentSessionRequest {

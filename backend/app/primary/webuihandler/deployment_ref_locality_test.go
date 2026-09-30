@@ -209,7 +209,7 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 		t.Fatalf("creating referencing deployment: %v", err)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: referrer.DeploymentID, ExpectedVersion: referrer.Version + 1,
+		DeploymentID: referrer.DeploymentID, ExpectedSeq: referrer.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
 	}); !isRefOutsideSpaceErr(err, deployments.ConfigRefOutsideSpaceErr) {
 		t.Fatalf("move with prod config ref err = %v, want %v", err, deployments.ConfigRefOutsideSpaceErr)
@@ -220,13 +220,13 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	mounterSpec := crossMountSpec("nginx", source.DeploymentID)
 	createTestDeployment(h.Store, "primary", prod.ID, "mounter", &mounterSpec)
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: source.DeploymentID, ExpectedVersion: source.Version + 1,
+		DeploymentID: source.DeploymentID, ExpectedSeq: source.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("mounted source move to staging err = %v, want %v", err, deployments.MoveReferencesOutsideSpaceErr)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: source.DeploymentID, ExpectedVersion: source.Version + 1,
+		DeploymentID: source.DeploymentID, ExpectedSeq: source.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: nodes.DefaultSpaceID},
 	}); err != nil {
 		t.Fatalf("mounted source move to global: %v", err)

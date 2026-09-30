@@ -16,7 +16,8 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 // assigned_space_update, and restart_update must be set.
 message DeploymentUpdateRequestV2 {
   int32 deployment_id = 1;
-  int32 expected_version = 2; // expected next top-level version, = current version + 1
+  reserved 2; // expected_version: the ordinal check, before seqs were the concurrency token
+  int64 expected_seq = 8; // seq of the deployment's last mutation the caller saw; 0 = no check
 
   VersionOnlyUpdate version_only_update = 3;
   RunningOnlyUpdate running_only_update = 4;
@@ -81,7 +82,8 @@ message RecentlyDeletedDeployments {
 
 message DeploymentDeleteRequest {
   int32 deployment_id = 1;
-  int32 version = 2; // expected next top-level version
+  reserved 2; // version: the ordinal check, before seqs were the concurrency token
+  int64 expected_seq = 3; // seq of the deployment's last mutation the caller saw; 0 = no check
 }
 
 // Version is the shared display shape for a deployable source item: a git

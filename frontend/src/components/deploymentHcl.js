@@ -284,8 +284,8 @@ function expandAssetVersions(metas) {
     const out = [];
     for (const meta of metas) {
         for (const ref of meta.contentVersions || []) {
-            if (!Number(ref?.id || 0)) continue;
-            out.push({id: Number(ref.id), stableId: Number(meta.id), key: meta.key, spaceId: meta.spaceId, directoryId: Number(meta.directoryId || 0), version: Number(ref.version || 0)});
+            if (!Number(ref?.version || 0)) continue;
+            out.push({stableId: Number(meta.id), key: meta.key, spaceId: meta.spaceId, directoryId: Number(meta.directoryId || 0), version: Number(ref.version || 0)});
         }
     }
     return out;

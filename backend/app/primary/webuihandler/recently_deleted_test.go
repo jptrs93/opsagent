@@ -25,7 +25,7 @@ func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.DeploymentEvent) {
 	}
 	err := h.PostV1DeploymentsDelete(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentDeleteRequest{
 		DeploymentID: current.DeploymentID,
-		Version:      current.Version + 1,
+		ExpectedSeq:  current.Seq,
 	})
 	if err != nil {
 		t.Fatalf("delete %d: %v", cfg.DeploymentID, err)

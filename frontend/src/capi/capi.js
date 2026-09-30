@@ -32,6 +32,7 @@ import {
   decodeEnrollmentPrimaryMsg,
   decodeEnrollmentRequestList,
   decodeEnrollmentRequestStatus,
+  decodeEventStreamMsg,
   decodeExportedConfigBlob,
   decodeGithubCredentials,
   decodeLogQueryResponse,
@@ -53,9 +54,7 @@ import {
   decodeSecretRecoveryCodeResponse,
   decodeSecretRevealResponse,
   decodeSecretsStatusResponse,
-  decodeSnapshot,
   decodeSpace,
-  decodeStateStreamMsg,
   decodeUserSessionList,
   decodeValueDirectory,
   decodeValueDirectoryList,
@@ -96,6 +95,7 @@ import {
   encodeDeploymentVersionsRequest,
   encodeEnrollmentAcceptRequest,
   encodeEnrollmentSecondaryMsg,
+  encodeEventStreamRequest,
   encodeLogQueryRequest,
   encodeMasterPasswordRequest,
   encodeMasterPasswordSaveRequest,
@@ -669,30 +669,32 @@ export class Capi {
   }
 
   /**
+   * @param {EventStreamRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<Snapshot>}
+   * @returns {Promise<EventStreamMsg>}
    */
-  async getV1GlobalSnapshot(options = {}) {
-    const response = await this.#request("/v1/global/snapshot", { method: 'GET', signal: options.signal });
+  async postV1GlobalEvents(payload, options = {}) {
+    const response = await this.#request("/v1/global/events", { method: 'POST', body: encodeEventStreamRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSnapshot(await response.arrayBuffer());
+    return decodeEventStreamMsg(await response.arrayBuffer());
   }
 
   /**
+   * @param {EventStreamRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {AsyncIterable<StateStreamMsg>}
+   * @returns {AsyncIterable<EventStreamMsg>}
    */
-  postV1GlobalStateStream(options = {}) {
+  postV1GlobalEventStream(payload, options = {}) {
     const self = this;
     return {
       [Symbol.asyncIterator]: async function* () {
-        const response = await self.#request("/v1/global/state-stream", { method: 'POST', signal: options.signal });
+        const response = await self.#request("/v1/global/event-stream", { method: 'POST', body: encodeEventStreamRequest(payload), signal: options.signal });
         if (!response.ok) {
           return self.errorHandler(response);
         }
-        yield* readLengthPrefixedFrames(response.body, decodeStateStreamMsg);
+        yield* readLengthPrefixedFrames(response.body, decodeEventStreamMsg);
       },
     };
   }

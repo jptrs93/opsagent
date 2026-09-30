@@ -1,12 +1,12 @@
 package systemconfig
 
 import (
-	"context"
 	"errors"
 	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -35,21 +35,31 @@ func TestRevisionWritersPublishSequencedPersistedState(t *testing.T) {
 	defer s.Close()
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
-	check := func() {
+	check := func(kind apigen.AuthzVerb) {
 		t.Helper()
 		update := <-sub
 		statetest.AssertUpdateMatchesRows(t, s, update)
-		snapshot := s.BuildSnapshot(context.Background())
-		if update.SystemConfig == nil || !reflect.DeepEqual(update.SystemConfig, snapshot.SystemConfig) {
-			t.Fatal("config publication differs from persisted public state")
+		row, err := LatestRevision(s.Queries())
+		if err != nil {
+			t.Fatal(err)
+		}
+		stored := erru.Must(apigen.DecodeSystemConfig(row.ConfigBlob))
+		if len(update.Mutations) != 1 || update.Mutations[0].Type() != apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG || update.Mutations[0].Kind() != kind || update.Mutations[0].EntityID() != pq.SystemConfigEntityID {
+			t.Fatalf("config publication = %+v, want one %v of the system config", update, kind)
+		}
+		if !reflect.DeepEqual(update.Mutations[0].Entity().SystemConfig, stored) {
+			t.Fatal("config publication differs from the persisted revision")
+		}
+		if live := statetest.Live(t, s.Queries(), apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG)[pq.SystemConfigEntityID]; live == nil || !reflect.DeepEqual(live.SystemConfig, stored) {
+			t.Fatal("bootstrap differs from the persisted revision")
 		}
 	}
 	if _, err := AppendRevision(s, 0, (&apigen.SystemConfig{MasterPasswordHash: "test"}).Encode(), nil); err != nil {
 		t.Fatal(err)
 	}
-	check()
+	check(apigen.AuthzVerb_AUTHZ_VERB_CREATE)
 	if _, err := AppendRevision(s, 0, (&apigen.SystemConfig{MasterPasswordHash: "test"}).Encode(), func(*pq.Queries) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	check()
+	check(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)
 }

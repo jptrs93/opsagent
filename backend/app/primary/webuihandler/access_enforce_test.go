@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
@@ -180,8 +179,8 @@ func TestEnforcementDelegated(t *testing.T) {
 	if len(agentList.Items) != 1 || agentList.Items[0].SecretID != meta.SecretID {
 		t.Fatalf("delegated list should show the operator's secret meta, got %+v", agentList.Items)
 	}
-	versionID := statetest.ValueVersions(h.Store, stored)[len(statetest.ValueVersions(h.Store, stored))-1].ID
-	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: versionID}); !errors.Is(err, AccessDeniedErr) {
+	first := statetest.ValueVersions(h.Store, stored)[len(statetest.ValueVersions(h.Store, stored))-1].Ref
+	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{SecretID: first.ID, Version: first.Version}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated reveal: got %v, want AccessDeniedErr", err)
 	}
 	if _, err := h.PostV1SecretsSet(agent, &apigen.SecretSetRequest{SecretID: meta.SecretID, Value: []byte("x")}); !errors.Is(err, AccessDeniedErr) {
@@ -198,7 +197,7 @@ func TestEnforcementDelegated(t *testing.T) {
 	if _, err := h.PostV1SecretsCreate(admin, &apigen.SecretCreateRequest{Name: "admin_supplied", SpaceID: nodes.DefaultSpaceID, Value: []byte("known")}); err != nil {
 		t.Fatalf("admin value-supplied create: %v", err)
 	}
-	revealed, err := h.PostV1SecretsReveal(admin, &apigen.SecretRevealRequest{ID: versionID})
+	revealed, err := h.PostV1SecretsReveal(admin, &apigen.SecretRevealRequest{SecretID: first.ID, Version: first.Version})
 	if err != nil {
 		t.Fatalf("admin reveal: %v", err)
 	}
@@ -218,7 +217,7 @@ func TestEnforcementDelegated(t *testing.T) {
 	if len(statetest.ValueVersions(h.Store, minted)) != 1 {
 		t.Fatalf("generate returned %d versions, want 1", len(statetest.ValueVersions(h.Store, minted)))
 	}
-	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{ID: statetest.ValueVersions(h.Store, minted)[0].ID}); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.PostV1SecretsReveal(agent, &apigen.SecretRevealRequest{SecretID: minted.SecretID, Version: statetest.ValueVersions(h.Store, minted)[0].Version}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("delegated reveal of its own secret: got %v, want AccessDeniedErr", err)
 	}
 }
@@ -274,25 +273,6 @@ func TestEnforcementSystemLogIsTheSystemDeploymentsLog(t *testing.T) {
 	}
 }
 
-func recvState(t *testing.T, states <-chan *apigen.StateStreamMsg) *apigen.StateStreamMsg {
-	t.Helper()
-	deadline := time.After(3 * time.Second)
-	for {
-		select {
-		case s, ok := <-states:
-			if !ok {
-				t.Fatal("stream closed unexpectedly")
-			}
-			if s.Heartbeat {
-				continue
-			}
-			return s
-		case <-deadline:
-			t.Fatal("timed out waiting for a state message")
-		}
-	}
-}
-
 func TestEnforcementStreamFiltering(t *testing.T) {
 	h, staging := newEnforcementTestHandler(t)
 	admin := enforceCtx(1, false)
@@ -305,42 +285,30 @@ func TestEnforcementStreamFiltering(t *testing.T) {
 		t.Fatalf("create in default space: %v", err)
 	}
 
-	streamCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	states := make(chan *apigen.StateStreamMsg, 32)
-	go func() {
-		defer close(states)
-		for s, streamErr := range h.PostV1GlobalStateStream(apigen.Context{Ctx: streamCtx, User: &apigen.InternalUser{ID: 2}}) {
-			if streamErr != nil {
-				return
-			}
-			states <- s
-		}
-	}()
-
-	initial := recvState(t, states)
-	if initial.Snapshot == nil || len(initial.Snapshot.ConfigEvents) != 1 ||
-		initial.Snapshot.ConfigEvents[0].ConfigID != visible.ConfigID {
-		t.Fatalf("initial config snapshot = %+v, want only the default-space config", initial.Snapshot)
+	states, initial := openTestEventStream(t, h, 2, 0)
+	if !initial.Reset {
+		t.Fatalf("a fresh stream must bootstrap: %+v", initial)
 	}
-	for _, space := range initial.Snapshot.Spaces {
-		if space.ID == staging.ID {
-			t.Fatal("staging space leaked into a space-limited stream")
+	fold := statetest.Fold(initial.Events)
+	if configs := fold[apigen.CoreEntityType_CORE_ENTITY_CONFIG]; len(configs) != 1 || configs[int64(visible.ConfigID)] == nil {
+		t.Fatalf("initial configs = %+v, want only the default-space config", configs)
+	}
+	if fold[apigen.CoreEntityType_CORE_ENTITY_SPACE][int64(staging.ID)] != nil {
+		t.Fatal("staging space leaked into a space-limited stream")
+	}
+	if rules := fold[apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE]; len(rules) != 0 {
+		t.Fatalf("global rules leaked to a non-admin: %+v", rules)
+	}
+	for _, g := range fold[apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT] {
+		if g.AuthzGrant.UserID != 2 {
+			t.Fatalf("grant for user %d leaked to user 2", g.AuthzGrant.UserID)
 		}
 	}
-	if len(initial.Snapshot.AuthzGlobalRules) != 0 {
-		t.Fatalf("global rules leaked to a non-admin: %+v", initial.Snapshot.AuthzGlobalRules)
-	}
-	for _, g := range initial.Snapshot.AuthzGrantEvents {
-		if g.Value.UserID != 2 {
-			t.Fatalf("grant for user %d leaked to user 2", g.Value.UserID)
-		}
-	}
-	if len(initial.Snapshot.AuthzRuleTemplates) == 0 {
+	if len(fold[apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE]) == 0 {
 		t.Fatal("template catalogue should always be sent")
 	}
-	if initial.Snapshot.BackupStatus != nil && *initial.Snapshot.BackupStatus != (apigen.BackupStatus{}) {
-		t.Fatal("backup status is cluster-scoped and should be withheld")
+	if side, err := h.PostV1GlobalEvents(enforceCtx(2, false), &apigen.EventStreamRequest{}); err != nil || side.BackupStatus == nil || *side.BackupStatus != (apigen.BackupStatus{}) {
+		t.Fatalf("backup status is cluster-scoped and should be withheld: %+v %v", side, err)
 	}
 
 	// A hidden-space update must be dropped; the next visible one still flows.
@@ -351,12 +319,13 @@ func TestEnforcementStreamFiltering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create in default space: %v", err)
 	}
-	update := recvState(t, states)
-	if update.Core == nil || len(update.Core.ConfigEvents) != 1 || update.Core.ConfigEvents[0].ConfigID != visible2.ConfigID {
+	update := recvMsg(t, states)
+	configs := mutationsOf(update, apigen.CoreEntityType_CORE_ENTITY_CONFIG)
+	if update.Reset || len(update.Events) != 1 || len(configs) != 1 || configs[0].EntityID() != int64(visible2.ConfigID) || update.Seq != visible2.Seq {
 		t.Fatalf("update = %+v, want the default-space config update only", update)
 	}
 
-	// A grant change re-emits the full filtered snapshot so newly visible or
+	// A grant change re-sends the compacted history so newly visible or
 	// hidden items are reconciled.
 	if _, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
 		UserID:     2,
@@ -365,12 +334,12 @@ func TestEnforcementStreamFiltering(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
-	reEmit := recvState(t, states)
-	if reEmit.Snapshot == nil {
-		t.Fatalf("authz change should re-emit full snapshots, got %+v", reEmit)
+	reEmit := recvMsg(t, states)
+	if !reEmit.Reset || !reEmit.Synced {
+		t.Fatalf("authz change should re-bootstrap with reset, got %+v", reEmit)
 	}
-	if len(reEmit.Snapshot.ConfigEvents) != 4 {
-		t.Fatalf("re-emitted config snapshot has %d items, want 4 after expanded access", len(reEmit.Snapshot.ConfigEvents))
+	if configs := statetest.Fold(reEmit.Events)[apigen.CoreEntityType_CORE_ENTITY_CONFIG]; len(configs) != 4 {
+		t.Fatalf("re-emitted bootstrap has %d configs, want 4 after expanded access", len(configs))
 	}
 }
 
@@ -461,7 +430,7 @@ func TestEnforcementSystemSpaceValuesAreUnreachable(t *testing.T) {
 			t.Fatalf("cluster admin sees a space 0 secret: %+v", e)
 		}
 	}
-	if _, err := h.PostV1SecretsReveal(admin, &apigen.SecretRevealRequest{ID: int32(system.EventID)}); err == nil {
+	if _, err := h.PostV1SecretsReveal(admin, &apigen.SecretRevealRequest{SecretID: system.SecretID, Version: system.ValueVersion}); err == nil {
 		t.Fatal("cluster admin revealed a space 0 secret")
 	}
 	if err := h.PostV1SecretsDelete(admin, &apigen.SecretDeleteRequest{SecretID: system.SecretID}); err == nil {

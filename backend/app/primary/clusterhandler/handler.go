@@ -488,9 +488,9 @@ func (p *Handler) RunEvictionWatch(ctx context.Context) {
 				updates, unsubscribe = p.store.SubscribeUpdates()
 				continue
 			}
-			for _, event := range update.NodeEvents {
-				if event != nil && event.Value.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
-					p.evictSession(event.NodeID)
+			for _, m := range update.Mutations {
+				if e := m.Entity(); e != nil && e.Node != nil && e.Node.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
+					p.evictSession(int32(m.EntityID()))
 				}
 			}
 		}

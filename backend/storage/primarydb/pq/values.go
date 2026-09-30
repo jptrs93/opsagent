@@ -59,7 +59,22 @@ func scanSecretEvent(scan func(...any) error) (*apigen.SecretEvent, error) {
 	if err := scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.SecretID, &e.Version, &e.ValueVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.EventType); err != nil {
 		return nil, err
 	}
+	e.Value.ValueVersion, e.Value.CreatedTime = e.ValueVersion, e.CreatedTime
 	return e, nil
+}
+
+// scanSealedSecretEvent reads a row selected with secretEventColumns followed
+// by smk_version, ciphertext, and nonce. The sealed bytes stay out of the
+// SecretEvent so no list endpoint can hand them to a browser.
+func scanSealedSecretEvent(row scanner) (*apigen.SecretEvent, SealedValue, error) {
+	e := &apigen.SecretEvent{Value: apigen.Secret{Fs: &apigen.SecretFs{}}}
+	var sealed SealedValue
+	if err := row.Scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.SecretID, &e.Version, &e.ValueVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.EventType,
+		&sealed.SmkVersion, &sealed.Ciphertext, &sealed.Nonce); err != nil {
+		return nil, SealedValue{}, err
+	}
+	e.Value.ValueVersion, e.Value.CreatedTime = e.ValueVersion, e.CreatedTime
+	return e, sealed, nil
 }
 
 const secretLatestJoin = `JOIN (SELECT secret_id, MAX(version) AS version
@@ -131,7 +146,7 @@ func (q *Queries) InsertSecretEvent(ctx context.Context, e SecretEvent) (*apigen
 // the sealed payload (smk_version, ciphertext, nonce) is copied forward from
 // the previous row in SQL so the ciphertext never passes through Go. The
 // payload fields of e are ignored and value_changed is always 0.
-func (q *Queries) InsertSecretCarryEvent(ctx context.Context, e SecretEvent) (*apigen.SecretEvent, error) {
+func (q *Queries) InsertSecretCarryEvent(ctx context.Context, e SecretEvent) (*apigen.SecretEvent, SealedValue, error) {
 	row := q.db.QueryRowContext(ctx, `
 		INSERT INTO secret_event_log (
 			global_seq, event_time, created_time, author, secret_id, version,
@@ -144,12 +159,12 @@ func (q *Queries) InsertSecretCarryEvent(ctx context.Context, e SecretEvent) (*a
 		FROM secret_event_log p
 		WHERE p.secret_id = ?
 		ORDER BY p.version DESC LIMIT 1
-		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type`,
+		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type,smk_version,ciphertext,nonce`,
 		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
 		e.ValueVersion,
 		e.Name, e.ValueDirectoryID, e.SpaceID, e.EventType,
 		e.SecretID)
-	return scanSecretEvent(row.Scan)
+	return scanSealedSecretEvent(row)
 }
 
 func (q *Queries) listSecretEvents(ctx context.Context, query string, args ...any) ([]*apigen.SecretEvent, error) {
@@ -280,10 +295,6 @@ func scanConfigVersionJoined(row *sql.Row) (ConfigVersionJoinedRow, error) {
 	return r, err
 }
 
-func (q *Queries) GetConfigVersionByID(ctx context.Context, id int64) (ConfigVersionJoinedRow, error) {
-	return scanConfigVersionJoined(q.db.QueryRowContext(ctx, configVersionJoinedSelect+`WHERE v.id = ? AND v.value_changed != 0`, id))
-}
-
 func (q *Queries) GetConfigVersionByRef(ctx context.Context, ref apigen.ValueRef) (ConfigVersionJoinedRow, error) {
 	return scanConfigVersionJoined(q.db.QueryRowContext(ctx, configVersionJoinedSelect+`WHERE v.config_id = ? AND v.value_version = ? AND v.value_changed != 0`, ref.ID, ref.Version))
 }
@@ -327,28 +338,6 @@ ORDER BY v.secret_id, v.value_version`)
 		out = append(out, r)
 	}
 	return out, rows.Err()
-}
-
-func (q *Queries) ListSecretEventsAtSeq(ctx context.Context, seq int64) ([]*apigen.SecretEvent, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT `+secretEventColumns+` FROM secret_event_log e WHERE global_seq = ? ORDER BY id`, seq)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*apigen.SecretEvent
-	for rows.Next() {
-		e, err := scanSecretEvent(rows.Scan)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
-// GetSecretValueEventByID resolves a pinnable content event without loading sealed bytes.
-func (q *Queries) GetSecretValueEventByID(ctx context.Context, eventID int64) (*apigen.SecretEvent, error) {
-	return scanSecretEvent(q.db.QueryRowContext(ctx, `SELECT `+secretEventColumns+` FROM secret_event_log e WHERE e.id=? AND e.value_changed != 0`, eventID).Scan)
 }
 
 // GetSecretValueEventByRef resolves a pinned value event without loading sealed bytes.

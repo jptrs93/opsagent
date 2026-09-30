@@ -288,15 +288,17 @@ func TestAgentInstructionsRender(t *testing.T) {
 		t.Fatalf("instructions did not carry the user id: %s", body)
 	}
 	// The page is an agent's only map of the API, so it has to name the
-	// shapes the server actually serves: the global-state deployment envelope
+	// shapes the server actually serves: the event stream's mutation envelope
 	// and the log/metrics endpoints an operator may grant.
-	for _, want := range []string{"`deployment_events`", "value.spec", "event_id", "/v1/global/snapshot", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/network-policies/list"} {
+	for _, want := range []string{"/v1/global/events", "after_seq", "`mutations`", "`entity_type`", "`entity_id`", "`spec_version`", "value_version", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/network-policies/list"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("instructions omit %s", want)
 		}
 	}
-	if strings.Contains(body, "deployment_configs") {
-		t.Fatal("instructions still describe the retired deployment_configs collection")
+	for _, retired := range []string{"deployment_configs", "/v1/global/snapshot", "deployment_events"} {
+		if strings.Contains(body, retired) {
+			t.Fatalf("instructions still describe the retired %s shape", retired)
+		}
 	}
 	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/markdown") {
 		t.Fatalf("content type = %q, want markdown", ct)

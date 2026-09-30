@@ -104,8 +104,8 @@ type ApiServerHandler interface {
 	PostV1AccessGlobalRulesList(Context) (*AuthzGlobalRuleList, error)
 	PostV1AccessGlobalRulesCreate(Context, *AuthzGlobalRuleCreateRequest) (*AuthzGlobalRuleRecord, error)
 	PostV1AccessGlobalRulesDelete(Context, *AuthzGlobalRuleDeleteRequest) error
-	GetV1GlobalSnapshot(Context) (*Snapshot, error)
-	PostV1GlobalStateStream(Context) iter.Seq2[*StateStreamMsg, error]
+	PostV1GlobalEvents(Context, *EventStreamRequest) (*EventStreamMsg, error)
+	PostV1GlobalEventStream(Context, *EventStreamRequest) iter.Seq2[*EventStreamMsg, error]
 	PostV1GlobalExportedConfig(Context) (*ExportedConfigBlob, error)
 	PostV1DeploymentsGet(Context, *DeploymentGetRequest) (*DeploymentGetResponse, error)
 	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*DeploymentEvent, error)
@@ -537,15 +537,25 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/access/global-rules/delete", buildHandlerFunc(config, verifyAuth, postV1AccessGlobalRulesDeleteAccessPolicy, postAuthHandlerPostV1AccessGlobalRulesDelete, compressionModeAuto, false))
-	getV1GlobalSnapshotAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerGetV1GlobalSnapshot := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.GetV1GlobalSnapshot(authCtx)
+	postV1GlobalEventsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1GlobalEvents := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEventStreamRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1GlobalEvents(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("GET /v1/global/snapshot", buildHandlerFunc(config, verifyAuth, getV1GlobalSnapshotAccessPolicy, postAuthHandlerGetV1GlobalSnapshot, compressionModeAuto, false))
-	postV1GlobalStateStreamAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1GlobalStateStream := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		seq := h.PostV1GlobalStateStream(authCtx)
+	m.HandleFunc("POST /v1/global/events", buildHandlerFunc(config, verifyAuth, postV1GlobalEventsAccessPolicy, postAuthHandlerPostV1GlobalEvents, compressionModeAuto, false))
+	postV1GlobalEventStreamAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1GlobalEventStream := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEventStreamRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		seq := h.PostV1GlobalEventStream(authCtx, req)
 		stream := NewStreamWriter(w)
 		var streamErr error
 		for resp, yieldErr := range seq {
@@ -560,7 +570,7 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		}
 		stream.Finish(authCtx, streamErr)
 	}
-	m.HandleFunc("POST /v1/global/state-stream", buildHandlerFunc(config, verifyAuth, postV1GlobalStateStreamAccessPolicy, postAuthHandlerPostV1GlobalStateStream, compressionModeAuto, true))
+	m.HandleFunc("POST /v1/global/event-stream", buildHandlerFunc(config, verifyAuth, postV1GlobalEventStreamAccessPolicy, postAuthHandlerPostV1GlobalEventStream, compressionModeAuto, true))
 	postV1GlobalExportedConfigAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1GlobalExportedConfig := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.PostV1GlobalExportedConfig(authCtx)

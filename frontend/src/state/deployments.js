@@ -2,7 +2,7 @@ import van from 'vanjs-core';
 import {capi} from '../capi/index.js';
 import {loginS} from './login.js';
 import {isBootstrapSession} from '../lib/userSessions.js';
-import {createTree, applySnapshot, applyCore, applyBackupStatus, applySecretsStatus, applyIngressDiagnostics} from './tree.js';
+import {createTree, applyMessage, resetTree} from './tree.js';
 import {publishDerived, SEEDED_SPACES} from './derive.js';
 export * from './derive.js';
 
@@ -46,6 +46,12 @@ const armInactivityTimer = (generation) => {
     }, STREAM_INACTIVITY_TIMEOUT_MS);
 };
 
+const clearTree = () => {
+    const changed = resetTree(tree, {preserveSidecars: false});
+    for (const space of SEEDED_SPACES) tree.spaces.set(space.id, space);
+    publishDerived(tree, changed);
+};
+
 const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
     if (streamRetryTimer) {
         clearTimeout(streamRetryTimer);
@@ -57,18 +63,8 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         streamAbortController = null;
     }
     reconnectAttempt = 0;
-    if (clearDeployments) {
-        publishDerived(tree, applySnapshot(tree, {spaces: SEEDED_SPACES}, {preserveSidecars: false}));
-    }
+    if (clearDeployments) clearTree();
     setStreamState('offline', 'offline');
-};
-
-const handleStateMessage = message => {
-    if (message?.snapshot) publishDerived(tree, applySnapshot(tree, message.snapshot));
-    if (message?.core) publishDerived(tree, applyCore(tree, message.core));
-    if (message?.backupStatus) publishDerived(tree, applyBackupStatus(tree, message.backupStatus));
-    if (message?.secretsStatus) publishDerived(tree, applySecretsStatus(tree, message.secretsStatus));
-    if (message?.ingressDiagnostics) publishDerived(tree, applyIngressDiagnostics(tree, message.ingressDiagnostics));
 };
 
 const scheduleReconnect = (generation, lastError) => {
@@ -106,7 +102,7 @@ async function startDeploymentsStream(generation = sessionGeneration) {
 
     let connected = false;
     try {
-        const stream = capi.postV1GlobalStateStream({ signal: streamAbortController.signal });
+        const stream = capi.postV1GlobalEventStream({afterSeq: tree.seq}, { signal: streamAbortController.signal });
         for await (const message of stream) {
             if (!connected) {
                 connected = true;
@@ -114,14 +110,14 @@ async function startDeploymentsStream(generation = sessionGeneration) {
                 setStreamState('connected', 'Connection healthy');
             }
             armInactivityTimer(generation);
-            handleStateMessage(message);
+            publishDerived(tree, applyMessage(tree, message));
         }
         throw new Error('stream closed by server');
     } catch (e) {
         if (e.name === 'AbortError') {
             return;
         }
-        console.error('state stream ended:', e.message);
+        console.error('event stream ended:', e.message);
         scheduleReconnect(generation, e.message);
     } finally {
         clearInactivityTimer();
@@ -145,5 +141,8 @@ van.derive(() => {
     activeToken = token;
     sessionGeneration += 1;
     stopDeploymentsStream();
+    // A new session bootstraps from scratch: the retained tree belongs to
+    // whichever session filled it, and after_seq 0 makes the server replace it.
+    resetTree(tree);
     void startDeploymentsStream(sessionGeneration);
 });

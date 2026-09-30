@@ -10,13 +10,12 @@ import (
 
 const assetDirectoryColumns = `directory_id, space_id, key, parent_id, created_at, author, event_type`
 
-func scanAssetDirectory(row scanner) (apigen.AssetDirectory, error) {
+func scanAssetDirectory(row scanner) (apigen.AssetDirectory, bool, error) {
 	var e apigen.AssetDirectory
 	var createdAt, eventType int64
 	err := row.Scan(&e.ID, &e.SpaceID, &e.Key, &e.ParentID, &createdAt, &e.Author, &eventType)
 	e.CreatedAt = time.UnixMilli(createdAt)
-	e.Deleted = eventType == int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)
-	return e, err
+	return e, eventType != int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE), err
 }
 
 const liveAssetDirectories = `FROM asset_directory_event_log WHERE id IN (SELECT MAX(id) FROM asset_directory_event_log GROUP BY directory_id) AND event_type != 3`
@@ -29,7 +28,7 @@ func (q *Queries) listAssetDirectories(ctx context.Context, where string, args .
 	defer rows.Close()
 	var out []apigen.AssetDirectory
 	for rows.Next() {
-		e, err := scanAssetDirectory(rows)
+		e, _, err := scanAssetDirectory(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -41,8 +40,8 @@ func (q *Queries) listAssetDirectories(ctx context.Context, where string, args .
 // GetAssetDirectoryByID returns the live directory, or sql.ErrNoRows when it
 // never existed or was deleted.
 func (q *Queries) GetAssetDirectoryByID(ctx context.Context, directoryID int64) (apigen.AssetDirectory, error) {
-	e, err := scanAssetDirectory(q.db.QueryRowContext(ctx, `SELECT `+assetDirectoryColumns+` FROM asset_directory_event_log WHERE directory_id = ? ORDER BY id DESC LIMIT 1`, directoryID))
-	if err == nil && e.Deleted {
+	e, live, err := scanAssetDirectory(q.db.QueryRowContext(ctx, `SELECT `+assetDirectoryColumns+` FROM asset_directory_event_log WHERE directory_id = ? ORDER BY id DESC LIMIT 1`, directoryID))
+	if err == nil && !live {
 		return apigen.AssetDirectory{}, sql.ErrNoRows
 	}
 	return e, err
@@ -50,10 +49,6 @@ func (q *Queries) GetAssetDirectoryByID(ctx context.Context, directoryID int64) 
 
 func (q *Queries) ListAssetDirectories(ctx context.Context) ([]apigen.AssetDirectory, error) {
 	return q.listAssetDirectories(ctx, liveAssetDirectories+` ORDER BY space_id, parent_id, key`)
-}
-
-func (q *Queries) ListAssetDirectoriesAtSeq(ctx context.Context, seq int64) ([]apigen.AssetDirectory, error) {
-	return q.listAssetDirectories(ctx, `FROM asset_directory_event_log WHERE global_seq = ? ORDER BY id`, seq)
 }
 
 func (q *Queries) CountChildAssetDirectories(ctx context.Context, parentID int64) (int64, error) {
@@ -95,8 +90,14 @@ func AssetDirectoryEvent(d apigen.AssetDirectory, meta EventMeta) AssetDirectory
 	return AssetDirectoryEventParams{EventMeta: meta, DirectoryID: int64(d.ID), SpaceID: int64(d.SpaceID), Key: d.Key, ParentID: int64(d.ParentID), CreatedAt: d.CreatedAt.UnixMilli()}
 }
 
-func (q *Queries) InsertAssetDirectoryEvent(ctx context.Context, arg AssetDirectoryEventParams) (apigen.AssetDirectory, error) {
-	return scanAssetDirectory(q.db.QueryRowContext(ctx, `INSERT INTO asset_directory_event_log (global_seq, event_time, author, directory_id, event_type, space_id, key, parent_id, created_at)
+// InsertAssetDirectoryEvent appends the row and returns the written
+// directory with the mutation that describes the write.
+func (q *Queries) InsertAssetDirectoryEvent(ctx context.Context, arg AssetDirectoryEventParams) (apigen.AssetDirectory, Mutation, error) {
+	d, _, err := scanAssetDirectory(q.db.QueryRowContext(ctx, `INSERT INTO asset_directory_event_log (global_seq, event_time, author, directory_id, event_type, space_id, key, parent_id, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING `+assetDirectoryColumns, arg.GlobalSeq, arg.EventTime, arg.Author, arg.DirectoryID, arg.EventType, arg.SpaceID, arg.Key, arg.ParentID, arg.CreatedAt))
+	if err != nil {
+		return apigen.AssetDirectory{}, Mutation{}, err
+	}
+	return d, AssetDirectoryMutation(arg.EventMeta, d), nil
 }

@@ -6,7 +6,10 @@ func (m Deployment) IsZero() bool {
 	return m.Spec.IsZero() &&
 		m.SpaceID == 0 &&
 		m.Name == "" &&
-		m.Scheduling.IsZero()
+		m.Scheduling.IsZero() &&
+		m.Version == 0 &&
+		m.SpecVersion == 0 &&
+		m.CreatedTime.IsZero()
 }
 
 func (m *Deployment) Encode() []byte {
@@ -21,6 +24,9 @@ func (m *Deployment) Encode() []byte {
 		b = AppendTag(b, 14, BytesType)
 		b = AppendBytes(b, m.Scheduling.Encode())
 	}
+	b = AppendInt32Field(b, m.Version, 15)
+	b = AppendInt32Field(b, m.SpecVersion, 16)
+	b = AppendInt64FromTime(b, m.CreatedTime, 17)
 	return b
 }
 
@@ -58,6 +64,12 @@ func DecodeDeployment(b []byte) (*Deployment, error) {
 					m.Scheduling = *item
 				}
 			}
+		case 15:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 16:
+			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+		case 17:
+			b, m.CreatedTime, err = ConsumeTimeFromInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -70,7 +82,8 @@ func DecodeDeployment(b []byte) (*Deployment, error) {
 
 func (m Scheduling) IsZero() bool {
 	return m.Running == false &&
-		m.DedicatedNodes == nil
+		m.DedicatedNodes == nil &&
+		m.Generation == 0
 }
 
 func (m *Scheduling) Encode() []byte {
@@ -80,6 +93,7 @@ func (m *Scheduling) Encode() []byte {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, m.DedicatedNodes.Encode())
 	}
+	b = AppendInt32Field(b, m.Generation, 3)
 	return b
 }
 
@@ -106,6 +120,8 @@ func DecodeScheduling(b []byte) (*Scheduling, error) {
 					m.DedicatedNodes = item
 				}
 			}
+		case 3:
+			b, m.Generation, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -1651,15 +1667,15 @@ func DecodeSecretCertSource(b []byte) (*SecretCertSource, error) {
 	return &m, nil
 }
 
-func (m *DeploymentSpecVersionRef) Encode() []byte {
+func (m *DeploymentExpectedSeq) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt32Field(b, m.SpecVersion, 2)
+	b = AppendInt32Field(b, m.DeploymentID, 1)
+	b = AppendInt64Field(b, m.ExpectedSeq, 2)
 	return b
 }
 
-func DecodeDeploymentSpecVersionRef(b []byte) (*DeploymentSpecVersionRef, error) {
-	var m DeploymentSpecVersionRef
+func DecodeDeploymentExpectedSeq(b []byte) (*DeploymentExpectedSeq, error) {
+	var m DeploymentExpectedSeq
 	var num Number
 	var typ Type
 	var err error
@@ -1670,9 +1686,9 @@ func DecodeDeploymentSpecVersionRef(b []byte) (*DeploymentSpecVersionRef, error)
 		}
 		switch num {
 		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
+			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
 		case 2:
-			b, m.SpecVersion, err = ConsumeVarInt32(b, typ)
+			b, m.ExpectedSeq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -2131,7 +2147,7 @@ func DecodeScheduledInstanceEvent(b []byte) (*ScheduledInstanceEvent, error) {
 func (m *DeploymentUpdateRequestV2) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendInt32Field(b, m.ExpectedVersion, 2)
+	b = AppendInt64Field(b, m.ExpectedSeq, 8)
 	if m.VersionOnlyUpdate != nil {
 		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.VersionOnlyUpdate.Encode())
@@ -2169,8 +2185,8 @@ func DecodeDeploymentUpdateRequestV2(b []byte) (*DeploymentUpdateRequestV2, erro
 		switch num {
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.ExpectedVersion, err = ConsumeVarInt32(b, typ)
+		case 8:
+			b, m.ExpectedSeq, err = ConsumeVarInt64(b, typ)
 		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
@@ -2543,7 +2559,7 @@ func DecodeRecentlyDeletedDeployments(b []byte) (*RecentlyDeletedDeployments, er
 func (m *DeploymentDeleteRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.DeploymentID, 1)
-	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt64Field(b, m.ExpectedSeq, 3)
 	return b
 }
 
@@ -2560,8 +2576,8 @@ func DecodeDeploymentDeleteRequest(b []byte) (*DeploymentDeleteRequest, error) {
 		switch num {
 		case 1:
 			b, m.DeploymentID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.ExpectedSeq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -4979,7 +4995,12 @@ func DecodeSecretEvent(b []byte) (*SecretEvent, error) {
 
 func (m Secret) IsZero() bool {
 	return m.Fs == nil &&
-		m.SpaceID == 0
+		m.SpaceID == 0 &&
+		m.ValueVersion == 0 &&
+		m.CreatedTime == 0 &&
+		m.SmkVersion == 0 &&
+		len(m.Ciphertext) == 0 &&
+		len(m.Nonce) == 0
 }
 
 func (m *Secret) Encode() []byte {
@@ -4989,6 +5010,11 @@ func (m *Secret) Encode() []byte {
 		b = AppendBytes(b, m.Fs.Encode())
 	}
 	b = AppendInt32Field(b, m.SpaceID, 2)
+	b = AppendInt32Field(b, m.ValueVersion, 4)
+	b = AppendInt64Field(b, m.CreatedTime, 5)
+	b = AppendInt64Field(b, m.SmkVersion, 6)
+	b = AppendBytesField(b, m.Ciphertext, 7)
+	b = AppendBytesField(b, m.Nonce, 8)
 	return b
 }
 
@@ -5015,6 +5041,67 @@ func DecodeSecret(b []byte) (*Secret, error) {
 			}
 		case 2:
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, m.ValueVersion, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.CreatedTime, err = ConsumeVarInt64(b, typ)
+		case 6:
+			b, m.SmkVersion, err = ConsumeVarInt64(b, typ)
+		case 7:
+			b, m.Ciphertext, err = ConsumeBytesCopy(b, typ)
+		case 8:
+			b, m.Nonce, err = ConsumeBytesCopy(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *SecretKeyslot) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.Kind), 1)
+	b = AppendInt32Field(b, m.NodeID, 2)
+	b = AppendInt64Field(b, m.SmkVersion, 3)
+	b = AppendBytesField(b, m.WrappedSmk, 4)
+	b = AppendBytesField(b, m.Nonce, 5)
+	b = AppendBytesField(b, m.KdfSalt, 6)
+	b = AppendInt64Field(b, m.UpdatedAt, 7)
+	return b
+}
+
+func DecodeSecretKeyslot(b []byte) (*SecretKeyslot, error) {
+	var m SecretKeyslot
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Kind = SecretKeyslotKind(raw)
+			}
+		case 2:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.SmkVersion, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, m.WrappedSmk, err = ConsumeBytesCopy(b, typ)
+		case 5:
+			b, m.Nonce, err = ConsumeBytesCopy(b, typ)
+		case 6:
+			b, m.KdfSalt, err = ConsumeBytesCopy(b, typ)
+		case 7:
+			b, m.UpdatedAt, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5176,8 +5263,8 @@ func DecodeSecretSetRequest(b []byte) (*SecretSetRequest, error) {
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentSpecVersionRef
-				item, err = DecodeDeploymentSpecVersionRef(msgBytes)
+				var item *DeploymentExpectedSeq
+				item, err = DecodeDeploymentExpectedSeq(msgBytes)
 				if err == nil {
 					m.ReferencingDeployments = append(m.ReferencingDeployments, item)
 				}
@@ -5368,7 +5455,8 @@ func DecodeSecretDeleteRequest(b []byte) (*SecretDeleteRequest, error) {
 
 func (m *SecretRevealRequest) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.ID, 1)
+	b = AppendInt32Field(b, m.SecretID, 2)
+	b = AppendInt32Field(b, m.Version, 3)
 	return b
 }
 
@@ -5383,8 +5471,10 @@ func DecodeSecretRevealRequest(b []byte) (*SecretRevealRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			b, m.ID, err = ConsumeVarInt32(b, typ)
+		case 2:
+			b, m.SecretID, err = ConsumeVarInt32(b, typ)
+		case 3:
+			b, m.Version, err = ConsumeVarInt32(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5588,7 +5678,9 @@ func DecodeConfigEvent(b []byte) (*ConfigEvent, error) {
 func (m Config) IsZero() bool {
 	return m.Fs == nil &&
 		m.SpaceID == 0 &&
-		m.Value == ""
+		m.Value == "" &&
+		m.ValueVersion == 0 &&
+		m.CreatedTime == 0
 }
 
 func (m *Config) Encode() []byte {
@@ -5599,6 +5691,8 @@ func (m *Config) Encode() []byte {
 	}
 	b = AppendInt32Field(b, m.SpaceID, 2)
 	b = AppendStringField(b, m.Value, 3)
+	b = AppendInt32Field(b, m.ValueVersion, 4)
+	b = AppendInt64Field(b, m.CreatedTime, 5)
 	return b
 }
 
@@ -5627,6 +5721,10 @@ func DecodeConfig(b []byte) (*Config, error) {
 			b, m.SpaceID, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.Value, err = ConsumeString(b, typ)
+		case 4:
+			b, m.ValueVersion, err = ConsumeVarInt32(b, typ)
+		case 5:
+			b, m.CreatedTime, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5677,7 +5775,6 @@ func (m *ValueDirectory) Encode() []byte {
 	b = AppendInt32Field(b, m.ParentID, 4)
 	b = AppendInt64FromTime(b, m.CreatedAt, 5)
 	b = AppendInt32Field(b, m.Author, 6)
-	b = AppendBoolField(b, m.Deleted, 7)
 	return b
 }
 
@@ -5704,8 +5801,6 @@ func DecodeValueDirectory(b []byte) (*ValueDirectory, error) {
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 6:
 			b, m.Author, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -5835,8 +5930,8 @@ func DecodeConfigSetRequest(b []byte) (*ConfigSetRequest, error) {
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentSpecVersionRef
-				item, err = DecodeDeploymentSpecVersionRef(msgBytes)
+				var item *DeploymentExpectedSeq
+				item, err = DecodeDeploymentExpectedSeq(msgBytes)
 				if err == nil {
 					m.ReferencingDeployments = append(m.ReferencingDeployments, item)
 				}
@@ -6023,7 +6118,9 @@ func (m Asset) IsZero() bool {
 		m.SpaceID == 0 &&
 		m.Sha256 == "" &&
 		m.SizeBytes == 0 &&
-		m.StorageKey == ""
+		m.StorageKey == "" &&
+		m.ValueVersion == 0 &&
+		m.CreatedTime == 0
 }
 
 func (m *Asset) Encode() []byte {
@@ -6036,6 +6133,8 @@ func (m *Asset) Encode() []byte {
 	b = AppendStringField(b, m.Sha256, 3)
 	b = AppendInt64Field(b, m.SizeBytes, 4)
 	b = AppendStringField(b, m.StorageKey, 5)
+	b = AppendInt32Field(b, m.ValueVersion, 6)
+	b = AppendInt64Field(b, m.CreatedTime, 7)
 	return b
 }
 
@@ -6068,6 +6167,10 @@ func DecodeAsset(b []byte) (*Asset, error) {
 			b, m.SizeBytes, err = ConsumeVarInt64(b, typ)
 		case 5:
 			b, m.StorageKey, err = ConsumeString(b, typ)
+		case 6:
+			b, m.ValueVersion, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.CreatedTime, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6118,7 +6221,6 @@ func (m *AssetDirectory) Encode() []byte {
 	b = AppendInt32Field(b, m.ParentID, 4)
 	b = AppendInt64FromTime(b, m.CreatedAt, 5)
 	b = AppendInt32Field(b, m.Author, 6)
-	b = AppendBoolField(b, m.Deleted, 7)
 	return b
 }
 
@@ -6145,8 +6247,6 @@ func DecodeAssetDirectory(b []byte) (*AssetDirectory, error) {
 			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
 		case 6:
 			b, m.Author, err = ConsumeVarInt32(b, typ)
-		case 7:
-			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6651,7 +6751,6 @@ func (m *Space) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
-	b = AppendBoolField(b, m.Deleted, 3)
 	return b
 }
 
@@ -6670,8 +6769,6 @@ func DecodeSpace(b []byte) (*Space, error) {
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.Name, err = ConsumeString(b, typ)
-		case 3:
-			b, m.Deleted, err = ConsumeBool(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -6792,6 +6889,7 @@ func (m *User) Encode() []byte {
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
 	b = AppendInt64Field(b, m.CreatedAt, 3)
+	b = AppendBytesField(b, m.Credentials, 5)
 	return b
 }
 
@@ -6812,6 +6910,8 @@ func DecodeUser(b []byte) (*User, error) {
 			b, m.Name, err = ConsumeString(b, typ)
 		case 3:
 			b, m.CreatedAt, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.Credentials, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -7190,6 +7290,7 @@ func (m *AgentSession) Encode() []byte {
 	b = AppendStringField(b, m.RequestingAddress, 7)
 	b = AppendStringField(b, m.ApprovalCode, 8)
 	b = AppendInt64FromTime(b, m.ApprovedAt, 9)
+	b = AppendBytesField(b, m.TokenHash, 10)
 	return b
 }
 
@@ -7226,6 +7327,8 @@ func DecodeAgentSession(b []byte) (*AgentSession, error) {
 			b, m.ApprovalCode, err = ConsumeString(b, typ)
 		case 9:
 			b, m.ApprovedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 10:
+			b, m.TokenHash, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -7246,6 +7349,7 @@ func (m *UserSession) Encode() []byte {
 	b = AppendStringField(b, m.UserAgent, 6)
 	b = AppendInt32Field(b, m.UserID, 9)
 	b = AppendInt32Field(b, int32(m.Kind), 10)
+	b = AppendBytesField(b, m.TokenHash, 11)
 	return b
 }
 
@@ -7280,6 +7384,8 @@ func DecodeUserSession(b []byte) (*UserSession, error) {
 			if err == nil {
 				m.Kind = UserSessionKind(raw)
 			}
+		case 11:
+			b, m.TokenHash, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -7865,7 +7971,6 @@ func (m *AuthzRuleTemplateRecord) Encode() []byte {
 	b = AppendInt64Field(b, m.ID, 1)
 	b = AppendStringField(b, m.Name, 2)
 	b = AppendBoolField(b, m.Builtin, 3)
-	b = AppendBoolField(b, m.Deleted, 4)
 	b = AppendInt64Field(b, m.Author, 5)
 	b = AppendInt64Field(b, m.CreatedAt, 6)
 	if m.Template != nil {
@@ -7893,8 +7998,6 @@ func DecodeAuthzRuleTemplateRecord(b []byte) (*AuthzRuleTemplateRecord, error) {
 			b, m.Name, err = ConsumeString(b, typ)
 		case 3:
 			b, m.Builtin, err = ConsumeBool(b, typ)
-		case 4:
-			b, m.Deleted, err = ConsumeBool(b, typ)
 		case 5:
 			b, m.Author, err = ConsumeVarInt64(b, typ)
 		case 6:
@@ -8205,7 +8308,9 @@ func DecodeAuthzGlobalRuleRecord(b []byte) (*AuthzGlobalRuleRecord, error) {
 func (m AuthzGrantValue) IsZero() bool {
 	return m.UserID == 0 &&
 		m.TemplateID == 0 &&
-		m.Grant == nil
+		m.Grant == nil &&
+		m.Author == 0 &&
+		m.CreatedTime == 0
 }
 
 func (m *AuthzGrantValue) Encode() []byte {
@@ -8216,6 +8321,8 @@ func (m *AuthzGrantValue) Encode() []byte {
 		b = AppendTag(b, 3, BytesType)
 		b = AppendBytes(b, m.Grant.Encode())
 	}
+	b = AppendInt64Field(b, m.Author, 4)
+	b = AppendInt64Field(b, m.CreatedTime, 5)
 	return b
 }
 
@@ -8244,6 +8351,10 @@ func DecodeAuthzGrantValue(b []byte) (*AuthzGrantValue, error) {
 					m.Grant = item
 				}
 			}
+		case 4:
+			b, m.Author, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.CreatedTime, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -8824,7 +8935,8 @@ func (m Node) IsZero() bool {
 	return m.Status == 0 &&
 		m.EnrollmentRequestedAt == 0 &&
 		m.Operator.IsZero() &&
-		m.Reported.IsZero()
+		m.Reported.IsZero() &&
+		m.CreatedTime == 0
 }
 
 func (m *Node) Encode() []byte {
@@ -8839,6 +8951,7 @@ func (m *Node) Encode() []byte {
 		b = AppendTag(b, 4, BytesType)
 		b = AppendBytes(b, m.Reported.Encode())
 	}
+	b = AppendInt64Field(b, m.CreatedTime, 5)
 	return b
 }
 
@@ -8880,6 +8993,8 @@ func DecodeNode(b []byte) (*Node, error) {
 					m.Reported = *item
 				}
 			}
+		case 5:
+			b, m.CreatedTime, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -9277,8 +9392,8 @@ func DecodeNodeDrainRequest(b []byte) (*NodeDrainRequest, error) {
 func (m *NodeEvictRequest) Encode() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Identifier, 1)
-	b = AppendInt32Field(b, m.ExpectedVersion, 2)
 	b = AppendBoolField(b, m.Force, 3)
+	b = AppendInt64Field(b, m.ExpectedSeq, 4)
 	return b
 }
 
@@ -9295,10 +9410,10 @@ func DecodeNodeEvictRequest(b []byte) (*NodeEvictRequest, error) {
 		switch num {
 		case 1:
 			b, m.Identifier, err = ConsumeString(b, typ)
-		case 2:
-			b, m.ExpectedVersion, err = ConsumeVarInt32(b, typ)
 		case 3:
 			b, m.Force, err = ConsumeBool(b, typ)
+		case 4:
+			b, m.ExpectedSeq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -10684,7 +10799,8 @@ func (m NetworkPolicy) IsZero() bool {
 	return m.Action == 0 &&
 		m.Source == nil &&
 		m.Destination == nil &&
-		len(m.Ports) == 0
+		len(m.Ports) == 0 &&
+		m.CreatedTime == 0
 }
 
 func (m *NetworkPolicy) Encode() []byte {
@@ -10706,6 +10822,7 @@ func (m *NetworkPolicy) Encode() []byte {
 		}
 		b = AppendBytes(b, item.Encode())
 	}
+	b = AppendInt64Field(b, m.CreatedTime, 8)
 	return b
 }
 
@@ -10754,6 +10871,8 @@ func DecodeNetworkPolicy(b []byte) (*NetworkPolicy, error) {
 					m.Ports = append(m.Ports, item)
 				}
 			}
+		case 8:
+			b, m.CreatedTime, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -10992,7 +11111,7 @@ func DecodeNetworkPolicyCreateRequest(b []byte) (*NetworkPolicyCreateRequest, er
 func (m *NetworkPolicyUpdateRequest) Encode() []byte {
 	var b []byte
 	b = AppendInt32Field(b, m.ID, 1)
-	b = AppendInt32Field(b, m.Version, 2)
+	b = AppendInt64Field(b, m.ExpectedSeq, 7)
 	b = AppendInt32Field(b, int32(m.Action), 3)
 	if m.Source != nil {
 		b = AppendTag(b, 4, BytesType)
@@ -11027,8 +11146,8 @@ func DecodeNetworkPolicyUpdateRequest(b []byte) (*NetworkPolicyUpdateRequest, er
 		switch num {
 		case 1:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
-		case 2:
-			b, m.Version, err = ConsumeVarInt32(b, typ)
+		case 7:
+			b, m.ExpectedSeq, err = ConsumeVarInt64(b, typ)
 		case 3:
 			var raw int32
 			b, raw, err = ConsumeVarInt32(b, typ)
@@ -12125,9 +12244,9 @@ func DecodeEnrollmentRequestList(b []byte) (*EnrollmentRequestList, error) {
 
 func (m *EnrollmentAcceptRequest) Encode() []byte {
 	var b []byte
-	b = AppendInt32Field(b, m.ExpectedVersion, 3)
 	b = AppendInt32Field(b, m.ID, 1)
 	b = AppendStringField(b, m.NodeName, 2)
+	b = AppendInt64Field(b, m.ExpectedSeq, 4)
 	return b
 }
 
@@ -12142,12 +12261,12 @@ func DecodeEnrollmentAcceptRequest(b []byte) (*EnrollmentAcceptRequest, error) {
 			return nil, err
 		}
 		switch num {
-		case 3:
-			b, m.ExpectedVersion, err = ConsumeVarInt32(b, typ)
 		case 1:
 			b, m.ID, err = ConsumeVarInt32(b, typ)
 		case 2:
 			b, m.NodeName, err = ConsumeString(b, typ)
+		case 4:
+			b, m.ExpectedSeq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -12433,12 +12552,6 @@ func DecodeBoolSetting(b []byte) (*BoolSetting, error) {
 	return &m, nil
 }
 
-func (m SystemConfig) IsZero() bool {
-	return m.Settings.IsZero() &&
-		m.MasterPasswordHash == "" &&
-		len(m.NetworkUlaPrefix) == 0
-}
-
 func (m *SystemConfig) Encode() []byte {
 	var b []byte
 	if !m.Settings.IsZero() {
@@ -12475,52 +12588,6 @@ func DecodeSystemConfig(b []byte) (*SystemConfig, error) {
 			b, m.MasterPasswordHash, err = ConsumeString(b, typ)
 		case 3:
 			b, m.NetworkUlaPrefix, err = ConsumeBytesCopy(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return &m, nil
-}
-
-func (m *SystemConfigVersion) Encode() []byte {
-	var b []byte
-	b = AppendInt64Field(b, m.Version, 1)
-	b = AppendInt64FromTime(b, m.UpdatedAt, 2)
-	if !m.Config.IsZero() {
-		b = AppendTag(b, 3, BytesType)
-		b = AppendBytes(b, m.Config.Encode())
-	}
-	return b
-}
-
-func DecodeSystemConfigVersion(b []byte) (*SystemConfigVersion, error) {
-	var m SystemConfigVersion
-	var num Number
-	var typ Type
-	var err error
-	var msgBytes []byte
-	for len(b) > 0 {
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Version, err = ConsumeVarInt64(b, typ)
-		case 2:
-			b, m.UpdatedAt, err = ConsumeTimeFromInt64(b, typ)
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SystemConfig
-				item, err = DecodeSystemConfig(msgBytes)
-				if err == nil {
-					m.Config = *item
-				}
-			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -13335,163 +13402,13 @@ func DecodeBackupStatus(b []byte) (*BackupStatus, error) {
 	return &m, nil
 }
 
-func (m *Snapshot) Encode() []byte {
+func (m *CoreWriteUpdate) Encode() []byte {
 	var b []byte
 	b = AppendInt64Field(b, m.Seq, 1)
-	for _, item := range m.DeploymentEvents {
-		b = AppendTag(b, 2, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.ScheduledInstanceEvents {
-		b = AppendTag(b, 3, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.InstanceStatuses {
+	b = AppendInt64Field(b, m.Time, 2)
+	b = AppendInt32Field(b, m.Actor, 3)
+	for _, item := range m.Mutations {
 		b = AppendTag(b, 4, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.NodeEvents {
-		b = AppendTag(b, 5, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.NodeStatuses {
-		b = AppendTag(b, 6, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.SecretEvents {
-		b = AppendTag(b, 7, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.ConfigEvents {
-		b = AppendTag(b, 8, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AssetEvents {
-		b = AppendTag(b, 9, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.ValueDirectories {
-		b = AppendTag(b, 10, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AssetDirectories {
-		b = AppendTag(b, 11, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.Spaces {
-		b = AppendTag(b, 12, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.NetworkPolicyEvents {
-		b = AppendTag(b, 13, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.Users {
-		b = AppendTag(b, 14, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AgentSessions {
-		b = AppendTag(b, 15, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AuthzRuleTemplates {
-		b = AppendTag(b, 16, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AuthzGrantEvents {
-		b = AppendTag(b, 17, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AuthzGlobalRules {
-		b = AppendTag(b, 18, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	if m.SecretsStatus != nil {
-		b = AppendTag(b, 19, BytesType)
-		b = AppendBytes(b, m.SecretsStatus.Encode())
-	}
-	if m.BackupStatus != nil {
-		b = AppendTag(b, 20, BytesType)
-		b = AppendBytes(b, m.BackupStatus.Encode())
-	}
-	if m.SystemConfig != nil {
-		b = AppendTag(b, 21, BytesType)
-		b = AppendBytes(b, m.SystemConfig.Encode())
-	}
-	if m.IngressDiagnostics != nil {
-		b = AppendTag(b, 22, BytesType)
-		b = AppendBytes(b, m.IngressDiagnostics.Encode())
-	}
-	for _, item := range m.UserSessions {
-		b = AppendTag(b, 23, BytesType)
 		if item == nil {
 			b = AppendBytes(b, nil)
 			continue
@@ -13501,8 +13418,8 @@ func (m *Snapshot) Encode() []byte {
 	return b
 }
 
-func DecodeSnapshot(b []byte) (*Snapshot, error) {
-	var m Snapshot
+func DecodeCoreWriteUpdate(b []byte) (*CoreWriteUpdate, error) {
+	var m CoreWriteUpdate
 	var num Number
 	var typ Type
 	var err error
@@ -13516,75 +13433,410 @@ func DecodeSnapshot(b []byte) (*Snapshot, error) {
 		case 1:
 			b, m.Seq, err = ConsumeVarInt64(b, typ)
 		case 2:
+			b, m.Time, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.Actor, err = ConsumeVarInt32(b, typ)
+		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *DeploymentEvent
-				item, err = DecodeDeploymentEvent(msgBytes)
+				var item *CoreMutation
+				item, err = DecodeCoreMutation(msgBytes)
 				if err == nil {
-					m.DeploymentEvents = append(m.DeploymentEvents, item)
+					m.Mutations = append(m.Mutations, item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *CoreMutation) Encode() []byte {
+	var b []byte
+	if m.Create != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Create.Encode())
+	}
+	if m.Update != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.Update.Encode())
+	}
+	if m.Delete != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Delete.Encode())
+	}
+	return b
+}
+
+func DecodeCoreMutation(b []byte) (*CoreMutation, error) {
+	var m CoreMutation
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *CreateMutation
+				item, err = DecodeCreateMutation(msgBytes)
+				if err == nil {
+					m.Create = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *UpdateMutation
+				item, err = DecodeUpdateMutation(msgBytes)
+				if err == nil {
+					m.Update = item
 				}
 			}
 		case 3:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ScheduledInstanceEvent
-				item, err = DecodeScheduledInstanceEvent(msgBytes)
+				var item *DeleteMutation
+				item, err = DecodeDeleteMutation(msgBytes)
 				if err == nil {
-					m.ScheduledInstanceEvents = append(m.ScheduledInstanceEvents, item)
+					m.Delete = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *CreateMutation) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.EntityType), 1)
+	b = AppendInt64Field(b, m.EntityID, 2)
+	if m.Entity != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Entity.Encode())
+	}
+	return b
+}
+
+func DecodeCreateMutation(b []byte) (*CreateMutation, error) {
+	var m CreateMutation
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.EntityType = CoreEntityType(raw)
+			}
+		case 2:
+			b, m.EntityID, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *CoreEntity
+				item, err = DecodeCoreEntity(msgBytes)
+				if err == nil {
+					m.Entity = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *UpdateMutation) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.EntityType), 1)
+	b = AppendInt64Field(b, m.EntityID, 2)
+	if m.Entity != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Entity.Encode())
+	}
+	return b
+}
+
+func DecodeUpdateMutation(b []byte) (*UpdateMutation, error) {
+	var m UpdateMutation
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.EntityType = CoreEntityType(raw)
+			}
+		case 2:
+			b, m.EntityID, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *CoreEntity
+				item, err = DecodeCoreEntity(msgBytes)
+				if err == nil {
+					m.Entity = item
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *DeleteMutation) Encode() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.EntityType), 1)
+	b = AppendInt64Field(b, m.EntityID, 2)
+	return b
+}
+
+func DecodeDeleteMutation(b []byte) (*DeleteMutation, error) {
+	var m DeleteMutation
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.EntityType = CoreEntityType(raw)
+			}
+		case 2:
+			b, m.EntityID, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &m, nil
+}
+
+func (m *CoreEntity) Encode() []byte {
+	var b []byte
+	if m.Deployment != nil {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, m.Deployment.Encode())
+	}
+	if m.ScheduledInstance != nil {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, m.ScheduledInstance.Encode())
+	}
+	if m.Node != nil {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, m.Node.Encode())
+	}
+	if m.Secret != nil {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, m.Secret.Encode())
+	}
+	if m.Config != nil {
+		b = AppendTag(b, 5, BytesType)
+		b = AppendBytes(b, m.Config.Encode())
+	}
+	if m.Asset != nil {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, m.Asset.Encode())
+	}
+	if m.NetworkPolicy != nil {
+		b = AppendTag(b, 7, BytesType)
+		b = AppendBytes(b, m.NetworkPolicy.Encode())
+	}
+	if m.Space != nil {
+		b = AppendTag(b, 8, BytesType)
+		b = AppendBytes(b, m.Space.Encode())
+	}
+	if m.User != nil {
+		b = AppendTag(b, 9, BytesType)
+		b = AppendBytes(b, m.User.Encode())
+	}
+	if m.ValueDirectory != nil {
+		b = AppendTag(b, 10, BytesType)
+		b = AppendBytes(b, m.ValueDirectory.Encode())
+	}
+	if m.AssetDirectory != nil {
+		b = AppendTag(b, 11, BytesType)
+		b = AppendBytes(b, m.AssetDirectory.Encode())
+	}
+	if m.AuthzRuleTemplate != nil {
+		b = AppendTag(b, 12, BytesType)
+		b = AppendBytes(b, m.AuthzRuleTemplate.Encode())
+	}
+	if m.AuthzGrant != nil {
+		b = AppendTag(b, 13, BytesType)
+		b = AppendBytes(b, m.AuthzGrant.Encode())
+	}
+	if m.AuthzGlobalRule != nil {
+		b = AppendTag(b, 14, BytesType)
+		b = AppendBytes(b, m.AuthzGlobalRule.Encode())
+	}
+	if m.SystemConfig != nil {
+		b = AppendTag(b, 15, BytesType)
+		b = AppendBytes(b, m.SystemConfig.Encode())
+	}
+	if m.ScheduledInstanceStatus != nil {
+		b = AppendTag(b, 16, BytesType)
+		b = AppendBytes(b, m.ScheduledInstanceStatus.Encode())
+	}
+	if m.NodeStatus != nil {
+		b = AppendTag(b, 17, BytesType)
+		b = AppendBytes(b, m.NodeStatus.Encode())
+	}
+	if m.AgentSession != nil {
+		b = AppendTag(b, 18, BytesType)
+		b = AppendBytes(b, m.AgentSession.Encode())
+	}
+	if m.UserSession != nil {
+		b = AppendTag(b, 19, BytesType)
+		b = AppendBytes(b, m.UserSession.Encode())
+	}
+	if m.NixStoreReset != nil {
+		b = AppendTag(b, 20, BytesType)
+		b = AppendBytes(b, m.NixStoreReset.Encode())
+	}
+	if m.SecretKeyslot != nil {
+		b = AppendTag(b, 21, BytesType)
+		b = AppendBytes(b, m.SecretKeyslot.Encode())
+	}
+	return b
+}
+
+func DecodeCoreEntity(b []byte) (*CoreEntity, error) {
+	var m CoreEntity
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Deployment
+				item, err = DecodeDeployment(msgBytes)
+				if err == nil {
+					m.Deployment = item
+				}
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstance
+				item, err = DecodeScheduledInstance(msgBytes)
+				if err == nil {
+					m.ScheduledInstance = item
+				}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *Node
+				item, err = DecodeNode(msgBytes)
+				if err == nil {
+					m.Node = item
 				}
 			}
 		case 4:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ScheduledInstanceStatus
-				item, err = DecodeScheduledInstanceStatus(msgBytes)
+				var item *Secret
+				item, err = DecodeSecret(msgBytes)
 				if err == nil {
-					m.InstanceStatuses = append(m.InstanceStatuses, item)
+					m.Secret = item
 				}
 			}
 		case 5:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *NodeEvent
-				item, err = DecodeNodeEvent(msgBytes)
+				var item *Config
+				item, err = DecodeConfig(msgBytes)
 				if err == nil {
-					m.NodeEvents = append(m.NodeEvents, item)
+					m.Config = item
 				}
 			}
 		case 6:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *NodeStatus
-				item, err = DecodeNodeStatus(msgBytes)
+				var item *Asset
+				item, err = DecodeAsset(msgBytes)
 				if err == nil {
-					m.NodeStatuses = append(m.NodeStatuses, item)
+					m.Asset = item
 				}
 			}
 		case 7:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *SecretEvent
-				item, err = DecodeSecretEvent(msgBytes)
+				var item *NetworkPolicy
+				item, err = DecodeNetworkPolicy(msgBytes)
 				if err == nil {
-					m.SecretEvents = append(m.SecretEvents, item)
+					m.NetworkPolicy = item
 				}
 			}
 		case 8:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ConfigEvent
-				item, err = DecodeConfigEvent(msgBytes)
+				var item *Space
+				item, err = DecodeSpace(msgBytes)
 				if err == nil {
-					m.ConfigEvents = append(m.ConfigEvents, item)
+					m.Space = item
 				}
 			}
 		case 9:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *AssetEvent
-				item, err = DecodeAssetEvent(msgBytes)
+				var item *User
+				item, err = DecodeUser(msgBytes)
 				if err == nil {
-					m.AssetEvents = append(m.AssetEvents, item)
+					m.User = item
 				}
 			}
 		case 10:
@@ -13593,7 +13845,7 @@ func DecodeSnapshot(b []byte) (*Snapshot, error) {
 				var item *ValueDirectory
 				item, err = DecodeValueDirectory(msgBytes)
 				if err == nil {
-					m.ValueDirectories = append(m.ValueDirectories, item)
+					m.ValueDirectory = item
 				}
 			}
 		case 11:
@@ -13602,115 +13854,97 @@ func DecodeSnapshot(b []byte) (*Snapshot, error) {
 				var item *AssetDirectory
 				item, err = DecodeAssetDirectory(msgBytes)
 				if err == nil {
-					m.AssetDirectories = append(m.AssetDirectories, item)
+					m.AssetDirectory = item
 				}
 			}
 		case 12:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Space
-				item, err = DecodeSpace(msgBytes)
-				if err == nil {
-					m.Spaces = append(m.Spaces, item)
-				}
-			}
-		case 13:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *NetworkPolicyEvent
-				item, err = DecodeNetworkPolicyEvent(msgBytes)
-				if err == nil {
-					m.NetworkPolicyEvents = append(m.NetworkPolicyEvents, item)
-				}
-			}
-		case 14:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *User
-				item, err = DecodeUser(msgBytes)
-				if err == nil {
-					m.Users = append(m.Users, item)
-				}
-			}
-		case 15:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AgentSession
-				item, err = DecodeAgentSession(msgBytes)
-				if err == nil {
-					m.AgentSessions = append(m.AgentSessions, item)
-				}
-			}
-		case 16:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AuthzRuleTemplateRecord
 				item, err = DecodeAuthzRuleTemplateRecord(msgBytes)
 				if err == nil {
-					m.AuthzRuleTemplates = append(m.AuthzRuleTemplates, item)
+					m.AuthzRuleTemplate = item
 				}
 			}
-		case 17:
+		case 13:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *AuthzGrantEvent
-				item, err = DecodeAuthzGrantEvent(msgBytes)
+				var item *AuthzGrantValue
+				item, err = DecodeAuthzGrantValue(msgBytes)
 				if err == nil {
-					m.AuthzGrantEvents = append(m.AuthzGrantEvents, item)
+					m.AuthzGrant = item
 				}
 			}
-		case 18:
+		case 14:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
 				var item *AuthzGlobalRuleRecord
 				item, err = DecodeAuthzGlobalRuleRecord(msgBytes)
 				if err == nil {
-					m.AuthzGlobalRules = append(m.AuthzGlobalRules, item)
+					m.AuthzGlobalRule = item
+				}
+			}
+		case 15:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SystemConfig
+				item, err = DecodeSystemConfig(msgBytes)
+				if err == nil {
+					m.SystemConfig = item
+				}
+			}
+		case 16:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ScheduledInstanceStatus
+				item, err = DecodeScheduledInstanceStatus(msgBytes)
+				if err == nil {
+					m.ScheduledInstanceStatus = item
+				}
+			}
+		case 17:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeStatus
+				item, err = DecodeNodeStatus(msgBytes)
+				if err == nil {
+					m.NodeStatus = item
+				}
+			}
+		case 18:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AgentSession
+				item, err = DecodeAgentSession(msgBytes)
+				if err == nil {
+					m.AgentSession = item
 				}
 			}
 		case 19:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *SecretsStatusResponse
-				item, err = DecodeSecretsStatusResponse(msgBytes)
+				var item *UserSession
+				item, err = DecodeUserSession(msgBytes)
 				if err == nil {
-					m.SecretsStatus = item
+					m.UserSession = item
 				}
 			}
 		case 20:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *BackupStatus
-				item, err = DecodeBackupStatus(msgBytes)
+				var item *NixStoreReset
+				item, err = DecodeNixStoreReset(msgBytes)
 				if err == nil {
-					m.BackupStatus = item
+					m.NixStoreReset = item
 				}
 			}
 		case 21:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *SystemConfigVersion
-				item, err = DecodeSystemConfigVersion(msgBytes)
+				var item *SecretKeyslot
+				item, err = DecodeSecretKeyslot(msgBytes)
 				if err == nil {
-					m.SystemConfig = item
-				}
-			}
-		case 22:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *IngressDiagnosticList
-				item, err = DecodeIngressDiagnosticList(msgBytes)
-				if err == nil {
-					m.IngressDiagnostics = item
-				}
-			}
-		case 23:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserSession
-				item, err = DecodeUserSession(msgBytes)
-				if err == nil {
-					m.UserSessions = append(m.UserSessions, item)
+					m.SecretKeyslot = item
 				}
 			}
 		default:
@@ -13723,158 +13957,17 @@ func DecodeSnapshot(b []byte) (*Snapshot, error) {
 	return &m, nil
 }
 
-func (m *CoreUpdate) Encode() []byte {
+func (m *EventStreamRequest) Encode() []byte {
 	var b []byte
-	b = AppendInt64Field(b, m.Seq, 1)
-	for _, item := range m.DeploymentEvents {
-		b = AppendTag(b, 2, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.ScheduledInstanceEvents {
-		b = AppendTag(b, 3, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.NodeEvents {
-		b = AppendTag(b, 4, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.SecretEvents {
-		b = AppendTag(b, 5, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.ConfigEvents {
-		b = AppendTag(b, 6, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AssetEvents {
-		b = AppendTag(b, 7, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.NetworkPolicyEvents {
-		b = AppendTag(b, 8, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.Spaces {
-		b = AppendTag(b, 9, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.Users {
-		b = AppendTag(b, 10, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.ValueDirectories {
-		b = AppendTag(b, 11, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AssetDirectories {
-		b = AppendTag(b, 12, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	if m.AuthzRuleTemplates != nil {
-		b = AppendTag(b, 13, BytesType)
-		b = AppendBytes(b, m.AuthzRuleTemplates.Encode())
-	}
-	for _, item := range m.AuthzGrantEvents {
-		b = AppendTag(b, 14, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	if m.AuthzGlobalRules != nil {
-		b = AppendTag(b, 15, BytesType)
-		b = AppendBytes(b, m.AuthzGlobalRules.Encode())
-	}
-	if m.SystemConfig != nil {
-		b = AppendTag(b, 16, BytesType)
-		b = AppendBytes(b, m.SystemConfig.Encode())
-	}
-	for _, item := range m.InstanceStatuses {
-		b = AppendTag(b, 17, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.NodeStatuses {
-		b = AppendTag(b, 18, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.AgentSessions {
-		b = AppendTag(b, 19, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
-	for _, item := range m.UserSessions {
-		b = AppendTag(b, 20, BytesType)
-		if item == nil {
-			b = AppendBytes(b, nil)
-			continue
-		}
-		b = AppendBytes(b, item.Encode())
-	}
+	b = AppendInt64Field(b, m.AfterSeq, 1)
 	return b
 }
 
-func DecodeCoreUpdate(b []byte) (*CoreUpdate, error) {
-	var m CoreUpdate
+func DecodeEventStreamRequest(b []byte) (*EventStreamRequest, error) {
+	var m EventStreamRequest
 	var num Number
 	var typ Type
 	var err error
-	var msgBytes []byte
 	for len(b) > 0 {
 		b, num, typ, err = ConsumeTag(b)
 		if err != nil {
@@ -13882,178 +13975,7 @@ func DecodeCoreUpdate(b []byte) (*CoreUpdate, error) {
 		}
 		switch num {
 		case 1:
-			b, m.Seq, err = ConsumeVarInt64(b, typ)
-		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *DeploymentEvent
-				item, err = DecodeDeploymentEvent(msgBytes)
-				if err == nil {
-					m.DeploymentEvents = append(m.DeploymentEvents, item)
-				}
-			}
-		case 3:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstanceEvent
-				item, err = DecodeScheduledInstanceEvent(msgBytes)
-				if err == nil {
-					m.ScheduledInstanceEvents = append(m.ScheduledInstanceEvents, item)
-				}
-			}
-		case 4:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *NodeEvent
-				item, err = DecodeNodeEvent(msgBytes)
-				if err == nil {
-					m.NodeEvents = append(m.NodeEvents, item)
-				}
-			}
-		case 5:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SecretEvent
-				item, err = DecodeSecretEvent(msgBytes)
-				if err == nil {
-					m.SecretEvents = append(m.SecretEvents, item)
-				}
-			}
-		case 6:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ConfigEvent
-				item, err = DecodeConfigEvent(msgBytes)
-				if err == nil {
-					m.ConfigEvents = append(m.ConfigEvents, item)
-				}
-			}
-		case 7:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AssetEvent
-				item, err = DecodeAssetEvent(msgBytes)
-				if err == nil {
-					m.AssetEvents = append(m.AssetEvents, item)
-				}
-			}
-		case 8:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *NetworkPolicyEvent
-				item, err = DecodeNetworkPolicyEvent(msgBytes)
-				if err == nil {
-					m.NetworkPolicyEvents = append(m.NetworkPolicyEvents, item)
-				}
-			}
-		case 9:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *Space
-				item, err = DecodeSpace(msgBytes)
-				if err == nil {
-					m.Spaces = append(m.Spaces, item)
-				}
-			}
-		case 10:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *User
-				item, err = DecodeUser(msgBytes)
-				if err == nil {
-					m.Users = append(m.Users, item)
-				}
-			}
-		case 11:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ValueDirectory
-				item, err = DecodeValueDirectory(msgBytes)
-				if err == nil {
-					m.ValueDirectories = append(m.ValueDirectories, item)
-				}
-			}
-		case 12:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AssetDirectory
-				item, err = DecodeAssetDirectory(msgBytes)
-				if err == nil {
-					m.AssetDirectories = append(m.AssetDirectories, item)
-				}
-			}
-		case 13:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AuthzRuleTemplateList
-				item, err = DecodeAuthzRuleTemplateList(msgBytes)
-				if err == nil {
-					m.AuthzRuleTemplates = item
-				}
-			}
-		case 14:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AuthzGrantEvent
-				item, err = DecodeAuthzGrantEvent(msgBytes)
-				if err == nil {
-					m.AuthzGrantEvents = append(m.AuthzGrantEvents, item)
-				}
-			}
-		case 15:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AuthzGlobalRuleList
-				item, err = DecodeAuthzGlobalRuleList(msgBytes)
-				if err == nil {
-					m.AuthzGlobalRules = item
-				}
-			}
-		case 16:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *SystemConfigVersion
-				item, err = DecodeSystemConfigVersion(msgBytes)
-				if err == nil {
-					m.SystemConfig = item
-				}
-			}
-		case 17:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstanceStatus
-				item, err = DecodeScheduledInstanceStatus(msgBytes)
-				if err == nil {
-					m.InstanceStatuses = append(m.InstanceStatuses, item)
-				}
-			}
-		case 18:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *NodeStatus
-				item, err = DecodeNodeStatus(msgBytes)
-				if err == nil {
-					m.NodeStatuses = append(m.NodeStatuses, item)
-				}
-			}
-		case 19:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AgentSession
-				item, err = DecodeAgentSession(msgBytes)
-				if err == nil {
-					m.AgentSessions = append(m.AgentSessions, item)
-				}
-			}
-		case 20:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *UserSession
-				item, err = DecodeUserSession(msgBytes)
-				if err == nil {
-					m.UserSessions = append(m.UserSessions, item)
-				}
-			}
+			b, m.AfterSeq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}
@@ -14064,16 +13986,18 @@ func DecodeCoreUpdate(b []byte) (*CoreUpdate, error) {
 	return &m, nil
 }
 
-func (m *StateStreamMsg) Encode() []byte {
+func (m *EventStreamMsg) Encode() []byte {
 	var b []byte
-	if m.Snapshot != nil {
+	for _, item := range m.Events {
 		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, m.Snapshot.Encode())
+		if item == nil {
+			b = AppendBytes(b, nil)
+			continue
+		}
+		b = AppendBytes(b, item.Encode())
 	}
-	if m.Core != nil {
-		b = AppendTag(b, 2, BytesType)
-		b = AppendBytes(b, m.Core.Encode())
-	}
+	b = AppendBoolField(b, m.Reset, 2)
+	b = AppendBoolField(b, m.Synced, 3)
 	b = AppendBoolField(b, m.Heartbeat, 4)
 	if m.BackupStatus != nil {
 		b = AppendTag(b, 5, BytesType)
@@ -14087,11 +14011,12 @@ func (m *StateStreamMsg) Encode() []byte {
 		b = AppendTag(b, 7, BytesType)
 		b = AppendBytes(b, m.SecretsStatus.Encode())
 	}
+	b = AppendInt64Field(b, m.Seq, 8)
 	return b
 }
 
-func DecodeStateStreamMsg(b []byte) (*StateStreamMsg, error) {
-	var m StateStreamMsg
+func DecodeEventStreamMsg(b []byte) (*EventStreamMsg, error) {
+	var m EventStreamMsg
 	var num Number
 	var typ Type
 	var err error
@@ -14105,21 +14030,16 @@ func DecodeStateStreamMsg(b []byte) (*StateStreamMsg, error) {
 		case 1:
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *Snapshot
-				item, err = DecodeSnapshot(msgBytes)
+				var item *CoreWriteUpdate
+				item, err = DecodeCoreWriteUpdate(msgBytes)
 				if err == nil {
-					m.Snapshot = item
+					m.Events = append(m.Events, item)
 				}
 			}
 		case 2:
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *CoreUpdate
-				item, err = DecodeCoreUpdate(msgBytes)
-				if err == nil {
-					m.Core = item
-				}
-			}
+			b, m.Reset, err = ConsumeBool(b, typ)
+		case 3:
+			b, m.Synced, err = ConsumeBool(b, typ)
 		case 4:
 			b, m.Heartbeat, err = ConsumeBool(b, typ)
 		case 5:
@@ -14149,6 +14069,8 @@ func DecodeStateStreamMsg(b []byte) (*StateStreamMsg, error) {
 					m.SecretsStatus = item
 				}
 			}
+		case 8:
+			b, m.Seq, err = ConsumeVarInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 		}

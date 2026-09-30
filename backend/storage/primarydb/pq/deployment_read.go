@@ -26,6 +26,7 @@ func scanDeploymentEvent(row interface{ Scan(...any) error }) (*apigen.Deploymen
 	}
 	event.EventTime, event.CreatedTime = time.UnixMilli(eventTime), time.UnixMilli(createdTime)
 	event.Value = *def
+	event.Value.Version, event.Value.SpecVersion, event.Value.CreatedTime = event.Version, event.SpecVersion, event.CreatedTime
 	return &event, nil
 }
 
@@ -71,11 +72,6 @@ func (q *Queries) ListDeletedDeploymentEvents(ctx context.Context) ([]*apigen.De
 
 func (q *Queries) ListDeploymentEvents(ctx context.Context, deploymentID int64) ([]*apigen.DeploymentEvent, error) {
 	return q.queryDeploymentEvents(ctx, `SELECT `+deploymentEventColumns+` FROM deployment_event_log WHERE deployment_id = ? ORDER BY version ASC`, deploymentID)
-}
-
-// ListDeploymentEventsAtSeq is the publication test oracle.
-func (q *Queries) ListDeploymentEventsAtSeq(ctx context.Context, seq int64) ([]*apigen.DeploymentEvent, error) {
-	return q.queryDeploymentEvents(ctx, `SELECT `+deploymentEventColumns+` FROM deployment_event_log WHERE global_seq = ? ORDER BY id`, seq)
 }
 
 func (q *Queries) queryDeploymentEvents(ctx context.Context, query string, args ...any) ([]*apigen.DeploymentEvent, error) {

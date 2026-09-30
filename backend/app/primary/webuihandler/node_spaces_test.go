@@ -85,7 +85,7 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 
 	_, err = h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        cfg.DeploymentID,
-		ExpectedVersion:     cfg.Version + 1,
+		ExpectedSeq:         cfg.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: space.ID},
 	})
 	if err == nil || !strings.Contains(err.Error(), "node_space_not_allowed") {

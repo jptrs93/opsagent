@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -54,21 +55,22 @@ func (s *Service) Create(ctx apigen.Context, dep *apigen.Deployment) (*apigen.De
 		if err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentCreate(ctx, id, seq, &newDep.Value)
+		event, err = q.WriteDeploymentCreate(ctx, id, seq, time.Now(), &newDep.Value)
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{DeploymentEvents: []*apigen.DeploymentEvent{event}}, nil
+		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	})
 	return event, err
 }
 
+// Update applies the request on top of existing, which the caller loaded and
+// authorized. A non-zero expected_seq rejects the write when the deployment
+// has an event newer than the one the caller saw; the same check runs again
+// inside Commit. An update that changes nothing succeeds without writing.
 func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, req *apigen.DeploymentUpdateRequestV2) (*apigen.DeploymentEvent, error) {
-	// The spec and space authorized by the caller must be the same version
-	// checked again inside Commit. Do not accept a request anticipating a
-	// concurrent write after the caller loaded the deployment.
-	if existing.Version != req.ExpectedVersion-1 {
-		return nil, InvalidConfigErrf("deployment version mismatch: deployment %d has version %d, expected %d", existing.DeploymentID, existing.Version, req.ExpectedVersion-1)
+	if req.ExpectedSeq != 0 && existing.Seq > req.ExpectedSeq {
+		return nil, InvalidConfigErrf("deployment %d changed since it was loaded", existing.DeploymentID)
 	}
 	updated, err := cloneDeployment(existing)
 	if err != nil {
@@ -94,33 +96,40 @@ func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, r
 		if !existing.WorkloadRunning() {
 			return nil, InvalidConfigErrf("deployment is not running")
 		}
+		updated.Value.Scheduling.Generation++
 	}
 	var event *apigen.DeploymentEvent
 	err = s.Store.Commit(ctx, func(q *pq.Queries) error {
 		return preLockValidateDeploymentUpdate(q, s.Secrets, s.GitVersions, ctx, existing, req, updated)
 	}, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		if err := inLockValidateDeploymentUpdate(ctx, q, s.reservations(), updated, req.ExpectedVersion-1); err != nil {
+		if err := inLockValidateDeploymentUpdate(ctx, q, s.reservations(), updated, req.ExpectedSeq); err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentUpdate(ctx, int64(req.DeploymentID), seq, &updated.Value)
+		event, err = q.WriteDeploymentUpdate(ctx, int64(req.DeploymentID), seq, time.Now(), &updated.Value)
+		if errors.Is(err, pq.ErrDeploymentUnchanged) {
+			event, err = q.GetLatestDeploymentEvent(ctx, int64(req.DeploymentID))
+			return nil, err
+		}
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{DeploymentEvents: []*apigen.DeploymentEvent{event}}, nil
+		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	})
 	return event, err
 }
 
-func (s *Service) Delete(ctx apigen.Context, deploymentID, expectedVersion int32) error {
+// Delete removes the deployment as long as it has no event newer than
+// expectedSeq; zero skips the check.
+func (s *Service) Delete(ctx apigen.Context, deploymentID int32, expectedSeq int64) error {
 	return s.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		if err := inLockValidateDeploymentDelete(ctx, q, s.Cluster, s.PrimaryNodeID, deploymentID, expectedVersion); err != nil {
+		if err := inLockValidateDeploymentDelete(ctx, q, s.Cluster, s.PrimaryNodeID, deploymentID, expectedSeq); err != nil {
 			return nil, err
 		}
-		event, err := q.WriteDeploymentDelete(ctx, int64(deploymentID), seq)
+		event, err := q.WriteDeploymentDelete(ctx, int64(deploymentID), seq, time.Now())
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{DeploymentEvents: []*apigen.DeploymentEvent{event}}, nil
+		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	})
 }
 

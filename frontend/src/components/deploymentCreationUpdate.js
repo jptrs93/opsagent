@@ -628,7 +628,7 @@ export class DeploymentCreationUpdate {
         if (!nextSpaceId || nextSpaceId === Number(this.existingState.spaceId || 0)) return null;
         return {
             deploymentId: this.existingState.id,
-            expectedVersion: Number(this.existingState.version || 0) + 1,
+            expectedSeq: Number(this.existingState.seq || 0),
             assignedSpaceUpdate: {spaceId: nextSpaceId},
         };
     }
@@ -641,7 +641,7 @@ export class DeploymentCreationUpdate {
         if (!this.existingState) throw new Error('Cannot produce update payload without existing deployment state');
         const payload = {
             deploymentId: this.existingState.id,
-            expectedVersion: Number(this.existingState.version || 0) + 1,
+            expectedSeq: Number(this.existingState.seq || 0),
         };
         const nextSpec = formToSpec(this.form);
         if (JSON.stringify(nextSpec) !== this.initialSpecKey) {
@@ -672,7 +672,7 @@ export class DeploymentCreationUpdate {
         if (running && precedingPayload?.versionOnlyUpdate) return null;
         return {
             deploymentId: this.existingState.id,
-            expectedVersion: Number(this.existingState.version || 0) + 1,
+            expectedSeq: Number(this.existingState.seq || 0),
             runningOnlyUpdate: {desiredRunning: running},
         };
     }

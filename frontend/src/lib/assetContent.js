@@ -5,11 +5,11 @@ import {handleErr} from "../capi/err.js";
 import {decodeAssetEvent} from "../capi/model.js";
 
 // fetchAssetContent streams one content version's raw bytes from
-// GET /v1/assets/content. All asset metadata travels on the state stream;
+// GET /v1/assets/content. All asset metadata travels on the event stream;
 // this is the only content path the web API has.
-export async function fetchAssetContent(contentVersionId) {
+export async function fetchAssetContent(assetId, version) {
     const token = loginS.val?.token;
-    const response = await fetch(`/v1/assets/content?content_version_id=${Number(contentVersionId)}`, {
+    const response = await fetch(`/v1/assets/content?asset_id=${Number(assetId)}&version=${Number(version)}`, {
         headers: token ? {Authorization: `Bearer ${token}`} : {},
         credentials: "include",
     });
@@ -54,6 +54,6 @@ export async function loadAssetPreview({assetId, version}) {
         createdAt: cv.createdAt instanceof Date ? cv.createdAt : null,
         sizeBytes,
         large,
-        blob: large ? null : await fetchAssetContent(cv.id),
+        blob: large ? null : await fetchAssetContent(asset.id, cv.version),
     };
 }

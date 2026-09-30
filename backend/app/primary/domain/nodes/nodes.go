@@ -91,7 +91,7 @@ func EnsurePrimaryNode(store *state.Service, name, identifier string) *Node {
 			if txErr != nil {
 				return nil, txErr
 			}
-			return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil
+			return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
 		})
 	}
 	if err != nil {
@@ -127,7 +127,7 @@ func nodeEventSpecOf(row pq.CurrentNode) nodeEventSpec {
 		AllowedSpacesJSON:     allowedSpacesJSON(row.Event.Value.Operator.AllowedSpaces),
 	}
 }
-func appendNodeVersion(ctx context.Context, q *pq.Queries, seq int64, current pq.CurrentNode, author int32, mutate func(*nodeEventSpec)) (pq.CurrentNode, bool, error) {
+func appendNodeVersion(ctx context.Context, q *pq.Queries, seq, now int64, current pq.CurrentNode, author int32, mutate func(*nodeEventSpec)) (pq.CurrentNode, bool, error) {
 	spec := nodeEventSpecOf(current)
 	mutate(&spec)
 	if spec == nodeEventSpecOf(current) {
@@ -137,7 +137,7 @@ func appendNodeVersion(ctx context.Context, q *pq.Queries, seq int64, current pq
 		HostAddressesJSON:     spec.HostAddressesJSON,
 		EnrollmentRequestedAt: spec.EnrollmentRequestedAt,
 		NodeID:                int64(current.Event.NodeID),
-		EventTime:             time.Now().UnixMilli(),
+		EventTime:             now,
 		Author:                int64(author),
 		Name:                  spec.Name,
 		Identifier:            current.Event.Value.Reported.Identifier,
@@ -160,11 +160,11 @@ func mustAppendNodeVersion(store *state.Service, id int32, what string, mutate f
 			return nil, err
 		}
 		var applied bool
-		row, applied, err = appendNodeVersion(ctx, q, seq, current, 0, mutate)
+		row, applied, err = appendNodeVersion(ctx, q, seq, time.Now().UnixMilli(), current, 0, mutate)
 		if err != nil || !applied {
 			return nil, err
 		}
-		return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil
+		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
 	})
 	if err != nil {
 		panic(fmt.Sprintf("%s: %v", what, err))
@@ -264,11 +264,12 @@ func ListClusterNodes(q *pq.Queries) []*apigen.NodeEvent {
 func SetNodeStatusByIdentifier(store *state.Service, identifier string, connected bool, connectedAt time.Time) {
 	ctx := context.Background()
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
-		status, err := q.SetNodeConnectionStatus(ctx, seq, identifier, connected, time.UnixMilli(connectedAt.UnixMilli()))
+		now := time.Now().UnixMilli()
+		status, err := q.SetNodeConnectionStatus(ctx, seq, now, identifier, connected, time.UnixMilli(connectedAt.UnixMilli()))
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{NodeStatuses: []*apigen.NodeStatus{status}}, nil
+		return pq.NewUpdate(pq.NodeStatusMutation(seq, now, status)), nil
 	})
 	if err == nil {
 		return
@@ -323,11 +324,11 @@ func RenameNode(store *state.Service, identifier, name string) (*apigen.NodeEven
 			return nil, ErrDuplicateNodeName
 		}
 		var applied bool
-		row, applied, err = appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) { spec.Name = name })
+		row, applied, err = appendNodeVersion(ctx, q, seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) { spec.Name = name })
 		if err != nil || !applied {
 			return nil, err
 		}
-		return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil
+		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
 	})
 	if err != nil {
 		return nil, err
@@ -344,11 +345,11 @@ func SetNodeAllowedSpaces(store *state.Service, identifier string, spaces []int3
 			return nil, err
 		}
 		var applied bool
-		row, applied, err = appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) { spec.AllowedSpacesJSON = allowed })
+		row, applied, err = appendNodeVersion(ctx, q, seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) { spec.AllowedSpacesJSON = allowed })
 		if err != nil || !applied {
 			return nil, err
 		}
-		return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil
+		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
 	})
 	if err != nil {
 		return nil, err
@@ -356,24 +357,24 @@ func SetNodeAllowedSpaces(store *state.Service, identifier string, spaces []int3
 	return &row.Event, nil
 }
 
-func updateAllNodeAllowedSpaces(ctx context.Context, q *pq.Queries, seq int64, fn func([]int32) []int32) ([]*apigen.NodeEvent, error) {
+func updateAllNodeAllowedSpaces(ctx context.Context, q *pq.Queries, seq, now int64, fn func([]int32) []int32) ([]pq.Mutation, error) {
 	rows, err := q.ListNodeRows(ctx, pq.AllNodeStatuses)
 	if err != nil {
 		return nil, err
 	}
-	var events []*apigen.NodeEvent
+	var events []pq.Mutation
 	for _, current := range rows {
 		if current.Event.Value.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
 			continue
 		}
-		row, changed, err := appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) {
+		row, changed, err := appendNodeVersion(ctx, q, seq, now, current, 0, func(spec *nodeEventSpec) {
 			spec.AllowedSpacesJSON = allowedSpacesJSON(fn(parseAllowedSpaces(allowedSpacesJSON(current.Event.Value.Operator.AllowedSpaces))))
 		})
 		if err != nil {
 			return nil, err
 		}
 		if changed {
-			events = append(events, &row.Event)
+			events = append(events, pq.NodeMutation(&row.Event))
 		}
 	}
 	return events, nil
@@ -405,10 +406,11 @@ func UpdateNodeObservedMeta(store *state.Service, identifier, remoteAddress, ope
 			return nil, nil
 		}
 		status.BumpUpdatedAt()
-		if err := q.InsertNodeStatus(ctx, seq, &status); err != nil {
+		now := time.Now().UnixMilli()
+		if err := q.InsertNodeStatus(ctx, seq, now, &status); err != nil {
 			return nil, err
 		}
-		return &state.Update{NodeStatuses: []*apigen.NodeStatus{&status}}, nil
+		return pq.NewUpdate(pq.NodeStatusMutation(seq, now, &status)), nil
 	}); err != nil {
 		panic(err)
 	}

@@ -17,7 +17,7 @@ func TestNodeObservationHistorySurvivesRestartAndClockRegression(t *testing.T) {
 	s := state.Open(path)
 	node := testNode(s, "primary")
 	future := time.Now().Add(24 * time.Hour).UnixNano()
-	if err := s.Queries().InsertNodeStatus(context.Background(), 0, &apigen.NodeStatus{NodeID: node.ID, UpdatedAt: time.Unix(0, future), IsConnected: true}); err != nil {
+	if err := s.Queries().InsertNodeStatus(context.Background(), 0, time.Now().UnixMilli(), &apigen.NodeStatus{NodeID: node.ID, UpdatedAt: time.Unix(0, future), IsConnected: true}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {
@@ -25,7 +25,7 @@ func TestNodeObservationHistorySurvivesRestartAndClockRegression(t *testing.T) {
 	}
 	s = state.Open(path)
 	defer s.Close()
-	seq := s.BuildSnapshot(context.Background()).Seq
+	seq := globalSeq(t, s)
 	SetNodeStatusByIdentifier(s, node.Identifier, false, time.Time{})
 	SetNodeStatusByIdentifier(s, node.Identifier, true, time.Now())
 	history := erru.Must(s.Queries().ListNodeStatusHistorySince(context.Background(), node.ID, time.Time{}))
@@ -37,9 +37,9 @@ func TestNodeObservationHistorySurvivesRestartAndClockRegression(t *testing.T) {
 			t.Fatalf("clock %d = %v", i, status.UpdatedAt)
 		}
 	}
-	snapshot := s.BuildSnapshot(context.Background())
-	if snapshot.Seq != seq+2 || len(snapshot.NodeStatuses) != 1 || !bytes.Equal(snapshot.NodeStatuses[0].Encode(), history[2].Encode()) {
-		t.Fatalf("latest observation = %+v", snapshot.NodeStatuses)
+	latest := erru.Must(s.Queries().ListLatestNodeStatuses(context.Background()))
+	if globalSeq(t, s) != seq+2 || len(latest) != 1 || !bytes.Equal(latest[0].Encode(), history[2].Encode()) {
+		t.Fatalf("latest observation = %+v", latest)
 	}
 	if got := erru.Must(s.Queries().ListNodeStatusHistorySince(context.Background(), node.ID, history[0].UpdatedAt)); len(got) != 2 {
 		t.Fatalf("history since = %+v", got)

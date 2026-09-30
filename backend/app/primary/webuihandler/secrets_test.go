@@ -44,7 +44,7 @@ func TestGenerateSecretStoresAValueTheCallerNeverSees(t *testing.T) {
 	// The response type has no value field at all, so the only way to confirm
 	// something real was stored is to go and reveal it.
 	revealed, err := h.PostV1SecretsReveal(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretRevealRequest{ID: statetest.ValueVersions(h.Store, meta)[0].ID})
+		&apigen.SecretRevealRequest{SecretID: meta.SecretID, Version: statetest.ValueVersions(h.Store, meta)[0].Version})
 	if err != nil {
 		t.Fatalf("PostV1SecretsReveal: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestGenerateSecretHonoursTheSpecification(t *testing.T) {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
 	}
 	revealed, err := h.PostV1SecretsReveal(apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.SecretRevealRequest{ID: statetest.ValueVersions(h.Store, meta)[0].ID})
+		&apigen.SecretRevealRequest{SecretID: meta.SecretID, Version: statetest.ValueVersions(h.Store, meta)[0].Version})
 	if err != nil {
 		t.Fatalf("PostV1SecretsReveal: %v", err)
 	}
@@ -177,11 +177,11 @@ func TestGenerateSecretNeverEchoesTheValue(t *testing.T) {
 	if _, ok := valueEnvelope["value"]; ok {
 		t.Fatalf("generate exposed secret bytes: %#v", generated)
 	}
-	versionID, _ := generated["event_id"].(float64)
-	if versionID == 0 {
-		t.Fatalf("generate returned no version id: %#v", generated)
+	valueVersion, _ := generated["value_version"].(float64)
+	if valueVersion == 0 {
+		t.Fatalf("generate returned no value version: %#v", generated)
 	}
-	revealBody := fmt.Sprintf(`{"id": %d}`, int(versionID))
+	revealBody := fmt.Sprintf(`{"secret_id": %d, "version": %d}`, int(id), int(valueVersion))
 
 	// The value exists and is intact — it was simply never returned by generate.
 	status, revealed := post(t, "/v1/secrets/reveal", token, revealBody)

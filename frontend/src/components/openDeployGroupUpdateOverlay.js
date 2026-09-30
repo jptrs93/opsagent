@@ -152,7 +152,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                 try {
                     applied = await capi.postV2DeploymentsUpdate({
                         deploymentId: member.id,
-                        expectedVersion: (live.config.version || 0) + 1,
+                        expectedSeq: Number(live.config.seq || 0),
                         versionOnlyUpdate: {targetVersion: target},
                     });
                 } catch (error) {

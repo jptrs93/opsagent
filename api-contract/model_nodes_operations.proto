@@ -31,8 +31,9 @@ message NodeDrainRequest {
 
 message NodeEvictRequest {
   string identifier = 1;
-  int32 expected_version = 2;
+  reserved 2; // expected_version: the ordinal check, before seqs were the concurrency token
   bool force = 3;
+  int64 expected_seq = 4; // seq of the node's last mutation the caller saw; 0 = no check
 }
 
 message NodeExposureRequest {

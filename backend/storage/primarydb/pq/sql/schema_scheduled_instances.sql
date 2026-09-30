@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     scheduled_instance_id   INTEGER NOT NULL,
     updated_at              INTEGER NOT NULL,  -- HLC clock, unix nanoseconds
     global_seq              INTEGER NOT NULL DEFAULT 0,
+    event_time              INTEGER NOT NULL DEFAULT 0,
     deployment_id           INTEGER NOT NULL DEFAULT 0,
     preparer_spec_version   INTEGER,
     preparer_artifact       TEXT,
@@ -40,3 +41,7 @@ CREATE TABLE IF NOT EXISTS scheduled_instance_status (
 
 CREATE INDEX IF NOT EXISTS idx_scheduled_instance_status_deployment
     ON scheduled_instance_status(deployment_id, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_instance_event_log_seq ON scheduled_instance_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_instance_status_seq ON scheduled_instance_status (global_seq);

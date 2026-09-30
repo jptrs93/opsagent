@@ -32,11 +32,11 @@ func appendUser(ctx context.Context, q *pq.Queries, seq int64, user *apigen.Inte
 	if err := q.InsertUserEvent(ctx, pq.UserEventParams{EventMeta: meta, UserID: int64(user.ID), Name: user.Name, DataBlob: user.Encode(), CreatedAt: createdAt}); err != nil {
 		return nil, err
 	}
-	row, err := q.GetUser(ctx, int64(user.ID))
+	row, err := q.GetUserRow(ctx, int64(user.ID))
 	if err != nil {
 		return nil, err
 	}
-	return &apigen.CoreUpdate{Users: []*apigen.User{&row}}, nil
+	return pq.NewUpdate(pq.UserMutation(row)), nil
 }
 
 func Write(store *state.Service, user *apigen.InternalUser) {

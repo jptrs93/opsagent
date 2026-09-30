@@ -50,7 +50,7 @@ func sessionUpdate(ctx context.Context, q *pq.Queries, id string) (*state.Update
 	if err != nil {
 		return nil, err
 	}
-	return &apigen.CoreUpdate{UserSessions: []*apigen.UserSession{row.Proto()}}, nil
+	return pq.NewUpdate(pq.UserSessionMutation(row)), nil
 }
 
 func InsertUserSession(store *state.Service, rec UserSession) error {

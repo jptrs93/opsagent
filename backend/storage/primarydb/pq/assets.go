@@ -159,12 +159,6 @@ const assetCurrentIdentityJoin = `JOIN asset_event_log a
   ON a.asset_id = v.asset_id
  AND a.version = (SELECT MAX(version) FROM asset_event_log WHERE asset_id = v.asset_id)`
 
-// GetAssetVersionJoinedByID resolves a content version row id joined with its
-// store row and owning asset.
-func (q *Queries) GetAssetVersionJoinedByID(ctx context.Context, assetVersionID int64) (AssetVersionJoined, error) {
-	return q.getAssetVersionJoined(ctx, `v.id = ?`, assetVersionID)
-}
-
 // GetAssetVersionJoinedByRef resolves a pinned asset value joined with its
 // store row and owning asset.
 func (q *Queries) GetAssetVersionJoinedByRef(ctx context.Context, ref apigen.ValueRef) (AssetVersionJoined, error) {

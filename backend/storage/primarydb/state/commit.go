@@ -7,7 +7,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-type Update = apigen.CoreUpdate
+type Update = apigen.CoreWriteUpdate
 
 type UpdateTrigger func(ctx context.Context, q *pq.Queries, update *Update) error
 

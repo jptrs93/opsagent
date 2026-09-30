@@ -64,6 +64,7 @@ func scanCurrentNode(row scanner) (CurrentNode, error) {
 		return r, err
 	}
 	decodeNodeLists(e, roles, addresses, allowed, hosts)
+	e.Value.CreatedTime = e.CreatedTime
 	st.NodeID = e.NodeID
 	st.IsConnected = connected != 0
 	st.UpdatedAt = nanosToClock(updatedAt)

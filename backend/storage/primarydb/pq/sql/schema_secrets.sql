@@ -37,3 +37,7 @@ CREATE TABLE IF NOT EXISTS secret_keyslot_event_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_secret_keyslot_event_log_key ON secret_keyslot_event_log (kind, node_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_secret_event_log_seq ON secret_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_secret_keyslot_event_log_seq ON secret_keyslot_event_log (global_seq, id);

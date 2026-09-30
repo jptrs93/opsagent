@@ -122,7 +122,7 @@ func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*
 		if err := q.InsertNetworkPolicyEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return &state.Update{NetworkPolicyEvents: []*apigen.NetworkPolicyEvent{event}}, nil
+		return pq.NewUpdate(pq.NetworkPolicyMutation(event)), nil
 	})
 	if err != nil {
 		return nil, err
@@ -130,7 +130,9 @@ func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*
 	return erru.Must(store.Queries().GetLatestNetworkPolicyEvent(ctx, int64(event.NetworkPolicyID))), nil
 }
 
-func Update(store *state.Service, id, expectedVersion, author int32, policy *apigen.NetworkPolicy) (*apigen.NetworkPolicyEvent, error) {
+// Update replaces the policy as long as it has no event newer than
+// expectedSeq; zero skips the check.
+func Update(store *state.Service, id int32, expectedSeq int64, author int32, policy *apigen.NetworkPolicy) (*apigen.NetworkPolicyEvent, error) {
 	ctx := context.Background()
 	var updated *apigen.NetworkPolicyEvent
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
@@ -138,14 +140,14 @@ func Update(store *state.Service, id, expectedVersion, author int32, policy *api
 		if err != nil {
 			return nil, err
 		}
-		if prev.Version != expectedVersion {
+		if expectedSeq != 0 && prev.Seq > expectedSeq {
 			return nil, VersionConflictErr
 		}
 		updated = &apigen.NetworkPolicyEvent{Seq: seq, EventTime: time.Now().UnixMilli(), CreatedTime: prev.CreatedTime, Author: author, NetworkPolicyID: id, Version: prev.Version + 1, Value: *policy, EventType: apigen.EventType_EVENT_TYPE_UPDATE}
 		if err := q.InsertNetworkPolicyEvent(ctx, updated); err != nil {
 			return nil, err
 		}
-		return &state.Update{NetworkPolicyEvents: []*apigen.NetworkPolicyEvent{updated}}, nil
+		return pq.NewUpdate(pq.NetworkPolicyMutation(updated)), nil
 	})
 	if err != nil {
 		return nil, err
@@ -164,7 +166,7 @@ func Delete(store *state.Service, id, author int32) error {
 		if err := q.InsertNetworkPolicyEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return &state.Update{NetworkPolicyEvents: []*apigen.NetworkPolicyEvent{event}}, nil
+		return pq.NewUpdate(pq.NetworkPolicyMutation(event)), nil
 	})
 }
 

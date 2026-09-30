@@ -51,7 +51,7 @@ func TestEvictedNodeIsForbiddenAndItsSessionEnds(t *testing.T) {
 	handler.registerSession(node.ID, node.Identifier, sess)
 	time.Sleep(50 * time.Millisecond)
 
-	if _, err := nodes.EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Version, true); err != nil {
+	if _, err := nodes.EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Seq, true); err != nil {
 		t.Fatalf("EvictNode: %v", err)
 	}
 	select {

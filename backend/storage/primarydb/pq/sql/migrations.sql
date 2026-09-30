@@ -96,3 +96,12 @@ DROP TABLE IF EXISTS config_displays;
 DROP TABLE IF EXISTS events;
 DROP TABLE IF EXISTS local_runtime_inputs;
 DROP TABLE IF EXISTS local_scheduled_instance_cache;
+
+-- v0.0.615: the observed status logs carry the wall-clock event time of the
+-- commit that recorded them, so a status row replays on the event stream with
+-- the same time as the authored rows of its commit. Existing rows take the
+-- producer clock (updated_at is HLC nanoseconds).
+ALTER TABLE scheduled_instance_status ADD COLUMN event_time INTEGER NOT NULL DEFAULT 0;
+UPDATE scheduled_instance_status SET event_time = updated_at / 1000000 WHERE event_time = 0;
+ALTER TABLE node_status_log ADD COLUMN event_time INTEGER NOT NULL DEFAULT 0;
+UPDATE node_status_log SET event_time = updated_at / 1000000 WHERE event_time = 0;

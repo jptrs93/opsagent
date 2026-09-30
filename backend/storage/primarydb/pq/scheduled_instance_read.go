@@ -101,10 +101,6 @@ func (q *Queries) ListLatestScheduledInstancePerOrdinal(ctx context.Context) ([]
  ORDER BY e.scheduled_instance_id`)
 }
 
-func (q *Queries) ListScheduledInstanceEventsAtSeq(ctx context.Context, seq int64) ([]*apigen.ScheduledInstanceEvent, error) {
-	return q.queryScheduledInstanceEvents(ctx, `SELECT `+scheduledInstanceEventColumns+` FROM scheduled_instance_event_log WHERE global_seq = ? ORDER BY id`, seq)
-}
-
 func (q *Queries) ListDrainingDeploymentIDs(ctx context.Context) ([]int32, error) {
 	rows, err := q.db.QueryContext(ctx, `SELECT DISTINCT e.deployment_id `+latestScheduledInstanceEventsFrom+`
  WHERE e.state = ? ORDER BY e.deployment_id`, int64(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING))

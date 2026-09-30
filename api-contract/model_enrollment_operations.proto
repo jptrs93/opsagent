@@ -30,9 +30,10 @@ message EnrollmentRequestList {
 }
 
 message EnrollmentAcceptRequest {
-  int32 expected_version = 3;
+  reserved 3; // expected_version: the ordinal check, before seqs were the concurrency token
   int32 id = 1;
   string node_name = 2;
+  int64 expected_seq = 4; // seq of the node's last mutation the caller saw; 0 = no check
 }
 
 message EnrollmentAccepted {

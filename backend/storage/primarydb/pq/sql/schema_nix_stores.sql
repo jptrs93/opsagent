@@ -11,3 +11,5 @@ CREATE TABLE IF NOT EXISTS nix_store_reset_event_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_nix_store_reset_event_log_repo ON nix_store_reset_event_log (repo, id);
+
+CREATE INDEX IF NOT EXISTS idx_nix_store_reset_event_log_seq ON nix_store_reset_event_log (global_seq, id);

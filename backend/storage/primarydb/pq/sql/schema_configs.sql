@@ -37,3 +37,7 @@ CREATE TABLE IF NOT EXISTS value_directory_event_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_value_directory_event_log_directory_id ON value_directory_event_log (directory_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_config_event_log_seq ON config_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_value_directory_event_log_seq ON value_directory_event_log (global_seq, id);

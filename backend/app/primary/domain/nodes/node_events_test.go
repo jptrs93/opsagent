@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -17,7 +18,7 @@ func TestUnknownHostInventoryPreservesLastReport(t *testing.T) {
 	defer store.Close()
 	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2", HostAddresses: []string{"203.0.113.2"}}
 	req, _ := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
-	before := store.BuildSnapshot(context.Background()).Seq
+	before := globalSeq(t, store)
 	reported.HostAddresses = nil
 	reported.HostAddressesUnknown = true
 	wire, err := apigen.DecodeNodeReported(reported.Encode())
@@ -50,7 +51,7 @@ func TestEnrollmentCleanupGuardsRequestInsteadOfNodeVersion(t *testing.T) {
 	if err := EndEnrollmentRequest(store, req.ID, at, false); err != nil {
 		t.Fatal(err)
 	}
-	if node := store.BuildSnapshot(context.Background()).NodeEvents[0]; node.Value.EnrollmentRequestedAt != 0 || node.Version != 3 {
+	if node := latestNodeEvent(t, store, reported.Identifier); node.Value.EnrollmentRequestedAt != 0 || node.Version != 3 {
 		t.Fatal("an interleaved node event prevented cancellation")
 	}
 	fresh, _ := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
@@ -60,7 +61,7 @@ func TestEnrollmentCleanupGuardsRequestInsteadOfNodeVersion(t *testing.T) {
 	if err := EndEnrollmentRequest(store, req.ID, at, true); err != nil {
 		t.Fatal(err)
 	}
-	if node := store.BuildSnapshot(context.Background()).NodeEvents[0]; node.Value.EnrollmentRequestedAt != fresh.CreatedAt.UnixMilli() {
+	if node := latestNodeEvent(t, store, reported.Identifier); node.Value.EnrollmentRequestedAt != fresh.CreatedAt.UnixMilli() {
 		t.Fatal("old session expired a newer request")
 	}
 }
@@ -70,8 +71,8 @@ func TestEnrollmentReportsHaveNoTrailingEvents(t *testing.T) {
 	defer store.Close()
 	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2", HostAddresses: []string{"203.0.113.2"}}
 	req, version := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
-	if version != 1 {
-		t.Fatalf("request version = %d, want 1", version)
+	if version != globalSeq(t, store) || latestNodeEvent(t, store, reported.Identifier).Version != 1 {
+		t.Fatalf("request seq = %d, want the seq of the first node event", version)
 	}
 	if _, err := AcceptEnrollmentRequest(store, req.ID, "worker", reported.Identifier, version); err != nil {
 		t.Fatal(err)
@@ -94,11 +95,11 @@ func TestEnrollmentReportsHaveNoTrailingEvents(t *testing.T) {
 	}
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()
-	before := store.BuildSnapshot(context.Background())
+	before := fingerprint(t, store)
 	if _, _, err := UpsertEnrollmentRequest(store, "192.0.2.2", "v2", reported); !errors.Is(err, ErrEnrollmentIdentifierEnrolled) {
 		t.Fatalf("member hello = %v, want ErrEnrollmentIdentifierEnrolled", err)
 	}
-	if !reflect.DeepEqual(before, store.BuildSnapshot(context.Background())) {
+	if !bytes.Equal(before, fingerprint(t, store)) {
 		t.Fatal("rejected member hello changed state or sequence")
 	}
 	select {
@@ -136,7 +137,7 @@ func TestEnrollmentCancellationExpiryAndAcceptedSessionCleanup(t *testing.T) {
 	if err := EndEnrollmentRequest(store, req.ID, req.CreatedAt.UnixMilli(), false); err != nil {
 		t.Fatal(err)
 	}
-	node := store.BuildSnapshot(context.Background()).NodeEvents[0]
+	node := latestNodeEvent(t, store, reported.Identifier)
 	if node.Value.EnrollmentRequestedAt != 0 || node.Value.Status != apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED {
 		t.Fatalf("cancelled node: %+v", node)
 	}
@@ -144,26 +145,30 @@ func TestEnrollmentCancellationExpiryAndAcceptedSessionCleanup(t *testing.T) {
 	if err := EndEnrollmentRequest(store, req.ID, req.CreatedAt.UnixMilli(), true); err != nil {
 		t.Fatal(err)
 	}
-	node = store.BuildSnapshot(context.Background()).NodeEvents[0]
+	node = latestNodeEvent(t, store, reported.Identifier)
 	if node.Value.EnrollmentRequestedAt != 0 || node.Value.Status != apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED {
 		t.Fatalf("expired node: %+v", node)
 	}
 	req, version = mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
+	requested := latestNodeEvent(t, store, reported.Identifier)
 	if _, err := AcceptEnrollmentRequest(store, req.ID, "worker", reported.Identifier, version); err != nil {
 		t.Fatal(err)
+	}
+	accepted := latestNodeEvent(t, store, reported.Identifier)
+	if accepted.Version != requested.Version+1 {
+		t.Fatalf("accept appended %d versions, want one", accepted.Version-requested.Version)
 	}
 	if err := EndEnrollmentRequest(store, req.ID, req.CreatedAt.UnixMilli(), false); err != nil {
 		t.Fatal(err)
 	}
-	node = store.BuildSnapshot(context.Background()).NodeEvents[0]
-	if node.Version != int32(version+1) {
+	if node = latestNodeEvent(t, store, reported.Identifier); node.Version != accepted.Version {
 		t.Fatal("accepted session cleanup appended a trailing event")
 	}
 	if _, _, err := UpsertEnrollmentRequest(store, "192.0.2.2", "v1", reported); !errors.Is(err, ErrEnrollmentIdentifierEnrolled) {
 		t.Fatalf("member hello = %v, want ErrEnrollmentIdentifierEnrolled", err)
 	}
-	node = store.BuildSnapshot(context.Background()).NodeEvents[0]
-	if node.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL || node.Value.EnrollmentRequestedAt != 0 || node.Version != int32(version+1) {
+	node = latestNodeEvent(t, store, reported.Identifier)
+	if node.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL || node.Value.EnrollmentRequestedAt != 0 || node.Version != accepted.Version {
 		t.Fatal("rejected member hello changed admitted node lifecycle")
 	}
 }

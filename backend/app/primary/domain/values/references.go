@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
@@ -26,14 +26,19 @@ type deploymentReferenceUpdate struct {
 	def  *apigen.Deployment
 }
 
+// SetVersionedValueWithDeploymentUpdates writes a value version through
+// insert, which receives the commit seq and its wall-clock time in unix
+// milliseconds and returns the new value version and the update it published
+// (nil when it wrote nothing), then repoints the referencing deployments in
+// the same commit.
 func SetVersionedValueWithDeploymentUpdates(
 	store *state.Service,
 	referenceType ReferenceType,
 	stableID int32,
 	updateDeployments bool,
-	expected []storage.DeploymentSpecVersion,
+	expected []*apigen.DeploymentExpectedSeq,
 	author int32,
-	insert func(*pq.Queries, int64) (int32, apigen.CoreUpdate, error), // returns the new value version
+	insert func(q *pq.Queries, seq, now int64) (int32, *state.Update, error),
 	afterCommit func([]int32),
 ) ([]int32, error) {
 	ctx := context.Background()
@@ -43,9 +48,13 @@ func SetVersionedValueWithDeploymentUpdates(
 		if err != nil {
 			return nil, err
 		}
-		newVersion, published, err := insert(q, seq)
+		now := time.Now().UnixMilli()
+		newVersion, published, err := insert(q, seq, now)
 		if err != nil {
 			return nil, err
+		}
+		if published == nil {
+			published = &state.Update{}
 		}
 		updatedEvents = make([]*apigen.DeploymentEvent, 0, len(updates))
 		for _, update := range updates {
@@ -53,15 +62,15 @@ func SetVersionedValueWithDeploymentUpdates(
 			if !replaceDeploymentReferences(&def.Spec, referenceType, stableID, newVersion) {
 				continue
 			}
-			event := pq.BuildDeploymentUpdateEvent(update.prev, def, author)
+			event, _ := pq.BuildDeploymentUpdateEvent(update.prev, def, author, time.UnixMilli(now))
 			event.Seq = seq
 			if err := q.InsertDeploymentEvent(ctx, event); err != nil {
 				return nil, fmt.Errorf("update deployment %d reference: %w", update.prev.DeploymentID, err)
 			}
 			updatedEvents = append(updatedEvents, event)
-			published.DeploymentEvents = append(published.DeploymentEvents, event)
+			pq.AppendMutations(published, pq.DeploymentMutation(event))
 		}
-		return &published, nil
+		return published, nil
 	}); err != nil {
 		return nil, err
 	}
@@ -75,7 +84,7 @@ func SetVersionedValueWithDeploymentUpdates(
 	return updatedIDs, nil
 }
 
-func prepareDeploymentReferenceUpdates(ctx context.Context, q *pq.Queries, referenceType ReferenceType, stableID int32, updateDeployments bool, expected []storage.DeploymentSpecVersion) ([]deploymentReferenceUpdate, error) {
+func prepareDeploymentReferenceUpdates(ctx context.Context, q *pq.Queries, referenceType ReferenceType, stableID int32, updateDeployments bool, expected []*apigen.DeploymentExpectedSeq) ([]deploymentReferenceUpdate, error) {
 	if !updateDeployments {
 		if len(expected) != 0 {
 			return nil, fmt.Errorf("%w: deployment list requires update flag", ErrInvalidReferencingDeployments)
@@ -102,16 +111,16 @@ func prepareDeploymentReferenceUpdates(ctx context.Context, q *pq.Queries, refer
 	}
 	seen := make(map[int32]struct{}, len(expected))
 	for _, item := range expected {
-		if item.ID <= 0 || item.SpecVersion <= 0 {
-			return nil, fmt.Errorf("%w: deployment id and version must be positive", ErrInvalidReferencingDeployments)
+		if item == nil || item.DeploymentID <= 0 || item.ExpectedSeq < 0 {
+			return nil, fmt.Errorf("%w: deployment id must be positive and expected seq non-negative", ErrInvalidReferencingDeployments)
 		}
-		if _, duplicate := seen[item.ID]; duplicate {
-			return nil, fmt.Errorf("%w: duplicate deployment id %d", ErrInvalidReferencingDeployments, item.ID)
+		if _, duplicate := seen[item.DeploymentID]; duplicate {
+			return nil, fmt.Errorf("%w: duplicate deployment id %d", ErrInvalidReferencingDeployments, item.DeploymentID)
 		}
-		seen[item.ID] = struct{}{}
-		current, ok := actual[item.ID]
-		if !ok || current.prev.SpecVersion != item.SpecVersion {
-			return nil, fmt.Errorf("%w: deployment %d version is stale or no longer references value %d", ErrReferencingDeploymentsChanged, item.ID, stableID)
+		seen[item.DeploymentID] = struct{}{}
+		current, ok := actual[item.DeploymentID]
+		if !ok || (item.ExpectedSeq != 0 && current.prev.Seq > item.ExpectedSeq) {
+			return nil, fmt.Errorf("%w: deployment %d changed or no longer references value %d", ErrReferencingDeploymentsChanged, item.DeploymentID, stableID)
 		}
 	}
 	if len(seen) != len(actual) {
@@ -119,7 +128,7 @@ func prepareDeploymentReferenceUpdates(ctx context.Context, q *pq.Queries, refer
 	}
 	updates := make([]deploymentReferenceUpdate, 0, len(actual))
 	for _, item := range expected {
-		updates = append(updates, actual[item.ID])
+		updates = append(updates, actual[item.DeploymentID])
 	}
 	return updates, nil
 }

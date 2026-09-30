@@ -12,13 +12,23 @@ message Deployment {
   int32 space_id = 10;
   string name = 11;
   Scheduling scheduling = 14 [(cp.go_value) = true];
+  // Facts of the stored version, set by the server on every write and
+  // ignored on requests: the top-level version ordinal (instances pin it),
+  // the spec version (artifacts, logs, and metrics key on it), and the time
+  // the deployment was created.
+  int32 version = 15;
+  int32 spec_version = 16;
+  int64 created_time = 17 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
 // Scheduling is where and whether a deployment runs. running applies to every
 // scheduling variant; exactly one variant is set (cleanproto has no oneof).
+// generation counts operator restarts: a restart is a write that bumps it
+// and changes nothing else.
 message Scheduling {
   bool running = 1;
   DedicatedNodesScheduling dedicated_nodes = 2;
+  int32 generation = 3;
 }
 
 // DedicatedNodesScheduling runs one instance on each hand-picked node. At most
@@ -305,8 +315,10 @@ enum AcmeChallenge {
 
 // Definitions below are not reachable from DeploymentEvent.
 
-// Identifies the current deployment spec version observed by a caller.
-message DeploymentSpecVersionRef {
-  int32 id = 1;
-  int32 spec_version = 2;
+// DeploymentExpectedSeq names a deployment and the seq of its last mutation
+// the caller saw. The server rejects the write when a newer mutation exists;
+// expected_seq = 0 skips the check.
+message DeploymentExpectedSeq {
+  int32 deployment_id = 1;
+  int64 expected_seq = 2;
 }

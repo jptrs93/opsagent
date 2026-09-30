@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -96,20 +97,16 @@ func writeStatus(ctx context.Context, q *pq.Queries, seq int64, st *apigen.Sched
 	if publish {
 		rowSeq = seq
 	}
-	if err := q.InsertScheduledInstanceStatus(ctx, rowSeq, st); err != nil {
+	now := time.Now().UnixMilli()
+	if err := q.InsertScheduledInstanceStatus(ctx, rowSeq, now, st); err != nil {
 		return nil, err
 	}
 	if !publish {
 		return nil, nil
 	}
-	cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(inst.DeploymentID), Version: int64(inst.DeploymentVersion)})
-	if err != nil {
-		return nil, err
-	}
 	stored, err := q.GetLatestScheduledInstanceStatus(ctx, inst.ID)
 	if err != nil {
 		return nil, err
 	}
-	observed := apigen.WithRunningVersion(cfg, *stored)
-	return &state.Update{InstanceStatuses: []*apigen.ScheduledInstanceStatus{&observed}}, nil
+	return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, now, stored)), nil
 }

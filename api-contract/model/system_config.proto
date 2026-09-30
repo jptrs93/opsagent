@@ -37,14 +37,6 @@ message SystemConfig {
   bytes network_ula_prefix = 3;
 }
 
-// SystemConfigVersion identifies one persisted primary configuration revision. State
-// stream snapshots always clear SystemConfig.master_password_hash before publishing.
-message SystemConfigVersion {
-  int64 version = 1;
-  int64 updated_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  SystemConfig config = 3 [(cp.go_value) = true];
-}
-
 message ClusterSettings {
   HttpWebSettings http_web = 1 [(cp.go_value) = true];
   HttpsWebSettings https_web = 2 [(cp.go_value) = true];

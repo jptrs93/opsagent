@@ -18,3 +18,5 @@ CREATE TABLE IF NOT EXISTS system_config_event_log (
     event_type  INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update
     config_blob BLOB    NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_system_config_event_log_seq ON system_config_event_log (global_seq, id);

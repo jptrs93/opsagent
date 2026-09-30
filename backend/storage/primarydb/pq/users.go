@@ -77,18 +77,6 @@ func (q *Queries) ListUsers(ctx context.Context) ([]apigen.User, error) {
 	return out, nil
 }
 
-func (q *Queries) ListUsersAtSeq(ctx context.Context, seq int64) ([]apigen.User, error) {
-	rows, err := q.listUserRows(ctx, `FROM user_event_log WHERE global_seq = ? ORDER BY id`, seq)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]apigen.User, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, r.Public())
-	}
-	return out, nil
-}
-
 func (q *Queries) GetInternalUser(ctx context.Context, userID int64) (*apigen.InternalUser, error) {
 	r, err := q.getLiveUserRow(ctx, userID)
 	if err != nil {

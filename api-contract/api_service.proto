@@ -14,7 +14,7 @@ import "api-contract/model/deployments.proto";
 import "api-contract/model_deployments_operations.proto";
 import "api-contract/model_directories_operations.proto";
 import "api-contract/model_enrollment_operations.proto";
-import "api-contract/model_global_operations.proto";
+import "api-contract/model/events.proto";
 import "api-contract/model_logs_operations.proto";
 import "api-contract/model_metrics_operations.proto";
 import "api-contract/model/network_policies.proto";
@@ -201,12 +201,13 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc GetV1GlobalSnapshot(cp.Empty) returns (Snapshot) {
+  rpc PostV1GlobalEvents(EventStreamRequest) returns (EventStreamMsg) {
+    option (cp.url) = "/v1/global/events";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1GlobalStateStream(cp.Empty) returns (stream StateStreamMsg) {
-    option (cp.url) = "/v1/global/state-stream";
+  rpc PostV1GlobalEventStream(EventStreamRequest) returns (stream EventStreamMsg) {
+    option (cp.url) = "/v1/global/event-stream";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 

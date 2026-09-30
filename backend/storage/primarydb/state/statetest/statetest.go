@@ -3,14 +3,14 @@ package statetest
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/jptrs93/goutil/erru"
-	"github.com/jptrs93/goutil/ptru"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -30,11 +30,11 @@ func createDeployment(s *state.Service, ctx apigen.Context, def *apigen.Deployme
 		if err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentCreate(ctx, id, seq, def)
+		event, err = q.WriteDeploymentCreate(ctx, id, seq, time.Now(), def)
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{DeploymentEvents: []*apigen.DeploymentEvent{event}}, nil
+		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	})
 	return event, err
 }
@@ -53,11 +53,15 @@ func updateDeployment(s *state.Service, ctx apigen.Context, deploymentID int32, 
 		if err := mutate(&def, existing); err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentUpdate(ctx, int64(deploymentID), seq, &def)
+		event, err = q.WriteDeploymentUpdate(ctx, int64(deploymentID), seq, time.Now(), &def)
+		if errors.Is(err, pq.ErrDeploymentUnchanged) {
+			event = existing
+			return nil, nil
+		}
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{DeploymentEvents: []*apigen.DeploymentEvent{event}}, nil
+		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	}))
 	return event
 }
@@ -117,7 +121,8 @@ func SetDeploymentWorkloadState(s *state.Service, ctx apigen.Context, deployment
 }
 
 func RestartDeployment(s *state.Service, ctx apigen.Context, deploymentID int32) *apigen.DeploymentEvent {
-	return updateDeployment(s, ctx, deploymentID, func(_ *apigen.Deployment, _ *apigen.DeploymentEvent) error {
+	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
+		def.Scheduling.Generation++
 		return nil
 	})
 }
@@ -140,11 +145,11 @@ func DeleteDeployment(s *state.Service, ctx apigen.Context, deploymentID int32) 
 	var event *apigen.DeploymentEvent
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
 		var err error
-		event, err = q.WriteDeploymentDelete(ctx, int64(deploymentID), seq)
+		event, err = q.WriteDeploymentDelete(ctx, int64(deploymentID), seq, time.Now())
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{DeploymentEvents: []*apigen.DeploymentEvent{event}}, nil
+		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	}))
 	return event
 }
@@ -172,7 +177,7 @@ func CreateScheduledInstance(s *state.Service, deploymentID, deploymentVersion, 
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{ScheduledInstanceEvents: []*apigen.ScheduledInstanceEvent{event}}, nil
+		return pq.NewUpdate(pq.ScheduledInstanceMutation(event)), nil
 	}))
 	return inst
 }
@@ -192,7 +197,7 @@ func SetScheduledInstanceState(s *state.Service, instanceID int32, target apigen
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{ScheduledInstanceEvents: []*apigen.ScheduledInstanceEvent{event}}, nil
+		return pq.NewUpdate(pq.ScheduledInstanceMutation(event)), nil
 	}))
 }
 
@@ -256,57 +261,18 @@ func DeploymentEnvRef(t testing.TB, cfg *apigen.DeploymentEvent, key string, sec
 	return *value.Config
 }
 
-func rereadUpdateAtSeq(ctx context.Context, q *pq.Queries, seq int64) state.Update {
-	core := state.Update{Seq: seq}
-	core.DeploymentEvents = erru.Must(q.ListDeploymentEventsAtSeq(ctx, seq))
-	core.ScheduledInstanceEvents = erru.Must(q.ListScheduledInstanceEventsAtSeq(ctx, seq))
-	core.SecretEvents = erru.Must(q.ListSecretEventsAtSeq(ctx, seq))
-	core.ConfigEvents = erru.Must(q.ListConfigEventsAtSeq(ctx, seq))
-	for _, row := range erru.Must(q.ListAssetEventsAtSeq(ctx, seq)) {
-		core.AssetEvents = append(core.AssetEvents, ptru.To(row))
-	}
-	core.NetworkPolicyEvents = erru.Must(q.ListNetworkPolicyEventsAtSeq(ctx, seq))
-	core.NodeEvents = erru.Must(q.ListNodeEventsAtSeq(ctx, seq))
-	for _, row := range erru.Must(q.ListAuthzGrantEventsAtSeq(ctx, seq)) {
-		core.AuthzGrantEvents = append(core.AuthzGrantEvents, ptru.To(row))
-	}
-	if len(erru.Must(q.ListAuthzRuleTemplateEventsAtSeq(ctx, seq))) != 0 {
-		core.AuthzRuleTemplates = &apigen.AuthzRuleTemplateList{Items: erru.Must(q.ListAuthzRuleTemplates(ctx))}
-	}
-	if len(erru.Must(q.ListGlobalAccessRuleEventsAtSeq(ctx, seq))) != 0 {
-		core.AuthzGlobalRules = &apigen.AuthzGlobalRuleList{Items: erru.Must(q.ListAuthzGlobalRules(ctx))}
-	}
-	core.InstanceStatuses = erru.Must(q.ListScheduledInstanceStatusesAtSeq(ctx, seq))
-	core.NodeStatuses = erru.Must(q.ListNodeStatusesAtSeq(ctx, seq))
-	for _, row := range erru.Must(q.ListAgentSessionsAtSeq(ctx, seq)) {
-		core.AgentSessions = append(core.AgentSessions, row.Proto())
-	}
-	for _, row := range erru.Must(q.ListUserSessionsAtSeq(ctx, seq)) {
-		core.UserSessions = append(core.UserSessions, row.Proto())
-	}
-	core.Spaces = pointers(erru.Must(q.ListSpacesAtSeq(ctx, seq)))
-	core.Users = pointers(erru.Must(q.ListUsersAtSeq(ctx, seq)))
-	core.ValueDirectories = erru.Must(q.ListValueDirectoriesAtSeq(ctx, seq))
-	core.AssetDirectories = pointers(erru.Must(q.ListAssetDirectoriesAtSeq(ctx, seq)))
-	if cfg, err := q.GetSystemConfigAtSeq(ctx, seq); err == nil {
-		core.SystemConfig = cfg
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		panic(err)
-	}
-	return core
+// Canonical encodes an update with its mutations in a fixed order so two
+// updates that carry the same facts compare equal.
+func Canonical(update state.Update) []byte {
+	cp := update
+	cp.Mutations = slices.Clone(update.Mutations)
+	sort.Slice(cp.Mutations, func(i, j int) bool { return bytes.Compare(cp.Mutations[i].Encode(), cp.Mutations[j].Encode()) < 0 })
+	return cp.Encode()
 }
 
-func canonicalUpdate(update state.Update) []byte {
-	actual := update
-	actual.InstanceStatuses = nil
-	for _, st := range update.InstanceStatuses {
-		cp := *st
-		cp.Runner.RunningVersion = ""
-		actual.InstanceStatuses = append(actual.InstanceStatuses, &cp)
-	}
-	return actual.Encode()
-}
-
+// AssertUpdateMatchesRows checks a published update against the rows the
+// commit wrote: the same seq as the database, and the same mutations as the
+// event stream replays for that seq.
 func AssertUpdateMatchesRows(t testing.TB, s *state.Service, update state.Update) {
 	t.Helper()
 	ctx := context.Background()
@@ -314,16 +280,44 @@ func AssertUpdateMatchesRows(t testing.TB, s *state.Service, update state.Update
 	if update.Seq != seq {
 		t.Fatalf("published sequence = %d, database sequence = %d", update.Seq, seq)
 	}
-	expected := rereadUpdateAtSeq(ctx, s.Queries(), update.Seq)
-	if !bytes.Equal(canonicalUpdate(update), canonicalUpdate(expected)) {
-		t.Fatalf("published update differs from persisted rows at seq %d\ngot: %+v\nwant: %+v", update.Seq, update, expected)
+	events := pq.Events(erru.Must(s.Queries().MutationsInRange(ctx, seq-1, seq)))
+	if len(events) != 1 {
+		t.Fatalf("seq %d replays as %d events", seq, len(events))
+	}
+	if !bytes.Equal(Canonical(update), Canonical(*events[0])) {
+		t.Fatalf("published update differs from persisted rows at seq %d\ngot: %+v\nwant: %+v", update.Seq, update, *events[0])
 	}
 }
 
-func pointers[T any](items []T) []*T {
-	out := make([]*T, 0, len(items))
-	for i := range items {
-		out = append(out, &items[i])
+// Fold applies mutations in order and returns the live entity payloads keyed
+// by type and id, the state a stream consumer holds after the events.
+func Fold(events []*apigen.CoreWriteUpdate) map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity {
+	out := map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity{}
+	for _, e := range events {
+		for _, m := range e.Mutations {
+			if out[m.Type()] == nil {
+				out[m.Type()] = map[int64]*apigen.CoreEntity{}
+			}
+			if m.Delete != nil {
+				delete(out[m.Type()], m.EntityID())
+				continue
+			}
+			out[m.Type()][m.EntityID()] = m.Entity()
+		}
 	}
 	return out
+}
+
+// Bootstrap returns the compacted history as events, the same shape the
+// stream sends a fresh subscriber.
+func Bootstrap(t testing.TB, q *pq.Queries) []*apigen.CoreWriteUpdate {
+	t.Helper()
+	return pq.Events(erru.Must(q.BootstrapMutations(context.Background())))
+}
+
+// Live returns the entity payloads a fresh subscriber holds after folding the
+// bootstrap.
+func Live(t testing.TB, q *pq.Queries, typ apigen.CoreEntityType) map[int64]*apigen.CoreEntity {
+	t.Helper()
+	return Fold(Bootstrap(t, q))[typ]
 }

@@ -66,20 +66,6 @@ func (h *Handler) PostV1SecretsList(ctx apigen.Context) (*apigen.SecretEventList
 	return &apigen.SecretEventList{Items: h.filterSecrets(ctx, secrets.List(h.Store.Queries()))}, nil
 }
 
-// secretForVersionID resolves the identity that owns a version row. Reveal
-// addresses version rows, but access is granted on the identity.
-func (h *Handler) secretForVersionID(versionID int32) *apigen.SecretEvent {
-	meta, ok := h.Secrets.MetaByID(versionID)
-	if !ok {
-		return nil
-	}
-	sec, ok := secrets.Get(h.Store.Queries(), meta.SecretID)
-	if !ok {
-		return nil
-	}
-	return sec
-}
-
 func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCreateRequest) (*apigen.SecretEvent, error) {
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, SecretNameRequiredErr
@@ -290,17 +276,17 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 }
 
 func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretRevealRequest) (*apigen.SecretRevealResponse, error) {
-	if req.ID == 0 {
+	if req.SecretID == 0 || req.Version <= 0 {
 		return nil, SecretIDRequiredErr
 	}
-	sec := h.secretForVersionID(req.ID)
-	if sec == nil {
+	sec, ok := secrets.Get(h.Store.Queries(), req.SecretID)
+	if !ok {
 		return nil, SecretNotFoundErr
 	}
 	if err := h.requireEntityAccess(ctx, vReveal, eSecret, int64(sec.SpaceID()), int64(sec.SecretID), SecretNotFoundErr); err != nil {
 		return nil, err
 	}
-	value, err := h.Secrets.RevealByID(req.ID)
+	value, err := h.Secrets.RevealByRef(apigen.ValueRef{ID: req.SecretID, Version: req.Version})
 	if err != nil {
 		return nil, mapSecretErr(err)
 	}

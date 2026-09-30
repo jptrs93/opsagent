@@ -10,7 +10,6 @@ import (
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
@@ -31,6 +30,24 @@ func setConfigByName(s *state.Service, name, value string, author int32) *apigen
 		return erru.Must(event, err)
 	}
 	return erru.Must(CreateConfig(s, name, nodes.DefaultSpaceID, 0, author, value))
+}
+
+func expectedSeqs(events ...*apigen.DeploymentEvent) []*apigen.DeploymentExpectedSeq {
+	var out []*apigen.DeploymentExpectedSeq
+	for _, e := range events {
+		out = append(out, &apigen.DeploymentExpectedSeq{DeploymentID: e.DeploymentID, ExpectedSeq: e.Seq})
+	}
+	return out
+}
+
+func mutationsOf(update state.Update, typ apigen.CoreEntityType) []*apigen.CoreMutation {
+	var out []*apigen.CoreMutation
+	for _, m := range update.Mutations {
+		if m.Type() == typ {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 func latestConfigRef(t *testing.T, c *apigen.ConfigEvent) *statetest.ValueVersion {
@@ -58,10 +75,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	secondDeployment := create("second", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": secondRef}, nil))
 	unchangedDeployment := create("unchanged", statetest.EnvRefSpec(map[string]apigen.ValueRef{"OTHER": unrelatedRef}, nil))
 
-	saved, updatedIDs, err := AppendConfigVersion(store, database.ConfigID, "three", 9, true, []storage.DeploymentSpecVersion{
-		{ID: firstDeployment.DeploymentID, SpecVersion: firstDeployment.SpecVersion},
-		{ID: secondDeployment.DeploymentID, SpecVersion: secondDeployment.SpecVersion},
-	})
+	saved, updatedIDs, err := AppendConfigVersion(store, database.ConfigID, "three", 9, true, expectedSeqs(firstDeployment, secondDeployment))
 	if err != nil {
 		t.Fatalf("set config with deployment updates: %v", err)
 	}
@@ -91,10 +105,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 		t.Fatalf("first deployment history length = %d, want 2", got)
 	}
 
-	_, _, err = AppendConfigVersion(store, database.ConfigID, "must-not-save", 9, true, []storage.DeploymentSpecVersion{
-		{ID: firstDeployment.DeploymentID, SpecVersion: firstDeployment.SpecVersion},
-		{ID: secondDeployment.DeploymentID, SpecVersion: secondCurrent.SpecVersion},
-	})
+	_, _, err = AppendConfigVersion(store, database.ConfigID, "must-not-save", 9, true, expectedSeqs(firstDeployment, secondCurrent))
 	if !errors.Is(err, ErrReferencingDeploymentsChanged) {
 		t.Fatalf("stale update error = %v, want ErrReferencingDeploymentsChanged", err)
 	}
@@ -119,14 +130,20 @@ func TestRenameConfigPublishesEventAndPreservesHistory(t *testing.T) {
 	}
 	select {
 	case tx := <-metaSub:
-		if len(tx.ConfigEvents) != 1 {
-			t.Fatalf("expected one event: %+v", tx)
+		statetest.AssertUpdateMatchesRows(t, store, tx)
+		configs := mutationsOf(tx, apigen.CoreEntityType_CORE_ENTITY_CONFIG)
+		if len(tx.Mutations) != 1 || len(configs) != 1 || configs[0].Kind() != apigen.AuthzVerb_AUTHZ_VERB_UPDATE {
+			t.Fatalf("expected one config update: %+v", tx)
 		}
-		update := tx.ConfigEvents[0]
-		if update.Value.Fs.Name != "new-name" || update.ConfigID != meta.ConfigID {
+		update := configs[0].Entity().Config
+		if update.Fs.Name != "new-name" || int32(configs[0].EntityID()) != meta.ConfigID || update.ValueVersion != 2 || update.Value != "two" {
 			t.Fatalf("config update = %+v", update)
 		}
-		versions := statetest.ValueVersions(store, update)
+		renamed, ok := GetConfig(store.Queries(), meta.ConfigID)
+		if !ok {
+			t.Fatal("renamed config missing")
+		}
+		versions := statetest.ValueVersions(store, renamed)
 		if len(versions) != 2 || versions[0].Value != "two" || versions[1].Value != "one" {
 			t.Fatalf("config update value versions = %+v", versions)
 		}
@@ -198,10 +215,7 @@ func TestSetConfigSameValueStillRepointsStaleDeployments(t *testing.T) {
 	stale := create("stale", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": oldRef}, nil))
 	current := create("current", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": currentRef}, nil))
 
-	saved, updatedIDs, err := AppendConfigVersion(store, database.ConfigID, "two", 9, true, []storage.DeploymentSpecVersion{
-		{ID: stale.DeploymentID, SpecVersion: stale.SpecVersion},
-		{ID: current.DeploymentID, SpecVersion: current.SpecVersion},
-	})
+	saved, updatedIDs, err := AppendConfigVersion(store, database.ConfigID, "two", 9, true, expectedSeqs(stale, current))
 	if err != nil {
 		t.Fatalf("no-op set with deployment updates: %v", err)
 	}

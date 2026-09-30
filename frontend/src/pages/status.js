@@ -151,7 +151,7 @@ function deleteDeploymentOverlay(deploymentRow, close) {
         try {
             await capi.postV1DeploymentsDelete({
                 deploymentId: deploymentRow.id,
-                version: (deploymentRow.version || 0) + 1,
+                expectedSeq: Number(deploymentRow.seq || 0),
             });
             close();
         } catch (e) {
@@ -269,7 +269,7 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
         try {
             const request = {
                 deploymentId,
-                expectedVersion: (current.version || 0) + 1,
+                expectedSeq: Number(current.seq || 0),
             };
             if (current.spec?.container1Spec) {
                 const spec = structuredClone(current.spec);
@@ -419,7 +419,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
             currentVersion: d.config.specVersion || 0,
             version: d.config.version || 0,
-            spaceVersion: d.config.spaceVersion || 0,
+            seq: Number(d.config.seq || 0),
             targetState: d.instance?.state || 0,
             scheduledInstances,
         };

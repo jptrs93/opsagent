@@ -5,8 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/jptrs93/goutil/erru"
+
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 func instanceIDs(states []apigen.ScheduledInstanceState) []int32 {
@@ -171,21 +174,40 @@ func TestDisplaySnapshotAppliesPredicate(t *testing.T) {
 	}
 }
 
-// Reconstruct assignment rows only from the public snapshot's event references.
 func snapshotInstances(store *Service, predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
-	snapshot := store.BuildSnapshot(context.Background())
-	out := []apigen.ScheduledInstanceState{}
-	for _, e := range snapshot.ScheduledInstanceEvents {
-		st := apigen.ScheduledInstanceState{Instance: e.Value}
-		for _, d := range snapshot.DeploymentEvents {
-			if d.DeploymentID == e.Value.DeploymentID && d.Version == e.Value.DeploymentVersion {
-				st.Config = *d
+	events := pq.Events(erru.Must(store.q.BootstrapMutations(context.Background())))
+	type pin struct{ deployment, version int32 }
+	deployments := map[pin]*apigen.DeploymentEvent{}
+	instances := map[int64]*apigen.ScheduledInstance{}
+	statuses := map[int64]*apigen.ScheduledInstanceStatus{}
+	var order []int64
+	for _, e := range events {
+		for _, m := range e.Mutations {
+			entity := m.Entity()
+			switch {
+			case entity == nil:
+			case entity.Deployment != nil:
+				d := entity.Deployment
+				deployments[pin{int32(m.EntityID()), d.Version}] = &apigen.DeploymentEvent{DeploymentID: int32(m.EntityID()), Version: d.Version, SpecVersion: d.SpecVersion, CreatedTime: d.CreatedTime, Value: *d}
+			case entity.ScheduledInstance != nil:
+				if _, seen := instances[m.EntityID()]; !seen {
+					order = append(order, m.EntityID())
+				}
+				instances[m.EntityID()] = entity.ScheduledInstance
+			case entity.ScheduledInstanceStatus != nil:
+				statuses[m.EntityID()] = entity.ScheduledInstanceStatus
 			}
 		}
-		for _, status := range snapshot.InstanceStatuses {
-			if status.ScheduledInstanceID == e.ScheduledInstanceID {
-				st.Status = *status
-			}
+	}
+	out := []apigen.ScheduledInstanceState{}
+	for _, id := range order {
+		inst := instances[id]
+		st := apigen.ScheduledInstanceState{Instance: *inst}
+		if d := deployments[pin{inst.DeploymentID, inst.DeploymentVersion}]; d != nil {
+			st.Config = *d
+		}
+		if status := statuses[id]; status != nil {
+			st.Status = *status
 		}
 		if predicate == nil || predicate(st) {
 			out = append(out, st)

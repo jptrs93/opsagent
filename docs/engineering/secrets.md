@@ -68,25 +68,26 @@ reparenting — a refused cross-space move never lands the row at *its own*
 space's root — and the explorer's drag-and-drop and Move dialog surface the
 refusal. Reserved `opendeploy.*` secrets cannot be moved at all:
 install/restore flows find them by name in the space root. Directories ride
-the UI state stream as `value_directories` and appear in
-`GET /v1/global/snapshot`.
+the event stream as `VALUE_DIRECTORY` entities.
 
 Values are decrypted during deployment preparation, cached on the node that
 runs the deployment — in memory, and additionally encrypted at rest on a
 secondary — and expanded at process spawn time. They never appear in stored
 deployment config, the UI state stream, the cluster replication feed, or logs.
-List APIs return the latest live `SecretEvent` / `ConfigEvent`; the snapshot
-contains every event of each live entity, oldest first. Envelopes identify the
-entity and log row (`event_id`), with current filesystem/space fields in
-`value`. Config plaintext is `value.value`; secret `value` is metadata only.
-Version pickers group each history and pin the `event_id` of events whose
+List APIs return the latest live `SecretEvent` / `ConfigEvent`; the event
+stream's bootstrap carries every row of each live entity as `SECRET` and
+`CONFIG` mutations, oldest first, with `value_version` and `created_time` on
+the entity. Config plaintext is `Config.value`; the browser's `Secret` is
+metadata only: the sealed `smk_version`, `ciphertext`, and `nonce` are on the
+row and the unstripped event, and `browserEntity` clears them for the browser
+class. Version pickers pin `{id, value_version}` from the entries whose
 `value_version` changes. Rename and move events preserve that facet.
 
 A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
 UI). This is the **only** API path that returns a plaintext value — `List`
-returns metadata only, and `Set` is write-only. Reveal requests use the immutable
-secret event row ID of the value version for exact-version reads. A value is decrypted into a response
+returns metadata only, and `Set` is write-only. Reveal requests carry
+`{secret_id, version}`, the same pair a reference pins, for exact-version reads. A value is decrypted into a response
 solely on this explicit request; it is still never logged, replicated, or
 persisted outside the encrypted store.
 

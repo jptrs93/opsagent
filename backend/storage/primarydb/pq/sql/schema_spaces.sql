@@ -16,3 +16,5 @@ INSERT INTO space_event_log (global_seq, event_time, author, space_id, event_typ
 SELECT 0, 0, 0, 0, 1, '_system' WHERE NOT EXISTS (SELECT 1 FROM space_event_log WHERE space_id = 0);
 INSERT INTO space_event_log (global_seq, event_time, author, space_id, event_type, name)
 SELECT 0, 0, 0, 1, 1, 'global' WHERE NOT EXISTS (SELECT 1 FROM space_event_log WHERE space_id = 1);
+
+CREATE INDEX IF NOT EXISTS idx_space_event_log_seq ON space_event_log (global_seq, id);

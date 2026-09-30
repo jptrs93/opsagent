@@ -48,23 +48,6 @@ ORDER BY e.grant_id`)
 	return out, rows.Err()
 }
 
-func (q *Queries) ListAuthzGrantEventsAtSeq(ctx context.Context, id int64) ([]apigen.AuthzGrantEvent, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT id,global_seq,event_time,created_time,author,grant_id,version,user_id,template_id,data_blob,event_type FROM authz_grant_event_log WHERE global_seq = ? ORDER BY id`, id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []apigen.AuthzGrantEvent
-	for rows.Next() {
-		e, err := scanAuthzGrantEvent(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
 func (q *Queries) ListLatestLiveAuthzGrantEvents(ctx context.Context) ([]apigen.AuthzGrantEvent, error) {
 	rows, err := q.db.QueryContext(ctx, `SELECT e.id, e.global_seq, e.event_time, e.created_time, e.author, e.grant_id,
        e.version, e.user_id, e.template_id, e.data_blob, e.event_type

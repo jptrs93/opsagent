@@ -673,8 +673,11 @@ func (c *ApiServerCapi) PostV1AccessGlobalRulesDelete(ctx context.Context, req *
 	return nil
 }
 
-func (c *ApiServerCapi) GetV1GlobalSnapshot(ctx context.Context) (*Snapshot, error) {
-	resp, err := c.do(ctx, "GET", "/v1/global/snapshot", nil, "application/protobuf", "application/protobuf")
+func (c *ApiServerCapi) PostV1GlobalEvents(ctx context.Context, req *EventStreamRequest) (*EventStreamMsg, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1GlobalEvents request is nil")
+	}
+	resp, err := c.do(ctx, "POST", "/v1/global/events", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
 	}
@@ -686,12 +689,16 @@ func (c *ApiServerCapi) GetV1GlobalSnapshot(ctx context.Context) (*Snapshot, err
 	if err != nil {
 		return nil, err
 	}
-	return DecodeSnapshot(body)
+	return DecodeEventStreamMsg(body)
 }
 
-func (c *ApiServerCapi) PostV1GlobalStateStream(ctx context.Context) iter.Seq2[*StateStreamMsg, error] {
-	return func(yield func(*StateStreamMsg, error) bool) {
-		resp, err := c.do(ctx, "POST", "/v1/global/state-stream", nil, "application/protobuf", "application/protobuf-stream")
+func (c *ApiServerCapi) PostV1GlobalEventStream(ctx context.Context, req *EventStreamRequest) iter.Seq2[*EventStreamMsg, error] {
+	return func(yield func(*EventStreamMsg, error) bool) {
+		if req == nil {
+			yield(nil, fmt.Errorf("PostV1GlobalEventStream request is nil"))
+			return
+		}
+		resp, err := c.do(ctx, "POST", "/v1/global/event-stream", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf-stream")
 		if err != nil {
 			yield(nil, err)
 			return
@@ -711,7 +718,7 @@ func (c *ApiServerCapi) PostV1GlobalStateStream(ctx context.Context) iter.Seq2[*
 			if !ok {
 				return
 			}
-			item, err := DecodeStateStreamMsg(payload)
+			item, err := DecodeEventStreamMsg(payload)
 			if err != nil {
 				yield(nil, err)
 				return

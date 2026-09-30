@@ -10,15 +10,14 @@ import (
 
 const valueDirectoryColumns = `directory_id, space_id, name, parent_id, created_at, author, event_type`
 
-func scanValueDirectory(row scanner) (*apigen.ValueDirectory, error) {
+func scanValueDirectory(row scanner) (*apigen.ValueDirectory, bool, error) {
 	e := &apigen.ValueDirectory{}
 	var createdAt, eventType int64
 	if err := row.Scan(&e.ID, &e.SpaceID, &e.Name, &e.ParentID, &createdAt, &e.Author, &eventType); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	e.CreatedAt = time.UnixMilli(createdAt)
-	e.Deleted = eventType == int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)
-	return e, nil
+	return e, eventType != int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE), nil
 }
 
 const liveValueDirectories = `FROM value_directory_event_log WHERE id IN (SELECT MAX(id) FROM value_directory_event_log GROUP BY directory_id) AND event_type != 3`
@@ -31,7 +30,7 @@ func (q *Queries) listValueDirectories(ctx context.Context, where string, args .
 	defer rows.Close()
 	var out []*apigen.ValueDirectory
 	for rows.Next() {
-		e, err := scanValueDirectory(rows)
+		e, _, err := scanValueDirectory(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -43,8 +42,8 @@ func (q *Queries) listValueDirectories(ctx context.Context, where string, args .
 // GetValueDirectoryByID returns the live directory, or sql.ErrNoRows when it
 // never existed or was deleted.
 func (q *Queries) GetValueDirectoryByID(ctx context.Context, directoryID int64) (*apigen.ValueDirectory, error) {
-	e, err := scanValueDirectory(q.db.QueryRowContext(ctx, `SELECT `+valueDirectoryColumns+` FROM value_directory_event_log WHERE directory_id = ? ORDER BY id DESC LIMIT 1`, directoryID))
-	if err == nil && e.Deleted {
+	e, live, err := scanValueDirectory(q.db.QueryRowContext(ctx, `SELECT `+valueDirectoryColumns+` FROM value_directory_event_log WHERE directory_id = ? ORDER BY id DESC LIMIT 1`, directoryID))
+	if err == nil && !live {
 		return nil, sql.ErrNoRows
 	}
 	return e, err
@@ -52,10 +51,6 @@ func (q *Queries) GetValueDirectoryByID(ctx context.Context, directoryID int64) 
 
 func (q *Queries) ListValueDirectories(ctx context.Context) ([]*apigen.ValueDirectory, error) {
 	return q.listValueDirectories(ctx, liveValueDirectories+` ORDER BY space_id, parent_id, name`)
-}
-
-func (q *Queries) ListValueDirectoriesAtSeq(ctx context.Context, seq int64) ([]*apigen.ValueDirectory, error) {
-	return q.listValueDirectories(ctx, `FROM value_directory_event_log WHERE global_seq = ? ORDER BY id`, seq)
 }
 
 func (q *Queries) CountChildValueDirectories(ctx context.Context, parentID int64) (int64, error) {
@@ -97,8 +92,14 @@ func ValueDirectoryEvent(d *apigen.ValueDirectory, meta EventMeta) ValueDirector
 	return ValueDirectoryEventParams{EventMeta: meta, DirectoryID: int64(d.ID), SpaceID: int64(d.SpaceID), Name: d.Name, ParentID: int64(d.ParentID), CreatedAt: d.CreatedAt.UnixMilli()}
 }
 
-func (q *Queries) InsertValueDirectoryEvent(ctx context.Context, arg ValueDirectoryEventParams) (*apigen.ValueDirectory, error) {
-	return scanValueDirectory(q.db.QueryRowContext(ctx, `INSERT INTO value_directory_event_log (global_seq, event_time, author, directory_id, event_type, space_id, name, parent_id, created_at)
+// InsertValueDirectoryEvent appends the row and returns the written
+// directory with the mutation that describes the write.
+func (q *Queries) InsertValueDirectoryEvent(ctx context.Context, arg ValueDirectoryEventParams) (*apigen.ValueDirectory, Mutation, error) {
+	d, _, err := scanValueDirectory(q.db.QueryRowContext(ctx, `INSERT INTO value_directory_event_log (global_seq, event_time, author, directory_id, event_type, space_id, name, parent_id, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 RETURNING `+valueDirectoryColumns, arg.GlobalSeq, arg.EventTime, arg.Author, arg.DirectoryID, arg.EventType, arg.SpaceID, arg.Name, arg.ParentID, arg.CreatedAt))
+	if err != nil {
+		return nil, Mutation{}, err
+	}
+	return d, ValueDirectoryMutation(arg.EventMeta, d), nil
 }

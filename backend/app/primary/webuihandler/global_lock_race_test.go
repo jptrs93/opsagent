@@ -123,7 +123,7 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 		}()
 		wg.Wait()
 
-		meta, ok := h.Secrets.MetaByID(sec.ID)
+		meta, ok := h.Secrets.MetaByRef(sec.Ref())
 		if !ok {
 			t.Fatalf("round %d: secret version disappeared", round)
 		}

@@ -69,7 +69,7 @@ export function networkPoliciesPage() {
     };
 
     const openEditForm = (policy) => {
-        editing.val = {id: Number(policy.id), version: Number(policy.version)};
+        editing.val = {id: Number(policy.id), seq: Number(policy.seq || 0)};
         sourceKind.val = Number(policy.source?.kind || PEER_KIND_SPACE);
         sourceId.val = Number(policy.source?.id || 0);
         destinationKind.val = Number(policy.destination?.kind || PEER_KIND_SPACE);
@@ -107,7 +107,7 @@ export function networkPoliciesPage() {
             saving.val = true;
             error.val = null;
             if (editing.val) {
-                await capi.postV1NetworkPoliciesUpdate({...body, id: editing.val.id, version: editing.val.version});
+                await capi.postV1NetworkPoliciesUpdate({...body, id: editing.val.id, expectedSeq: Number(editing.val.seq || 0)});
             } else {
                 await capi.postV1NetworkPoliciesCreate(body);
             }

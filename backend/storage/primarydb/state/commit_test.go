@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
+
+	"github.com/jptrs93/goutil/erru"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -15,18 +18,18 @@ func TestCommitRollbackPreservesIDsAndPublishesWriterUpdate(t *testing.T) {
 	s := Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	ctx := context.Background()
-	before := s.BuildSnapshot(ctx).Seq
+	before := erru.Must(s.q.GetGlobalSeq(ctx))
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
 	stop := errors.New("abort after writes")
 	var firstID, firstEventID int64
-	var returned apigen.CoreUpdate
+	var returned *Update
 	write := func(q *pq.Queries, seq int64) (*Update, error) {
 		id, err := q.NextDeploymentID(ctx)
 		if err != nil {
 			return nil, err
 		}
-		event, err := q.WriteDeploymentCreate(apigen.Context{Ctx: ctx, User: &apigen.InternalUser{ID: 1}}, id, seq, &apigen.Deployment{Name: "written", SpaceID: defaultSpaceID})
+		event, err := q.WriteDeploymentCreate(apigen.Context{Ctx: ctx, User: &apigen.InternalUser{ID: 1}}, id, seq, time.Now(), &apigen.Deployment{Name: "written", SpaceID: defaultSpaceID})
 		if err != nil {
 			return nil, err
 		}
@@ -35,8 +38,8 @@ func TestCommitRollbackPreservesIDsAndPublishesWriterUpdate(t *testing.T) {
 		} else if id != firstID || event.EventID != firstEventID {
 			t.Fatal("rollback consumed identity or event id")
 		}
-		returned = apigen.CoreUpdate{Seq: seq, DeploymentEvents: []*apigen.DeploymentEvent{event}}
-		return &returned, nil
+		returned = pq.NewUpdate(pq.DeploymentMutation(event))
+		return returned, nil
 	}
 	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
 		update, err := write(q, seq)
@@ -45,7 +48,7 @@ func TestCommitRollbackPreservesIDsAndPublishesWriterUpdate(t *testing.T) {
 		}
 		return update, stop
 	})
-	if !errors.Is(err, stop) || s.BuildSnapshot(ctx).Seq != before {
+	if !errors.Is(err, stop) || erru.Must(s.q.GetGlobalSeq(ctx)) != before {
 		t.Fatalf("rollback = %v", err)
 	}
 	select {
@@ -53,63 +56,69 @@ func TestCommitRollbackPreservesIDsAndPublishesWriterUpdate(t *testing.T) {
 		t.Fatal("rollback published")
 	default:
 	}
-	err = s.Commit(ctx, nil, write)
-	if err != nil {
+	if err := s.Commit(ctx, nil, write); err != nil {
 		t.Fatal(err)
 	}
 	got := <-sub
-	core := got
-	if got.Seq != before+1 || core.DeploymentEvents[0].Seq != got.Seq {
+	if got.Seq != before+1 || len(got.Mutations) != 1 {
 		t.Fatalf("incorrect writer sequence: %+v", got)
 	}
-	if !reflect.DeepEqual(core, returned) {
+	m := got.Mutations[0]
+	if m.Type() != apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT || m.Kind() != apigen.AuthzVerb_AUTHZ_VERB_CREATE || m.EntityID() != firstID || m.Entity().Deployment.Version != 1 {
+		t.Fatalf("writer mutation: %+v", m)
+	}
+	if !reflect.DeepEqual(got, *returned) {
 		t.Fatal("store changed the writer update")
 	}
 	assertUpdateMatchesRows(t, s, got)
 }
 
-func TestGrantEventsMatchRowsAndSnapshotReplay(t *testing.T) {
+func TestGrantEventsMatchRowsAndBootstrapReplay(t *testing.T) {
 	s := Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	ctx := context.Background()
-	replay := s.BuildSnapshot(ctx)
+	replay := fullFold(t, s.q)
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
-	check := func(eventType apigen.EventType, id int64) *apigen.AuthzGrantEvent {
+	check := func(kind apigen.AuthzVerb, id int64) *apigen.AuthzGrantValue {
 		t.Helper()
 		update := <-sub
 		assertUpdateMatchesRows(t, s, update)
-		if len(update.AuthzGrantEvents) != 1 {
-			t.Fatalf("grant writer published %d events", len(update.AuthzGrantEvents))
+		if len(update.Mutations) != 1 {
+			t.Fatalf("grant writer published %d mutations", len(update.Mutations))
 		}
-		event := update.AuthzGrantEvents[0]
-		if event.AuthzGrantID != id || event.EventType != eventType || event.EventID == 0 || event.Seq != update.Seq {
-			t.Fatalf("invalid grant envelope: %+v", event)
+		m := update.Mutations[0]
+		if m.Type() != apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT || m.EntityID() != id || m.Kind() != kind {
+			t.Fatalf("invalid grant mutation: %+v", m)
 		}
-		wire, err := apigen.DecodeCoreUpdate(update.Encode())
-		if err != nil {
-			t.Fatal(err)
+		foldInto(replay, &update)
+		assertFoldEqual(t, "grant replay", bootstrapFold(t, s.q), retainForBootstrap(replay))
+		if entity := m.Entity(); entity != nil {
+			return entity.AuthzGrant
 		}
-		foldSnapshot(replay, *wire)
-		if canonicalSnapshot(replay) != canonicalSnapshot(s.BuildSnapshot(ctx)) {
-			t.Fatal("grant replay differs from the later snapshot")
-		}
-		return event
+		return nil
 	}
 	first := insertGrantForTest(t, s, 7, 3, 123)
-	created := check(apigen.EventType_EVENT_TYPE_CREATE, first)
+	created := check(apigen.AuthzVerb_AUTHZ_VERB_CREATE, first)
+	if created == nil || created.UserID != 7 || created.TemplateID != 2 || created.Author != 3 || created.CreatedTime != 123 {
+		t.Fatalf("grant payload lost its facts: %+v", created)
+	}
 	second := insertGrantForTest(t, s, 8, 0, 0)
-	check(apigen.EventType_EVENT_TYPE_CREATE, second)
+	check(apigen.AuthzVerb_AUTHZ_VERB_CREATE, second)
+	createdEvent := erru.Must(s.q.GetLatestAuthzGrantEvent(ctx, first))
 	deleteGrantForTest(t, s, first)
-	deleted := check(apigen.EventType_EVENT_TYPE_DELETE, first)
-	if deleted.Version != created.Version+1 || deleted.CreatedTime != created.CreatedTime || !reflect.DeepEqual(deleted.Value, created.Value) {
+	check(apigen.AuthzVerb_AUTHZ_VERB_DELETE, first)
+	deletedEvent := erru.Must(s.q.GetLatestAuthzGrantEvent(ctx, first))
+	if deletedEvent.EventType != apigen.EventType_EVENT_TYPE_DELETE || deletedEvent.Version != createdEvent.Version+1 || deletedEvent.CreatedTime != createdEvent.CreatedTime || !reflect.DeepEqual(deletedEvent.Value, createdEvent.Value) {
 		t.Fatal("grant deletion lost its subject, bindings or original creation time")
 	}
-	if len(replay.AuthzGrantEvents) != 1 || replay.AuthzGrantEvents[0].AuthzGrantID != second {
+	grants := replay[apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT]
+	if len(grants) != 1 || grants[second] == nil {
 		t.Fatal("grant deletion removed an unrelated grant")
 	}
-	if rows, err := s.q.ListAuthzGrantEventsAtSeq(ctx, created.Seq); err != nil || len(rows) != 1 {
-		t.Fatalf("grant creation history was lost: %v", err)
+	history := erru.Must(s.q.MutationsInRange(ctx, createdEvent.Seq-1, createdEvent.Seq))
+	if len(history) != 1 || history[0].Type != apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT || history[0].ID != first {
+		t.Fatalf("grant creation history was lost: %+v", history)
 	}
 }
 
@@ -128,7 +137,7 @@ func insertGrantForTest(t *testing.T, s *Service, userID, author, createdAt int6
 		if err := q.InsertAuthzGrantEvent(ctx, &event); err != nil {
 			return nil, err
 		}
-		return &Update{AuthzGrantEvents: []*apigen.AuthzGrantEvent{&event}}, nil
+		return pq.NewUpdate(pq.AuthzGrantMutation(&event)), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +157,7 @@ func deleteGrantForTest(t *testing.T, s *Service, id int64) {
 		if err := q.InsertAuthzGrantEvent(ctx, &event); err != nil {
 			return nil, err
 		}
-		return &Update{AuthzGrantEvents: []*apigen.AuthzGrantEvent{&event}}, nil
+		return pq.NewUpdate(pq.AuthzGrantMutation(&event)), nil
 	}); err != nil {
 		t.Fatal(err)
 	}

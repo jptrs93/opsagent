@@ -9,6 +9,7 @@ import (
 func scanAssetEvent(row scanner) (apigen.AssetEvent, error) {
 	e := apigen.AssetEvent{Value: apigen.Asset{Fs: &apigen.AssetFs{}}}
 	err := row.Scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.AssetID, &e.Version, &e.ValueVersion, &e.Value.Fs.Key, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.Value.SizeBytes, &e.Value.Sha256, &e.Value.StorageKey, &e.EventType)
+	e.Value.ValueVersion, e.Value.CreatedTime = e.ValueVersion, e.CreatedTime
 	return e, err
 }
 
@@ -27,24 +28,6 @@ FROM asset_event_log
 WHERE asset_id IN (SELECT asset_id FROM asset_event_log current
  WHERE current.version = (SELECT MAX(version) FROM asset_event_log WHERE asset_id=current.asset_id) AND current.event_type != 3)
 ORDER BY asset_id, version`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []apigen.AssetEvent
-	for rows.Next() {
-		e, err := scanAssetEvent(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
-func (q *Queries) ListAssetEventsAtSeq(ctx context.Context, id int64) ([]apigen.AssetEvent, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT id, global_seq, event_time, created_time, author, asset_id, version,
-       value_version, key, asset_directory_id, space_id, size_bytes, sha256, storage_key, event_type FROM asset_event_log WHERE global_seq = ? ORDER BY id`, id)
 	if err != nil {
 		return nil, err
 	}

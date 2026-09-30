@@ -188,7 +188,7 @@ func TestSpaceAndNodeChangesPublishTogether(t *testing.T) {
 	defer s.Close()
 	EnsurePrimaryNode(s, "one", "one")
 	EnsurePrimaryNode(s, "two", "two")
-	before := s.BuildSnapshot(context.Background()).Seq
+	before := globalSeq(t, s)
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
 	space, err := CreateSpace(s, "new", 0)
@@ -196,11 +196,14 @@ func TestSpaceAndNodeChangesPublishTogether(t *testing.T) {
 		t.Fatal(err)
 	}
 	update := <-sub
-	if update.Seq != before+1 || len(update.Spaces) != 1 || update.Spaces[0].ID != space.ID || len(update.NodeEvents) != 2 {
+	statetest.AssertUpdateMatchesRows(t, s, update)
+	spaces := mutationsOf(update, apigen.CoreEntityType_CORE_ENTITY_SPACE)
+	nodeMutations := mutationsOf(update, apigen.CoreEntityType_CORE_ENTITY_NODE)
+	if update.Seq != before+1 || len(spaces) != 1 || spaces[0].EntityID() != int64(space.ID) || len(nodeMutations) != 2 {
 		t.Fatalf("space transaction: %+v", update)
 	}
-	for _, node := range update.NodeEvents {
-		if node.Seq != update.Seq {
+	for _, m := range nodeMutations {
+		if erru.Must(s.Queries().GetNodeRowByID(context.Background(), m.EntityID())).Event.Seq != update.Seq {
 			t.Fatal("node used separate seq")
 		}
 	}

@@ -12,6 +12,7 @@ import (
 type UserSession struct {
 	EventMeta
 	ID                int64
+	EntityID          int64
 	SessionID         string
 	UserID            int64
 	CreatedAt         int64
@@ -39,11 +40,14 @@ func (r UserSession) Event(meta EventMeta) UserSessionEventParams {
 	}
 }
 
-const userSessionColumns = `id, global_seq, event_time, author, session_id, event_type, user_id, created_at, expires_at, token_hash, revoked_at, kind, requesting_address, user_agent`
+// The last column is the session's entity id on the event stream: the id of
+// its first row.
+const userSessionColumns = `id, global_seq, event_time, author, session_id, event_type, user_id, created_at, expires_at, token_hash, revoked_at, kind, requesting_address, user_agent,
+       (SELECT MIN(p.id) FROM user_session_event_log p WHERE p.session_id = user_session_event_log.session_id)`
 
 func scanUserSession(row scanner) (UserSession, error) {
 	var i UserSession
-	err := row.Scan(&i.ID, &i.GlobalSeq, &i.EventTime, &i.Author, &i.SessionID, &i.EventType, &i.UserID, &i.CreatedAt, &i.ExpiresAt, &i.TokenHash, &i.RevokedAt, &i.Kind, &i.RequestingAddress, &i.UserAgent)
+	err := row.Scan(&i.ID, &i.GlobalSeq, &i.EventTime, &i.Author, &i.SessionID, &i.EventType, &i.UserID, &i.CreatedAt, &i.ExpiresAt, &i.TokenHash, &i.RevokedAt, &i.Kind, &i.RequestingAddress, &i.UserAgent, &i.EntityID)
 	return i, err
 }
 
@@ -76,10 +80,6 @@ func (q *Queries) ListUserSessionsForUser(ctx context.Context, userID int64) ([]
 
 func (q *Queries) ListAllUserSessions(ctx context.Context) ([]UserSession, error) {
 	return q.listUserSessions(ctx, liveUserSessions+` ORDER BY created_at, session_id`)
-}
-
-func (q *Queries) ListUserSessionsAtSeq(ctx context.Context, seq int64) ([]UserSession, error) {
-	return q.listUserSessions(ctx, `FROM user_session_event_log WHERE global_seq = ? ORDER BY id`, seq)
 }
 
 type UserSessionEventParams struct {

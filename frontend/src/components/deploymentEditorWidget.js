@@ -189,12 +189,12 @@ export function deploymentEditorWidget(opts) {
                 if (!result?.deploymentId) throw new Error('Create response did not include a deployment ID');
             } else {
                 if (payload) {
-                    if (result) payload.expectedVersion = Number(result.version || 0) + 1;
+                    if (result) payload.expectedSeq = Number(result.seq || 0);
                     result = await actions.updateDeployment(payload);
                 }
                 const runningPayload = deploymentUpdate.toRunningPayload(payload);
                 if (runningPayload) {
-                    if (result) runningPayload.expectedVersion = Number(result.version || 0) + 1;
+                    if (result) runningPayload.expectedSeq = Number(result.seq || 0);
                     result = await actions.updateDeployment(runningPayload);
                 }
             }

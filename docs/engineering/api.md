@@ -45,7 +45,7 @@ worker address derivation and virtual networking for every cached workload.
 - Web UI auth is enforced by `webuihandler.Handler.VerifyAuth`; cluster peer identity comes from mTLS, while enrollment uses its dedicated request verifier.
 - Static SPA assets are served from embedded `backend/web/dist`; unknown paths fall back to `index.html`.
 - The frontend is built via `//go:generate` in `backend/main.go` before embedding.
-- Write handlers go through `state.Service.Commit(ctx, preLockValidate, mutate)` (see [Commit](#commit)): every check-then-write sequence (deployments, secrets, configs, assets, cluster settings) re-reads its dependencies and performs its row writes on the transaction-bound `pq.Queries` inside `mutate`, and returns the `CoreUpdate` the store publishes. Domain logic lives in `app/primary/domain/<name>` packages (`deployments`, `scheduledinstances`, `nodes`, `networkpolicies`, `assets`, `secrets`, `values`, `authz`, `user_event_log`, `agentsessions`, `systemconfig`); handlers call those functions or `pq.Queries` directly. Deployment endpoints validate in two layers: pure shape rules before the commit, and a per-operation validator inside `mutate` (`inLockValidateDeploymentCreate` / `Update` / `Delete` in `domain/deployments/validate_layers.go`). Authz and network I/O (nix source verification) run before the commit; the version CAS closes the gap. Lock order: the asset operation lock (where asset file operations are involved) precedes `Mu`; subsystem locks (secrets manager, config service) nest strictly inside `Mu`.
+- Write handlers go through `state.Service.Commit(ctx, preLockValidate, mutate)` (see [Commit](#commit)): every check-then-write sequence (deployments, secrets, configs, assets, cluster settings) re-reads its dependencies and performs its row writes on the transaction-bound `pq.Queries` inside `mutate`, and returns the `CoreWriteUpdate` the store publishes. Domain logic lives in `app/primary/domain/<name>` packages (`deployments`, `scheduledinstances`, `nodes`, `networkpolicies`, `assets`, `secrets`, `values`, `authz`, `user_event_log`, `agentsessions`, `systemconfig`); handlers call those functions or `pq.Queries` directly. Deployment endpoints validate in two layers: pure shape rules before the commit, and a per-operation validator inside `mutate` (`inLockValidateDeploymentCreate` / `Update` / `Delete` in `domain/deployments/validate_layers.go`). Authz and network I/O (nix source verification) run before the commit; the `expected_seq` check closes the gap. Lock order: the asset operation lock (where asset file operations are involved) precedes `Mu`; subsystem locks (secrets manager, config service) nest strictly inside `Mu`.
 
 ## Client flow (JavaScript)
 
@@ -123,17 +123,54 @@ See [auth.md](auth.md) for the access-control model these routes manage.
 ### Global state
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
-| GET | `/v1/global/snapshot` | — | `Snapshot` | ANY_OF default |
-| POST | `/v1/global/state-stream` | — | stream `StateStreamMsg` | ANY_OF default |
+| POST | `/v1/global/events` | `EventStreamRequest` | `EventStreamMsg` | ANY_OF default |
+| POST | `/v1/global/event-stream` | `EventStreamRequest` | stream `EventStreamMsg` | ANY_OF default |
 | POST | `/v1/global/exported-config` | — | `ExportedConfigBlob` | ANY_OF default |
 
-`/v1/global/state-stream` sends `StateStreamMsg`: a `snapshot` on connect,
-then one `core` message per visible commit, sidecar messages, and five-second
-heartbeats. `/v1/global/snapshot` returns the same filtered bootstrap. Core
-collections are arrays of event envelopes with entity id, version, seq,
-event_id, author, event type, timestamps, facet counters where relevant, and
-`value`. Observed statuses travel inside `CoreUpdate` (`instance_statuses`,
-`node_statuses`); there is no separate observed message.
+`/v1/global/event-stream` is the browser's state feed. The request carries
+`after_seq`, the last seq the client applied (0 for a fresh client). The
+first message carries the sidecars (secrets status; backup status and ingress
+diagnostics only for cluster viewers). The second is the opening message:
+`synced`, `seq`, and `events`, with `reset` set when the server bootstrapped
+instead of replaying. After that every commit with something visible arrives
+as one message with its `events` and the seq the client is now at, and a
+heartbeat message every five seconds carries `heartbeat` and the current
+`seq`. Every message carries `seq`, heartbeats included, and the client
+resumes from the last one it saw.
+
+The server replays when it can: `after_seq` between 1 and the current seq,
+at most 10,000 commits behind, and nothing written since `after_seq` that
+could change what the viewer sees (`pq.VisibilityChangesSince`: a template,
+global rule, space, node, or network policy row, a grant row for the user, or
+a deployment, secret, config, or asset row that moved it to another space).
+Otherwise it bootstraps: the events are the compacted history
+(`pq.BootstrapMutations`) sent with `reset`, and the client drops what it
+holds before folding them. Replay events are exactly the rows in
+`(after_seq, seq]` grouped by commit (`pq.MutationsInRange`, `pq.Events`),
+filtered per viewer.
+
+`/v1/global/events` is the one-shot form for agents and scripts: the same
+request, one `EventStreamMsg` holding the opening events and the sidecars
+together.
+
+Events are `CoreWriteUpdate{seq, time, actor, mutations}`: one per commit,
+with `time` (epoch ms) and `actor` (0 system, negative for the agent of user
+`-actor`) shared by every row of the commit. A `CoreMutation` is exactly one
+of `create`, `update`, or `delete`, each with `entity_type` (`CoreEntityType`)
+and `entity_id`; create and update carry the entity in a `CoreEntity`, whose
+field numbers equal the type enum. Observed statuses are entities too
+(`SCHEDULED_INSTANCE_STATUS`, `NODE_STATUS`) with `updated_at` as the
+producer clock; there is no separate observed message. The compacted
+bootstrap keeps every row of every live secret, config, and asset (the value
+history), a deployment's newest row plus every version a retained instance
+pins (and the delete of a deleted deployment while an instance still pins
+it), non-final instances plus the newest final per ordinal without a live
+one, and the newest live row of every other type, with the first retained
+mutation per entity promoted to a create. The wire shape is the same for
+every consumer class; the browser class strips `Secret.smk_version`,
+`ciphertext`, and `nonce`, `User.credentials`, `AgentSession.token_hash`,
+`UserSession.token_hash`, and `SystemConfig.master_password_hash`, and drops
+`SECRET_KEYSLOT` mutations entirely (`browserEntity` in the handler).
 
 #### Commit
 
@@ -145,25 +182,36 @@ the write mutex, opens a transaction that reserves the SQLite writer before
 reading, reads `global_seq`, and calls `mutate(q, seq)` with the transaction
 queries and the candidate `global_seq + 1`. `mutate` re-reads and checks
 everything the write depends on (entity and facet counters, never the global
-sequence of the last change), owns every database write including private
-payloads, stamps the candidate sequence on the rows it writes, and returns a
-`*CoreUpdate` (`state.Update`) built from read-converter projections of those
-rows. Caller-injected checks are `func(*pq.Queries) error` parameters on the
-domain functions invoked inside `mutate`. Registered `UpdateTrigger`s (the
-scheduler registers one) run inside the same transaction and extend the update.
-If the final update has any content the store persists the sequence, commits,
-and publishes that one `CoreUpdate` to every subscriber; an empty update
-commits without consuming a sequence and publishes nothing. A failed callback
-rolls back, consumes no ids or sequence, and publishes nothing. Callbacks are
-not retried. The store holds no in-memory state and `pq` has no caches;
-`*AtSeq` queries remain a test oracle only.
+sequence of the last change), reads the clock once and threads that `now`
+through every insert so all rows of the commit share one `event_time`, owns
+every database write including private payloads, stamps the candidate
+sequence on the rows it writes, and returns the `*state.Update` (an
+`apigen.CoreWriteUpdate`) that describes exactly those rows. The update is
+built directly from the values the callback inserted, never by reading back:
+one `pq.Mutation` per row through the per-entity converters
+(`pq.DeploymentMutation`, `pq.NodeMutation`, `pq.SecretMutation`, ...),
+assembled with `pq.NewUpdate` and `pq.AppendMutations`, which take `time` and
+`actor` from the first mutation. Each mutate function is responsible for the
+correctness of its update and code review is what keeps it so;
+`statetest.AssertUpdateMatchesRows` holds a published update equal to
+`pq.Events(MutationsInRange(seq-1, seq))` in tests. Caller-injected checks
+are `func(*pq.Queries) error` parameters on the domain functions invoked
+inside `mutate`. Registered `UpdateTrigger`s (the scheduler registers one) run
+inside the same transaction and extend the update. If the final update has any
+mutation the store sets its `seq`, persists the sequence, commits, and
+publishes that one update to every subscriber; an empty update commits
+without consuming a sequence and publishes nothing. A failed callback rolls
+back, consumes no ids or sequence, and publishes nothing. Callbacks are not
+retried. The store holds no in-memory state and `pq` has no caches.
 
 Subscriptions are `state.Subscribe(store, read, project)`: `read` runs under
-the write mutex and returns the subscriber's snapshot; `project(update)
-(T, bool)` runs after each commit under the same mutex and returns what to
-send. A subscriber whose channel is full is closed and dropped, and the
-consumer resubscribes from a fresh snapshot. The scheduled-instance feed
-delivers one `[]ScheduledInstanceState` batch per commit.
+the write mutex and returns whatever the subscriber starts from (the stream
+handler reads its opening events there, so no commit can fall between the
+read and the first live update); `project(update) (T, bool)` runs after each
+commit under the same mutex and returns what to send. A subscriber whose
+channel is full is closed and dropped, and the consumer resubscribes from a
+fresh read. The scheduled-instance feed delivers one
+`[]ScheduledInstanceState` batch per commit.
 
 The scheduler reads current desired, target and observed rows through the same
 transaction and appends immediate target changes there. Startup recovery is
@@ -172,55 +220,56 @@ Drain waits derive from persisted event sequences and times, with a fresh
 conservative timeout for drains found at startup. Rendering and network delivery
 remain outside the transaction. Sidecars retain independent locks and streams.
 
-#### Snapshots and observed state
+#### Bootstrap and observed state
 
 Space 0 values never reach a client: `authz.SystemSpaceAllows` refuses every
-secret, config, and asset request in space 0, so `filterSecrets` and its
-siblings drop those rows from snapshots and updates for every user, and a
-deployment can neither be created in space 0 nor reference a space 0 value.
-That is where OpenDeploy keeps its own key material, as ordinary secret rows.
+secret, config, and asset request in space 0, so the list filters and the
+stream's `entityVisible` drop those rows for every user, and a deployment can
+neither be created in space 0 nor reference a space 0 value. That is where
+OpenDeploy keeps its own key material, as ordinary secret rows.
 
-Snapshots contain latest live deployments plus pinned historical versions,
-non-final instances plus the latest final per ordinal without a live instance,
-and latest observed statuses. Value arrays contain full histories for live
-secrets, configs, and assets. Pins are `ValueRef{id, version}` pairs of the
-stable entity id and `value_version`; the `event_id` of the event that changed
-`value_version` identifies the same value for reveal and content download. Create/set/rename/move/upload return their
-appended event; lists return latest live events. Updates include deletes:
-`event_type = 3`, or `deleted` on spaces and directories. Snapshot retention
-is exactly the result of replaying updates through the reducers, including
-retention of deleted deployment versions while instances still pin them.
+Pins are `ValueRef{id, version}` pairs of the stable entity id and
+`value_version`; reveal and content download address the same pair. Every
+value entity carries `value_version` and `created_time` as facts, and every
+deployment carries `version`, `spec_version`, and `created_time`, so a
+consumer needs nothing but the entity to count versions. Create, set, rename,
+move, and upload return their appended event envelope; lists return latest
+live events. A removal is a delete mutation on the stream and an
+`event_type = 3` row in the log. Bootstrap retention is exactly the result of
+folding the full event range through the same fold, including retention of
+deleted deployment versions while instances still pin them; the `state` tests
+hold the two folds equal.
 
 Both observed collections use a nanosecond `updated_at` HLC and append to
 `scheduled_instance_status` and `node_status_log`. An observed write goes
 through `Commit` like any other. A report whose clock is not older than the
 latest stored row is published: its row is stamped with the commit sequence
-and the commit consumes that sequence. A report older than the latest stored
+and the commit's `event_time`, and the commit consumes that sequence. A report older than the latest stored
 row is kept for history with `global_seq = 0`, returns an empty update, and is
 never published. Clients merge observed values by their own clock, not by
 sequence, so the sequence on an observed row only records which commit
 published it. All observation history is retained. An empty payload with a
 fresh clock clears the visible status; clients retain its clock to reject
-delayed older packets. Snapshots include the latest tombstones for the same
-reason.
+delayed older packets. The bootstrap includes the latest tombstones for the
+same reason.
 
 #### Sidecars, grants, and visibility
 
 Backup, ingress diagnostics, and secrets status publish through their owning
 components, without the core lock or sequence. Each sidecar message replaces
-that component's value. The handler adds sidecars to the store snapshot; core
-resets preserve sidecars unless an explicit replacement is present.
+that component's value. The stream sends the sidecars in its first message,
+before the opening events; a reset preserves the client's sidecars unless a
+replacement is present.
 
 Agent sessions and user sessions are core collections, not sidecars. Every
 create, approval, token claim, status change, and revocation is a commit that
-stamps the row's `global_seq` and publishes the session's latest document in
-`CoreUpdate.agent_sessions` or `CoreUpdate.user_sessions`; the snapshot carries
-every row of both tables. Both collections are owner-filtered: a session
-reaches only the browser of the user who holds it, and `visibleUpdate` drops
-the rest. The token hash never leaves the row. Sessions are never deleted, so
-the collections are latest-only documents without a `deleted` flag and grow
-unbounded, deliberately. The `StateStreamMsg.agent_sessions` sidecar (field 8)
-is reserved.
+stamps the row's `global_seq` and publishes the session's latest document as
+an `AGENT_SESSION` or `USER_SESSION` mutation whose entity id is the row id
+of the session's first event; the bootstrap carries the newest row of every
+session. Both collections are owner-filtered: a session reaches only the
+browser of the user who holds it, and `visibleUpdate` drops the rest. The
+token hash is stripped by `browserEntity`. Sessions are never deleted, so the
+collections are latest-only entities and grow unbounded, deliberately.
 
 #### Append-only tables behind the latest-only collections
 
@@ -235,8 +284,8 @@ and carries `id` (autoincrement), `global_seq`, `event_time` (ms), `author`
 `(kind, node_id)`; the system config's own `id` is its wire version), an
 `event_type` (`AuthzVerb` 1 create, 2 update, 3 delete), and the entity's full
 document at that point. Nothing is ever `UPDATE`d or `DELETE`d: a rename is
-an update row, a removal is a delete row whose `deleted` wire flag is derived
-from `event_type = 3`. The live state a snapshot carries is the newest row per
+an update row, a removal is a delete row, which the stream carries as a
+delete mutation. The live state the bootstrap carries is the newest row per
 entity id whose `event_type` is not delete, and entity ids are allocated as
 `MAX(entity_id) + 1` under the commit lock so an id is never reused. Every
 write is a read of the newest row followed by one insert inside `Commit`,
@@ -249,23 +298,36 @@ schema creates the `*_event_log` table beside the old one, the old rows are
 copied in as seq 0 create events, and the old table is dropped
 (`pq/migrate_event_tables.go`). Every append-only table carries the
 `_event_log` suffix; the two observed-status tables, `asset_store`, and
-`global_seq` do not, because they are not logs.
+`global_seq` do not, because they are not logs. Every log carries an index
+`idx_<table>_seq (global_seq, id)` (the two status tables `(global_seq)`),
+which is what `MutationsInRange` scans; the status tables also carry
+`event_time` (ms, the commit time), added in v0.0.615 and backfilled from
+`updated_at`. The 21 log tables and their columns are registered once in
+`pq/mutation_tables.go`, which is where `MutationsInRange`,
+`BootstrapMutations`, `LatestMutation`, and `VisibilityChangesSince` read.
 
-Grants arrive as `AuthzGrantEvent` arrays in both snapshots and core updates.
-Their values contain the subject user, template, and bindings or direct rule;
-delete events retain these fields. Snapshots hold the latest live grant events,
-and updates carry each written event, including deletes. The store publishes
-`apigen.CoreUpdate` directly, with no internal routing wrapper.
+Grants are `AUTHZ_GRANT` entities whose value (`AuthzGrantValue`) holds the
+subject user, template, bindings or direct rule, author, and created time; the
+bootstrap holds the latest live grants and a revocation is a delete mutation.
+The store publishes `apigen.CoreWriteUpdate` directly, with no internal
+routing wrapper.
 
-The handler drops any `CoreUpdate` at or below the sequence it last sent, then
-filters each update by the connection's current permissions. A grant event for
-the connected user, any template, global-rule or space change, a node
-allow-list change, an entity space move, or a network policy whose visibility
-flips schedules a full snapshot reset after a 200 ms debounce; updates arriving
-during the debounce are skipped because the snapshot supersedes them. The system
-config is redacted, including `master_password_hash`. Overflow closes the
-browser subscription and forces reconnect; internal typed adapters resubscribe
-and reconcile from a fresh snapshot, including missed deletes and finalized
+The handler filters each update by the connection's current permissions
+(`visibility.go`): it observes every mutation's identity (deployment to space,
+instance to deployment, node to allowed spaces, value to space, policy, grant
+to user) whether or not it is visible, forwards the creates and updates the
+viewer may see, and forwards a delete only when it sent that entity (or, after
+a reconnect, when the entity's latest row is one it could see). In an opening
+(bootstrap or replay) an entity's rows stand or fall together: its newest
+payload in the batch decides, so a value moved out of the viewer's space ships
+none of its history and one moved in ships all of it. A grant
+mutation for the connected user, any template, global rule, space, or node
+allow-list change, an entity space move, a network policy whose visibility
+flips, or a delete of a grant it never saw schedules a re-bootstrap with
+`reset` after a 200 ms debounce; updates arriving during the debounce are
+skipped because the bootstrap supersedes them. Overflow closes the browser
+subscription and forces reconnect; internal typed adapters resubscribe and
+reconcile from a fresh read, including missed deletes and finalized
 placements.
 
 ### Deployments
@@ -283,7 +345,7 @@ placements.
 | POST | `/v1/deployments/prepare-output` | `PrepareOutputRequest` | stream `PrepareOutputChunk` | ANY_OF default |
 | POST | `/v1/repos/validate` | `RepoValidateRequest` | `RepoValidateResponse` | ANY_OF default |
 
-`/v2/deployments/update` applies exactly one kind of change per request — `version_only_update` (deploy a version, implies running), `running_only_update` (start/stop at the current version; stop preserves the version), `spec_update` (full spec replacement, workload state included), `assigned_space_update` (space move), or `restart_update` (replace the running placement with the definition unchanged; rejected for a stopped workload and for the opendeploy self-deployment) — guarded by the root `expected_version`, which must equal the deployment's top-level version + 1. The top-level version bumps on every deployment event, so the one guard covers every kind. cleanproto has no `oneof`, so the kinds are plain optional fields and the handler rejects anything but exactly one.
+`/v2/deployments/update` applies exactly one kind of change per request — `version_only_update` (deploy a version, implies running), `running_only_update` (start/stop at the current version; stop preserves the version), `spec_update` (full spec replacement, workload state included), `assigned_space_update` (space move), or `restart_update` (replace the running placement with the definition unchanged; rejected for a stopped workload and for the opendeploy self-deployment) — guarded by `expected_seq`, the seq of the deployment's last mutation as the caller saw it: the write is rejected when the stored row's seq is greater, and 0 skips the check. The same token guards `/v1/deployments/delete`, `/v1/nodes/evict`, enrollment accept, and `/v1/network-policies/update`. An update that changes nothing (same spec, name, space, and scheduling) returns the current event and consumes no seq; a restart is a `scheduling.generation` bump and nothing else. cleanproto has no `oneof`, so the kinds are plain optional fields and the handler rejects anything but exactly one.
 
 `/v1/deployments/log-query` is a one-shot structured log search over a single deployment's stored logs (parquet archive plus WAL tail): it returns the newest matching parsed records (capped at 10k), a per-level histogram over the full range, the total match count, and per-field sampled value stats (top-10 values, coverage, and an other bucket over the newest 5k matched records — this feeds the sidebar with no extra request), all in one response. The primary proxies the request over the cluster session to the node hosting the deployment; the node builds the complete response and sends it back as a single message. `deployment_id = 0` with `target_node_id` addresses a node's system log, which is the log of the opendeploy system deployment on that node and is authorized as that deployment's `view_logs` in the system space. The endpoint does not tail live output. See the "Search API sketch" section of `docs/future-work/logmanager-implementation-plan.md` for the design rationale.
 
@@ -332,7 +394,7 @@ and a monotonic nanosecond `updated_at`. Both enrollment and cluster hellos send
 same `NodeReported` bundle. `host_addresses_unknown` preserves the previous
 inventory when enumeration fails; a successful empty list clears it. Identical
 reports append nothing. Acceptance checks
-`expected_version`, writes one event, and clears the pending timestamp;
+`expected_seq`, writes one event, and clears the pending timestamp;
 first cluster hello therefore adds no trailing node events. An unaccepted
 session disconnect cancels its request, and a session expires after ten minutes.
 For admitted nodes either outcome clears the request without changing membership.
@@ -365,9 +427,9 @@ Workers use `EnrollmentV1` only when local cluster CA/cert/key material is missi
 
 User-managed configs and encrypted secrets are immutable versioned rows. Setting an existing secret appends value version `vN`. Setting a config appends `vN` when the value differs from the current one; setting a config to its current value is a no-op that returns the current event and consumes no global seq; settings refs and deployment env refs pin exact values with `ValueRef{id, version}` pairs (stable entity id plus value version) in `ConfigRef.ref`, `SecretRef.ref`, `EnvVarValue.config`, and `EnvVarValue.secret`. Rename appends an event with the new display name and unchanged value facet. Delete soft-deletes the whole group and is rejected while any settings or deployment config still references the entity.
 
-`SecretSetRequest` and `ConfigSetRequest` can atomically roll deployment env refs to the new immutable row. With `update_referencing_deployments`, the request supplies every referencing deployment's current config ID/version. The backend derives the references from current stored specs, rejects stale, duplicate, missing, or extra entries, then commits the new value row and all deployment config/history versions in one transaction. A deployment already pinned to the resulting version is left unchanged, so a no-op config set with the flag still repoints deployments pinned to older versions and writes nothing else.
+`SecretSetRequest` and `ConfigSetRequest` can atomically roll deployment env refs to the new immutable row. With `update_referencing_deployments`, `referencing_deployments` lists every referencing deployment as `DeploymentExpectedSeq{deployment_id, expected_seq}`. The backend derives the references from current stored specs, rejects stale, duplicate, missing, or extra entries, then commits the new value row and all deployment config/history versions in one transaction. A deployment already pinned to the resulting version is left unchanged, so a no-op config set with the flag still repoints deployments pinned to older versions and writes nothing else.
 
-`POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It accepts `SecretRevealRequest.id` for exact-version reveal; list/state APIs return metadata only.
+`POST /v1/secrets/reveal` is the only user-facing API that returns decrypted secret plaintext. It takes `SecretRevealRequest{secret_id, version}`, the same pair a reference pins, for exact-version reveal; list/state APIs return metadata only.
 
 `POST /v1/secrets/generate` writes a secret value the caller never sees. It supplies a name and a generator specification, never a value, and receives only metadata, so a caller holding `secret : create` and nothing more — an agent session, under the builtin templates — can wire a fresh credential into a deployment without the plaintext reaching anywhere it can observe. It is create-only: an existing name is rejected, so it can never bury a value the caller cannot read back.
 
@@ -396,13 +458,13 @@ The shared secrets/configs folder tree; see [secrets.md](secrets.md).
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/assets/list` | — | `AssetEventList` | ANY_OF default |
-| GET | `/v1/assets/content` | `content_version_id` query param | raw content bytes | ANY_OF default |
+| GET | `/v1/assets/content` | `asset_id` and `version` query params | raw content bytes | ANY_OF default |
 | POST | `/v1/assets/upload` | raw file body, `asset_id` or `key` plus `space_id`/`directory_id`/`unique_key` query params | `AssetEvent` | ANY_OF default |
 | POST | `/v1/assets/rename` | `AssetRenameRequest` | `AssetEvent` | ANY_OF default |
 | POST | `/v1/assets/move` | `AssetMoveRequest` | `AssetEvent` | ANY_OF default |
 | POST | `/v1/assets/delete` | `AssetDeleteRequest` | — | ANY_OF default |
 
-Assets are versioned file blobs stored as one append-only event log per asset (`asset_event_log`), surfaced as `AssetEvent` envelopes with `value.fs`, `value.space_id`, and content sha256/size. Snapshot history provides the space and content facet revisions. `/v1/assets/upload` is the single write path for content: `?asset_id=` appends the next content version of that asset, `?key=` creates a new asset. Rename appends an event without changing the content facet or existing pins and rejects an existing destination key. List and state stream APIs carry only `AssetEvent` metadata; content bytes are streamed exclusively by `GET /v1/assets/content?content_version_id=N`. Every event also carries the content's `storage_key`, the name of its local file and S3 object. Content of every size uses local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
+Assets are versioned file blobs stored as one append-only event log per asset (`asset_event_log`), surfaced as `AssetEvent` envelopes with `value.fs`, `value.space_id`, and content sha256/size. The stream's value history provides the space and content facet revisions. `/v1/assets/upload` is the single write path for content: `?asset_id=` appends the next content version of that asset, `?key=` creates a new asset. Rename appends an event without changing the content facet or existing pins and rejects an existing destination key. List and state stream APIs carry only `AssetEvent` metadata; content bytes are streamed exclusively by `GET /v1/assets/content?asset_id=N&version=V`, the same pair a spec pins. Every event also carries the content's `storage_key`, the name of its local file and S3 object. Content of every size uses local primary storage while Backup is disabled and S3 while Backup is enabled; changing Backup starts an asynchronous placement transition. Storage placement is transparent to these asset endpoints. Workers stream required asset blobs on demand over the mTLS cluster asset endpoint during preparation. See [Assets](assets.md) for storage modes, transition status, retention, restore, and compatibility.
 
 ### Asset directories
 | Method | Path | Request | Response | Policy |

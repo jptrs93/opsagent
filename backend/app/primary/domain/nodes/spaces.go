@@ -30,11 +30,13 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 		return 0, fmt.Errorf("deployment node ID must be positive")
 	}
 	ctx := context.Background()
-	update := state.Update{}
+	var invalidated int64
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.Update, error) {
 		if _, err := q.GetNodeRowByID(ctx, int64(nodeID)); err != nil {
 			return nil, err
 		}
+		now := time.Now().UnixMilli()
+		update := &state.Update{}
 		instances, err := q.ListLatestScheduledInstanceEvents(ctx)
 		if err != nil {
 			return nil, err
@@ -60,10 +62,11 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 			}
 			tombstone := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: inst.ID, DeploymentID: inst.DeploymentID, UpdatedAt: previous.UpdatedAt}
 			tombstone.BumpUpdatedAt()
-			if err := q.InsertScheduledInstanceStatus(ctx, seq, tombstone); err != nil {
+			if err := q.InsertScheduledInstanceStatus(ctx, seq, now, tombstone); err != nil {
 				return nil, err
 			}
-			update.InstanceStatuses = append(update.InstanceStatuses, tombstone)
+			pq.AppendMutations(update, pq.ScheduledInstanceStatusMutation(seq, now, tombstone))
+			invalidated++
 		}
 		previous, err := q.GetLatestNodeStatus(ctx, nodeID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
@@ -74,16 +77,16 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 			tombstone.UpdatedAt = previous.UpdatedAt
 		}
 		tombstone.BumpUpdatedAt()
-		if err := q.InsertNodeStatus(ctx, seq, tombstone); err != nil {
+		if err := q.InsertNodeStatus(ctx, seq, now, tombstone); err != nil {
 			return nil, err
 		}
-		update.NodeStatuses = append(update.NodeStatuses, tombstone)
-		return &update, nil
+		pq.AppendMutations(update, pq.NodeStatusMutation(seq, now, tombstone))
+		return update, nil
 	})
 	if err != nil {
 		return 0, fmt.Errorf("invalidate runtime state for node %d: %w", nodeID, err)
 	}
-	return int64(len(update.InstanceStatuses)), nil
+	return invalidated, nil
 }
 
 func ListSpaces(q *pq.Queries) []*apigen.Space {
@@ -95,9 +98,9 @@ func ListSpaces(q *pq.Queries) []*apigen.Space {
 	return out
 }
 
-func spaceEvent(seq int64, author int32, eventType apigen.AuthzVerb, id int64, name string) pq.SpaceEventParams {
+func spaceEvent(seq, now int64, author int32, eventType apigen.AuthzVerb, id int64, name string) pq.SpaceEventParams {
 	return pq.SpaceEventParams{
-		EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType},
+		EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: eventType},
 		SpaceID:   id, Name: name,
 	}
 }
@@ -110,12 +113,18 @@ func CreateSpace(store *state.Service, name string, author int32) (*apigen.Space
 		if err != nil {
 			return nil, err
 		}
-		if err := q.InsertSpaceEvent(ctx, spaceEvent(seq, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE, id, name)); err != nil {
+		event := spaceEvent(seq, time.Now().UnixMilli(), author, apigen.AuthzVerb_AUTHZ_VERB_CREATE, id, name)
+		if err := q.InsertSpaceEvent(ctx, event); err != nil {
 			return nil, err
 		}
 		space = &apigen.Space{ID: int32(id), Name: name}
-		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, func(spaces []int32) []int32 { return append(spaces, space.ID) })
-		return &state.Update{Spaces: []*apigen.Space{space}, NodeEvents: nodes}, err
+		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, event.EventTime, func(spaces []int32) []int32 { return append(spaces, space.ID) })
+		if err != nil {
+			return nil, err
+		}
+		update := pq.NewUpdate(pq.SpaceMutation(event.EventMeta, *space))
+		pq.AppendMutations(update, nodes...)
+		return update, nil
 	})
 	return space, err
 }
@@ -127,11 +136,12 @@ func UpdateSpace(store *state.Service, id int32, name string, author int32) (*ap
 		if _, err := q.GetSpace(ctx, int64(id)); err != nil {
 			return nil, err
 		}
-		if err := q.InsertSpaceEvent(ctx, spaceEvent(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, int64(id), name)); err != nil {
+		event := spaceEvent(seq, time.Now().UnixMilli(), author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, int64(id), name)
+		if err := q.InsertSpaceEvent(ctx, event); err != nil {
 			return nil, err
 		}
 		space = &apigen.Space{ID: id, Name: name}
-		return &state.Update{Spaces: []*apigen.Space{space}}, nil
+		return pq.NewUpdate(pq.SpaceMutation(event.EventMeta, *space)), nil
 	})
 	return space, err
 }
@@ -143,10 +153,11 @@ func DeleteSpace(store *state.Service, id int32, author int32) error {
 		if err != nil {
 			return nil, err
 		}
-		if err := q.InsertSpaceEvent(ctx, spaceEvent(seq, author, apigen.AuthzVerb_AUTHZ_VERB_DELETE, int64(id), current.Name)); err != nil {
+		event := spaceEvent(seq, time.Now().UnixMilli(), author, apigen.AuthzVerb_AUTHZ_VERB_DELETE, int64(id), current.Name)
+		if err := q.InsertSpaceEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, func(spaces []int32) []int32 {
+		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, event.EventTime, func(spaces []int32) []int32 {
 			out := spaces[:0:0]
 			for _, space := range spaces {
 				if space != id {
@@ -155,7 +166,12 @@ func DeleteSpace(store *state.Service, id int32, author int32) error {
 			}
 			return out
 		})
-		return &state.Update{Spaces: []*apigen.Space{{ID: id, Name: current.Name, Deleted: true}}, NodeEvents: nodes}, err
+		if err != nil {
+			return nil, err
+		}
+		update := pq.NewUpdate(pq.SpaceMutation(event.EventMeta, apigen.Space{ID: id, Name: current.Name}))
+		pq.AppendMutations(update, nodes...)
+		return update, nil
 	})
 }
 

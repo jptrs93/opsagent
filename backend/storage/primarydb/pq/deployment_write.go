@@ -3,6 +3,7 @@ package pq
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"reflect"
 	"time"
 
@@ -16,7 +17,15 @@ const (
 	DeploymentEventDelete = int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)
 )
 
+// ErrDeploymentUnchanged reports an update that changes no facet of the
+// deployment. Nothing is written.
+var ErrDeploymentUnchanged = errors.New("deployment unchanged")
+
 func (q *Queries) InsertDeploymentEvent(ctx context.Context, event *apigen.DeploymentEvent) error {
+	// version, spec_version and created_time are columns; the blob never
+	// carries them so a re-read cannot disagree with the row.
+	value := event.Value
+	value.Version, value.SpecVersion, value.CreatedTime = 0, 0, time.Time{}
 	row := q.db.QueryRowContext(ctx, `WITH previous AS (
  SELECT spec_version, space_assignment_version, name_version, scheduling_version
  FROM deployment_event_log WHERE deployment_id = ? ORDER BY version DESC LIMIT 1
@@ -32,7 +41,7 @@ func (q *Queries) InsertDeploymentEvent(ctx context.Context, event *apigen.Deplo
  RETURNING `+deploymentEventColumns,
 		event.DeploymentID, event.Seq, event.EventTime.UnixMilli(), event.CreatedTime.UnixMilli(), event.Author,
 		event.DeploymentID, event.Version, event.SpecVersion, event.SpaceVersion, event.NameVersion, event.SchedulingVersion,
-		event.SpecVersion, event.SpaceVersion, event.NameVersion, event.SchedulingVersion, event.Value.Encode(), event.EventType)
+		event.SpecVersion, event.SpaceVersion, event.NameVersion, event.SchedulingVersion, value.Encode(), event.EventType)
 	written, err := scanDeploymentEvent(row)
 	if err != nil {
 		return err
@@ -41,8 +50,7 @@ func (q *Queries) InsertDeploymentEvent(ctx context.Context, event *apigen.Deplo
 	return nil
 }
 
-func (q *Queries) WriteDeploymentCreate(ctx apigen.Context, deploymentID, seq int64, d *apigen.Deployment) (*apigen.DeploymentEvent, error) {
-	now := time.Now()
+func (q *Queries) WriteDeploymentCreate(ctx apigen.Context, deploymentID, seq int64, now time.Time, d *apigen.Deployment) (*apigen.DeploymentEvent, error) {
 	event := &apigen.DeploymentEvent{
 		Seq:               seq,
 		EventTime:         now,
@@ -63,7 +71,9 @@ func (q *Queries) WriteDeploymentCreate(ctx apigen.Context, deploymentID, seq in
 	return event, nil
 }
 
-func (q *Queries) WriteDeploymentUpdate(ctx apigen.Context, deploymentID, seq int64, d *apigen.Deployment) (*apigen.DeploymentEvent, error) {
+// WriteDeploymentUpdate returns ErrDeploymentUnchanged, writing nothing, when
+// no facet differs from the latest event.
+func (q *Queries) WriteDeploymentUpdate(ctx apigen.Context, deploymentID, seq int64, now time.Time, d *apigen.Deployment) (*apigen.DeploymentEvent, error) {
 	prev, err := q.GetLatestDeploymentEvent(ctx, deploymentID)
 	if err != nil {
 		return nil, err
@@ -71,7 +81,10 @@ func (q *Queries) WriteDeploymentUpdate(ctx apigen.Context, deploymentID, seq in
 	if prev.Deleted() {
 		return nil, sql.ErrNoRows
 	}
-	event := BuildDeploymentUpdateEvent(prev, d, ctx.AttributionUserID())
+	event, changed := BuildDeploymentUpdateEvent(prev, d, ctx.AttributionUserID(), now)
+	if !changed {
+		return nil, ErrDeploymentUnchanged
+	}
 	event.Seq = seq
 	if err := q.InsertDeploymentEvent(ctx, event); err != nil {
 		return nil, err
@@ -79,7 +92,7 @@ func (q *Queries) WriteDeploymentUpdate(ctx apigen.Context, deploymentID, seq in
 	return event, nil
 }
 
-func (q *Queries) WriteDeploymentDelete(ctx apigen.Context, deploymentID, seq int64) (*apigen.DeploymentEvent, error) {
+func (q *Queries) WriteDeploymentDelete(ctx apigen.Context, deploymentID, seq int64, now time.Time) (*apigen.DeploymentEvent, error) {
 	// caller is responsible for checking deployment exists and isn't deleted
 	prev, err := q.GetLatestDeploymentEvent(ctx, deploymentID)
 	if err != nil {
@@ -87,7 +100,7 @@ func (q *Queries) WriteDeploymentDelete(ctx apigen.Context, deploymentID, seq in
 	}
 	event := &apigen.DeploymentEvent{
 		Seq:               seq,
-		EventTime:         time.UnixMilli(time.Now().UnixMilli()),
+		EventTime:         time.UnixMilli(now.UnixMilli()),
 		CreatedTime:       prev.CreatedTime,
 		Author:            ctx.AttributionUserID(),
 		DeploymentID:      prev.DeploymentID,
@@ -105,12 +118,13 @@ func (q *Queries) WriteDeploymentDelete(ctx apigen.Context, deploymentID, seq in
 	return event, nil
 }
 
-// BuildDeploymentUpdateEvent advances only the facets changed by an update.
-// Composed rotation writers can use their already-checked predecessor row.
-func BuildDeploymentUpdateEvent(prev *apigen.DeploymentEvent, updated *apigen.Deployment, author int32) *apigen.DeploymentEvent {
+// BuildDeploymentUpdateEvent advances only the facets changed by an update
+// and reports whether any facet changed. Composed rotation writers can use
+// their already-checked predecessor row.
+func BuildDeploymentUpdateEvent(prev *apigen.DeploymentEvent, updated *apigen.Deployment, author int32, now time.Time) (*apigen.DeploymentEvent, bool) {
 	prevDef := &prev.Value
 	event := &apigen.DeploymentEvent{
-		EventTime:         time.UnixMilli(time.Now().UnixMilli()),
+		EventTime:         time.UnixMilli(now.UnixMilli()),
 		CreatedTime:       prev.CreatedTime,
 		Author:            author,
 		DeploymentID:      prev.DeploymentID,
@@ -134,7 +148,9 @@ func BuildDeploymentUpdateEvent(prev *apigen.DeploymentEvent, updated *apigen.De
 	if updated.Name != prevDef.Name {
 		event.NameVersion++
 	}
-	return event
+	changed := event.SpecVersion != prev.SpecVersion || event.SchedulingVersion != prev.SchedulingVersion ||
+		event.SpaceVersion != prev.SpaceVersion || event.NameVersion != prev.NameVersion
+	return event, changed
 }
 
 func DeploymentSpecsEqual(a, b *apigen.DeploymentSpec) bool {

@@ -9,11 +9,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func (q *Queries) InsertNodeStatus(ctx context.Context, seq int64, st *apigen.NodeStatus) error {
+func (q *Queries) InsertNodeStatus(ctx context.Context, seq, eventTime int64, st *apigen.NodeStatus) error {
 	_, err := q.db.ExecContext(ctx, `INSERT INTO node_status_log
- (node_id, updated_at, global_seq, last_connected_at, is_connected, opendeploy_version, remote_address)
- VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		st.NodeID, clockToNanos(st.UpdatedAt), seq, timeToMillis(st.LastConnectedAt), boolToInt(st.IsConnected), st.OpendeployVersion, st.RemoteAddress)
+ (node_id, updated_at, global_seq, event_time, last_connected_at, is_connected, opendeploy_version, remote_address)
+ VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		st.NodeID, clockToNanos(st.UpdatedAt), seq, eventTime, timeToMillis(st.LastConnectedAt), boolToInt(st.IsConnected), st.OpendeployVersion, st.RemoteAddress)
 	return err
 }
 
@@ -25,7 +25,7 @@ func (q *Queries) latestNodeStatusOrEmpty(ctx context.Context, nodeID int32) (*a
 	return st, err
 }
 
-func (q *Queries) SetNodeConnectionStatus(ctx context.Context, seq int64, identifier string, connected bool, connectedAt time.Time) (*apigen.NodeStatus, error) {
+func (q *Queries) SetNodeConnectionStatus(ctx context.Context, seq, eventTime int64, identifier string, connected bool, connectedAt time.Time) (*apigen.NodeStatus, error) {
 	nodeID, err := q.GetNodeIDByIdentifier(ctx, identifier)
 	if err != nil {
 		return nil, err
@@ -39,17 +39,17 @@ func (q *Queries) SetNodeConnectionStatus(ctx context.Context, seq int64, identi
 	if connected {
 		st.LastConnectedAt = connectedAt
 	}
-	return st, q.InsertNodeStatus(ctx, seq, st)
+	return st, q.InsertNodeStatus(ctx, seq, eventTime, st)
 }
 
-func (q *Queries) UpsertNodeObservedMeta(ctx context.Context, seq int64, nodeID int32, connectedAt time.Time, opendeployVersion, remoteAddress string) (*apigen.NodeStatus, error) {
+func (q *Queries) UpsertNodeObservedMeta(ctx context.Context, seq, eventTime int64, nodeID int32, connectedAt time.Time, opendeployVersion, remoteAddress string) (*apigen.NodeStatus, error) {
 	previous, err := q.latestNodeStatusOrEmpty(ctx, nodeID)
 	if err != nil {
 		return nil, err
 	}
 	st := &apigen.NodeStatus{NodeID: nodeID, UpdatedAt: previous.UpdatedAt, LastConnectedAt: connectedAt, IsConnected: true, OpendeployVersion: opendeployVersion, RemoteAddress: remoteAddress}
 	st.BumpUpdatedAt()
-	return st, q.InsertNodeStatus(ctx, seq, st)
+	return st, q.InsertNodeStatus(ctx, seq, eventTime, st)
 }
 
 func boolToInt(b bool) int64 {

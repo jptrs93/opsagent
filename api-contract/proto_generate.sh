@@ -31,7 +31,7 @@ trap 'rm -f "$COMBINED_PROTO"' EXIT
                api-contract/model_cluster_operations.proto \
                api-contract/model_enrollment_operations.proto \
                api-contract/model/system_config.proto api-contract/model/backup.proto \
-               api-contract/model_global_operations.proto \
+               api-contract/model/events.proto \
                api-contract/api_service.proto api-contract/cluster_service.proto api-contract/enrollment_service.proto; do
     sed '/^syntax = /d; /^package /d; /^import /d; /^option go_package = /d' "$proto"
   done

@@ -202,8 +202,10 @@ status, secrets lock status, ingress diagnostics, the netmap).
 ## Phase 2: CoreWriteUpdate
 
 Planned 2026-09-25, revised 2026-09-29 after the stream design discussion,
-not started. Everything below was checked against the code on 2026-09-29;
-file and function names are current as of that date.
+implemented 2026-09-29 straight to the end state in one working tree (no
+legacy shim, no step-by-step landing); see [Status](#status-2026-09-29) at
+the end of this phase for what shipped and where it deviates from the text
+below. The design sections are kept as written for the record.
 
 ### Goals
 
@@ -763,3 +765,69 @@ with 6 and 7 in one release.
   stream instead of `CoreUpdate`-derived feeds, once the old surface is gone.
 - `User` as a document with typed passkeys instead of the opaque blob, from
   the 2a open items; the entity message in step 3 is where it would land.
+
+### Status (2026-09-29)
+
+Implemented, uncommitted, targeted at v0.0.615. Steps 1 to 7 landed together
+rather than one release at a time, and the legacy surface (`CoreUpdate`,
+`Snapshot`, `StateStreamMsg`, `/v1/global/snapshot`, `/v1/global/state-stream`,
+`BuildSnapshot`, the `*AtSeq` readers, `expected_version`, the `deleted`
+flags, `WithRunningVersion` on the browser path) is gone in the same change.
+Backend build and frontend tests and build pass; the backend test suites were
+rewritten against the new primitives; the full-wipe e2e suite passed on
+2026-09-29 (1002 flow steps, 33 minutes) after two regressions the unit tests
+did not reach: the deployment form's reference pickers keyed options on the
+per-version row id that the expanded value refs no longer carry (now keyed on
+the `(stable id, version)` pair), and an opening decided each row of a value
+history by that row's own space, so a secret moved out of a viewer's space
+still shipped the row from when it was inside (now the entity's newest row in
+the batch decides for all of its rows).
+
+Deviations from the sections above:
+
+- **`EventStreamMsg.seq` on every message.** Heartbeats and live messages
+  carry the seq the client is now at, so a client that saw only invisible
+  commits still resumes from the right place; `after_seq` is that value.
+- **Message order on connect.** The sidecar message comes first, then the
+  opening message with `synced` set; `reset` marks a bootstrap. The plan had
+  the sidecars after the opening events.
+- **`POST /v1/global/events`.** The one-shot agent variant is a POST with the
+  same `EventStreamRequest`, returning the opening events and sidecars in one
+  message.
+- **Payload ids kept.** `ScheduledInstance.id`, `Space.id`, `User.id`, the
+  directory ids, and the session string ids stay on the entities; the
+  `entity_id` on the mutation is authoritative and the two agree. Session and
+  Nix store reset entity ids are the row id of the entity's first event.
+- **Envelope messages retained for REST.** `DeploymentEvent`, `SecretEvent`,
+  `ConfigEvent`, `AssetEvent`, `NodeEvent`, and the list wrappers still shape
+  the request/response endpoints; only the stream moved to entities. The
+  envelopes carry the entity's facts twice (`version`, `spec_version`,
+  `value_version`, `created_time` on both the envelope and `value`).
+- **Delete forwarding.** A viewer receives a delete only for an entity it was
+  sent, tracked per connection, with a `pq.LatestMutation` lookup for entities
+  first seen after a reconnect; a delete of a grant it never saw is a reset.
+- **Opening visibility is per entity.** In a bootstrap or replay the newest
+  payload of an entity decides for every one of its rows, so a value carries
+  its whole history into a space (including versions written elsewhere) and
+  leaves none behind when it moves out; a live commit still decides each
+  mutation by its own payload.
+- **Nix store resets** are on the stream for cluster viewers; keyslots are
+  dropped for the browser class as planned.
+- **Status tables** gained `event_time` (v0.0.615 migration, backfilled from
+  `updated_at`) so their mutations carry the commit time like every other row.
+- **Frontend.** The fold keeps legacy-shaped envelopes per collection so
+  `derive.js` and the pages read what they did; a deployment delete mutation
+  becomes a synthesized tombstone one version above the latest (the server's
+  delete row has the same shape); statuses that arrive before their parent
+  inside one message are kept and orphans swept at the end of the message;
+  the runner's `running_version` is derived client-side from the pinned
+  config in `deploymentMerge.js`. Not implemented: the page reload on a decode
+  failure of the first message, and the browser-side round trip against Go
+  fixtures (the browser tests use inline mutation fixtures).
+- **Asset content** moved from `content_version_id` to `asset_id` plus
+  `version`, since row ids no longer reach the browser; the row-id reveal path
+  (`RevealByID`, `MetaByID`, `secretForVersionID`) is removed with it.
+- **Authz templates** drop deleted rows from the in-memory cache instead of
+  carrying a `Deleted` flag.
+- **Enrollment accept** takes `expected_seq` from the node event the operator
+  reviewed; the agent and the browser send the node row's `seq`.

@@ -115,36 +115,48 @@ one. The one you keep is `/v1/agent-sessions/revoke` for your own session id.
 
 ## 4. Reading state
 
-`GET /v1/global/snapshot` is the starting point. It returns a `Snapshot` at
-`seq`, filtered to your access. Its collections are arrays directly:
-`deployment_events`, `scheduled_instance_events`, `instance_statuses`,
-`node_events`, `node_statuses`, `secret_events`, `config_events`, `asset_events`,
-`spaces`, `value_directories`, and `asset_directories`. Empty arrays may be
-omitted in JSON; treat missing collections as empty. Listing endpoints retain
-`{"items": [...]}` and return the latest event per visible live entity.
+`POST /v1/global/events` with `{"after_seq": 0}` is the starting point. It
+returns one `EventStreamMsg` filtered to your access: `seq` (the cluster's
+current sequence), `synced`, `reset`, and `events`. Each event is one commit:
+`seq`, `time` (epoch ms), `actor` (0 = the system, negative = the agent of
+user `-actor`), and `mutations`. A mutation is exactly one of `create`,
+`update`, or `delete`, each with `entity_type` and `entity_id`; `create` and
+`update` carry the entity under the matching field of `entity`. Entity types
+are numbers in JSON: 1 `deployment`, 2 `scheduled_instance`, 3 `node`,
+4 `secret`, 5 `config`, 6 `asset`, 7 `network_policy`, 8 `space`, 9 `user`,
+10 `value_directory`, 11 `asset_directory`, 12 `authz_rule_template`,
+13 `authz_grant`, 14 `authz_global_rule`, 15 `system_config`,
+16 `scheduled_instance_status`, 17 `node_status`, 18 `agent_session`,
+19 `user_session`. Fold the events in order: the last mutation per
+(`entity_type`, `entity_id`) is the current state and a `delete` removes it.
+Empty arrays may be omitted in JSON; treat missing fields as empty. Listing
+endpoints retain `{"items": [...]}` and return the latest event per visible
+live entity.
 
-Each event has an envelope: its stable identity (`deployment_id`, `secret_id`,
-`config_id`, `asset_id`, or `node_id`), `version`, `seq`, `event_id` (the log
-row id), `author`, `event_type`, `created_time`, and `event_time`. The entity
-itself is in `value`. A deployment's editable spec is `value.spec`, alongside
-`value.name`, `value.node_id`, and `value.space_id`. Event type `3` is deletion.
-Select the highest `version` for an entity's current state.
-
-Deployment events include the latest desired version and older versions pinned
-by included instances. Resolve each instance's `value.deployment_version`
-against that deployment's event `version`; join its observed status using
-`scheduled_instance_id`. Status `updated_at` is independent of authored `seq`.
-The snapshot includes live instances and the last finalized run for an ordinal
-without a live placement.
+A deployment entity carries `version`, `spec_version`, and `created_time` as
+facts, its editable spec in `spec`, and `name`, `space_id`, and `scheduling`
+beside it. Older versions of a deployment are included while an instance pins
+them; the current one is the highest `version`. Resolve each instance's
+`deployment_version` against that, and join its observed status (entity type
+16, whose `entity_id` is the `scheduled_instance_id`). Status `updated_at` is
+independent of `seq`. The events include live instances and the last
+finalized run for an ordinal without a live placement.
 
 Value histories are complete, oldest first, for every live secret, config,
-and asset. Group by stable identity. The pinnable values are the distinct
-`value_version`s; a reference is `{"id": <stable id>, "version": <value_version>}`.
-A rename or space move increments `version` but preserves `value_version`, so
-it is not a new value pin. The latest event provides current
-`value.fs` and `value.space_id`. Secret `value` contains metadata only.
-Create, set, generate, rename, move, and upload return the exact event appended;
-read history from the snapshot when you need earlier versions.
+and asset. Group by `entity_id`. The pinnable values are the distinct
+`value_version`s; a reference is `{"id": <entity_id>, "version": <value_version>}`.
+A rename or space move is an update that preserves `value_version`, so it is
+not a new value pin. The latest mutation provides current `fs` and
+`space_id`. Secret entities contain metadata only. Create, set, generate,
+rename, move, and upload return the exact event appended as a `SecretEvent`,
+`ConfigEvent`, `AssetEvent`, or `DeploymentEvent` envelope (`seq`, `author`,
+`event_type`, times, and the entity in `value`); read history from the events
+when you need earlier versions.
+
+To re-read later, send the `seq` of the last message you folded as
+`after_seq`. You get either the commits since then (`reset` false), or, when
+the server cannot replay for you, a fresh bootstrap with `reset` true that
+replaces everything you hold.
 
 Per deployment:
 
@@ -159,12 +171,12 @@ Per deployment:
 - `POST /v1/deployments/recently-deleted` `{"limit": 25}` returns tombstones,
   with specs intact for creating a separate deployment.
 
-Nodes are in `node_events`; `/v1/nodes/list` returns member node events.
-`value.operator` contains `name`, `roles`, `allowed_spaces`, and `enrolled_time`.
-`value.reported` contains `identifier`, `underlay_address`, `wg_public_key`, and
-`host_addresses`. Placement uses `node_id`, not the display name. Enrollment
-acceptance sends the node's reviewed `version` as `expected_version` (the
-current version, unlike the deployment update convention below).
+Nodes are entity type 3; `/v1/nodes/list` returns member node events.
+`operator` contains `name`, `roles`, `allowed_spaces`, and `enrolled_time`.
+`reported` contains `identifier`, `underlay_address`, `wg_public_key`, and
+`host_addresses`. Placement uses the node's `entity_id`, not the display name.
+Enrollment acceptance sends the `seq` of the node event you reviewed as
+`expected_seq` (0 skips the check).
 
 ## 5. Deployments
 
@@ -177,7 +189,7 @@ curl -sS -X POST '{{.BaseURL}}/v1/deployments/create' \
   -d '{"name": "api", "space_id": 2, "node_id": 1, "spec": { ... }}'
 ```
 
-Write the `spec` by copying a working deployment's spec out of the snapshot (or
+Write the `spec` by copying a working deployment's spec out of the events (or
 a tombstone from `recently-deleted`) and editing it. It is a large validated
 shape and inventing one field-by-field mostly produces `400`s. `name` is unique
 per (name, space, node) — a clash is `409 duplicate_deployment` — and the node
@@ -194,8 +206,8 @@ Before pointing a spec at a repo or image you have not used here before,
 
 ### Changing
 
-`POST /v2/deployments/update` with `{"deployment_id": <id>, "expected_version":
-<current version + 1>, ...}` plus **exactly one** of the following fields,
+`POST /v2/deployments/update` with `{"deployment_id": <id>, "expected_seq":
+<seq of the deployment's last event you saw>, ...}` plus **exactly one** of the following fields,
 selecting what kind of change it is. Zero or two of them is a `400`.
 
 - `"version_only_update": {"target_version": "<id from /v1/deployments/versions>"}`
@@ -211,15 +223,18 @@ selecting what kind of change it is. Zero or two of them is a `400`.
 **`spec` is a full replacement.** There is no merge and no partial update. Any
 field you leave out is *dropped*, and the call still returns `200`. So always:
 
-1. `GET /v1/global/snapshot` and take the deployment's current `value.spec` and `version`.
+1. Take the deployment's current `spec` from the events (or from
+   `/v1/deployments/get`) and note the `seq` of the event that carried it.
 2. Modify that object in place.
-3. Send the whole thing back as `spec_update` with `expected_version` set to
-   `current + 1`.
+3. Send the whole thing back as `spec_update` with `expected_seq` set to that
+   seq.
 
-If `expected_version` is not exactly one greater than the stored version the
-call is rejected — that is the concurrency check, and it means someone else
-changed the deployment while you were working. Re-read and redo your change on
-top. Every kind of change bumps `version`, including a space move.
+If the deployment changed after that seq the call is rejected — that is the
+concurrency check, and it means someone else changed the deployment while you
+were working. Re-read and redo your change on top. `expected_seq: 0` skips
+the check; do not use it for a spec update. Every kind of change bumps
+`version`, including a space move; an update that changes nothing returns the
+current event unchanged.
 
 After any change, poll `POST /v1/deployments/get` until the deployment
 settles. A `200` from `update` means the config was accepted, not that the
@@ -227,8 +242,8 @@ workload is running.
 
 ### Deleting
 
-`POST /v1/deployments/delete` `{"deployment_id": <id>, "version": <current +
-1>}`. The workload must already be stopped, and nothing else may reference its
+`POST /v1/deployments/delete` `{"deployment_id": <id>, "expected_seq":
+<seq>}`. The workload must already be stopped, and nothing else may reference its
 address. Ask the operator first (see section 10).
 
 ### Referencing values from a spec
@@ -323,7 +338,7 @@ An asset has a stable `asset_id`. Its current event carries `value.fs.key`,
 Read `asset_events` history using the value-version rule in section 4. Specs
 pin `{"id": asset_id, "version": value_version}`.
 
-Assets live in a per-space folder tree (`asset_directories` in the snapshot,
+Assets live in a per-space folder tree (entity type 11,
 root = directory `0`), and keys are unique per folder, not globally.
 
 To update an existing asset, upload against its stable id:
@@ -351,7 +366,7 @@ to pin that version (section 5).
 
 Reading and organising:
 
-- `GET /v1/assets/content?content_version_id=41` — the bytes of one version, addressed by the `event_id` of its content-changing event.
+- `GET /v1/assets/content?asset_id=12&version=3` — the bytes of one content version, addressed by the asset id and its `value_version`.
 - `POST /v1/assets/rename` `{"asset_id": 12, "new_key": "nginx.conf"}`
 - `POST /v1/assets/move` `{"asset_id": 12, "asset_directory_id": 3, "space_id": 0}`
   (`space_id: 0` keeps the space; `asset_directory_id: 0` is the space root)
@@ -377,14 +392,14 @@ Names are unique per folder.
 ```json
 {"config_id": 7, "value": "info",
  "update_referencing_deployments": true,
- "referencing_deployments": [{"id": 3, "version": 12}]}
+ "referencing_deployments": [{"deployment_id": 3, "expected_seq": 120}]}
 ```
 
 `update_referencing_deployments` re-pins the deployments that use this config
 to the new version atomically. When you set it you must list **every**
-deployment currently referencing the config with its **current** version;
-anything missing, extra, or stale is `409 referencing_deployments_changed` —
-re-read the snapshot and retry. Leave both fields out to append a version
+deployment currently referencing the config with the `seq` of its **current**
+event; anything missing, extra, or stale is `409 referencing_deployments_changed` —
+re-read the events and retry. Leave both fields out to append a version
 without touching any deployment, then update specs yourself.
 
 - `POST /v1/configs/rename` `{"config_id": 7, "new_name": "log-level"}`
@@ -394,13 +409,13 @@ without touching any deployment, then update specs yourself.
   plus `/move`, `/rename`, `/delete` (must be empty).
 
 **Configs are not secrets.** Their values are stored in plaintext and are
-returned in the snapshot. Never put a credential in one — use section 8.
+returned on the event stream. Never put a credential in one — use section 8.
 
 ## 8. Secrets
 
 **The default posture: you can create a secret but not read one.** Secret
 metadata is visible to
-you in `secret_events` (name, folder, version ids — never plaintext). Everything that
+you as `secret` entities (name, folder, value versions — never plaintext). Everything that
 would expose or destroy a value is denied by default: `/v1/secrets/reveal`,
 `/v1/secrets/set`, `/v1/secrets/create` (which carries a plaintext value),
 `/v1/secrets/rename`, `/v1/secrets/move`, and `/v1/secrets/delete` return
@@ -453,7 +468,7 @@ it — that is not something you can fix.
 
 ## 9. Spaces
 
-Spaces come from `spaces` in the snapshot. You can rename one
+Spaces are entity type 8 on the events. You can rename one
 (`/v1/spaces/update` `{"id": 2, "name": "staging"}`) and delete one
 (`/v1/spaces/delete` `{"id": 2}`), but by default **not create one** —
 `/v1/spaces/create` is `403` under the builtin rules. Deleting a space is the
@@ -492,13 +507,13 @@ the event's `network_policy_id` as request `id` and its
 - **Destructive operations need explicit confirmation first.** Deleting a
   deployment, asset, config, directory, or space is not something to do because
   it seemed implied. Ask, quote exactly what will be deleted, and wait.
-- **Streaming endpoints are protobuf-only.** `/v1/global/state-stream` and
+- **Streaming endpoints are protobuf-only.** `/v1/global/event-stream` and
   `/v1/deployments/prepare-output` ignore `Accept: application/json`. Use the
   non-streaming endpoints above instead.
 - **Enums are numbers** in JSON, not names.
-- **Ids are per-kind.** Stable identity ids and event row ids (`event_id`) are
-  different number spaces, and value references never use `event_id`; so are a deployment's `version`
-  and its `space_version`.
+- **Ids are per-kind.** Entity ids, `seq`, and a deployment's `version` are
+  different number spaces; value references use the entity id and
+  `value_version`, never `seq` or an event row id.
 
 ## 11. Endpoint reference
 
@@ -511,7 +526,7 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 
 | Endpoint | |
 |---|---|
-| `GET /v1/global/snapshot` | yes |
+| `POST /v1/global/events` | yes |
 | `POST /v1/nodes/list` | yes |
 | `POST /v1/deployments/get` `/history` `/versions` `/recently-deleted` | yes |
 | `POST /v1/assets/list`, `GET /v1/assets/content` | yes |
@@ -523,7 +538,7 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 | `POST /v1/deployments/log-query` `/run-report` | operator (logs) |
 | `POST /v1/metrics/query` `/latest` | operator (logs) |
 | `POST /v1/deployments/prepare-output` | operator (logs), protobuf stream |
-| `POST /v1/global/state-stream` | protobuf stream |
+| `POST /v1/global/event-stream` | protobuf stream |
 | `POST /v1/global/exported-config` | operator (cluster) |
 
 **Writing**

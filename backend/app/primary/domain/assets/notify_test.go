@@ -23,14 +23,14 @@ func TestCreateAssetNotifiesSubscribers(t *testing.T) {
 
 	select {
 	case update := <-sub:
-		if len(update.AssetEvents) != 1 {
+		if len(update.Mutations) != 1 || update.Mutations[0].Type() != apigen.CoreEntityType_CORE_ENTITY_ASSET || update.Mutations[0].Kind() != apigen.AuthzVerb_AUTHZ_VERB_CREATE {
 			t.Fatalf("asset transaction = %+v", update)
 		}
-		asset := update.AssetEvents[0]
-		if asset.Value.Fs == nil || asset.Value.Fs.Key != "notify-check.txt" {
-			t.Fatalf("asset.Value.Fs = %+v", asset.Value.Fs)
+		asset := update.Mutations[0].Entity().Asset
+		if asset.Fs == nil || asset.Fs.Key != "notify-check.txt" {
+			t.Fatalf("asset.Fs = %+v", asset.Fs)
 		}
-		if asset.EventID == 0 || asset.ValueVersion != 1 {
+		if update.Mutations[0].EntityID() == 0 || asset.ValueVersion != 1 {
 			t.Fatalf("asset = %+v, want a first content version with an id", asset)
 		}
 	case <-time.After(2 * time.Second):

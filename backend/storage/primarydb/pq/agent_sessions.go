@@ -12,6 +12,7 @@ import (
 type AgentSession struct {
 	EventMeta
 	ID                int64
+	EntityID          int64
 	SessionID         string
 	UserID            int64
 	CreatedAt         int64
@@ -50,13 +51,16 @@ func (r AgentSession) Event(meta EventMeta) AgentSessionEventParams {
 	}
 }
 
+// The last column is the session's entity id on the event stream: the id of
+// its first row.
 const agentSessionColumns = `id, global_seq, event_time, author, session_id, event_type, user_id, created_at, expires_at, token_hash, token_prefix, revoked_at,
-       status, requesting_address, approval_code, approved_at`
+       status, requesting_address, approval_code, approved_at,
+       (SELECT MIN(p.id) FROM agent_session_event_log p WHERE p.session_id = agent_session_event_log.session_id)`
 
 func scanAgentSession(row scanner) (AgentSession, error) {
 	var i AgentSession
 	err := row.Scan(&i.ID, &i.GlobalSeq, &i.EventTime, &i.Author, &i.SessionID, &i.EventType, &i.UserID, &i.CreatedAt, &i.ExpiresAt, &i.TokenHash, &i.TokenPrefix, &i.RevokedAt,
-		&i.Status, &i.RequestingAddress, &i.ApprovalCode, &i.ApprovedAt)
+		&i.Status, &i.RequestingAddress, &i.ApprovalCode, &i.ApprovedAt, &i.EntityID)
 	return i, err
 }
 
@@ -93,10 +97,6 @@ func (q *Queries) ListPendingAgentSessionsForUser(ctx context.Context, userID in
 
 func (q *Queries) ListAllAgentSessions(ctx context.Context) ([]AgentSession, error) {
 	return q.listAgentSessions(ctx, liveAgentSessions+` ORDER BY created_at, session_id`)
-}
-
-func (q *Queries) ListAgentSessionsAtSeq(ctx context.Context, seq int64) ([]AgentSession, error) {
-	return q.listAgentSessions(ctx, `FROM agent_session_event_log WHERE global_seq = ? ORDER BY id`, seq)
 }
 
 type AgentSessionEventParams struct {

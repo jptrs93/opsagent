@@ -30,7 +30,6 @@ export const assetMetasS = van.state([]);
 // is a space's implicit root. Directories carry `key`, not `name`.
 export const assetDirectoriesS = van.state([]);
 export const systemConfigS = van.state(null);
-// Templates and global rules use replacements; grants derive from live events.
 export const authzTemplatesS = van.state([]);
 export const authzGrantsS = van.state([]);
 export const authzGlobalRulesS = van.state([]);
@@ -48,21 +47,20 @@ const sortByName = items => [...items].sort((a, b) => (a.name || '').localeCompa
 const newestFirst = map => [...map.values()].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 const sortAssets = items =>[...items].sort((a, b) => (a.key || '').localeCompare(b.key || '') || Number(a.id) - Number(b.id));
 
-// A value pin addresses the event that changed its value facet, never a later
+// A value pin addresses the write that changed the value facet, never a later
 // rename or space move carrying that value forward.
 export const valueVersions = history => history.filter((event, i) => i === 0 || event.valueVersion !== history[i - 1].valueVersion)
-    .map(event => ({id: event.eventId, version: event.valueVersion, createdAt: new Date(event.eventTime), author: event.author,
-        value: event.value.value, sha256: event.value.sha256, sizeBytes: event.value.sizeBytes, globalSeq: event.seq})).reverse();
+    .map(event => ({version: event.valueVersion, createdAt: new Date(event.eventTime), author: event.author,
+        value: event.value.value, sha256: event.value.sha256, sizeBytes: event.value.sizeBytes, seq: event.seq})).reverse();
 
 const valueViewModel = (history, idField) => {
     const event = history.at(-1);
     if (!event) return undefined;
     return {
-        id: event[idField], version: event.version, seq: event.seq, fs: event.value.fs,
+        id: event[idField], version: event.valueVersion, seq: event.seq, fs: event.value.fs,
         spaceId: event.value.spaceId,
         name: event.value.fs?.name || '', key: event.value.fs?.key || '',
         valueDirectoryId: Number(event.value.fs?.directoryId || 0), directoryId: Number(event.value.fs?.directoryId || 0),
-        deleted: event.eventType === 3,
     };
 };
 export const secretViewModel = history => ({...valueViewModel(history, 'secretId'), versions: valueVersions(history)});
@@ -70,13 +68,13 @@ export const configViewModel = history => ({...valueViewModel(history, 'configId
 export const assetViewModel = history => ({...valueViewModel(history, 'assetId'), contentVersions: valueVersions(history)});
 
 export const expandValueVersionRefs = metas => (metas || []).flatMap(meta => (meta.valueVersions || meta.versions || []).map(ref => ({
-    id: ref.id, stableId: meta.id, name: meta.name, spaceId: meta.spaceId, directoryId: Number(meta.valueDirectoryId || 0),
+    stableId: meta.id, name: meta.name, spaceId: meta.spaceId, directoryId: Number(meta.valueDirectoryId || 0),
     version: ref.version, value: ref.value, createdAt: ref.createdAt, author: ref.author,
 })));
 
 const memberStatus = status => status >= 4 && status <= 7;
 export const nodeViewModel = event => ({
-    id: event.nodeId, version: event.version, seq: event.seq,
+    id: event.nodeId, seq: event.seq,
     name: event.value.operator?.name || '', identifier: event.value.reported?.identifier || '',
     roles: event.value.operator?.roles || [], allowedSpaces: event.value.operator?.allowedSpaces || [],
     enrolledAt: new Date(event.value.operator?.enrolledTime || 0),
@@ -94,7 +92,7 @@ export function deriveEnrollments(tree) {
     return [...tree.nodes.values()].filter(event => event.value.status !== 8 && (event.value.enrollmentRequestedAt || !memberStatus(event.value.status))).map(event => {
         const observed = tree.nodeStatuses.get(event.nodeId) || {};
         return {
-            id: event.nodeId, version: event.version,
+            id: event.nodeId, seq: event.seq,
             createdAt: new Date(event.value.enrollmentRequestedAt || event.createdTime),
             requestingMachineId: event.value.reported?.identifier || '', requestingIpAddress: observed.remoteAddress || '',
             underlayAddress: event.value.reported?.underlayAddress || '', hostAddresses: event.value.reported?.hostAddresses || [],
@@ -129,11 +127,11 @@ export function publishDerived(tree, changed) {
     if (any('spaces')) spacesS.val = [...tree.spaces.values()].sort((a, b) => a.id - b.id);
     if (any('valueDirectories')) valueDirectoriesS.val = sortByName([...tree.valueDirectories.values()]);
     if (any('assetDirectories')) assetDirectoriesS.val = sortAssets([...tree.assetDirectories.values()]);
-    if (any('networkPolicies')) networkPoliciesS.val = [...tree.networkPolicies.values()].map(e => ({...e.value, id: e.networkPolicyId, version: e.version})).sort((a, b) => a.id - b.id);
+    if (any('networkPolicies')) networkPoliciesS.val = [...tree.networkPolicies.values()].map(e => ({...e.value, id: e.networkPolicyId, seq: e.seq})).sort((a, b) => a.id - b.id);
     if (any('authzGrants')) authzGrantsS.val = [...tree.authzGrants.values()].map(authzGrantViewModel).sort((a, b) => a.id - b.id);
-    for (const [field, state] of [['authzRuleTemplates', authzTemplatesS], ['authzGlobalRules', authzGlobalRulesS], ['ingressDiagnostics', ingressDiagnosticsS]]) {
-        if (any(field)) state.val = tree[field]?.items || [];
-    }
+    if (any('authzRuleTemplates')) authzTemplatesS.val = [...tree.authzRuleTemplates.values()].sort((a, b) => a.id - b.id);
+    if (any('authzGlobalRules')) authzGlobalRulesS.val = [...tree.authzGlobalRules.values()].sort((a, b) => a.id - b.id);
+    if (any('ingressDiagnostics')) ingressDiagnosticsS.val = tree.ingressDiagnostics?.items || [];
     for (const [field, state] of [['secretsStatus', secretsStatusS], ['backupStatus', backupStatusS], ['systemConfig', systemConfigS]]) {
         if (any(field)) state.val = tree[field] || null;
     }

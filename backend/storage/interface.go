@@ -8,11 +8,6 @@ type ScheduledInstancePredicate func(apigen.ScheduledInstanceState) bool
 
 // DeploymentSpecVersion is an optimistic assertion about the current
 // spec version of a deployment.
-type DeploymentSpecVersion struct {
-	ID          int32
-	SpecVersion int32
-}
-
 func DeploymentKeyMatches(def apigen.Deployment, nodeID, spaceID int32, name string) bool {
 	return def.PlacementNodeID() == nodeID &&
 		def.SpaceID == spaceID &&

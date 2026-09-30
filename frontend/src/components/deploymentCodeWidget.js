@@ -252,7 +252,7 @@ function catalogVersionCompletionOptions(namespace, catalogs, spaceName, path) {
         if (namespace === "asset") {
             // Asset catalogs are view models whose pinnable versions live in
             // contentVersions, not at the root.
-            for (const ref of item?.contentVersions || []) addVersion(Number(ref?.version || 0), ref?.id);
+            for (const ref of item?.contentVersions || []) addVersion(Number(ref?.version || 0), item?.id);
         } else {
             addVersion(Number(item?.version || 0), catalogID(item, namespace));
         }

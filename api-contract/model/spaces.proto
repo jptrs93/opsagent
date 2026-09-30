@@ -7,5 +7,5 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 message Space {
   int32 id = 1;
   string name = 2;
-  bool deleted = 3;
+  reserved 3; // deleted: a delete mutation on the event stream
 }

@@ -43,3 +43,9 @@ CREATE TABLE IF NOT EXISTS global_access_rule_event_log (
     event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (rule_id, version)
 );
+
+CREATE INDEX IF NOT EXISTS idx_authz_rule_template_event_log_seq ON authz_rule_template_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_authz_grant_event_log_seq ON authz_grant_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_global_access_rule_event_log_seq ON global_access_rule_event_log (global_seq, id);

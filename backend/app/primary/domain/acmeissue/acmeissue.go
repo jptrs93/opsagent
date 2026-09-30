@@ -80,7 +80,7 @@ func (m *Manager) Run(ctx context.Context) {
 				m.reconcile(ctx, m.Snapshot())
 				continue
 			}
-			if len(update.DeploymentEvents) == 0 {
+			if !update.Has(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT) {
 				continue
 			}
 			for len(updates) > 0 {

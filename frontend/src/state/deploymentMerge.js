@@ -1,4 +1,4 @@
-import {deploymentDeleted} from '../lib/deployment.js';
+import {deploymentDeleted, deploymentWorkload} from '../lib/deployment.js';
 
 const latest = versions => [...versions.values()].reduce((a, b) => !a || b.version > a.version ? b : a, undefined);
 
@@ -26,6 +26,16 @@ export function selectInstanceEvents(tree) {
     return result.sort((a, b) => a.scheduledInstanceId - b.scheduledInstanceId);
 }
 
+// The runner reports the spec version it runs; the workload version it stands
+// for is read off the instance's pinned config, as the worker view does.
+const withRunningVersion = (config, status) => {
+    const runner = status?.runner;
+    const specVersion = Number(runner?.deploymentSpecVersion || 0);
+    if (!runner || !config || !specVersion || specVersion !== Number(config.specVersion || 0)) return status;
+    const runningVersion = deploymentWorkload(config)?.version || '';
+    return runner.runningVersion === runningVersion ? status : {...status, runner: {...runner, runningVersion}};
+};
+
 export function deriveDeploymentRows(tree) {
     const instances = new Map();
     for (const event of selectInstanceEvents(tree)) {
@@ -34,7 +44,7 @@ export function deriveDeploymentRows(tree) {
         const state = {
             instance: {...value, id: event.scheduledInstanceId},
             config,
-            status: tree.instanceStatuses.get(event.scheduledInstanceId),
+            status: withRunningVersion(config, tree.instanceStatuses.get(event.scheduledInstanceId)),
         };
         const group = instances.get(value.deploymentId) || [];
         group.push(state);

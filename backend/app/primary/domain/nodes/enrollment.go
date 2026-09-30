@@ -59,27 +59,27 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 						return nil, err
 					}
 				}
-				row, _, err = appendNodeVersion(ctx, q, seq, current, 0, func(next *nodeEventSpec) { *next = spec })
+				row, _, err = appendNodeVersion(ctx, q, seq, now, current, 0, func(next *nodeEventSpec) { *next = spec })
 			}
 			if err != nil {
 				return nil, err
 			}
-			update.NodeEvents = []*apigen.NodeEvent{&row.Event}
+			pq.AppendMutations(&update, pq.NodeMutation(&row.Event))
 		}
-		if _, err := q.UpsertNodeObservedMeta(ctx, seq, row.Event.NodeID, time.UnixMilli(now), opendeployVersion, remoteAddress); err != nil {
+		if _, err := q.UpsertNodeObservedMeta(ctx, seq, now, row.Event.NodeID, time.UnixMilli(now), opendeployVersion, remoteAddress); err != nil {
 			return nil, err
 		}
 		row, err = q.GetNodeRowByID(ctx, int64(row.Event.NodeID))
 		if err != nil {
 			return nil, err
 		}
-		update.NodeStatuses = []*apigen.NodeStatus{&row.Status}
+		pq.AppendMutations(&update, pq.NodeStatusMutation(seq, now, &row.Status))
 		return &update, nil
 	})
 	if err != nil {
 		return nil, 0, err
 	}
-	return enrollmentRequestFromRow(row), int64(row.Event.Version), nil
+	return enrollmentRequestFromRow(row), row.Event.Seq, nil
 }
 
 func MarkEnrollmentDisconnected(store *state.Service, id int32, requestingMachineID string) {
@@ -94,14 +94,12 @@ func MarkEnrollmentDisconnected(store *state.Service, id int32, requestingMachin
 		if row.Event.Value.Reported.Identifier != requestingMachineID {
 			return nil, sql.ErrNoRows
 		}
-		if _, err := q.SetNodeConnectionStatus(ctx, seq, requestingMachineID, false, time.Time{}); err != nil {
-			return nil, err
-		}
-		row, err = q.GetNodeRowByID(ctx, int64(id))
+		now := time.Now().UnixMilli()
+		status, err := q.SetNodeConnectionStatus(ctx, seq, now, requestingMachineID, false, time.Time{})
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{NodeStatuses: []*apigen.NodeStatus{&row.Status}}, nil
+		return pq.NewUpdate(pq.NodeStatusMutation(seq, now, status)), nil
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return
@@ -124,8 +122,9 @@ func ListEnrollmentRequests(q *pq.Queries) ([]*apigen.EnrollmentRequestStatus, e
 	return items, nil
 }
 
-func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestingMachineID string, expectedVersion int64) (*apigen.EnrollmentRequestStatus, error) {
-
+// AcceptEnrollmentRequest accepts the request as long as the node has no
+// event newer than expectedSeq; zero skips the check.
+func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestingMachineID string, expectedSeq int64) (*apigen.EnrollmentRequestStatus, error) {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	var row pq.CurrentNode
@@ -137,7 +136,7 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 		if err != nil {
 			return nil, err
 		}
-		if int64(current.Event.Version) != expectedVersion ||
+		if (expectedSeq != 0 && current.Event.Seq > expectedSeq) ||
 			current.Event.Value.Reported.Identifier != requestingMachineID ||
 			current.Event.Value.EnrollmentRequestedAt == 0 {
 			return nil, ErrEnrollmentRequestChanged
@@ -149,7 +148,7 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 		if taken > 0 {
 			return nil, ErrDuplicateNodeName
 		}
-		row, _, err = appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) {
+		row, _, err = appendNodeVersion(ctx, q, seq, now, current, 0, func(spec *nodeEventSpec) {
 			spec.Name = nodeName
 			if spec.EnrolledTime == 0 {
 				spec.EnrolledTime = now
@@ -161,14 +160,12 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil
+		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	status := enrollmentRequestFromRow(row)
-
-	return status, nil
+	return enrollmentRequestFromRow(row), nil
 }
 func EndEnrollmentRequest(store *state.Service, id int32, requestedAt int64, expired bool) error {
 	ctx := context.Background()
@@ -181,7 +178,7 @@ func EndEnrollmentRequest(store *state.Service, id int32, requestedAt int64, exp
 			current.Event.Value.EnrollmentRequestedAt != requestedAt {
 			return nil, nil
 		}
-		row, _, err := appendNodeVersion(ctx, q, seq, current, 0, func(spec *nodeEventSpec) {
+		row, _, err := appendNodeVersion(ctx, q, seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) {
 			spec.EnrollmentRequestedAt = 0
 			if spec.EnrolledTime == 0 {
 				spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED
@@ -193,6 +190,6 @@ func EndEnrollmentRequest(store *state.Service, id int32, requestedAt int64, exp
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{NodeEvents: []*apigen.NodeEvent{&row.Event}}, nil
+		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
 	})
 }

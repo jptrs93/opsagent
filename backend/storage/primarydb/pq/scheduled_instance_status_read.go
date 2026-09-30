@@ -133,8 +133,3 @@ func (q *Queries) ListScheduledInstanceStatusHistoryForDeployment(ctx context.Co
 	return q.queryScheduledInstanceStatuses(ctx, `SELECT `+scheduledInstanceStatusColumns+` FROM scheduled_instance_status
  WHERE deployment_id = ? ORDER BY updated_at ASC`, deploymentID)
 }
-
-func (q *Queries) ListScheduledInstanceStatusesAtSeq(ctx context.Context, seq int64) ([]*apigen.ScheduledInstanceStatus, error) {
-	return q.queryScheduledInstanceStatuses(ctx, `SELECT `+scheduledInstanceStatusColumns+` FROM scheduled_instance_status
- WHERE global_seq = ? ORDER BY scheduled_instance_id, updated_at`, seq)
-}

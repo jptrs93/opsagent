@@ -144,6 +144,7 @@ func testSystemSpecWithVersion(version string) *apigen.DeploymentSpec {
 func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
+	ctx := context.Background()
 	node := nodes.EnsurePrimaryNode(s, "primary", "primary")
 	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithVersion("v1"))
 	inst := statetest.CreateScheduledInstance(s, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -153,16 +154,18 @@ func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 		st.Runner = apigen.RunnerStatus{DeploymentSpecVersion: dep.SpecVersion, Status: apigen.RunningStatus_RUNNING}
 		return true
 	})
-	before := s.BuildSnapshot(context.Background())
+	beforeSeq := globalSeq(t, s)
+	beforeNode := erru.Must(s.Queries().GetLatestNodeStatus(ctx, node.ID))
+	beforeInst := erru.Must(s.Queries().GetLatestScheduledInstanceStatus(ctx, inst.ID))
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
 	if count, err := nodes.InvalidateNodeRuntimeState(s, node.ID); err != nil || count != 1 {
 		t.Fatalf("invalidation = %d, %v", count, err)
 	}
-	var update apigen.CoreUpdate
+	var update state.Update
 	select {
 	case published := <-sub:
-		if published.HasCore() || !published.HasObserved() || published.Seq != before.Seq+1 {
+		if hasCore(published) || !hasObserved(published) || published.Seq != beforeSeq+1 {
 			t.Fatalf("tombstone publication: %+v", published)
 		}
 		statetest.AssertUpdateMatchesRows(t, s, published)
@@ -170,27 +173,27 @@ func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("no tombstone published")
 	}
-	if len(update.NodeStatuses) != 1 || len(update.InstanceStatuses) != 1 {
+	nodeStatuses, instanceStatuses := mutationsOf(update, nodeStatusType), mutationsOf(update, instanceStatusType)
+	if len(nodeStatuses) != 1 || len(instanceStatuses) != 1 {
 		t.Fatalf("tombstones = %+v", update)
 	}
-	n, i := update.NodeStatuses[0], update.InstanceStatuses[0]
-	if n.IsConnected || !n.LastConnectedAt.IsZero() || n.RemoteAddress != "" || n.OpendeployVersion != "" || !n.UpdatedAt.After(before.NodeStatuses[0].UpdatedAt) {
+	n, i := nodeStatuses[0].Entity().NodeStatus, instanceStatuses[0].Entity().ScheduledInstanceStatus
+	if n.IsConnected || !n.LastConnectedAt.IsZero() || n.RemoteAddress != "" || n.OpendeployVersion != "" || !n.UpdatedAt.After(beforeNode.UpdatedAt) {
 		t.Fatalf("node tombstone = %+v", n)
 	}
-	if !i.Preparer.IsZero() || !i.Runner.IsZero() || !i.UpdatedAt.After(before.InstanceStatuses[0].UpdatedAt) {
+	if !i.Preparer.IsZero() || !i.Runner.IsZero() || !i.UpdatedAt.After(beforeInst.UpdatedAt) {
 		t.Fatalf("instance tombstone = %+v", i)
 	}
-	after := s.BuildSnapshot(context.Background())
-	if after.Seq != before.Seq+1 || !bytes.Equal(after.NodeStatuses[0].Encode(), n.Encode()) || !bytes.Equal(after.InstanceStatuses[0].Encode(), i.Encode()) {
-		t.Fatal("reconnect snapshot disagrees with live tombstones")
+	if globalSeq(t, s) != beforeSeq+1 || !bytes.Equal(liveEntity(t, s, nodeStatusType, node.ID).NodeStatus.Encode(), n.Encode()) || !bytes.Equal(liveEntity(t, s, instanceStatusType, inst.ID).ScheduledInstanceStatus.Encode(), i.Encode()) {
+		t.Fatal("reconnect bootstrap disagrees with live tombstones")
 	}
 	// A delayed worker status remains available in history without replacing
-	// the tombstone in either the cache or a reconnect snapshot.
-	scheduledinstances.WriteReplicatedStatus(s, before.InstanceStatuses[0])
-	if !bytes.Equal(s.BuildSnapshot(context.Background()).InstanceStatuses[0].Encode(), i.Encode()) {
+	// the tombstone in either the live view or a reconnect bootstrap.
+	scheduledinstances.WriteReplicatedStatus(s, beforeInst)
+	if !bytes.Equal(liveEntity(t, s, instanceStatusType, inst.ID).ScheduledInstanceStatus.Encode(), i.Encode()) || !bytes.Equal(latestStatus(s, inst.ID).Encode(), i.Encode()) {
 		t.Fatal("late observation resurrected cleared status")
 	}
-	if len(erru.Must(s.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), inst.ID, time.Time{}))) != 2 || len(erru.Must(s.Queries().ListNodeStatusHistorySince(context.Background(), node.ID, time.Time{}))) != 2 {
+	if len(erru.Must(s.Queries().ListScheduledInstanceStatusHistorySince(ctx, inst.ID, time.Time{}))) != 2 || len(erru.Must(s.Queries().ListNodeStatusHistorySince(ctx, node.ID, time.Time{}))) != 2 {
 		t.Fatal("invalidation deleted history")
 	}
 	scheduledinstances.WriteStatus(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) bool {
@@ -218,7 +221,8 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	})
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
-	before := s.BuildSnapshot(ctx)
+	before := fingerprint(t, s)
+	beforeSeq := globalSeq(t, s)
 	beforeCache := s.FetchScheduledSnapshot(nil)
 	beforeHistory := erru.Must(s.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), inst.ID, time.Time{}))
 	fail := errors.New("scheduler rejected transaction")
@@ -226,7 +230,7 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	calls := 0
 	s.RegisterUpdateTrigger(func(ctx context.Context, q *pq.Queries, update *state.Update) error {
 		seq := update.Seq
-		if !update.HasObserved() {
+		if !update.Has(instanceStatusType) {
 			return nil
 		}
 		calls++
@@ -237,11 +241,11 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 		if status.Runner.ExitCode == nil || *status.Runner.ExitCode != 2 {
 			return fmt.Errorf("hook did not see triggering status")
 		}
-		event, err := q.AppendScheduledInstanceEvent(ctx, seq, inst, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED, time.Now())
+		event, err := q.AppendScheduledInstanceEvent(ctx, seq, inst, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED, time.UnixMilli(update.Time))
 		if err != nil {
 			return err
 		}
-		update.ScheduledInstanceEvents = []*apigen.ScheduledInstanceEvent{event}
+		pq.AppendMutations(update, pq.ScheduledInstanceMutation(event))
 		if reject {
 			return fail
 		}
@@ -266,7 +270,7 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("callback calls = %d, want one without retries", calls)
 	}
-	if !reflect.DeepEqual(before, s.BuildSnapshot(ctx)) || !reflect.DeepEqual(beforeCache, s.FetchScheduledSnapshot(nil)) || !reflect.DeepEqual(beforeHistory, erru.Must(s.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), inst.ID, time.Time{}))) {
+	if !bytes.Equal(before, fingerprint(t, s)) || !reflect.DeepEqual(beforeCache, s.FetchScheduledSnapshot(nil)) || !reflect.DeepEqual(beforeHistory, erru.Must(s.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), inst.ID, time.Time{}))) {
 		t.Fatal("rollback changed rows, sequence, history, or shared cache")
 	}
 	select {
@@ -278,7 +282,8 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	write()
 	update := <-sub
 	statetest.AssertUpdateMatchesRows(t, s, update)
-	if update.Seq != before.Seq+1 || !update.HasCore() || len(update.ScheduledInstanceEvents) != 1 || !update.HasObserved() || len(update.InstanceStatuses) != 1 || update.InstanceStatuses[0].Runner.Status != apigen.RunningStatus_STOPPED {
+	statuses := mutationsOf(update, instanceStatusType)
+	if update.Seq != beforeSeq+1 || len(mutationsOf(update, instanceType)) != 1 || len(statuses) != 1 || statuses[0].Entity().ScheduledInstanceStatus.Runner.Status != apigen.RunningStatus_STOPPED {
 		t.Fatalf("merged publication: %+v", update)
 	}
 	if erru.Must(s.Queries().GetScheduledInstance(ctx, inst.ID)).Value.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {

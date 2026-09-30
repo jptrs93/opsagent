@@ -1,17 +1,20 @@
 package systemconfig
 
 import (
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
 func TestMasterPasswordHashRoundTrip(t *testing.T) {
@@ -45,7 +48,7 @@ func TestMasterPasswordHashRoundTrip(t *testing.T) {
 	}
 }
 
-func TestVersionedConfigSnapshotsRedactMasterPasswordHash(t *testing.T) {
+func TestConfigSubscriptionDeliversPersistedRevisions(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	initial := DefaultInitial()
 	initial.MasterPasswordHash = "initial-hash"
@@ -53,27 +56,26 @@ func TestVersionedConfigSnapshotsRedactMasterPasswordHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InitializeService: %v", err)
 	}
+	persisted := func() (pq.SystemConfigRevision, apigen.SystemConfig) {
+		t.Helper()
+		row, err := LatestRevision(service.Storage.Queries())
+		if err != nil {
+			t.Fatalf("LatestRevision: %v", err)
+		}
+		return row, normalizeConfig(*erru.Must(apigen.DecodeSystemConfig(row.ConfigBlob)))
+	}
 
-	sub := service.VersionedSnapshotAndSubscribe()
+	sub := service.SnapshotAndSubscribe(nil)
 	defer sub.Unsubscribe()
 	if !sub.InitialValueValid {
-		t.Fatal("initial versioned config snapshot is missing")
+		t.Fatal("initial config is missing")
 	}
-	if sub.InitialValue.Version != service.VersionID() {
-		t.Fatalf("initial version = %d, want %d", sub.InitialValue.Version, service.VersionID())
+	initialRow, stored := persisted()
+	if service.VersionID() != initialRow.ID || initialRow.UpdatedAt == 0 {
+		t.Fatalf("version id = %d, want revision %d with a timestamp", service.VersionID(), initialRow.ID)
 	}
-	if sub.InitialValue.UpdatedAt.IsZero() {
-		t.Fatal("initial updated_at is zero")
-	}
-	initialRow, err := LatestRevision(service.Storage.Queries())
-	if err != nil {
-		t.Fatalf("FetchLatestOpenDeployConfig: %v", err)
-	}
-	if !sub.InitialValue.UpdatedAt.Equal(time.UnixMilli(initialRow.UpdatedAt)) {
-		t.Fatalf("initial updated_at = %v, want %v", sub.InitialValue.UpdatedAt, time.UnixMilli(initialRow.UpdatedAt))
-	}
-	if sub.InitialValue.Config.MasterPasswordHash != "" {
-		t.Fatalf("initial master password hash = %q, want empty", sub.InitialValue.Config.MasterPasswordHash)
+	if sub.InitialValue.MasterPasswordHash != "initial-hash" || !reflect.DeepEqual(sub.InitialValue, stored) {
+		t.Fatalf("initial config = %+v, want the persisted revision %+v", sub.InitialValue, stored)
 	}
 
 	if err := service.SetMasterPasswordHash("changed-hash", 0); err != nil {
@@ -81,24 +83,15 @@ func TestVersionedConfigSnapshotsRedactMasterPasswordHash(t *testing.T) {
 	}
 	select {
 	case got := <-sub.Ch:
-		if got.Version != service.VersionID() {
-			t.Fatalf("update version = %d, want %d", got.Version, service.VersionID())
+		row, stored := persisted()
+		if row.ID == initialRow.ID || service.VersionID() != row.ID {
+			t.Fatalf("version id = %d, want the new revision %d after %d", service.VersionID(), row.ID, initialRow.ID)
 		}
-		if got.UpdatedAt.IsZero() {
-			t.Fatal("update updated_at is zero")
-		}
-		if got.Config.MasterPasswordHash != "" {
-			t.Fatalf("update master password hash = %q, want empty", got.Config.MasterPasswordHash)
-		}
-		row, err := LatestRevision(service.Storage.Queries())
-		if err != nil {
-			t.Fatalf("FetchLatestOpenDeployConfig: %v", err)
-		}
-		if !got.UpdatedAt.Equal(time.UnixMilli(row.UpdatedAt)) {
-			t.Fatalf("update updated_at = %v, want %v", got.UpdatedAt, time.UnixMilli(row.UpdatedAt))
+		if got.MasterPasswordHash != "changed-hash" || !reflect.DeepEqual(got, stored) {
+			t.Fatalf("update = %+v, want the persisted revision %+v", got, stored)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for versioned config update")
+		t.Fatal("timed out waiting for config update")
 	}
 }
 

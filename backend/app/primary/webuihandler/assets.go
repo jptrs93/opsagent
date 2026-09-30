@@ -82,22 +82,25 @@ func (h *Handler) requireAssetAccess(ctx apigen.Context, verb apigen.AuthzVerb, 
 }
 
 // GetV1AssetsContent streams the raw bytes of one content version
-// (?content_version_id=N). Metadata travels on the asset shapes; this route is
+// (?asset_id=N&version=V). Metadata travels on the asset shapes; this route is
 // the only way content leaves the server on the web API.
 func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
-	rawID := strings.TrimSpace(request.URL.Query().Get("content_version_id"))
-	parsed, err := strconv.ParseInt(rawID, 10, 32)
-	if err != nil || parsed <= 0 {
-		return apigen.NewApiErr("Content version id is required", "asset_content_version_id_required", http.StatusBadRequest)
+	assetID, err := strconv.ParseInt(strings.TrimSpace(request.URL.Query().Get("asset_id")), 10, 32)
+	if err != nil || assetID <= 0 {
+		return apigen.NewApiErr("Asset id is required", "asset_id_required", http.StatusBadRequest)
 	}
-	joined, ok := assets.GetAssetVersionJoined(h.Store.Queries(), int32(parsed))
-	if !ok {
+	version, err := strconv.ParseInt(strings.TrimSpace(request.URL.Query().Get("version")), 10, 32)
+	if err != nil || version <= 0 {
+		return apigen.NewApiErr("Asset version is required", "asset_version_required", http.StatusBadRequest)
+	}
+	ref := apigen.ValueRef{ID: int32(assetID), Version: int32(version)}
+	if _, ok := assets.GetAssetValueJoined(h.Store.Queries(), ref); !ok {
 		return AssetNotFoundErr
 	}
-	if err := h.requireAssetAccess(ctx, vView, int32(joined.Asset.ID)); err != nil {
+	if err := h.requireAssetAccess(ctx, vView, ref.ID); err != nil {
 		return err
 	}
-	sizeBytes, body, err := h.Assets.OpenAsset(ctx, apigen.ValueRef{ID: int32(joined.Version.AssetID), Version: int32(joined.Version.Version)})
+	sizeBytes, body, err := h.Assets.OpenAsset(ctx, ref)
 	if err != nil {
 		return mapAssetStoreErr(err)
 	}
@@ -105,7 +108,7 @@ func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, 
 	writer.Header().Set("Content-Type", "application/octet-stream")
 	writer.Header().Set("Content-Length", strconv.FormatInt(sizeBytes, 10))
 	if _, err := io.Copy(writer, body); err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("stream asset content %d failed", parsed), "err", err)
+		slog.ErrorContext(ctx, fmt.Sprintf("stream asset %d version %d failed", ref.ID, ref.Version), "err", err)
 	}
 	return nil
 }

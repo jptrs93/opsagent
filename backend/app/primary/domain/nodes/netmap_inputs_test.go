@@ -47,7 +47,7 @@ func createNetworkPolicyForTest(s *state.Service, policy *apigen.NetworkPolicy, 
 		if err := q.InsertNetworkPolicyEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return &state.Update{NetworkPolicyEvents: []*apigen.NetworkPolicyEvent{event}}, nil
+		return pq.NewUpdate(pq.NetworkPolicyMutation(event)), nil
 	}))
 	return event
 }

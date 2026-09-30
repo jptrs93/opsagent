@@ -27,6 +27,8 @@ message Asset {
   string sha256 = 3;
   int64 size_bytes = 4;
   string storage_key = 5;  // physical name of the content: LargeAssetsDir/<key> locally, <s3-path>/<key> in S3
+  int32 value_version = 6;
+  int64 created_time = 7;
 }
 
 message AssetFs {
@@ -41,5 +43,5 @@ message AssetDirectory {
   int32 parent_id = 4;     // 0 = the implicit root
   int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 author = 6;        // user id that created the directory; 0 = unknown/system, negative = agent of user -author
-  bool deleted = 7;        // set on the state-stream update channel when removed
+  reserved 7;              // deleted: a delete mutation on the event stream
 }

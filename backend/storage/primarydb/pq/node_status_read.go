@@ -61,7 +61,3 @@ func (q *Queries) ListLatestNodeStatuses(ctx context.Context) ([]*apigen.NodeSta
 func (q *Queries) ListNodeStatusHistorySince(ctx context.Context, nodeID int32, since time.Time) ([]*apigen.NodeStatus, error) {
 	return q.queryNodeStatuses(ctx, `SELECT `+nodeStatusColumns+` FROM node_status_log WHERE node_id = ? AND updated_at > ? ORDER BY updated_at`, nodeID, clockToNanos(since))
 }
-
-func (q *Queries) ListNodeStatusesAtSeq(ctx context.Context, seq int64) ([]*apigen.NodeStatus, error) {
-	return q.queryNodeStatuses(ctx, `SELECT `+nodeStatusColumns+` FROM node_status_log WHERE global_seq = ? ORDER BY node_id, updated_at`, seq)
-}

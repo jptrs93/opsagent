@@ -40,7 +40,7 @@ type enrollmentSession struct {
 	csrPEM              []byte
 	underlayAddress     string
 	wgPublicKey         string
-	expectedVersion     int64
+	expectedSeq         int64
 	accepted            chan *apigen.EnrollmentAccepted
 	superseded          chan struct{}
 }
@@ -134,7 +134,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 		}
 
 		reported.Identifier, reported.UnderlayAddress, reported.WgPublicKey = requestingMachineID, underlayAddress, wgPublicKey
-		status, expectedVersion, err := nodes.UpsertEnrollmentRequest(h.store, peer, opendeployVersion, reported)
+		status, expectedSeq, err := nodes.UpsertEnrollmentRequest(h.store, peer, opendeployVersion, reported)
 		if errors.Is(err, nodes.ErrEnrollmentIdentifierEnrolled) {
 			slog.WarnContext(ctx, fmt.Sprintf("rejected enrollment hello for enrolled requestingMachineID=%s peer=%s", requestingMachineID, peer))
 			yield(nil, enrollment.IdentifierEnrolledErr)
@@ -156,7 +156,7 @@ func (h *Handler) PostV1EnrollmentRequest(ctx apigen.Context, reqs iter.Seq2[*ap
 			csrPEM:              hello.SecondaryCertificateRequest,
 			underlayAddress:     underlayAddress,
 			wgPublicKey:         wgPublicKey,
-			expectedVersion:     expectedVersion,
+			expectedSeq:         expectedSeq,
 			accepted:            make(chan *apigen.EnrollmentAccepted, 1),
 			superseded:          make(chan struct{}),
 		}
@@ -223,7 +223,7 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	if err != nil {
 		return nil, fmt.Errorf("signing secondary CSR: %w", err)
 	}
-	status, err := nodes.AcceptEnrollmentRequest(h.store, req.ID, nodeName, sess.requestingMachineID, int64(req.ExpectedVersion))
+	status, err := nodes.AcceptEnrollmentRequest(h.store, req.ID, nodeName, sess.requestingMachineID, req.ExpectedSeq)
 	if errors.Is(err, nodes.ErrEnrollmentRequestChanged) {
 		return nil, EnrollmentNotConnectedErr
 	}

@@ -25,6 +25,8 @@ message Config {
   ConfigFs fs = 1;
   int32 space_id = 2;
   string value = 3;
+  int32 value_version = 4;
+  int64 created_time = 5;
 }
 
 message ConfigFs {
@@ -39,5 +41,5 @@ message ValueDirectory {
   int32 parent_id = 4;     // 0 = the implicit root
   int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 author = 6;        // user id that created the directory; 0 = unknown/system, negative = agent of user -author
-  bool deleted = 7;        // set on the state-stream update channel when removed
+  reserved 7;              // deleted: a delete mutation on the event stream
 }

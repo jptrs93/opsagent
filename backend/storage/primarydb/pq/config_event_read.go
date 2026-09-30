@@ -11,6 +11,7 @@ func scanConfigEvent(row scanner) (*apigen.ConfigEvent, error) {
 	if err := row.Scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.ConfigID, &e.Version, &e.ValueVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.Value.Value, &e.EventType); err != nil {
 		return nil, err
 	}
+	e.Value.ValueVersion, e.Value.CreatedTime = e.ValueVersion, e.CreatedTime
 	return e, nil
 }
 
@@ -29,24 +30,6 @@ FROM config_event_log
 WHERE config_id IN (SELECT config_id FROM config_event_log current
  WHERE current.version = (SELECT MAX(version) FROM config_event_log WHERE config_id=current.config_id) AND current.event_type != 3)
 ORDER BY config_id, version`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*apigen.ConfigEvent
-	for rows.Next() {
-		e, err := scanConfigEvent(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
-func (q *Queries) ListConfigEventsAtSeq(ctx context.Context, id int64) ([]*apigen.ConfigEvent, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT id, global_seq, event_time, created_time, author, config_id, version,
-       value_version, name, value_directory_id, space_id, value, event_type FROM config_event_log WHERE global_seq = ? ORDER BY id`, id)
 	if err != nil {
 		return nil, err
 	}

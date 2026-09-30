@@ -231,6 +231,33 @@ const (
 	NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT  NetworkPolicyPeerKind = 2
 )
 
+type CoreEntityType int32
+
+const (
+	CoreEntityType_CORE_ENTITY_UNSPECIFIED               CoreEntityType = 0
+	CoreEntityType_CORE_ENTITY_DEPLOYMENT                CoreEntityType = 1
+	CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE        CoreEntityType = 2
+	CoreEntityType_CORE_ENTITY_NODE                      CoreEntityType = 3
+	CoreEntityType_CORE_ENTITY_SECRET                    CoreEntityType = 4
+	CoreEntityType_CORE_ENTITY_CONFIG                    CoreEntityType = 5
+	CoreEntityType_CORE_ENTITY_ASSET                     CoreEntityType = 6
+	CoreEntityType_CORE_ENTITY_NETWORK_POLICY            CoreEntityType = 7
+	CoreEntityType_CORE_ENTITY_SPACE                     CoreEntityType = 8
+	CoreEntityType_CORE_ENTITY_USER                      CoreEntityType = 9
+	CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY           CoreEntityType = 10
+	CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY           CoreEntityType = 11
+	CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE       CoreEntityType = 12
+	CoreEntityType_CORE_ENTITY_AUTHZ_GRANT               CoreEntityType = 13
+	CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE         CoreEntityType = 14
+	CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG             CoreEntityType = 15
+	CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS CoreEntityType = 16
+	CoreEntityType_CORE_ENTITY_NODE_STATUS               CoreEntityType = 17
+	CoreEntityType_CORE_ENTITY_AGENT_SESSION             CoreEntityType = 18
+	CoreEntityType_CORE_ENTITY_USER_SESSION              CoreEntityType = 19
+	CoreEntityType_CORE_ENTITY_NIX_STORE_RESET           CoreEntityType = 20
+	CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT            CoreEntityType = 21
+)
+
 type AccessPolicyType int32
 
 const (
@@ -241,15 +268,19 @@ const (
 )
 
 type Deployment struct {
-	Spec       DeploymentSpec `json:"spec"`
-	SpaceID    int32          `json:"space_id"`
-	Name       string         `json:"name,omitempty"`
-	Scheduling Scheduling     `json:"scheduling"`
+	Spec        DeploymentSpec `json:"spec"`
+	SpaceID     int32          `json:"space_id"`
+	Name        string         `json:"name,omitempty"`
+	Scheduling  Scheduling     `json:"scheduling"`
+	Version     int32          `json:"version"`
+	SpecVersion int32          `json:"spec_version"`
+	CreatedTime time.Time      `json:"created_time"`
 }
 
 type Scheduling struct {
 	Running        bool                      `json:"running"`
 	DedicatedNodes *DedicatedNodesScheduling `json:"dedicated_nodes"`
+	Generation     int32                     `json:"generation"`
 }
 
 type DedicatedNodesScheduling struct {
@@ -438,9 +469,9 @@ type SecretCertSource struct {
 	Secret ValueRef `json:"secret"`
 }
 
-type DeploymentSpecVersionRef struct {
-	ID          int32 `json:"id"`
-	SpecVersion int32 `json:"spec_version"`
+type DeploymentExpectedSeq struct {
+	DeploymentID int32 `json:"deployment_id"`
+	ExpectedSeq  int64 `json:"expected_seq"`
 }
 
 type ScheduledInstance struct {
@@ -506,7 +537,7 @@ type ScheduledInstanceEvent struct {
 
 type DeploymentUpdateRequestV2 struct {
 	DeploymentID        int32                `json:"deployment_id"`
-	ExpectedVersion     int32                `json:"expected_version"`
+	ExpectedSeq         int64                `json:"expected_seq"`
 	VersionOnlyUpdate   *VersionOnlyUpdate   `json:"version_only_update"`
 	RunningOnlyUpdate   *RunningOnlyUpdate   `json:"running_only_update"`
 	SpecUpdate          *SpecUpdate          `json:"spec_update"`
@@ -554,7 +585,7 @@ type RecentlyDeletedDeployments struct {
 
 type DeploymentDeleteRequest struct {
 	DeploymentID int32 `json:"deployment_id"`
-	Version      int32 `json:"version"`
+	ExpectedSeq  int64 `json:"expected_seq"`
 }
 
 type Version struct {
@@ -932,8 +963,23 @@ type SecretEvent struct {
 }
 
 type Secret struct {
-	Fs      *SecretFs `json:"fs"`
-	SpaceID int32     `json:"space_id"`
+	Fs           *SecretFs `json:"fs"`
+	SpaceID      int32     `json:"space_id"`
+	ValueVersion int32     `json:"value_version"`
+	CreatedTime  int64     `json:"created_time"`
+	SmkVersion   int64     `json:"smk_version"`
+	Ciphertext   []byte    `json:"ciphertext"`
+	Nonce        []byte    `json:"nonce"`
+}
+
+type SecretKeyslot struct {
+	Kind       SecretKeyslotKind `json:"kind"`
+	NodeID     int32             `json:"node_id"`
+	SmkVersion int64             `json:"smk_version"`
+	WrappedSmk []byte            `json:"wrapped_smk"`
+	Nonce      []byte            `json:"nonce"`
+	KdfSalt    []byte            `json:"kdf_salt"`
+	UpdatedAt  int64             `json:"updated_at"`
 }
 
 type SecretFs struct {
@@ -953,10 +999,10 @@ type SecretCreateRequest struct {
 }
 
 type SecretSetRequest struct {
-	SecretID                     int32                       `json:"secret_id"`
-	Value                        []byte                      `json:"value"`
-	UpdateReferencingDeployments bool                        `json:"update_referencing_deployments"`
-	ReferencingDeployments       []*DeploymentSpecVersionRef `json:"referencing_deployments,omitempty"`
+	SecretID                     int32                    `json:"secret_id"`
+	Value                        []byte                   `json:"value"`
+	UpdateReferencingDeployments bool                     `json:"update_referencing_deployments"`
+	ReferencingDeployments       []*DeploymentExpectedSeq `json:"referencing_deployments,omitempty"`
 }
 
 type SecretPasswordSpec struct {
@@ -986,7 +1032,8 @@ type SecretDeleteRequest struct {
 }
 
 type SecretRevealRequest struct {
-	ID int32 `json:"id"`
+	SecretID int32 `json:"secret_id"`
+	Version  int32 `json:"version"`
 }
 
 type SecretRevealResponse struct {
@@ -1020,9 +1067,11 @@ type ConfigEvent struct {
 }
 
 type Config struct {
-	Fs      *ConfigFs `json:"fs"`
-	SpaceID int32     `json:"space_id"`
-	Value   string    `json:"value,omitempty"`
+	Fs           *ConfigFs `json:"fs"`
+	SpaceID      int32     `json:"space_id"`
+	Value        string    `json:"value,omitempty"`
+	ValueVersion int32     `json:"value_version"`
+	CreatedTime  int64     `json:"created_time"`
 }
 
 type ConfigFs struct {
@@ -1037,7 +1086,6 @@ type ValueDirectory struct {
 	ParentID  int32     `json:"parent_id"`
 	CreatedAt time.Time `json:"created_at"`
 	Author    int32     `json:"author"`
-	Deleted   bool      `json:"deleted"`
 }
 
 type ConfigEventList struct {
@@ -1052,10 +1100,10 @@ type ConfigCreateRequest struct {
 }
 
 type ConfigSetRequest struct {
-	ConfigID                     int32                       `json:"config_id"`
-	Value                        string                      `json:"value,omitempty"`
-	UpdateReferencingDeployments bool                        `json:"update_referencing_deployments"`
-	ReferencingDeployments       []*DeploymentSpecVersionRef `json:"referencing_deployments,omitempty"`
+	ConfigID                     int32                    `json:"config_id"`
+	Value                        string                   `json:"value,omitempty"`
+	UpdateReferencingDeployments bool                     `json:"update_referencing_deployments"`
+	ReferencingDeployments       []*DeploymentExpectedSeq `json:"referencing_deployments,omitempty"`
 }
 
 type ConfigRenameRequest struct {
@@ -1087,11 +1135,13 @@ type AssetEvent struct {
 }
 
 type Asset struct {
-	Fs         *AssetFs `json:"fs"`
-	SpaceID    int32    `json:"space_id"`
-	Sha256     string   `json:"sha256,omitempty"`
-	SizeBytes  int64    `json:"size_bytes"`
-	StorageKey string   `json:"storage_key,omitempty"`
+	Fs           *AssetFs `json:"fs"`
+	SpaceID      int32    `json:"space_id"`
+	Sha256       string   `json:"sha256,omitempty"`
+	SizeBytes    int64    `json:"size_bytes"`
+	StorageKey   string   `json:"storage_key,omitempty"`
+	ValueVersion int32    `json:"value_version"`
+	CreatedTime  int64    `json:"created_time"`
 }
 
 type AssetFs struct {
@@ -1106,7 +1156,6 @@ type AssetDirectory struct {
 	ParentID  int32     `json:"parent_id"`
 	CreatedAt time.Time `json:"created_at"`
 	Author    int32     `json:"author"`
-	Deleted   bool      `json:"deleted"`
 }
 
 type AssetEventList struct {
@@ -1179,9 +1228,8 @@ type AssetDirectoryDeleteRequest struct {
 }
 
 type Space struct {
-	ID      int32  `json:"id"`
-	Name    string `json:"name,omitempty"`
-	Deleted bool   `json:"deleted"`
+	ID   int32  `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 type SpaceList struct {
@@ -1198,9 +1246,10 @@ type SpaceDeleteRequest struct {
 }
 
 type User struct {
-	ID        int32  `json:"id"`
-	Name      string `json:"name,omitempty"`
-	CreatedAt int64  `json:"created_at"`
+	ID          int32  `json:"id"`
+	Name        string `json:"name,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	Credentials []byte `json:"credentials"`
 }
 
 type WebAuthnCredential struct {
@@ -1269,6 +1318,7 @@ type AgentSession struct {
 	RequestingAddress string             `json:"requesting_address,omitempty"`
 	ApprovalCode      string             `json:"approval_code,omitempty"`
 	ApprovedAt        time.Time          `json:"approved_at"`
+	TokenHash         []byte             `json:"token_hash"`
 }
 
 type UserSession struct {
@@ -1280,6 +1330,7 @@ type UserSession struct {
 	UserAgent         string          `json:"user_agent,omitempty"`
 	UserID            int32           `json:"user_id"`
 	Kind              UserSessionKind `json:"kind"`
+	TokenHash         []byte          `json:"token_hash"`
 }
 
 type AgentSessionRequest struct {
@@ -1357,7 +1408,6 @@ type AuthzRuleTemplateRecord struct {
 	ID        int64              `json:"id"`
 	Name      string             `json:"name,omitempty"`
 	Builtin   bool               `json:"builtin"`
-	Deleted   bool               `json:"deleted"`
 	Author    int64              `json:"author"`
 	CreatedAt int64              `json:"created_at"`
 	Template  *AuthzRuleTemplate `json:"template"`
@@ -1401,9 +1451,11 @@ type AuthzGlobalRuleRecord struct {
 }
 
 type AuthzGrantValue struct {
-	UserID     int64       `json:"user_id"`
-	TemplateID int64       `json:"template_id"`
-	Grant      *AuthzGrant `json:"grant"`
+	UserID      int64       `json:"user_id"`
+	TemplateID  int64       `json:"template_id"`
+	Grant       *AuthzGrant `json:"grant"`
+	Author      int64       `json:"author"`
+	CreatedTime int64       `json:"created_time"`
 }
 
 type AuthzGrantEvent struct {
@@ -1485,6 +1537,7 @@ type Node struct {
 	EnrollmentRequestedAt int64               `json:"enrollment_requested_at"`
 	Operator              NodeOperator        `json:"operator"`
 	Reported              NodeReported        `json:"reported"`
+	CreatedTime           int64               `json:"created_time"`
 }
 
 type NodeEvent struct {
@@ -1548,9 +1601,9 @@ type NodeDrainRequest struct {
 }
 
 type NodeEvictRequest struct {
-	Identifier      string `json:"identifier,omitempty"`
-	ExpectedVersion int32  `json:"expected_version"`
-	Force           bool   `json:"force"`
+	Identifier  string `json:"identifier,omitempty"`
+	Force       bool   `json:"force"`
+	ExpectedSeq int64  `json:"expected_seq"`
 }
 
 type NodeExposureRequest struct {
@@ -1729,6 +1782,7 @@ type NetworkPolicy struct {
 	Source      *NetworkPolicyPeerRef `json:"source"`
 	Destination *NetworkPolicyPeerRef `json:"destination"`
 	Ports       []*NetPortMatch       `json:"ports,omitempty"`
+	CreatedTime int64                 `json:"created_time"`
 }
 
 type NetworkPolicyPeerRef struct {
@@ -1761,7 +1815,7 @@ type NetworkPolicyCreateRequest struct {
 
 type NetworkPolicyUpdateRequest struct {
 	ID          int32                 `json:"id"`
-	Version     int32                 `json:"version"`
+	ExpectedSeq int64                 `json:"expected_seq"`
 	Action      NetworkPolicyAction   `json:"action"`
 	Source      *NetworkPolicyPeerRef `json:"source"`
 	Destination *NetworkPolicyPeerRef `json:"destination"`
@@ -1891,9 +1945,9 @@ type EnrollmentRequestList struct {
 }
 
 type EnrollmentAcceptRequest struct {
-	ExpectedVersion int32  `json:"expected_version"`
-	ID              int32  `json:"id"`
-	NodeName        string `json:"node_name,omitempty"`
+	ID          int32  `json:"id"`
+	NodeName    string `json:"node_name,omitempty"`
+	ExpectedSeq int64  `json:"expected_seq"`
 }
 
 type EnrollmentAccepted struct {
@@ -1929,12 +1983,6 @@ type SystemConfig struct {
 	Settings           ClusterSettings `json:"settings"`
 	MasterPasswordHash string          `json:"master_password_hash,omitempty"`
 	NetworkUlaPrefix   []byte          `json:"network_ula_prefix"`
-}
-
-type SystemConfigVersion struct {
-	Version   int64        `json:"version"`
-	UpdatedAt time.Time    `json:"updated_at"`
-	Config    SystemConfig `json:"config"`
 }
 
 type ClusterSettings struct {
@@ -2013,62 +2061,73 @@ type BackupStatus struct {
 	AssetKeepLocal       bool      `json:"asset_keep_local"`
 }
 
-type Snapshot struct {
-	Seq                     int64                      `json:"seq"`
-	DeploymentEvents        []*DeploymentEvent         `json:"deployment_events,omitempty"`
-	ScheduledInstanceEvents []*ScheduledInstanceEvent  `json:"scheduled_instance_events,omitempty"`
-	InstanceStatuses        []*ScheduledInstanceStatus `json:"instance_statuses,omitempty"`
-	NodeEvents              []*NodeEvent               `json:"node_events,omitempty"`
-	NodeStatuses            []*NodeStatus              `json:"node_statuses,omitempty"`
-	SecretEvents            []*SecretEvent             `json:"secret_events,omitempty"`
-	ConfigEvents            []*ConfigEvent             `json:"config_events,omitempty"`
-	AssetEvents             []*AssetEvent              `json:"asset_events,omitempty"`
-	ValueDirectories        []*ValueDirectory          `json:"value_directories,omitempty"`
-	AssetDirectories        []*AssetDirectory          `json:"asset_directories,omitempty"`
-	Spaces                  []*Space                   `json:"spaces,omitempty"`
-	NetworkPolicyEvents     []*NetworkPolicyEvent      `json:"network_policy_events,omitempty"`
-	Users                   []*User                    `json:"users,omitempty"`
-	AgentSessions           []*AgentSession            `json:"agent_sessions,omitempty"`
-	AuthzRuleTemplates      []*AuthzRuleTemplateRecord `json:"authz_rule_templates,omitempty"`
-	AuthzGrantEvents        []*AuthzGrantEvent         `json:"authz_grant_events,omitempty"`
-	AuthzGlobalRules        []*AuthzGlobalRuleRecord   `json:"authz_global_rules,omitempty"`
-	SecretsStatus           *SecretsStatusResponse     `json:"secrets_status"`
-	BackupStatus            *BackupStatus              `json:"backup_status"`
-	SystemConfig            *SystemConfigVersion       `json:"system_config"`
-	IngressDiagnostics      *IngressDiagnosticList     `json:"ingress_diagnostics"`
-	UserSessions            []*UserSession             `json:"user_sessions,omitempty"`
+type CoreWriteUpdate struct {
+	Seq       int64           `json:"seq"`
+	Time      int64           `json:"time"`
+	Actor     int32           `json:"actor"`
+	Mutations []*CoreMutation `json:"mutations,omitempty"`
 }
 
-type CoreUpdate struct {
-	Seq                     int64                      `json:"seq"`
-	DeploymentEvents        []*DeploymentEvent         `json:"deployment_events,omitempty"`
-	ScheduledInstanceEvents []*ScheduledInstanceEvent  `json:"scheduled_instance_events,omitempty"`
-	NodeEvents              []*NodeEvent               `json:"node_events,omitempty"`
-	SecretEvents            []*SecretEvent             `json:"secret_events,omitempty"`
-	ConfigEvents            []*ConfigEvent             `json:"config_events,omitempty"`
-	AssetEvents             []*AssetEvent              `json:"asset_events,omitempty"`
-	NetworkPolicyEvents     []*NetworkPolicyEvent      `json:"network_policy_events,omitempty"`
-	Spaces                  []*Space                   `json:"spaces,omitempty"`
-	Users                   []*User                    `json:"users,omitempty"`
-	ValueDirectories        []*ValueDirectory          `json:"value_directories,omitempty"`
-	AssetDirectories        []*AssetDirectory          `json:"asset_directories,omitempty"`
-	AuthzRuleTemplates      *AuthzRuleTemplateList     `json:"authz_rule_templates"`
-	AuthzGrantEvents        []*AuthzGrantEvent         `json:"authz_grant_events,omitempty"`
-	AuthzGlobalRules        *AuthzGlobalRuleList       `json:"authz_global_rules"`
-	SystemConfig            *SystemConfigVersion       `json:"system_config"`
-	InstanceStatuses        []*ScheduledInstanceStatus `json:"instance_statuses,omitempty"`
-	NodeStatuses            []*NodeStatus              `json:"node_statuses,omitempty"`
-	AgentSessions           []*AgentSession            `json:"agent_sessions,omitempty"`
-	UserSessions            []*UserSession             `json:"user_sessions,omitempty"`
+type CoreMutation struct {
+	Create *CreateMutation `json:"create"`
+	Update *UpdateMutation `json:"update"`
+	Delete *DeleteMutation `json:"delete"`
 }
 
-type StateStreamMsg struct {
-	Snapshot           *Snapshot              `json:"snapshot"`
-	Core               *CoreUpdate            `json:"core"`
+type CreateMutation struct {
+	EntityType CoreEntityType `json:"entity_type"`
+	EntityID   int64          `json:"entity_id"`
+	Entity     *CoreEntity    `json:"entity"`
+}
+
+type UpdateMutation struct {
+	EntityType CoreEntityType `json:"entity_type"`
+	EntityID   int64          `json:"entity_id"`
+	Entity     *CoreEntity    `json:"entity"`
+}
+
+type DeleteMutation struct {
+	EntityType CoreEntityType `json:"entity_type"`
+	EntityID   int64          `json:"entity_id"`
+}
+
+type CoreEntity struct {
+	Deployment              *Deployment              `json:"deployment"`
+	ScheduledInstance       *ScheduledInstance       `json:"scheduled_instance"`
+	Node                    *Node                    `json:"node"`
+	Secret                  *Secret                  `json:"secret"`
+	Config                  *Config                  `json:"config"`
+	Asset                   *Asset                   `json:"asset"`
+	NetworkPolicy           *NetworkPolicy           `json:"network_policy"`
+	Space                   *Space                   `json:"space"`
+	User                    *User                    `json:"user"`
+	ValueDirectory          *ValueDirectory          `json:"value_directory"`
+	AssetDirectory          *AssetDirectory          `json:"asset_directory"`
+	AuthzRuleTemplate       *AuthzRuleTemplateRecord `json:"authz_rule_template"`
+	AuthzGrant              *AuthzGrantValue         `json:"authz_grant"`
+	AuthzGlobalRule         *AuthzGlobalRuleRecord   `json:"authz_global_rule"`
+	SystemConfig            *SystemConfig            `json:"system_config"`
+	ScheduledInstanceStatus *ScheduledInstanceStatus `json:"scheduled_instance_status"`
+	NodeStatus              *NodeStatus              `json:"node_status"`
+	AgentSession            *AgentSession            `json:"agent_session"`
+	UserSession             *UserSession             `json:"user_session"`
+	NixStoreReset           *NixStoreReset           `json:"nix_store_reset"`
+	SecretKeyslot           *SecretKeyslot           `json:"secret_keyslot"`
+}
+
+type EventStreamRequest struct {
+	AfterSeq int64 `json:"after_seq"`
+}
+
+type EventStreamMsg struct {
+	Events             []*CoreWriteUpdate     `json:"events,omitempty"`
+	Reset              bool                   `json:"reset"`
+	Synced             bool                   `json:"synced"`
 	Heartbeat          bool                   `json:"heartbeat"`
 	BackupStatus       *BackupStatus          `json:"backup_status"`
 	IngressDiagnostics *IngressDiagnosticList `json:"ingress_diagnostics"`
 	SecretsStatus      *SecretsStatusResponse `json:"secrets_status"`
+	Seq                int64                  `json:"seq"`
 }
 
 type AccessPolicy struct {

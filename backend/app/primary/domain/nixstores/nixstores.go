@@ -64,15 +64,18 @@ func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time, 
 		} else if exists {
 			eventType = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
 		}
-		if err := q.InsertNixStoreResetEvent(ctx, pq.NixStoreResetEventParams{
+		row, err := q.InsertNixStoreResetEvent(ctx, pq.NixStoreResetEventParams{
 			EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(author), EventType: eventType},
 			Repo:      repo, RequestedAt: now.UnixMilli(),
-		}); err != nil {
+		})
+		if err != nil {
 			return nil, err
 		}
-		var err error
 		items, err = q.ListNixStoreResets(ctx)
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
+		return pq.NewUpdate(pq.NixStoreResetMutation(row)), nil
 	})
 	if err != nil {
 		return err

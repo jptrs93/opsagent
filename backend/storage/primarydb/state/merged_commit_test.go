@@ -3,12 +3,13 @@ package state
 import (
 	"context"
 	"fmt"
-	"github.com/jptrs93/goutil/erru"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jptrs93/goutil/erru"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -19,16 +20,16 @@ func TestMergedCommitConditionallyStoresSequence(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	node := testNode(s, "primary")
-	before := s.BuildSnapshot(ctx).Seq
+	before := erru.Must(s.q.GetGlobalSeq(ctx))
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
 	setNodeStatusForTest(s, node.Identifier, true, time.Now())
 	observed := <-sub
-	if observed.HasCore() || !observed.HasObserved() || observed.Seq != before+1 {
+	if len(observed.Mutations) != 1 || !observed.Has(apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS) || observed.Seq != before+1 {
 		t.Fatalf("observed-only publication: %+v", observed)
 	}
 	assertUpdateMatchesRows(t, s, observed)
-	if s.BuildSnapshot(ctx).Seq != before+1 {
+	if erru.Must(s.q.GetGlobalSeq(ctx)) != before+1 {
 		t.Fatal("observed-only write did not consume sequence")
 	}
 	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
@@ -40,7 +41,7 @@ func TestMergedCommitConditionallyStoresSequence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.BuildSnapshot(ctx).Seq != before+1 {
+	if erru.Must(s.q.GetGlobalSeq(ctx)) != before+1 {
 		t.Fatal("empty update consumed sequence")
 	}
 	select {
@@ -59,7 +60,7 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 	defer s.Close()
 	ctx := context.Background()
 	node := testNode(s, "primary")
-	before := s.BuildSnapshot(ctx).Seq
+	before := erru.Must(s.q.GetGlobalSeq(ctx))
 	const writes = 80
 	start := make(chan struct{})
 	failures := make(chan error, 2)
@@ -71,11 +72,12 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 		for i := 0; i < writes; i++ {
 			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*Update, error) {
 				runtime.Gosched()
-				status, err := q.SetNodeConnectionStatus(ctx, seq, node.Identifier, true, time.Now())
+				now := time.Now().UnixMilli()
+				status, err := q.SetNodeConnectionStatus(ctx, seq, now, node.Identifier, true, time.Now())
 				if err != nil {
 					return nil, err
 				}
-				return &apigen.CoreUpdate{NodeStatuses: []*apigen.NodeStatus{status}}, nil
+				return pq.NewUpdate(pq.NodeStatusMutation(seq, now, status)), nil
 			})
 			if err != nil {
 				failures <- err
@@ -96,7 +98,7 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 				if err != nil {
 					return nil, err
 				}
-				return &apigen.CoreUpdate{AgentSessions: []*apigen.AgentSession{row.Proto()}}, nil
+				return pq.NewUpdate(pq.AgentSessionMutation(row)), nil
 			})
 			if err != nil {
 				failures <- err
@@ -110,7 +112,7 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 	for err := range failures {
 		t.Error(err)
 	}
-	if s.BuildSnapshot(ctx).Seq != before+2*writes {
+	if erru.Must(s.q.GetGlobalSeq(ctx)) != before+2*writes {
 		t.Fatal("every session and observation commit must consume one seq")
 	}
 	sessions, err := s.q.ListAgentSessionsForUser(context.Background(), 1)

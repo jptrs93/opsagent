@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 func filterVisible[T any](items []T, keep func(T) bool) []T {
@@ -101,8 +102,16 @@ func (h *Handler) filterIngressDiagnostics(ctx apigen.Context, list *apigen.Ingr
 	return out
 }
 
-// streamVisibility keeps parent identities from the event tree, so observed
-// status filtering never depends on the arrival order of separate channels.
+type entityKey struct {
+	t  apigen.CoreEntityType
+	id int64
+}
+
+// streamVisibility is one connection's view of the event stream. It keeps
+// the parent identities and spaces it has seen, so filtering an observed
+// status or a delete never depends on a lookup racing the write, and the set
+// of entities it has forwarded, so a delete reaches the browser exactly when
+// the browser holds the entity.
 type streamVisibility struct {
 	h                        *Handler
 	ctx                      apigen.Context
@@ -112,10 +121,34 @@ type streamVisibility struct {
 	secrets, configs, assets map[int32]int32
 	policies                 map[int32]*apigen.NetworkPolicy
 	policyVisibility         map[int32]bool
+	grants                   map[int64]int64
+	sent                     map[entityKey]bool
 }
 
 func newStreamVisibility(h *Handler, ctx apigen.Context) *streamVisibility {
-	return &streamVisibility{h: h, ctx: ctx, deployments: map[int32]int32{}, instances: map[int32]int32{}, nodes: map[int32][]int32{}, secrets: map[int32]int32{}, configs: map[int32]int32{}, assets: map[int32]int32{}, policies: map[int32]*apigen.NetworkPolicy{}, policyVisibility: map[int32]bool{}}
+	v := &streamVisibility{h: h, ctx: ctx}
+	v.reset()
+	return v
+}
+
+func (v *streamVisibility) reset() {
+	v.deployments = map[int32]int32{}
+	v.instances = map[int32]int32{}
+	v.nodes = map[int32][]int32{}
+	v.secrets = map[int32]int32{}
+	v.configs = map[int32]int32{}
+	v.assets = map[int32]int32{}
+	v.policies = map[int32]*apigen.NetworkPolicy{}
+	v.policyVisibility = map[int32]bool{}
+	v.grants = map[int64]int64{}
+	v.sent = map[entityKey]bool{}
+}
+
+func (v *streamVisibility) userID() int64 {
+	if v.ctx.User == nil {
+		return 0
+	}
+	return int64(v.ctx.User.ID)
 }
 
 func (v *streamVisibility) deploymentVisible(id int32) bool {
@@ -130,6 +163,7 @@ func (v *streamVisibility) deploymentVisible(id int32) bool {
 	}
 	return v.h.canAccess(v.ctx, vView, eDeployment, int64(space), int64(id))
 }
+
 func (v *streamVisibility) instanceVisible(id int32) bool {
 	deployment, ok := v.instances[id]
 	if !ok {
@@ -143,210 +177,312 @@ func (v *streamVisibility) instanceVisible(id int32) bool {
 	return v.deploymentVisible(deployment)
 }
 
-func (v *streamVisibility) needsReset(update apigen.CoreUpdate) bool {
-	u := &update
-	if u.AuthzRuleTemplates != nil || u.AuthzGlobalRules != nil || len(u.Spaces) > 0 {
-		return true
-	}
-	for _, event := range u.AuthzGrantEvents {
-		if v.ctx.User != nil && event.Value.UserID == int64(v.ctx.User.ID) {
+// needsReset reports whether the commit can change what this viewer may see:
+// authorization changes, a space move, a node allowed-space change, or a
+// network policy whose visibility flips. The stream answers with the compacted
+// history rather than forwarding the commit.
+func (v *streamVisibility) needsReset(u *state.Update) bool {
+	for _, m := range u.Mutations {
+		e := m.Entity()
+		id := m.EntityID()
+		switch m.Type() {
+		case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE, apigen.CoreEntityType_CORE_ENTITY_SPACE:
 			return true
+		case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT:
+			if e != nil && e.AuthzGrant != nil {
+				if e.AuthzGrant.UserID == v.userID() {
+					return true
+				}
+				continue
+			}
+			if user, ok := v.grants[id]; !ok || user == v.userID() {
+				return true
+			}
+		case apigen.CoreEntityType_CORE_ENTITY_NODE:
+			if e != nil && e.Node != nil {
+				if old, ok := v.nodes[int32(id)]; ok && !slices.Equal(old, e.Node.Operator.AllowedSpaces) {
+					return true
+				}
+			}
+		case apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT:
+			if e != nil && e.Deployment != nil {
+				if old, ok := v.deployments[int32(id)]; ok && old != e.Deployment.SpaceID {
+					return true
+				}
+			}
+		case apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY:
+			if e != nil && e.NetworkPolicy != nil {
+				if old, ok := v.policyVisibility[int32(id)]; ok && old != v.h.networkPolicyVisible(v.ctx, e.NetworkPolicy) {
+					return true
+				}
+			}
+		case apigen.CoreEntityType_CORE_ENTITY_SECRET:
+			if e != nil && e.Secret != nil {
+				if old, ok := v.secrets[int32(id)]; ok && old != e.Secret.SpaceID {
+					return true
+				}
+			}
+		case apigen.CoreEntityType_CORE_ENTITY_CONFIG:
+			if e != nil && e.Config != nil {
+				if old, ok := v.configs[int32(id)]; ok && old != e.Config.SpaceID {
+					return true
+				}
+			}
+		case apigen.CoreEntityType_CORE_ENTITY_ASSET:
+			if e != nil && e.Asset != nil {
+				if old, ok := v.assets[int32(id)]; ok && old != e.Asset.SpaceID {
+					return true
+				}
+			}
 		}
 	}
-	for _, node := range u.NodeEvents {
-		if old, ok := v.nodes[node.NodeID]; ok && !slices.Equal(old, node.Value.Operator.AllowedSpaces) {
-			return true
-		}
-	}
-	for _, event := range u.DeploymentEvents {
-		if old, ok := v.deployments[event.DeploymentID]; ok && old != event.Value.SpaceID {
-			return true
-		}
-	}
-	// Policies can change scope directly or through a referenced deployment.
-	// A hidden policy needs a snapshot reset to remove its previous client value.
-	for _, event := range u.NetworkPolicyEvents {
-		if old, ok := v.policyVisibility[event.NetworkPolicyID]; ok && old != v.h.networkPolicyVisible(v.ctx, &event.Value) {
-			return true
-		}
-	}
-	if len(u.DeploymentEvents) > 0 {
+	// A policy scoped to a deployment follows that deployment's space.
+	if u.Has(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT) {
 		for id, policy := range v.policies {
 			if v.policyVisibility[id] != v.h.networkPolicyVisible(v.ctx, policy) {
 				return true
 			}
 		}
 	}
-	// Space moves can reveal or hide the full history of a value.
-	for _, e := range u.SecretEvents {
-		if old, ok := v.secrets[e.SecretID]; ok && old != e.Value.SpaceID {
-			return true
+	return false
+}
+
+// observe records the identities a mutation carries whether or not the
+// viewer may see it, so later statuses and deletes resolve without a lookup.
+func (v *streamVisibility) observe(m *apigen.CoreMutation) {
+	e := m.Entity()
+	id := m.EntityID()
+	if e == nil {
+		return
+	}
+	switch m.Type() {
+	case apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT:
+		if e.Deployment != nil {
+			v.deployments[int32(id)] = e.Deployment.SpaceID
+		}
+	case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE:
+		if e.ScheduledInstance != nil {
+			v.instances[int32(id)] = e.ScheduledInstance.DeploymentID
+		}
+	case apigen.CoreEntityType_CORE_ENTITY_NODE:
+		if e.Node != nil {
+			v.nodes[int32(id)] = e.Node.Operator.AllowedSpaces
+		}
+	case apigen.CoreEntityType_CORE_ENTITY_SECRET:
+		if e.Secret != nil {
+			v.secrets[int32(id)] = e.Secret.SpaceID
+		}
+	case apigen.CoreEntityType_CORE_ENTITY_CONFIG:
+		if e.Config != nil {
+			v.configs[int32(id)] = e.Config.SpaceID
+		}
+	case apigen.CoreEntityType_CORE_ENTITY_ASSET:
+		if e.Asset != nil {
+			v.assets[int32(id)] = e.Asset.SpaceID
+		}
+	case apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY:
+		if e.NetworkPolicy != nil {
+			v.policies[int32(id)] = e.NetworkPolicy
+			v.policyVisibility[int32(id)] = v.h.networkPolicyVisible(v.ctx, e.NetworkPolicy)
+		}
+	case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT:
+		if e.AuthzGrant != nil {
+			v.grants[id] = e.AuthzGrant.UserID
 		}
 	}
-	for _, e := range u.ConfigEvents {
-		if old, ok := v.configs[e.ConfigID]; ok && old != e.Value.SpaceID {
-			return true
-		}
+}
+
+func (v *streamVisibility) forget(m *apigen.CoreMutation) {
+	id := m.EntityID()
+	switch m.Type() {
+	case apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY:
+		delete(v.policies, int32(id))
+		delete(v.policyVisibility, int32(id))
+	case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT:
+		delete(v.grants, id)
 	}
-	for _, e := range u.AssetEvents {
-		if old, ok := v.assets[e.AssetID]; ok && old != e.Value.SpaceID {
-			return true
-		}
+}
+
+// entityVisible decides whether the viewer may see an entity in the state
+// the payload describes. For observed statuses the payload is not needed;
+// the parent identity decides.
+func (v *streamVisibility) entityVisible(t apigen.CoreEntityType, id int64, e *apigen.CoreEntity) bool {
+	h, ctx := v.h, v.ctx
+	if e == nil {
+		e = &apigen.CoreEntity{}
+	}
+	switch t {
+	case apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT:
+		return e.Deployment != nil && h.canAccess(ctx, vView, eDeployment, int64(e.Deployment.SpaceID), id)
+	case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE:
+		return e.ScheduledInstance != nil && v.deploymentVisible(e.ScheduledInstance.DeploymentID)
+	case apigen.CoreEntityType_CORE_ENTITY_NODE:
+		return e.Node != nil && h.nodeVisible(ctx, id, e.Node.Operator.AllowedSpaces)
+	case apigen.CoreEntityType_CORE_ENTITY_SECRET:
+		return e.Secret != nil && h.canAccess(ctx, vView, eSecret, int64(e.Secret.SpaceID), id)
+	case apigen.CoreEntityType_CORE_ENTITY_CONFIG:
+		return e.Config != nil && h.canAccess(ctx, vView, eConfig, int64(e.Config.SpaceID), id)
+	case apigen.CoreEntityType_CORE_ENTITY_ASSET:
+		return e.Asset != nil && h.canAccess(ctx, vView, eAsset, int64(e.Asset.SpaceID), id)
+	case apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY:
+		return e.NetworkPolicy != nil && h.networkPolicyVisible(ctx, e.NetworkPolicy)
+	case apigen.CoreEntityType_CORE_ENTITY_SPACE:
+		return h.spaceVisible(ctx, id)
+	case apigen.CoreEntityType_CORE_ENTITY_USER:
+		return id == v.userID() || h.canAccess(ctx, vView, eUser, 0, id)
+	case apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY:
+		return e.ValueDirectory != nil && h.canAccessAny(ctx, vView, eValues, int64(e.ValueDirectory.SpaceID), 0)
+	case apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY:
+		return e.AssetDirectory != nil && h.canAccess(ctx, vView, eAsset, int64(e.AssetDirectory.SpaceID), 0)
+	case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE:
+		return true
+	case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT:
+		return e.AuthzGrant != nil && (e.AuthzGrant.UserID == v.userID() || h.canAccess(ctx, vView, eAccess, 0, 0))
+	case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE:
+		return h.canAccess(ctx, vView, eAccess, 0, 0)
+	case apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG, apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET:
+		return h.canAccess(ctx, vView, eCluster, 0, 0)
+	case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS:
+		return v.instanceVisible(int32(id))
+	case apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS:
+		return h.nodeVisible(ctx, id, v.nodes[int32(id)])
+	// Sessions are owner-only: they reach the browser that holds them and no one else.
+	case apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION:
+		return e.AgentSession != nil && int64(e.AgentSession.UserID) == v.userID()
+	case apigen.CoreEntityType_CORE_ENTITY_USER_SESSION:
+		return e.UserSession != nil && int64(e.UserSession.UserID) == v.userID()
 	}
 	return false
 }
 
-func (v *streamVisibility) visibleUpdate(u *apigen.CoreUpdate) *apigen.CoreUpdate {
+// visible decides one mutation and updates the forwarded set. The current
+// payload decides a create or update: the mutation's own in a live commit,
+// the entity's newest in an opening. A delete is forwarded when this
+// connection forwarded the entity; when it never did (a replay after a
+// reconnect), the entity's final row decides.
+func (v *streamVisibility) visible(m *apigen.CoreMutation, current *apigen.CoreEntity) bool {
+	key := entityKey{m.Type(), m.EntityID()}
+	if m.Delete != nil {
+		defer v.forget(m)
+		if v.sent[key] {
+			delete(v.sent, key)
+			return true
+		}
+		last, err := v.h.Queries.LatestMutation(context.Background(), key.t, key.id)
+		return err == nil && v.entityVisible(key.t, key.id, &last.Entity)
+	}
+	ok := v.entityVisible(key.t, key.id, current)
+	if ok {
+		v.sent[key] = true
+	} else {
+		delete(v.sent, key)
+	}
+	return ok
+}
+
+// visibleUpdate returns a live commit with only the mutations the viewer may
+// see and with server-only fields cleared, or nil when nothing remains.
+func (v *streamVisibility) visibleUpdate(u *state.Update) *state.Update {
 	if u == nil {
 		return nil
 	}
-	h, ctx := v.h, v.ctx
-	out := *u
-	for _, e := range u.DeploymentEvents {
-		v.deployments[e.DeploymentID] = e.Value.SpaceID
+	for _, m := range u.Mutations {
+		v.observe(m)
 	}
-	for _, e := range u.ScheduledInstanceEvents {
-		v.instances[e.ScheduledInstanceID] = e.Value.DeploymentID
-	}
-	for _, e := range u.NodeEvents {
-		v.nodes[e.NodeID] = e.Value.Operator.AllowedSpaces
-	}
-	out.DeploymentEvents = filterVisible(u.DeploymentEvents, func(e *apigen.DeploymentEvent) bool { return v.deploymentVisible(e.DeploymentID) })
-	out.ScheduledInstanceEvents = filterVisible(u.ScheduledInstanceEvents, func(e *apigen.ScheduledInstanceEvent) bool { return v.deploymentVisible(e.Value.DeploymentID) })
-	out.NodeEvents = h.filterNodes(ctx, u.NodeEvents)
-	for _, e := range u.SecretEvents {
-		v.secrets[e.SecretID] = e.Value.SpaceID
-	}
-	out.SecretEvents = filterVisible(u.SecretEvents, func(e *apigen.SecretEvent) bool {
-		return h.canAccess(ctx, vView, eSecret, int64(v.secrets[e.SecretID]), int64(e.SecretID))
-	})
-	for _, e := range u.ConfigEvents {
-		v.configs[e.ConfigID] = e.Value.SpaceID
-	}
-	out.ConfigEvents = filterVisible(u.ConfigEvents, func(e *apigen.ConfigEvent) bool {
-		return h.canAccess(ctx, vView, eConfig, int64(v.configs[e.ConfigID]), int64(e.ConfigID))
-	})
-	for _, e := range u.AssetEvents {
-		v.assets[e.AssetID] = e.Value.SpaceID
-	}
-	out.AssetEvents = filterVisible(u.AssetEvents, func(e *apigen.AssetEvent) bool {
-		return h.canAccess(ctx, vView, eAsset, int64(v.assets[e.AssetID]), int64(e.AssetID))
-	})
-	out.Spaces = h.filterSpaces(ctx, u.Spaces)
-	out.ValueDirectories = h.filterValueDirectories(ctx, u.ValueDirectories)
-	out.AssetDirectories = h.filterAssetDirectories(ctx, u.AssetDirectories)
-	out.Users = h.filterUsers(ctx, u.Users)
-	out.NetworkPolicyEvents = filterVisible(u.NetworkPolicyEvents, func(e *apigen.NetworkPolicyEvent) bool {
-		visible := h.networkPolicyVisible(ctx, &e.Value)
-		v.policies[e.NetworkPolicyID] = &e.Value
-		v.policyVisibility[e.NetworkPolicyID] = visible
-		if e.EventType == apigen.EventType_EVENT_TYPE_DELETE {
-			delete(v.policies, e.NetworkPolicyID)
-			delete(v.policyVisibility, e.NetworkPolicyID)
+	return v.filterUpdate(u, (*apigen.CoreMutation).Entity)
+}
+
+func (v *streamVisibility) filterUpdate(u *state.Update, current func(*apigen.CoreMutation) *apigen.CoreEntity) *state.Update {
+	out := &state.Update{Seq: u.Seq, Time: u.Time, Actor: u.Actor}
+	for _, m := range u.Mutations {
+		if !v.visible(m, current(m)) {
+			continue
 		}
-		return visible
-	})
-	out.InstanceStatuses = filterVisible(u.InstanceStatuses, func(s *apigen.ScheduledInstanceStatus) bool { return v.instanceVisible(s.ScheduledInstanceID) })
-	out.NodeStatuses = filterVisible(u.NodeStatuses, func(s *apigen.NodeStatus) bool { return h.nodeVisible(ctx, int64(s.NodeID), v.nodes[s.NodeID]) })
-	if !h.canAccess(ctx, vView, eCluster, 0, 0) {
-		out.SystemConfig = nil
+		out.Mutations = append(out.Mutations, browserMutation(m))
 	}
-	if !h.canAccess(ctx, vView, eAccess, 0, 0) {
-		out.AuthzGrantEvents = filterVisible(out.AuthzGrantEvents, func(e *apigen.AuthzGrantEvent) bool { return ctx.User != nil && e.Value.UserID == int64(ctx.User.ID) })
-	}
-	if out.AuthzGlobalRules != nil && !h.canAccess(ctx, vView, eAccess, 0, 0) {
-		out.AuthzGlobalRules = nil
-	}
-	// Sessions are owner-only: they reach the browser that holds them and no one else.
-	out.AgentSessions = filterVisible(u.AgentSessions, func(s *apigen.AgentSession) bool { return ctx.User != nil && s.UserID == ctx.User.ID })
-	out.UserSessions = filterVisible(u.UserSessions, func(s *apigen.UserSession) bool { return ctx.User != nil && s.UserID == ctx.User.ID })
-	if out.IsEmpty() {
+	if len(out.Mutations) == 0 {
 		return nil
 	}
-	return &out
-}
-
-func (h *Handler) visibleUpdate(ctx apigen.Context, u *apigen.CoreUpdate) *apigen.CoreUpdate {
-	return newStreamVisibility(h, ctx).visibleUpdate(u)
-}
-
-func (h *Handler) visibleSnapshot(ctx apigen.Context, snapshot *apigen.Snapshot) *apigen.Snapshot {
-	return newStreamVisibility(h, ctx).visibleSnapshot(snapshot)
-}
-
-func (v *streamVisibility) visibleSnapshot(snapshot *apigen.Snapshot) *apigen.Snapshot {
-	v.deployments = map[int32]int32{}
-	v.instances = map[int32]int32{}
-	v.nodes = map[int32][]int32{}
-	v.secrets = map[int32]int32{}
-	v.configs = map[int32]int32{}
-	v.assets = map[int32]int32{}
-	v.policies = map[int32]*apigen.NetworkPolicy{}
-	v.policyVisibility = map[int32]bool{}
-	u := snapshotUpdate(snapshot)
-	filtered := v.visibleUpdate(u)
-	if filtered == nil {
-		filtered = &apigen.CoreUpdate{Seq: snapshot.Seq}
-	}
-	out := updateSnapshot(filtered)
-	out.SecretsStatus = snapshot.SecretsStatus
-	out.BackupStatus = snapshot.BackupStatus
-	if !v.h.canAccess(v.ctx, vView, eCluster, 0, 0) {
-		out.BackupStatus = &apigen.BackupStatus{}
-	}
-	out.IngressDiagnostics = v.h.filterIngressDiagnostics(v.ctx, snapshot.IngressDiagnostics)
 	return out
 }
 
-func snapshotUpdate(s *apigen.Snapshot) *apigen.CoreUpdate {
-	return &apigen.CoreUpdate{Seq: s.Seq,
-		DeploymentEvents:        s.DeploymentEvents,
-		ScheduledInstanceEvents: s.ScheduledInstanceEvents,
-		NodeEvents:              s.NodeEvents,
-		SecretEvents:            s.SecretEvents,
-		ConfigEvents:            s.ConfigEvents,
-		AssetEvents:             s.AssetEvents,
-		ValueDirectories:        s.ValueDirectories,
-		AssetDirectories:        s.AssetDirectories,
-		Spaces:                  s.Spaces,
-		NetworkPolicyEvents:     s.NetworkPolicyEvents,
-		Users:                   s.Users,
-		SystemConfig:            s.SystemConfig,
-		AuthzRuleTemplates:      &apigen.AuthzRuleTemplateList{Items: s.AuthzRuleTemplates},
-		AuthzGrantEvents:        s.AuthzGrantEvents,
-		AuthzGlobalRules:        &apigen.AuthzGlobalRuleList{Items: s.AuthzGlobalRules},
-		InstanceStatuses:        s.InstanceStatuses,
-		NodeStatuses:            s.NodeStatuses,
-		AgentSessions:           s.AgentSessions,
-		UserSessions:            s.UserSessions,
+// visibleEvents filters an opening. An entity's rows stand or fall together:
+// its newest payload in the batch decides, so a value moved out of the
+// viewer's space ships none of its history and one moved in ships all of
+// it. Every identity is observed first, so a child never resolves against a
+// parent row the batch has not reached yet.
+func (v *streamVisibility) visibleEvents(events []*apigen.CoreWriteUpdate) []*apigen.CoreWriteUpdate {
+	current := map[entityKey]*apigen.CoreEntity{}
+	for _, e := range events {
+		for _, m := range e.Mutations {
+			v.observe(m)
+			if m.Delete == nil {
+				current[entityKey{m.Type(), m.EntityID()}] = m.Entity()
+			}
+		}
 	}
+	newest := func(m *apigen.CoreMutation) *apigen.CoreEntity { return current[entityKey{m.Type(), m.EntityID()}] }
+	out := make([]*apigen.CoreWriteUpdate, 0, len(events))
+	for _, e := range events {
+		if visible := v.filterUpdate(e, newest); visible != nil {
+			out = append(out, visible)
+		}
+	}
+	return out
 }
 
-func updateSnapshot(u *apigen.CoreUpdate) *apigen.Snapshot {
-	s := &apigen.Snapshot{Seq: u.Seq,
-		DeploymentEvents:        u.DeploymentEvents,
-		ScheduledInstanceEvents: u.ScheduledInstanceEvents,
-		NodeEvents:              u.NodeEvents,
-		SecretEvents:            u.SecretEvents,
-		ConfigEvents:            u.ConfigEvents,
-		AssetEvents:             u.AssetEvents,
-		ValueDirectories:        u.ValueDirectories,
-		AssetDirectories:        u.AssetDirectories,
-		Spaces:                  u.Spaces,
-		NetworkPolicyEvents:     u.NetworkPolicyEvents,
-		Users:                   u.Users,
-		SystemConfig:            u.SystemConfig,
-		InstanceStatuses:        u.InstanceStatuses,
-		NodeStatuses:            u.NodeStatuses,
-		AgentSessions:           u.AgentSessions,
-		UserSessions:            u.UserSessions,
+func (h *Handler) visibleUpdate(ctx apigen.Context, u *state.Update) *state.Update {
+	return newStreamVisibility(h, ctx).visibleUpdate(u)
+}
+
+// browserMutation copies a mutation with the fields a browser never receives
+// cleared: sealed secret bytes, credential blobs, token hashes, and the
+// master password hash. Keyslots never reach a browser at all, but the
+// visibility switch already drops them.
+func browserMutation(m *apigen.CoreMutation) *apigen.CoreMutation {
+	switch {
+	case m.Create != nil:
+		c := *m.Create
+		c.Entity = browserEntity(c.Entity)
+		return &apigen.CoreMutation{Create: &c}
+	case m.Update != nil:
+		u := *m.Update
+		u.Entity = browserEntity(u.Entity)
+		return &apigen.CoreMutation{Update: &u}
 	}
-	if u.AuthzRuleTemplates != nil {
-		s.AuthzRuleTemplates = u.AuthzRuleTemplates.Items
+	return m
+}
+
+func browserEntity(e *apigen.CoreEntity) *apigen.CoreEntity {
+	if e == nil {
+		return nil
 	}
-	s.AuthzGrantEvents = u.AuthzGrantEvents
-	if u.AuthzGlobalRules != nil {
-		s.AuthzGlobalRules = u.AuthzGlobalRules.Items
+	out := *e
+	if out.Secret != nil {
+		s := *out.Secret
+		s.SmkVersion, s.Ciphertext, s.Nonce = 0, nil, nil
+		out.Secret = &s
 	}
-	return s
+	if out.User != nil {
+		u := *out.User
+		u.Credentials = nil
+		out.User = &u
+	}
+	if out.AgentSession != nil {
+		s := *out.AgentSession
+		s.TokenHash = nil
+		out.AgentSession = &s
+	}
+	if out.UserSession != nil {
+		s := *out.UserSession
+		s.TokenHash = nil
+		out.UserSession = &s
+	}
+	if out.SystemConfig != nil {
+		c := *out.SystemConfig
+		c.MasterPasswordHash = ""
+		out.SystemConfig = &c
+	}
+	out.SecretKeyslot = nil
+	return &out
 }

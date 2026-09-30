@@ -74,9 +74,9 @@ func TestGetAssetContentStreamsRawBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createTestAsset: %v", err)
 	}
-	versionID := statetest.ValueVersions(h.Store, asset)[0].ID
+	version := statetest.ValueVersions(h.Store, asset)[0].Version
 
-	req := httptest.NewRequest("GET", "/v1/assets/content?content_version_id="+strconv.Itoa(int(versionID)), nil)
+	req := httptest.NewRequest("GET", "/v1/assets/content?asset_id="+strconv.Itoa(int(asset.AssetID))+"&version="+strconv.Itoa(int(version)), nil)
 	rec := httptest.NewRecorder()
 	if err := h.GetV1AssetsContent(testCtx(user), req, rec); err != nil {
 		t.Fatalf("GetV1AssetsContent: %v", err)
@@ -91,15 +91,15 @@ func TestGetAssetContentStreamsRawBytes(t *testing.T) {
 		t.Fatalf("Content-Length = %q, want %d", cl, len("listen 8080;"))
 	}
 
-	// A version id that resolves to nothing is a not-found, not a stream.
-	req = httptest.NewRequest("GET", "/v1/assets/content?content_version_id=999999", nil)
+	// A version that resolves to nothing is a not-found, not a stream.
+	req = httptest.NewRequest("GET", "/v1/assets/content?asset_id="+strconv.Itoa(int(asset.AssetID))+"&version=999999", nil)
 	if err := h.GetV1AssetsContent(testCtx(user), req, httptest.NewRecorder()); !errors.Is(err, AssetNotFoundErr) {
 		t.Fatalf("missing version err = %v, want AssetNotFoundErr", err)
 	}
-	// The id is required.
-	req = httptest.NewRequest("GET", "/v1/assets/content", nil)
+	// Both parameters are required.
+	req = httptest.NewRequest("GET", "/v1/assets/content?asset_id="+strconv.Itoa(int(asset.AssetID)), nil)
 	if err := h.GetV1AssetsContent(testCtx(user), req, httptest.NewRecorder()); err == nil {
-		t.Fatal("missing content_version_id param did not error")
+		t.Fatal("missing version param did not error")
 	}
 }
 
@@ -380,12 +380,12 @@ func TestGlobalStateIncludesAssetDirectories(t *testing.T) {
 	h, user := newAssetTestHandler(t)
 	dir := mustCreateAssetDir(t, h, user, 1, 0, "app")
 
-	state, err := h.GetV1GlobalSnapshot(testCtx(user))
+	msg, err := h.PostV1GlobalEvents(testCtx(user), &apigen.EventStreamRequest{})
 	if err != nil {
-		t.Fatalf("GetV1GlobalSnapshot: %v", err)
+		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	if state.AssetDirectories == nil || len(state.AssetDirectories) != 1 ||
-		state.AssetDirectories[0].ID != dir.ID {
-		t.Fatalf("global state asset directories = %+v, want the one created", state.AssetDirectories)
+	dirs := statetest.Fold(msg.Events)[apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY]
+	if len(dirs) != 1 || dirs[int64(dir.ID)] == nil || dirs[int64(dir.ID)].AssetDirectory.ID != dir.ID {
+		t.Fatalf("bootstrap asset directories = %+v, want the one created", dirs)
 	}
 }

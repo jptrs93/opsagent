@@ -14,11 +14,11 @@ export const formatDeploymentLabel = (deploymentRow) => {
 };
 
 // restartDeploymentPayload is the DeploymentUpdateRequestV2 for a restart at
-// the version the caller last saw.
+// the seq the caller last saw.
 export function restartDeploymentPayload(deploymentRow) {
     return {
         deploymentId: deploymentRow.id,
-        expectedVersion: (deploymentRow.version || 0) + 1,
+        expectedSeq: Number(deploymentRow.seq || 0),
         restartUpdate: {},
     };
 }

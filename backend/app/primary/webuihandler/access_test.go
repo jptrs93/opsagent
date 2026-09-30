@@ -242,7 +242,7 @@ func TestAccessChangeSubscription(t *testing.T) {
 	}
 	select {
 	case update := <-sub:
-		if len(update.AuthzGrantEvents) != 1 || update.AuthzGrantEvents[0].Value.UserID != 3 || update.AuthzGrantEvents[0].Seq != update.Seq {
+		if len(update.Mutations) != 1 || update.Mutations[0].Type() != apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT || update.Mutations[0].Entity().AuthzGrant.UserID != 3 {
 			t.Fatalf("expected grant transaction, got %+v", update)
 		}
 	default:

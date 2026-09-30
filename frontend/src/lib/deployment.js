@@ -27,11 +27,17 @@ export function dedicatedScheduling(running, nodeId) {
     return {running: Boolean(running), dedicatedNodes: {nodes: id ? [id] : []}};
 }
 
+export function schedulingGeneration(config) {
+    return Number(config?.value?.scheduling?.generation || 0);
+}
+
 export function deploymentRestartEvent(config, prevConfig) {
     if (!config || !prevConfig) return false;
     if (deploymentDeleted(config) || deploymentDeleted(prevConfig)) return false;
-    return Number(config.specVersion || 0) === Number(prevConfig.specVersion || 0)
-        && Number(config.spaceVersion || 0) === Number(prevConfig.spaceVersion || 0)
-        && Number(config.nameVersion || 0) === Number(prevConfig.nameVersion || 0)
-        && Number(config.schedulingVersion || 0) === Number(prevConfig.schedulingVersion || 0);
+    return schedulingGeneration(config) !== schedulingGeneration(prevConfig)
+        && Number(config.specVersion || 0) === Number(prevConfig.specVersion || 0)
+        && (config.value?.name || '') === (prevConfig.value?.name || '')
+        && Number(config.value?.spaceId || 0) === Number(prevConfig.value?.spaceId || 0)
+        && desiredRunning(config) === desiredRunning(prevConfig)
+        && placementNodeId(config) === placementNodeId(prevConfig);
 }

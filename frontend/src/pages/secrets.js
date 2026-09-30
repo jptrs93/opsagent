@@ -161,8 +161,8 @@ export function secretsPage() {
     const usageForItem = (item) => {
         const entityID = Number(item.meta.id);
         const settings = (item.kind === "secret"
-            ? settingSecretRefs(systemConfigS.val?.config?.settings)
-            : settingConfigRefs(systemConfigS.val?.config?.settings)
+            ? settingSecretRefs(systemConfigS.val?.settings)
+            : settingConfigRefs(systemConfigS.val?.settings)
         ).filter((ref) => ref.id === entityID);
         const referenceKey = item.kind === "secret" ? "secret" : "config";
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
@@ -177,7 +177,7 @@ export function secretsPage() {
     const referencingDeploymentVersions = (item) => {
         return (deploymentsS.val || []).map((deployment) => deployment?.config).filter((cfg) =>
             cfg && !deploymentDeleted(cfg) && deploymentUsesEnvReferences(cfg, item.kind, item.meta.id),
-        ).map((cfg) => ({id: cfg.deploymentId, specVersion: cfg.specVersion}));
+        ).map((cfg) => ({deploymentId: cfg.deploymentId, expectedSeq: Number(cfg.seq || 0)}));
     };
 
     const resolveSelection = () => {
@@ -261,7 +261,7 @@ export function secretsPage() {
     };
 
     const secretLatestValue = async (item) => {
-        const res = await capi.postV1SecretsReveal({id: item.meta.versions[0].id});
+        const res = await capi.postV1SecretsReveal({secretId: Number(item.meta.id), version: Number(item.meta.versions[0].version)});
         return new TextDecoder().decode(res.value);
     };
 

@@ -113,7 +113,7 @@ func TestNetworkPolicyUpdateVersionConflict(t *testing.T) {
 	}
 	update := &apigen.NetworkPolicyUpdateRequest{
 		ID:          created.NetworkPolicyID,
-		Version:     created.Version,
+		ExpectedSeq: created.Seq,
 		Action:      apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW,
 		Source:      spacePeer(staging.ID),
 		Destination: spacePeer(nodes.DefaultSpaceID),
@@ -129,7 +129,7 @@ func TestNetworkPolicyUpdateVersionConflict(t *testing.T) {
 	if _, err := h.PostV1NetworkPoliciesUpdate(admin, update); !errors.Is(err, networkpolicies.VersionConflictErr) {
 		t.Fatalf("stale update error = %v, want networkpolicies.VersionConflictErr", err)
 	}
-	if _, err := h.PostV1NetworkPoliciesUpdate(admin, &apigen.NetworkPolicyUpdateRequest{ID: 99, Version: 1, Action: update.Action, Source: update.Source, Destination: update.Destination}); !errors.Is(err, networkpolicies.NotFoundErr) {
+	if _, err := h.PostV1NetworkPoliciesUpdate(admin, &apigen.NetworkPolicyUpdateRequest{ID: 99, ExpectedSeq: 1, Action: update.Action, Source: update.Source, Destination: update.Destination}); !errors.Is(err, networkpolicies.NotFoundErr) {
 		t.Fatalf("missing update error = %v, want networkpolicies.NotFoundErr", err)
 	}
 }

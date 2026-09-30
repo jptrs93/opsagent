@@ -133,7 +133,7 @@ func TestDeploymentHostPermissionsAreIndependentAndAdditional(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(enforceCtx(3, false), &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: created.DeploymentID, ExpectedVersion: created.Version + 1,
+		DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"},
 	}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("host permissions without update: %v", err)
@@ -159,7 +159,7 @@ func TestDeploymentHostAccessChecksEveryUpdateKind(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedVersion: created.Version + 1}
+				req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq}
 				switch kind {
 				case "version":
 					req.VersionOnlyUpdate = &apigen.VersionOnlyUpdate{TargetVersion: "1.30"}
@@ -201,7 +201,7 @@ func TestDeploymentHostAccessChecksProposedSpecAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedVersion: created.Version + 1,
+	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq,
 		SpecUpdate: &apigen.SpecUpdate{Spec: hostAccessSpec(true, true)}}
 	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), req)
 	requireHostAccessDenied(t, err, "use_host_mounts")
@@ -218,7 +218,7 @@ func TestDeploymentHostAccessChecksProposedSpecAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("explicit deployment grants: %v", err)
 	}
-	req = &apigen.DeploymentUpdateRequestV2{DeploymentID: updated.DeploymentID, ExpectedVersion: updated.Version + 1,
+	req = &apigen.DeploymentUpdateRequestV2{DeploymentID: updated.DeploymentID, ExpectedSeq: updated.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"}}
 	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, true), req)
 	requireHostAccessDenied(t, err, "use_host_mounts")
@@ -239,7 +239,7 @@ func TestDeploymentHostAccessRequiredInDestinationSpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedVersion: created.Version + 1,
+	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID}}
 	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), req)
 	requireHostAccessDenied(t, err, "use_host_mounts")
@@ -261,7 +261,7 @@ func TestDeploymentHostAccessGlobalDenyAndVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedVersion: created.Version + 1,
+	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"}}
 	if _, err := h.PostV2DeploymentsUpdate(enforceCtx(2, false), req); !errors.Is(err, deployments.NotFoundErr) {
 		t.Fatalf("hidden deployment: %v", err)
@@ -303,7 +303,7 @@ func TestDeploymentHostAccessDefaultsAndManagedVolumes(t *testing.T) {
 		t.Fatalf("managed volumes without host permissions: %v", err)
 	}
 	if _, err := h.PostV2DeploymentsUpdate(enforceCtx(2, true), &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: consumer.DeploymentID, ExpectedVersion: consumer.Version + 1,
+		DeploymentID: consumer.DeploymentID, ExpectedSeq: consumer.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"},
 	}); err != nil {
 		t.Fatalf("ordinary update without host permissions: %v", err)
@@ -313,7 +313,7 @@ func TestDeploymentHostAccessDefaultsAndManagedVolumes(t *testing.T) {
 	legacy := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{})
 	old := statetest.MustCreateDeploymentForNode(h.Store, enforceCtx(1, false), nodes.DefaultSpaceID, "legacy", node.ID, &legacy)
 	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: old.DeploymentID, ExpectedVersion: old.Version + 1,
+		DeploymentID: old.DeploymentID, ExpectedSeq: old.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"},
 	})
 	requireHostAccessDenied(t, err, "use_host_network")

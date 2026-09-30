@@ -94,11 +94,11 @@ func affectedInstanceIDs(u Update) []int32 {
 			ids = append(ids, id)
 		}
 	}
-	for _, event := range u.ScheduledInstanceEvents {
-		add(event.ScheduledInstanceID)
-	}
-	for _, status := range u.InstanceStatuses {
-		add(status.ScheduledInstanceID)
+	for _, m := range u.Mutations {
+		switch m.Type() {
+		case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE, apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS:
+			add(int32(m.EntityID()))
+		}
 	}
 	slices.Sort(ids)
 	return ids

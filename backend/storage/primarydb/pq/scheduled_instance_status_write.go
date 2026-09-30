@@ -14,7 +14,9 @@ func runnerStatusExtraBlob(r apigen.RunnerStatus) []byte {
 	return (&apigen.RunnerStatus{NetworkDiagnostics: r.NetworkDiagnostics}).Encode()
 }
 
-func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, seq int64, st *apigen.ScheduledInstanceStatus) error {
+// InsertScheduledInstanceStatus records an observed status under the commit
+// seq and event time. A repeated (instance, updated_at) pair replaces the row.
+func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, seq, eventTime int64, st *apigen.ScheduledInstanceStatus) error {
 	var preparerSpecVersion, runnerSpecVersion, runnerPid, runnerStatus, runnerNumRestarts, runnerLastRestartAt, runnerExitCode sql.NullInt64
 	var preparerArtifact, runnerArtifact sql.NullString
 	var preparerInputs, preparerImage int64
@@ -40,12 +42,13 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, seq int64, 
 		extra = runnerStatusExtraBlob(st.Runner)
 	}
 	_, err := q.db.ExecContext(ctx, `INSERT INTO scheduled_instance_status (
- scheduled_instance_id, updated_at, global_seq, deployment_id,
+ scheduled_instance_id, updated_at, global_seq, event_time, deployment_id,
  preparer_spec_version, preparer_artifact, preparer_inputs_status, preparer_image_status,
  runner_spec_version, runner_pid, runner_artifact, runner_status, runner_num_restarts, runner_last_restart_at, runner_extra_blob, runner_exit_code
- ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
  global_seq = excluded.global_seq,
+ event_time = excluded.event_time,
  deployment_id = excluded.deployment_id,
  preparer_spec_version = excluded.preparer_spec_version,
  preparer_artifact = excluded.preparer_artifact,
@@ -59,7 +62,7 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, seq int64, 
  runner_last_restart_at = excluded.runner_last_restart_at,
  runner_extra_blob = excluded.runner_extra_blob,
  runner_exit_code = excluded.runner_exit_code`,
-		st.ScheduledInstanceID, clockToNanos(st.UpdatedAt), seq, st.DeploymentID,
+		st.ScheduledInstanceID, clockToNanos(st.UpdatedAt), seq, eventTime, st.DeploymentID,
 		preparerSpecVersion, preparerArtifact, preparerInputs, preparerImage,
 		runnerSpecVersion, runnerPid, runnerArtifact, runnerStatus, runnerNumRestarts, runnerLastRestartAt, extra, runnerExitCode)
 	return err

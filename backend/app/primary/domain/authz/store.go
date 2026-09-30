@@ -7,7 +7,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -20,12 +19,20 @@ func notNullBlob(b []byte) []byte {
 	return b
 }
 
-func templateUpdate(ctx context.Context, q *pq.Queries) *state.Update {
-	return &apigen.CoreUpdate{AuthzRuleTemplates: &apigen.AuthzRuleTemplateList{Items: erru.Must(q.ListAuthzRuleTemplates(ctx))}}
+func templateUpdate(event pq.AuthzRuleTemplateEvent) (*state.Update, error) {
+	m, err := pq.AuthzRuleTemplateMutation(event)
+	if err != nil {
+		return nil, err
+	}
+	return pq.NewUpdate(m), nil
 }
 
-func globalRuleUpdate(ctx context.Context, q *pq.Queries) *state.Update {
-	return &apigen.CoreUpdate{AuthzGlobalRules: &apigen.AuthzGlobalRuleList{Items: erru.Must(q.ListAuthzGlobalRules(ctx))}}
+func globalRuleUpdate(event pq.GlobalAccessRuleEvent) (*state.Update, error) {
+	m, err := pq.GlobalAccessRuleMutation(event)
+	if err != nil {
+		return nil, err
+	}
+	return pq.NewUpdate(m), nil
 }
 
 func listRuleTemplates(q *pq.Queries) ([]RuleTemplateRow, error) {
@@ -35,8 +42,11 @@ func listRuleTemplates(q *pq.Queries) ([]RuleTemplateRow, error) {
 	}
 	out := make([]RuleTemplateRow, 0, len(rows))
 	for _, row := range rows {
+		if row.EventType == pq.EventDelete {
+			continue
+		}
 		out = append(out, RuleTemplateRow{
-			ID: row.TemplateID, Name: row.Name, Builtin: row.Builtin != 0, Deleted: row.EventType == pq.EventDelete,
+			ID: row.TemplateID, Name: row.Name, Builtin: row.Builtin != 0,
 			Author: row.Author, CreatedAt: row.CreatedTime, Blob: row.DataBlob,
 		})
 	}
@@ -59,7 +69,7 @@ func insertRuleTemplate(store *state.Service, row RuleTemplateRow) (int64, error
 		if err := q.InsertAuthzRuleTemplateEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return templateUpdate(ctx, q), nil
+		return templateUpdate(event)
 	})
 	return id, err
 }
@@ -78,7 +88,7 @@ func updateRuleTemplate(store *state.Service, id int64, name string, blob []byte
 		if err := q.InsertAuthzRuleTemplateEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return templateUpdate(ctx, q), nil
+		return templateUpdate(event)
 	})
 }
 
@@ -96,7 +106,7 @@ func deleteRuleTemplate(store *state.Service, id int64) error {
 		if err := q.InsertAuthzRuleTemplateEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return templateUpdate(ctx, q), nil
+		return templateUpdate(event)
 	})
 }
 
@@ -107,7 +117,8 @@ func upsertBuiltinRuleTemplate(store *state.Service, id int64, name string, blob
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
-		event := pq.AuthzRuleTemplateEvent{TemplateID: id, Version: 1, Name: name, Builtin: 1, DataBlob: notNullBlob(blob), EventType: pq.EventCreate}
+		now := time.Now().UnixMilli()
+		event := pq.AuthzRuleTemplateEvent{TemplateID: id, Version: 1, Name: name, Builtin: 1, DataBlob: notNullBlob(blob), EventType: pq.EventCreate, EventTime: now, CreatedTime: now}
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 		case prev.EventType == pq.EventDelete:
@@ -124,7 +135,7 @@ func upsertBuiltinRuleTemplate(store *state.Service, id int64, name string, blob
 		if err := q.InsertAuthzRuleTemplateEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return templateUpdate(ctx, q), nil
+		return templateUpdate(event)
 	})
 }
 
@@ -166,7 +177,7 @@ func insertGrant(store *state.Service, row GrantRow) (int64, error) {
 		if err := q.InsertAuthzGrantEvent(ctx, &event); err != nil {
 			return nil, err
 		}
-		return &apigen.CoreUpdate{AuthzGrantEvents: []*apigen.AuthzGrantEvent{&event}}, nil
+		return pq.NewUpdate(pq.AuthzGrantMutation(&event)), nil
 	})
 	return id, err
 }
@@ -186,7 +197,7 @@ func deleteGrant(store *state.Service, id int64) error {
 		if err := q.InsertAuthzGrantEvent(ctx, &event); err != nil {
 			return nil, err
 		}
-		return &apigen.CoreUpdate{AuthzGrantEvents: []*apigen.AuthzGrantEvent{&event}}, nil
+		return pq.NewUpdate(pq.AuthzGrantMutation(&event)), nil
 	})
 }
 
@@ -221,7 +232,7 @@ func insertGlobalRule(store *state.Service, row GlobalRuleRow) (int64, error) {
 		if err := q.InsertGlobalAccessRuleEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return globalRuleUpdate(ctx, q), nil
+		return globalRuleUpdate(event)
 	})
 	return id, err
 }
@@ -240,7 +251,7 @@ func deleteGlobalRule(store *state.Service, id int64) error {
 		if err := q.InsertGlobalAccessRuleEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return globalRuleUpdate(ctx, q), nil
+		return globalRuleUpdate(event)
 	})
 }
 
@@ -258,10 +269,11 @@ func seedGlobalRule(store *state.Service, name string, blob []byte) error {
 		if err != nil {
 			return nil, err
 		}
-		event := pq.GlobalAccessRuleEvent{GlobalSeq: seq, RuleID: id, Version: 1, Name: name, DataBlob: notNullBlob(blob), EventType: pq.EventCreate}
+		now := time.Now().UnixMilli()
+		event := pq.GlobalAccessRuleEvent{GlobalSeq: seq, EventTime: now, CreatedTime: now, RuleID: id, Version: 1, Name: name, DataBlob: notNullBlob(blob), EventType: pq.EventCreate}
 		if err := q.InsertGlobalAccessRuleEvent(ctx, event); err != nil {
 			return nil, err
 		}
-		return globalRuleUpdate(ctx, q), nil
+		return globalRuleUpdate(event)
 	})
 }

@@ -25,9 +25,14 @@ CREATE TABLE IF NOT EXISTS node_status_log (
     node_id INTEGER NOT NULL,
     updated_at INTEGER NOT NULL,
     global_seq INTEGER NOT NULL DEFAULT 0,
+    event_time INTEGER NOT NULL DEFAULT 0,
     last_connected_at INTEGER NOT NULL DEFAULT 0,
     is_connected INTEGER NOT NULL DEFAULT 0,
     opendeploy_version TEXT NOT NULL DEFAULT '',
     remote_address TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (node_id, updated_at)
 );
+
+CREATE INDEX IF NOT EXISTS idx_node_event_log_seq ON node_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_node_status_log_seq ON node_status_log (global_seq);

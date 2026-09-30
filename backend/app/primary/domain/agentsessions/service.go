@@ -194,7 +194,7 @@ func (s *Service) mutateAgentSession(id string, mutate func(*pq.Queries, int64) 
 		if err != nil {
 			return nil, err
 		}
-		return &apigen.CoreUpdate{AgentSessions: []*apigen.AgentSession{row.Proto()}}, nil
+		return pq.NewUpdate(pq.AgentSessionMutation(row)), nil
 	})
 	return changed, err
 }

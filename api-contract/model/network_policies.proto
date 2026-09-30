@@ -18,6 +18,7 @@ message NetworkPolicy {
   NetworkPolicyPeerRef source = 4;
   NetworkPolicyPeerRef destination = 5;
   repeated NetPortMatch ports = 6; // empty = all ports and protocols
+  int64 created_time = 8;          // epoch ms of the policy's first row
 }
 
 // DENY is schema-reserved and rejected on writes until enforced.

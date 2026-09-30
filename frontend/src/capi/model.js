@@ -5,11 +5,15 @@
  * @property {number} spaceId
  * @property {string} name
  * @property {Scheduling} scheduling
+ * @property {number} version
+ * @property {number} specVersion
+ * @property {Date} createdTime
  */
 /**
  * @typedef {Object} Scheduling
  * @property {boolean} running
  * @property {DedicatedNodesScheduling} dedicatedNodes
+ * @property {number} generation
  */
 /**
  * @typedef {Object} DedicatedNodesScheduling
@@ -198,9 +202,9 @@
  * @property {ValueRef} secret
  */
 /**
- * @typedef {Object} DeploymentSpecVersionRef
- * @property {number} id
- * @property {number} specVersion
+ * @typedef {Object} DeploymentExpectedSeq
+ * @property {number} deploymentId
+ * @property {number} expectedSeq
  */
 /**
  * @typedef {Object} ScheduledInstance
@@ -266,7 +270,7 @@
 /**
  * @typedef {Object} DeploymentUpdateRequestV2
  * @property {number} deploymentId
- * @property {number} expectedVersion
+ * @property {number} expectedSeq
  * @property {VersionOnlyUpdate} versionOnlyUpdate
  * @property {RunningOnlyUpdate} runningOnlyUpdate
  * @property {SpecUpdate} specUpdate
@@ -314,7 +318,7 @@
 /**
  * @typedef {Object} DeploymentDeleteRequest
  * @property {number} deploymentId
- * @property {number} version
+ * @property {number} expectedSeq
  */
 /**
  * @typedef {Object} Version
@@ -694,6 +698,21 @@
  * @typedef {Object} Secret
  * @property {SecretFs} fs
  * @property {number} spaceId
+ * @property {number} valueVersion
+ * @property {number} createdTime
+ * @property {number} smkVersion
+ * @property {Uint8Array} ciphertext
+ * @property {Uint8Array} nonce
+ */
+/**
+ * @typedef {Object} SecretKeyslot
+ * @property {number} kind
+ * @property {number} nodeId
+ * @property {number} smkVersion
+ * @property {Uint8Array} wrappedSmk
+ * @property {Uint8Array} nonce
+ * @property {Uint8Array} kdfSalt
+ * @property {number} updatedAt
  */
 /**
  * @typedef {Object} SecretFs
@@ -716,7 +735,7 @@
  * @property {number} secretId
  * @property {Uint8Array} value
  * @property {boolean} updateReferencingDeployments
- * @property {DeploymentSpecVersionRef[]} referencingDeployments
+ * @property {DeploymentExpectedSeq[]} referencingDeployments
  */
 /**
  * @typedef {Object} SecretPasswordSpec
@@ -746,7 +765,8 @@
  */
 /**
  * @typedef {Object} SecretRevealRequest
- * @property {number} id
+ * @property {number} secretId
+ * @property {number} version
  */
 /**
  * @typedef {Object} SecretRevealResponse
@@ -783,6 +803,8 @@
  * @property {ConfigFs} fs
  * @property {number} spaceId
  * @property {string} value
+ * @property {number} valueVersion
+ * @property {number} createdTime
  */
 /**
  * @typedef {Object} ConfigFs
@@ -797,7 +819,6 @@
  * @property {number} parentId
  * @property {Date} createdAt
  * @property {number} author
- * @property {boolean} deleted
  */
 /**
  * @typedef {Object} ConfigEventList
@@ -815,7 +836,7 @@
  * @property {number} configId
  * @property {string} value
  * @property {boolean} updateReferencingDeployments
- * @property {DeploymentSpecVersionRef[]} referencingDeployments
+ * @property {DeploymentExpectedSeq[]} referencingDeployments
  */
 /**
  * @typedef {Object} ConfigRenameRequest
@@ -852,6 +873,8 @@
  * @property {string} sha256
  * @property {number} sizeBytes
  * @property {string} storageKey
+ * @property {number} valueVersion
+ * @property {number} createdTime
  */
 /**
  * @typedef {Object} AssetFs
@@ -866,7 +889,6 @@
  * @property {number} parentId
  * @property {Date} createdAt
  * @property {number} author
- * @property {boolean} deleted
  */
 /**
  * @typedef {Object} AssetEventList
@@ -941,7 +963,6 @@
  * @typedef {Object} Space
  * @property {number} id
  * @property {string} name
- * @property {boolean} deleted
  */
 /**
  * @typedef {Object} SpaceList
@@ -961,6 +982,7 @@
  * @property {number} id
  * @property {string} name
  * @property {number} createdAt
+ * @property {Uint8Array} credentials
  */
 /**
  * @typedef {Object} WebAuthnCredential
@@ -1029,6 +1051,7 @@
  * @property {string} requestingAddress
  * @property {string} approvalCode
  * @property {Date} approvedAt
+ * @property {Uint8Array} tokenHash
  */
 /**
  * @typedef {Object} UserSession
@@ -1040,6 +1063,7 @@
  * @property {string} userAgent
  * @property {number} userId
  * @property {number} kind
+ * @property {Uint8Array} tokenHash
  */
 /**
  * @typedef {Object} AgentSessionRequest
@@ -1117,7 +1141,6 @@
  * @property {number} id
  * @property {string} name
  * @property {boolean} builtin
- * @property {boolean} deleted
  * @property {number} author
  * @property {number} createdAt
  * @property {AuthzRuleTemplate} template
@@ -1164,6 +1187,8 @@
  * @property {number} userId
  * @property {number} templateId
  * @property {AuthzGrant} grant
+ * @property {number} author
+ * @property {number} createdTime
  */
 /**
  * @typedef {Object} AuthzGrantEvent
@@ -1245,6 +1270,7 @@
  * @property {number} enrollmentRequestedAt
  * @property {NodeOperator} operator
  * @property {NodeReported} reported
+ * @property {number} createdTime
  */
 /**
  * @typedef {Object} NodeEvent
@@ -1309,8 +1335,8 @@
 /**
  * @typedef {Object} NodeEvictRequest
  * @property {string} identifier
- * @property {number} expectedVersion
  * @property {boolean} force
+ * @property {number} expectedSeq
  */
 /**
  * @typedef {Object} NodeExposureRequest
@@ -1489,6 +1515,7 @@
  * @property {NetworkPolicyPeerRef} source
  * @property {NetworkPolicyPeerRef} destination
  * @property {NetPortMatch[]} ports
+ * @property {number} createdTime
  */
 /**
  * @typedef {Object} NetworkPolicyPeerRef
@@ -1521,7 +1548,7 @@
 /**
  * @typedef {Object} NetworkPolicyUpdateRequest
  * @property {number} id
- * @property {number} version
+ * @property {number} expectedSeq
  * @property {number} action
  * @property {NetworkPolicyPeerRef} source
  * @property {NetworkPolicyPeerRef} destination
@@ -1651,9 +1678,9 @@
  */
 /**
  * @typedef {Object} EnrollmentAcceptRequest
- * @property {number} expectedVersion
  * @property {number} id
  * @property {string} nodeName
+ * @property {number} expectedSeq
  */
 /**
  * @typedef {Object} EnrollmentAccepted
@@ -1689,12 +1716,6 @@
  * @property {ClusterSettings} settings
  * @property {string} masterPasswordHash
  * @property {Uint8Array} networkUlaPrefix
- */
-/**
- * @typedef {Object} SystemConfigVersion
- * @property {number} version
- * @property {Date} updatedAt
- * @property {SystemConfig} config
  */
 /**
  * @typedef {Object} ClusterSettings
@@ -1773,62 +1794,73 @@
  * @property {boolean} assetKeepLocal
  */
 /**
- * @typedef {Object} Snapshot
+ * @typedef {Object} CoreWriteUpdate
  * @property {number} seq
- * @property {DeploymentEvent[]} deploymentEvents
- * @property {ScheduledInstanceEvent[]} scheduledInstanceEvents
- * @property {ScheduledInstanceStatus[]} instanceStatuses
- * @property {NodeEvent[]} nodeEvents
- * @property {NodeStatus[]} nodeStatuses
- * @property {SecretEvent[]} secretEvents
- * @property {ConfigEvent[]} configEvents
- * @property {AssetEvent[]} assetEvents
- * @property {ValueDirectory[]} valueDirectories
- * @property {AssetDirectory[]} assetDirectories
- * @property {Space[]} spaces
- * @property {NetworkPolicyEvent[]} networkPolicyEvents
- * @property {User[]} users
- * @property {AgentSession[]} agentSessions
- * @property {AuthzRuleTemplateRecord[]} authzRuleTemplates
- * @property {AuthzGrantEvent[]} authzGrantEvents
- * @property {AuthzGlobalRuleRecord[]} authzGlobalRules
- * @property {SecretsStatusResponse} secretsStatus
- * @property {BackupStatus} backupStatus
- * @property {SystemConfigVersion} systemConfig
- * @property {IngressDiagnosticList} ingressDiagnostics
- * @property {UserSession[]} userSessions
+ * @property {number} time
+ * @property {number} actor
+ * @property {CoreMutation[]} mutations
  */
 /**
- * @typedef {Object} CoreUpdate
- * @property {number} seq
- * @property {DeploymentEvent[]} deploymentEvents
- * @property {ScheduledInstanceEvent[]} scheduledInstanceEvents
- * @property {NodeEvent[]} nodeEvents
- * @property {SecretEvent[]} secretEvents
- * @property {ConfigEvent[]} configEvents
- * @property {AssetEvent[]} assetEvents
- * @property {NetworkPolicyEvent[]} networkPolicyEvents
- * @property {Space[]} spaces
- * @property {User[]} users
- * @property {ValueDirectory[]} valueDirectories
- * @property {AssetDirectory[]} assetDirectories
- * @property {AuthzRuleTemplateList} authzRuleTemplates
- * @property {AuthzGrantEvent[]} authzGrantEvents
- * @property {AuthzGlobalRuleList} authzGlobalRules
- * @property {SystemConfigVersion} systemConfig
- * @property {ScheduledInstanceStatus[]} instanceStatuses
- * @property {NodeStatus[]} nodeStatuses
- * @property {AgentSession[]} agentSessions
- * @property {UserSession[]} userSessions
+ * @typedef {Object} CoreMutation
+ * @property {CreateMutation} create
+ * @property {UpdateMutation} update
+ * @property {DeleteMutation} delete
  */
 /**
- * @typedef {Object} StateStreamMsg
- * @property {Snapshot} snapshot
- * @property {CoreUpdate} core
+ * @typedef {Object} CreateMutation
+ * @property {number} entityType
+ * @property {number} entityId
+ * @property {CoreEntity} entity
+ */
+/**
+ * @typedef {Object} UpdateMutation
+ * @property {number} entityType
+ * @property {number} entityId
+ * @property {CoreEntity} entity
+ */
+/**
+ * @typedef {Object} DeleteMutation
+ * @property {number} entityType
+ * @property {number} entityId
+ */
+/**
+ * @typedef {Object} CoreEntity
+ * @property {Deployment} deployment
+ * @property {ScheduledInstance} scheduledInstance
+ * @property {Node} node
+ * @property {Secret} secret
+ * @property {Config} config
+ * @property {Asset} asset
+ * @property {NetworkPolicy} networkPolicy
+ * @property {Space} space
+ * @property {User} user
+ * @property {ValueDirectory} valueDirectory
+ * @property {AssetDirectory} assetDirectory
+ * @property {AuthzRuleTemplateRecord} authzRuleTemplate
+ * @property {AuthzGrantValue} authzGrant
+ * @property {AuthzGlobalRuleRecord} authzGlobalRule
+ * @property {SystemConfig} systemConfig
+ * @property {ScheduledInstanceStatus} scheduledInstanceStatus
+ * @property {NodeStatus} nodeStatus
+ * @property {AgentSession} agentSession
+ * @property {UserSession} userSession
+ * @property {NixStoreReset} nixStoreReset
+ * @property {SecretKeyslot} secretKeyslot
+ */
+/**
+ * @typedef {Object} EventStreamRequest
+ * @property {number} afterSeq
+ */
+/**
+ * @typedef {Object} EventStreamMsg
+ * @property {CoreWriteUpdate[]} events
+ * @property {boolean} reset
+ * @property {boolean} synced
  * @property {boolean} heartbeat
  * @property {BackupStatus} backupStatus
  * @property {IngressDiagnosticList} ingressDiagnostics
  * @property {SecretsStatusResponse} secretsStatus
+ * @property {number} seq
  */
 /**
  * @typedef {Object} AccessPolicy
@@ -1874,6 +1906,15 @@ export function writeDeployment(message, writer) {
         writeScheduling(message.scheduling, writer);
         writer.ldelim();
     }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(15, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
+        writer.uint32(tag(16, WIRE.VARINT)).int32(message.specVersion);
+    }
+    if (message.createdTime instanceof Date && message.createdTime.getTime() !== 0) {
+        writer.uint32(tag(17, WIRE.VARINT)).int64(Math.trunc(message.createdTime.getTime()));
+    }
 }
 
 
@@ -1895,7 +1936,7 @@ export function encodeDeployment(message) {
  */
 function decodeDeploymentMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {spec: undefined, spaceId: 0, name: "", scheduling: undefined };
+    const message = {spec: undefined, spaceId: 0, name: "", scheduling: undefined, version: 0, specVersion: 0, createdTime: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1913,6 +1954,18 @@ function decodeDeploymentMessage(reader, length) {
             }
             case 14: {
                 message.scheduling = decodeSchedulingMessage(reader, reader.uint32());
+                break;
+            }
+            case 15: {
+                message.version = reader.int32();
+                break;
+            }
+            case 16: {
+                message.specVersion = reader.int32();
+                break;
+            }
+            case 17: {
+                message.createdTime = new Date(readInt64(reader, "int64"));
                 break;
             }
             default:
@@ -1947,6 +2000,9 @@ export function writeScheduling(message, writer) {
         writeDedicatedNodesScheduling(message.dedicatedNodes, writer);
         writer.ldelim();
     }
+    if (message.generation !== undefined && message.generation !== null && message.generation !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.generation);
+    }
 }
 
 
@@ -1968,7 +2024,7 @@ export function encodeScheduling(message) {
  */
 function decodeSchedulingMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {running: false, dedicatedNodes: undefined };
+    const message = {running: false, dedicatedNodes: undefined, generation: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1978,6 +2034,10 @@ function decodeSchedulingMessage(reader, length) {
             }
             case 2: {
                 message.dedicatedNodes = decodeDedicatedNodesSchedulingMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.generation = reader.int32();
                 break;
             }
             default:
@@ -4236,26 +4296,26 @@ export function decodeSecretCertSource(buffer) {
 
 
 /**
- * @param {DeploymentSpecVersionRef} message
+ * @param {DeploymentExpectedSeq} message
  * @param {Writer} writer
  */
-export function writeDeploymentSpecVersionRef(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+export function writeDeploymentExpectedSeq(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.specVersion);
+    if (message.expectedSeq !== undefined && message.expectedSeq !== null && message.expectedSeq !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.expectedSeq);
     }
 }
 
 
 /**
- * @param {DeploymentSpecVersionRef} message
+ * @param {DeploymentExpectedSeq} message
  * @returns {Uint8Array}
  */
-export function encodeDeploymentSpecVersionRef(message) {
+export function encodeDeploymentExpectedSeq(message) {
     const writer = Writer.create();
-    writeDeploymentSpecVersionRef(message, writer);
+    writeDeploymentExpectedSeq(message, writer);
     return writer.finish();
 }
 
@@ -4263,20 +4323,20 @@ export function encodeDeploymentSpecVersionRef(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {DeploymentSpecVersionRef}
+ * @returns {DeploymentExpectedSeq}
  */
-function decodeDeploymentSpecVersionRefMessage(reader, length) {
+function decodeDeploymentExpectedSeqMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, specVersion: 0 };
+    const message = {deploymentId: 0, expectedSeq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.id = reader.int32();
+                message.deploymentId = reader.int32();
                 break;
             }
             case 2: {
-                message.specVersion = reader.int32();
+                message.expectedSeq = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -4289,11 +4349,11 @@ function decodeDeploymentSpecVersionRefMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {DeploymentSpecVersionRef}
+ * @returns {DeploymentExpectedSeq}
  */
-export function decodeDeploymentSpecVersionRef(buffer) {
+export function decodeDeploymentExpectedSeq(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeDeploymentSpecVersionRefMessage(reader);
+    return decodeDeploymentExpectedSeqMessage(reader);
 }
 
 
@@ -4949,8 +5009,8 @@ export function writeDeploymentUpdateRequestV2(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.expectedVersion !== undefined && message.expectedVersion !== null && message.expectedVersion !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.expectedVersion);
+    if (message.expectedSeq !== undefined && message.expectedSeq !== null && message.expectedSeq !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int64(message.expectedSeq);
     }
     if (message.versionOnlyUpdate !== undefined && message.versionOnlyUpdate !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
@@ -4998,7 +5058,7 @@ export function encodeDeploymentUpdateRequestV2(message) {
  */
 function decodeDeploymentUpdateRequestV2Message(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, expectedVersion: 0, versionOnlyUpdate: undefined, runningOnlyUpdate: undefined, specUpdate: undefined, assignedSpaceUpdate: undefined, restartUpdate: undefined };
+    const message = {deploymentId: 0, expectedSeq: 0, versionOnlyUpdate: undefined, runningOnlyUpdate: undefined, specUpdate: undefined, assignedSpaceUpdate: undefined, restartUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5006,8 +5066,8 @@ function decodeDeploymentUpdateRequestV2Message(reader, length) {
                 message.deploymentId = reader.int32();
                 break;
             }
-            case 2: {
-                message.expectedVersion = reader.int32();
+            case 8: {
+                message.expectedSeq = readInt64(reader, "int64");
                 break;
             }
             case 3: {
@@ -5585,8 +5645,8 @@ export function writeDeploymentDeleteRequest(message, writer) {
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.deploymentId);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    if (message.expectedSeq !== undefined && message.expectedSeq !== null && message.expectedSeq !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.expectedSeq);
     }
 }
 
@@ -5609,7 +5669,7 @@ export function encodeDeploymentDeleteRequest(message) {
  */
 function decodeDeploymentDeleteRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, version: 0 };
+    const message = {deploymentId: 0, expectedSeq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -5617,8 +5677,8 @@ function decodeDeploymentDeleteRequestMessage(reader, length) {
                 message.deploymentId = reader.int32();
                 break;
             }
-            case 2: {
-                message.version = reader.int32();
+            case 3: {
+                message.expectedSeq = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -9648,6 +9708,21 @@ export function writeSecret(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
     }
+    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.valueVersion);
+    }
+    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdTime);
+    }
+    if (message.smkVersion !== undefined && message.smkVersion !== null && message.smkVersion !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int64(message.smkVersion);
+    }
+    if (message.ciphertext && message.ciphertext.length > 0) {
+        writer.uint32(tag(7, WIRE.LDELIM)).bytes(message.ciphertext);
+    }
+    if (message.nonce && message.nonce.length > 0) {
+        writer.uint32(tag(8, WIRE.LDELIM)).bytes(message.nonce);
+    }
 }
 
 
@@ -9669,7 +9744,7 @@ export function encodeSecret(message) {
  */
 function decodeSecretMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0 };
+    const message = {fs: undefined, spaceId: 0, valueVersion: 0, createdTime: 0, smkVersion: 0, ciphertext: new Uint8Array(0), nonce: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9679,6 +9754,26 @@ function decodeSecretMessage(reader, length) {
             }
             case 2: {
                 message.spaceId = reader.int32();
+                break;
+            }
+            case 4: {
+                message.valueVersion = reader.int32();
+                break;
+            }
+            case 5: {
+                message.createdTime = readInt64(reader, "int64");
+                break;
+            }
+            case 6: {
+                message.smkVersion = readInt64(reader, "int64");
+                break;
+            }
+            case 7: {
+                message.ciphertext = reader.bytes();
+                break;
+            }
+            case 8: {
+                message.nonce = reader.bytes();
                 break;
             }
             default:
@@ -9696,6 +9791,104 @@ function decodeSecretMessage(reader, length) {
 export function decodeSecret(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSecretMessage(reader);
+}
+
+
+
+/**
+ * @param {SecretKeyslot} message
+ * @param {Writer} writer
+ */
+export function writeSecretKeyslot(message, writer) {
+    if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.kind);
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.nodeId);
+    }
+    if (message.smkVersion !== undefined && message.smkVersion !== null && message.smkVersion !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.smkVersion);
+    }
+    if (message.wrappedSmk && message.wrappedSmk.length > 0) {
+        writer.uint32(tag(4, WIRE.LDELIM)).bytes(message.wrappedSmk);
+    }
+    if (message.nonce && message.nonce.length > 0) {
+        writer.uint32(tag(5, WIRE.LDELIM)).bytes(message.nonce);
+    }
+    if (message.kdfSalt && message.kdfSalt.length > 0) {
+        writer.uint32(tag(6, WIRE.LDELIM)).bytes(message.kdfSalt);
+    }
+    if (message.updatedAt !== undefined && message.updatedAt !== null && message.updatedAt !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(message.updatedAt);
+    }
+}
+
+
+/**
+ * @param {SecretKeyslot} message
+ * @returns {Uint8Array}
+ */
+export function encodeSecretKeyslot(message) {
+    const writer = Writer.create();
+    writeSecretKeyslot(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SecretKeyslot}
+ */
+function decodeSecretKeyslotMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {kind: 0, nodeId: 0, smkVersion: 0, wrappedSmk: new Uint8Array(0), nonce: new Uint8Array(0), kdfSalt: new Uint8Array(0), updatedAt: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.kind = reader.int32();
+                break;
+            }
+            case 2: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.smkVersion = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.wrappedSmk = reader.bytes();
+                break;
+            }
+            case 5: {
+                message.nonce = reader.bytes();
+                break;
+            }
+            case 6: {
+                message.kdfSalt = reader.bytes();
+                break;
+            }
+            case 7: {
+                message.updatedAt = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SecretKeyslot}
+ */
+export function decodeSecretKeyslot(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSecretKeyslotMessage(reader);
 }
 
 
@@ -9917,7 +10110,7 @@ export function writeSecretSetRequest(message, writer) {
     if (message.referencingDeployments && message.referencingDeployments.length > 0) {
         for (const item of message.referencingDeployments) {
             writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writeDeploymentSpecVersionRef(item, writer);
+            writeDeploymentExpectedSeq(item, writer);
             writer.ldelim();
         }
     }
@@ -9959,7 +10152,7 @@ function decodeSecretSetRequestMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.referencingDeployments.push(decodeDeploymentSpecVersionRefMessage(reader, reader.uint32()));
+                message.referencingDeployments.push(decodeDeploymentExpectedSeqMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -10310,8 +10503,11 @@ export function decodeSecretDeleteRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeSecretRevealRequest(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
+    if (message.secretId !== undefined && message.secretId !== null && message.secretId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.secretId);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.version);
     }
 }
 
@@ -10334,12 +10530,16 @@ export function encodeSecretRevealRequest(message) {
  */
 function decodeSecretRevealRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0 };
+    const message = {secretId: 0, version: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.id = reader.int32();
+            case 2: {
+                message.secretId = reader.int32();
+                break;
+            }
+            case 3: {
+                message.version = reader.int32();
                 break;
             }
             default:
@@ -10729,6 +10929,12 @@ export function writeConfig(message, writer) {
     if (message.value !== undefined && message.value !== null && message.value !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
+    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.valueVersion);
+    }
+    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdTime);
+    }
 }
 
 
@@ -10750,7 +10956,7 @@ export function encodeConfig(message) {
  */
 function decodeConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0, value: "" };
+    const message = {fs: undefined, spaceId: 0, value: "", valueVersion: 0, createdTime: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10764,6 +10970,14 @@ function decodeConfigMessage(reader, length) {
             }
             case 3: {
                 message.value = reader.string();
+                break;
+            }
+            case 4: {
+                message.valueVersion = reader.int32();
+                break;
+            }
+            case 5: {
+                message.createdTime = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -10871,9 +11085,6 @@ export function writeValueDirectory(message, writer) {
     if (message.author !== undefined && message.author !== null && message.author !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
     }
-    if (message.deleted === true) {
-        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
-    }
 }
 
 
@@ -10895,7 +11106,7 @@ export function encodeValueDirectory(message) {
  */
 function decodeValueDirectoryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, spaceId: 0, name: "", parentId: 0, createdAt: new Date(0), author: 0, deleted: false };
+    const message = {id: 0, spaceId: 0, name: "", parentId: 0, createdAt: new Date(0), author: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10921,10 +11132,6 @@ function decodeValueDirectoryMessage(reader, length) {
             }
             case 6: {
                 message.author = reader.int32();
-                break;
-            }
-            case 7: {
-                message.deleted = reader.bool();
                 break;
             }
             default:
@@ -11100,7 +11307,7 @@ export function writeConfigSetRequest(message, writer) {
     if (message.referencingDeployments && message.referencingDeployments.length > 0) {
         for (const item of message.referencingDeployments) {
             writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writeDeploymentSpecVersionRef(item, writer);
+            writeDeploymentExpectedSeq(item, writer);
             writer.ldelim();
         }
     }
@@ -11142,7 +11349,7 @@ function decodeConfigSetRequestMessage(reader, length) {
                 break;
             }
             case 4: {
-                message.referencingDeployments.push(decodeDeploymentSpecVersionRefMessage(reader, reader.uint32()));
+                message.referencingDeployments.push(decodeDeploymentExpectedSeqMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -11496,6 +11703,12 @@ export function writeAsset(message, writer) {
     if (message.storageKey !== undefined && message.storageKey !== null && message.storageKey !== "") {
         writer.uint32(tag(5, WIRE.LDELIM)).string(message.storageKey);
     }
+    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.valueVersion);
+    }
+    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
+    }
 }
 
 
@@ -11517,7 +11730,7 @@ export function encodeAsset(message) {
  */
 function decodeAssetMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0, sha256: "", sizeBytes: 0, storageKey: "" };
+    const message = {fs: undefined, spaceId: 0, sha256: "", sizeBytes: 0, storageKey: "", valueVersion: 0, createdTime: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11539,6 +11752,14 @@ function decodeAssetMessage(reader, length) {
             }
             case 5: {
                 message.storageKey = reader.string();
+                break;
+            }
+            case 6: {
+                message.valueVersion = reader.int32();
+                break;
+            }
+            case 7: {
+                message.createdTime = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -11646,9 +11867,6 @@ export function writeAssetDirectory(message, writer) {
     if (message.author !== undefined && message.author !== null && message.author !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
     }
-    if (message.deleted === true) {
-        writer.uint32(tag(7, WIRE.VARINT)).bool(message.deleted);
-    }
 }
 
 
@@ -11670,7 +11888,7 @@ export function encodeAssetDirectory(message) {
  */
 function decodeAssetDirectoryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, spaceId: 0, key: "", parentId: 0, createdAt: new Date(0), author: 0, deleted: false };
+    const message = {id: 0, spaceId: 0, key: "", parentId: 0, createdAt: new Date(0), author: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11696,10 +11914,6 @@ function decodeAssetDirectoryMessage(reader, length) {
             }
             case 6: {
                 message.author = reader.int32();
-                break;
-            }
-            case 7: {
-                message.deleted = reader.bool();
                 break;
             }
             default:
@@ -12619,9 +12833,6 @@ export function writeSpace(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
     }
-    if (message.deleted === true) {
-        writer.uint32(tag(3, WIRE.VARINT)).bool(message.deleted);
-    }
 }
 
 
@@ -12643,7 +12854,7 @@ export function encodeSpace(message) {
  */
 function decodeSpaceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", deleted: false };
+    const message = {id: 0, name: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12653,10 +12864,6 @@ function decodeSpaceMessage(reader, length) {
             }
             case 2: {
                 message.name = reader.string();
-                break;
-            }
-            case 3: {
-                message.deleted = reader.bool();
                 break;
             }
             default:
@@ -12871,6 +13078,9 @@ export function writeUser(message, writer) {
     if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(message.createdAt);
     }
+    if (message.credentials && message.credentials.length > 0) {
+        writer.uint32(tag(5, WIRE.LDELIM)).bytes(message.credentials);
+    }
 }
 
 
@@ -12892,7 +13102,7 @@ export function encodeUser(message) {
  */
 function decodeUserMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", createdAt: 0 };
+    const message = {id: 0, name: "", createdAt: 0, credentials: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -12906,6 +13116,10 @@ function decodeUserMessage(reader, length) {
             }
             case 3: {
                 message.createdAt = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.credentials = reader.bytes();
                 break;
             }
             default:
@@ -13635,6 +13849,9 @@ export function writeAgentSession(message, writer) {
     if (message.approvedAt instanceof Date && message.approvedAt.getTime() !== 0) {
         writer.uint32(tag(9, WIRE.VARINT)).int64(Math.trunc(message.approvedAt.getTime()));
     }
+    if (message.tokenHash && message.tokenHash.length > 0) {
+        writer.uint32(tag(10, WIRE.LDELIM)).bytes(message.tokenHash);
+    }
 }
 
 
@@ -13656,7 +13873,7 @@ export function encodeAgentSession(message) {
  */
 function decodeAgentSessionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {userId: 0, id: "", createdAt: new Date(0), expiresAt: new Date(0), tokenPrefix: "", status: 0, requestingAddress: "", approvalCode: "", approvedAt: new Date(0) };
+    const message = {userId: 0, id: "", createdAt: new Date(0), expiresAt: new Date(0), tokenPrefix: "", status: 0, requestingAddress: "", approvalCode: "", approvedAt: new Date(0), tokenHash: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13694,6 +13911,10 @@ function decodeAgentSessionMessage(reader, length) {
             }
             case 9: {
                 message.approvedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 10: {
+                message.tokenHash = reader.bytes();
                 break;
             }
             default:
@@ -13744,6 +13965,9 @@ export function writeUserSession(message, writer) {
     if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
         writer.uint32(tag(10, WIRE.VARINT)).int32(message.kind);
     }
+    if (message.tokenHash && message.tokenHash.length > 0) {
+        writer.uint32(tag(11, WIRE.LDELIM)).bytes(message.tokenHash);
+    }
 }
 
 
@@ -13765,7 +13989,7 @@ export function encodeUserSession(message) {
  */
 function decodeUserSessionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: "", createdAt: new Date(0), expiresAt: new Date(0), revokedAt: new Date(0), requestingAddress: "", userAgent: "", userId: 0, kind: 0 };
+    const message = {id: "", createdAt: new Date(0), expiresAt: new Date(0), revokedAt: new Date(0), requestingAddress: "", userAgent: "", userId: 0, kind: 0, tokenHash: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13799,6 +14023,10 @@ function decodeUserSessionMessage(reader, length) {
             }
             case 10: {
                 message.kind = reader.int32();
+                break;
+            }
+            case 11: {
+                message.tokenHash = reader.bytes();
                 break;
             }
             default:
@@ -14767,9 +14995,6 @@ export function writeAuthzRuleTemplateRecord(message, writer) {
     if (message.builtin === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.builtin);
     }
-    if (message.deleted === true) {
-        writer.uint32(tag(4, WIRE.VARINT)).bool(message.deleted);
-    }
     if (message.author !== undefined && message.author !== null && message.author !== 0) {
         writer.uint32(tag(5, WIRE.VARINT)).int64(message.author);
     }
@@ -14802,7 +15027,7 @@ export function encodeAuthzRuleTemplateRecord(message) {
  */
 function decodeAuthzRuleTemplateRecordMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", builtin: false, deleted: false, author: 0, createdAt: 0, template: undefined };
+    const message = {id: 0, name: "", builtin: false, author: 0, createdAt: 0, template: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -14816,10 +15041,6 @@ function decodeAuthzRuleTemplateRecordMessage(reader, length) {
             }
             case 3: {
                 message.builtin = reader.bool();
-                break;
-            }
-            case 4: {
-                message.deleted = reader.bool();
                 break;
             }
             case 5: {
@@ -15295,6 +15516,12 @@ export function writeAuthzGrantValue(message, writer) {
         writeAuthzGrant(message.grant, writer);
         writer.ldelim();
     }
+    if (message.author !== undefined && message.author !== null && message.author !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.author);
+    }
+    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdTime);
+    }
 }
 
 
@@ -15316,7 +15543,7 @@ export function encodeAuthzGrantValue(message) {
  */
 function decodeAuthzGrantValueMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {userId: 0, templateId: 0, grant: undefined };
+    const message = {userId: 0, templateId: 0, grant: undefined, author: 0, createdTime: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15330,6 +15557,14 @@ function decodeAuthzGrantValueMessage(reader, length) {
             }
             case 3: {
                 message.grant = decodeAuthzGrantMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.author = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.createdTime = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -16296,6 +16531,9 @@ export function writeNode(message, writer) {
         writeNodeReported(message.reported, writer);
         writer.ldelim();
     }
+    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdTime);
+    }
 }
 
 
@@ -16317,7 +16555,7 @@ export function encodeNode(message) {
  */
 function decodeNodeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {status: 0, enrollmentRequestedAt: 0, operator: undefined, reported: undefined };
+    const message = {status: 0, enrollmentRequestedAt: 0, operator: undefined, reported: undefined, createdTime: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -16335,6 +16573,10 @@ function decodeNodeMessage(reader, length) {
             }
             case 4: {
                 message.reported = decodeNodeReportedMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.createdTime = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -17057,11 +17299,11 @@ export function writeNodeEvictRequest(message, writer) {
     if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.identifier);
     }
-    if (message.expectedVersion !== undefined && message.expectedVersion !== null && message.expectedVersion !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.expectedVersion);
-    }
     if (message.force === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.force);
+    }
+    if (message.expectedSeq !== undefined && message.expectedSeq !== null && message.expectedSeq !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.expectedSeq);
     }
 }
 
@@ -17084,7 +17326,7 @@ export function encodeNodeEvictRequest(message) {
  */
 function decodeNodeEvictRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {identifier: "", expectedVersion: 0, force: false };
+    const message = {identifier: "", force: false, expectedSeq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -17092,12 +17334,12 @@ function decodeNodeEvictRequestMessage(reader, length) {
                 message.identifier = reader.string();
                 break;
             }
-            case 2: {
-                message.expectedVersion = reader.int32();
-                break;
-            }
             case 3: {
                 message.force = reader.bool();
+                break;
+            }
+            case 4: {
+                message.expectedSeq = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -19223,6 +19465,9 @@ export function writeNetworkPolicy(message, writer) {
             writer.ldelim();
         }
     }
+    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int64(message.createdTime);
+    }
 }
 
 
@@ -19244,7 +19489,7 @@ export function encodeNetworkPolicy(message) {
  */
 function decodeNetworkPolicyMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {action: 0, source: undefined, destination: undefined, ports: [] };
+    const message = {action: 0, source: undefined, destination: undefined, ports: [], createdTime: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19262,6 +19507,10 @@ function decodeNetworkPolicyMessage(reader, length) {
             }
             case 6: {
                 message.ports.push(decodeNetPortMatchMessage(reader, reader.uint32()));
+                break;
+            }
+            case 8: {
+                message.createdTime = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -19613,8 +19862,8 @@ export function writeNetworkPolicyUpdateRequest(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
+    if (message.expectedSeq !== undefined && message.expectedSeq !== null && message.expectedSeq !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(message.expectedSeq);
     }
     if (message.action !== undefined && message.action !== null && message.action !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.action);
@@ -19657,7 +19906,7 @@ export function encodeNetworkPolicyUpdateRequest(message) {
  */
 function decodeNetworkPolicyUpdateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, version: 0, action: 0, source: undefined, destination: undefined, ports: [] };
+    const message = {id: 0, expectedSeq: 0, action: 0, source: undefined, destination: undefined, ports: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19665,8 +19914,8 @@ function decodeNetworkPolicyUpdateRequestMessage(reader, length) {
                 message.id = reader.int32();
                 break;
             }
-            case 2: {
-                message.version = reader.int32();
+            case 7: {
+                message.expectedSeq = readInt64(reader, "int64");
                 break;
             }
             case 3: {
@@ -21221,14 +21470,14 @@ export function decodeEnrollmentRequestList(buffer) {
  * @param {Writer} writer
  */
 export function writeEnrollmentAcceptRequest(message, writer) {
-    if (message.expectedVersion !== undefined && message.expectedVersion !== null && message.expectedVersion !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int32(message.expectedVersion);
-    }
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
     if (message.nodeName !== undefined && message.nodeName !== null && message.nodeName !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.nodeName);
+    }
+    if (message.expectedSeq !== undefined && message.expectedSeq !== null && message.expectedSeq !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(message.expectedSeq);
     }
 }
 
@@ -21251,20 +21500,20 @@ export function encodeEnrollmentAcceptRequest(message) {
  */
 function decodeEnrollmentAcceptRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {expectedVersion: 0, id: 0, nodeName: "" };
+    const message = {id: 0, nodeName: "", expectedSeq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 3: {
-                message.expectedVersion = reader.int32();
-                break;
-            }
             case 1: {
                 message.id = reader.int32();
                 break;
             }
             case 2: {
                 message.nodeName = reader.string();
+                break;
+            }
+            case 4: {
+                message.expectedSeq = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -21713,78 +21962,6 @@ function decodeSystemConfigMessage(reader, length) {
 export function decodeSystemConfig(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSystemConfigMessage(reader);
-}
-
-
-
-/**
- * @param {SystemConfigVersion} message
- * @param {Writer} writer
- */
-export function writeSystemConfigVersion(message, writer) {
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int64(message.version);
-    }
-    if (message.updatedAt instanceof Date && message.updatedAt.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.updatedAt.getTime()));
-    }
-    if (message.config !== undefined && message.config !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeSystemConfig(message.config, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {SystemConfigVersion} message
- * @returns {Uint8Array}
- */
-export function encodeSystemConfigVersion(message) {
-    const writer = Writer.create();
-    writeSystemConfigVersion(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {SystemConfigVersion}
- */
-function decodeSystemConfigVersionMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {version: 0, updatedAt: new Date(0), config: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.version = readInt64(reader, "int64");
-                break;
-            }
-            case 2: {
-                message.updatedAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 3: {
-                message.config = decodeSystemConfigMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {SystemConfigVersion}
- */
-export function decodeSystemConfigVersion(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSystemConfigVersionMessage(reader);
 }
 
 
@@ -22670,156 +22847,23 @@ export function decodeBackupStatus(buffer) {
 
 
 /**
- * @param {Snapshot} message
+ * @param {CoreWriteUpdate} message
  * @param {Writer} writer
  */
-export function writeSnapshot(message, writer) {
+export function writeCoreWriteUpdate(message, writer) {
     if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int64(message.seq);
     }
-    if (message.deploymentEvents && message.deploymentEvents.length > 0) {
-        for (const item of message.deploymentEvents) {
-            writer.uint32(tag(2, WIRE.LDELIM)).fork();
-            writeDeploymentEvent(item, writer);
-            writer.ldelim();
-        }
+    if (message.time !== undefined && message.time !== null && message.time !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.time);
     }
-    if (message.scheduledInstanceEvents && message.scheduledInstanceEvents.length > 0) {
-        for (const item of message.scheduledInstanceEvents) {
-            writer.uint32(tag(3, WIRE.LDELIM)).fork();
-            writeScheduledInstanceEvent(item, writer);
-            writer.ldelim();
-        }
+    if (message.actor !== undefined && message.actor !== null && message.actor !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.actor);
     }
-    if (message.instanceStatuses && message.instanceStatuses.length > 0) {
-        for (const item of message.instanceStatuses) {
+    if (message.mutations && message.mutations.length > 0) {
+        for (const item of message.mutations) {
             writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writeScheduledInstanceStatus(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.nodeEvents && message.nodeEvents.length > 0) {
-        for (const item of message.nodeEvents) {
-            writer.uint32(tag(5, WIRE.LDELIM)).fork();
-            writeNodeEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.nodeStatuses && message.nodeStatuses.length > 0) {
-        for (const item of message.nodeStatuses) {
-            writer.uint32(tag(6, WIRE.LDELIM)).fork();
-            writeNodeStatus(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.secretEvents && message.secretEvents.length > 0) {
-        for (const item of message.secretEvents) {
-            writer.uint32(tag(7, WIRE.LDELIM)).fork();
-            writeSecretEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.configEvents && message.configEvents.length > 0) {
-        for (const item of message.configEvents) {
-            writer.uint32(tag(8, WIRE.LDELIM)).fork();
-            writeConfigEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.assetEvents && message.assetEvents.length > 0) {
-        for (const item of message.assetEvents) {
-            writer.uint32(tag(9, WIRE.LDELIM)).fork();
-            writeAssetEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.valueDirectories && message.valueDirectories.length > 0) {
-        for (const item of message.valueDirectories) {
-            writer.uint32(tag(10, WIRE.LDELIM)).fork();
-            writeValueDirectory(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.assetDirectories && message.assetDirectories.length > 0) {
-        for (const item of message.assetDirectories) {
-            writer.uint32(tag(11, WIRE.LDELIM)).fork();
-            writeAssetDirectory(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.spaces && message.spaces.length > 0) {
-        for (const item of message.spaces) {
-            writer.uint32(tag(12, WIRE.LDELIM)).fork();
-            writeSpace(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.networkPolicyEvents && message.networkPolicyEvents.length > 0) {
-        for (const item of message.networkPolicyEvents) {
-            writer.uint32(tag(13, WIRE.LDELIM)).fork();
-            writeNetworkPolicyEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.users && message.users.length > 0) {
-        for (const item of message.users) {
-            writer.uint32(tag(14, WIRE.LDELIM)).fork();
-            writeUser(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.agentSessions && message.agentSessions.length > 0) {
-        for (const item of message.agentSessions) {
-            writer.uint32(tag(15, WIRE.LDELIM)).fork();
-            writeAgentSession(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.authzRuleTemplates && message.authzRuleTemplates.length > 0) {
-        for (const item of message.authzRuleTemplates) {
-            writer.uint32(tag(16, WIRE.LDELIM)).fork();
-            writeAuthzRuleTemplateRecord(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.authzGrantEvents && message.authzGrantEvents.length > 0) {
-        for (const item of message.authzGrantEvents) {
-            writer.uint32(tag(17, WIRE.LDELIM)).fork();
-            writeAuthzGrantEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.authzGlobalRules && message.authzGlobalRules.length > 0) {
-        for (const item of message.authzGlobalRules) {
-            writer.uint32(tag(18, WIRE.LDELIM)).fork();
-            writeAuthzGlobalRuleRecord(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.secretsStatus !== undefined && message.secretsStatus !== null) {
-        writer.uint32(tag(19, WIRE.LDELIM)).fork();
-        writeSecretsStatusResponse(message.secretsStatus, writer);
-        writer.ldelim();
-    }
-    if (message.backupStatus !== undefined && message.backupStatus !== null) {
-        writer.uint32(tag(20, WIRE.LDELIM)).fork();
-        writeBackupStatus(message.backupStatus, writer);
-        writer.ldelim();
-    }
-    if (message.systemConfig !== undefined && message.systemConfig !== null) {
-        writer.uint32(tag(21, WIRE.LDELIM)).fork();
-        writeSystemConfigVersion(message.systemConfig, writer);
-        writer.ldelim();
-    }
-    if (message.ingressDiagnostics !== undefined && message.ingressDiagnostics !== null) {
-        writer.uint32(tag(22, WIRE.LDELIM)).fork();
-        writeIngressDiagnosticList(message.ingressDiagnostics, writer);
-        writer.ldelim();
-    }
-    if (message.userSessions && message.userSessions.length > 0) {
-        for (const item of message.userSessions) {
-            writer.uint32(tag(23, WIRE.LDELIM)).fork();
-            writeUserSession(item, writer);
+            writeCoreMutation(item, writer);
             writer.ldelim();
         }
     }
@@ -22827,12 +22871,12 @@ export function writeSnapshot(message, writer) {
 
 
 /**
- * @param {Snapshot} message
+ * @param {CoreWriteUpdate} message
  * @returns {Uint8Array}
  */
-export function encodeSnapshot(message) {
+export function encodeCoreWriteUpdate(message) {
     const writer = Writer.create();
-    writeSnapshot(message, writer);
+    writeCoreWriteUpdate(message, writer);
     return writer.finish();
 }
 
@@ -22840,11 +22884,11 @@ export function encodeSnapshot(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {Snapshot}
+ * @returns {CoreWriteUpdate}
  */
-function decodeSnapshotMessage(reader, length) {
+function decodeCoreWriteUpdateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {seq: 0, deploymentEvents: [], scheduledInstanceEvents: [], instanceStatuses: [], nodeEvents: [], nodeStatuses: [], secretEvents: [], configEvents: [], assetEvents: [], valueDirectories: [], assetDirectories: [], spaces: [], networkPolicyEvents: [], users: [], agentSessions: [], authzRuleTemplates: [], authzGrantEvents: [], authzGlobalRules: [], secretsStatus: undefined, backupStatus: undefined, systemConfig: undefined, ingressDiagnostics: undefined, userSessions: [] };
+    const message = {seq: 0, time: 0, actor: 0, mutations: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -22853,91 +22897,536 @@ function decodeSnapshotMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.deploymentEvents.push(decodeDeploymentEventMessage(reader, reader.uint32()));
+                message.time = readInt64(reader, "int64");
                 break;
             }
             case 3: {
-                message.scheduledInstanceEvents.push(decodeScheduledInstanceEventMessage(reader, reader.uint32()));
+                message.actor = reader.int32();
                 break;
             }
             case 4: {
-                message.instanceStatuses.push(decodeScheduledInstanceStatusMessage(reader, reader.uint32()));
+                message.mutations.push(decodeCoreMutationMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CoreWriteUpdate}
+ */
+export function decodeCoreWriteUpdate(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCoreWriteUpdateMessage(reader);
+}
+
+
+
+/**
+ * @param {CoreMutation} message
+ * @param {Writer} writer
+ */
+export function writeCoreMutation(message, writer) {
+    if (message.create !== undefined && message.create !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeCreateMutation(message.create, writer);
+        writer.ldelim();
+    }
+    if (message.update !== undefined && message.update !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeUpdateMutation(message.update, writer);
+        writer.ldelim();
+    }
+    if (message.delete !== undefined && message.delete !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeDeleteMutation(message.delete, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {CoreMutation} message
+ * @returns {Uint8Array}
+ */
+export function encodeCoreMutation(message) {
+    const writer = Writer.create();
+    writeCoreMutation(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CoreMutation}
+ */
+function decodeCoreMutationMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {create: undefined, update: undefined, delete: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.create = decodeCreateMutationMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.update = decodeUpdateMutationMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.delete = decodeDeleteMutationMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CoreMutation}
+ */
+export function decodeCoreMutation(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCoreMutationMessage(reader);
+}
+
+
+
+/**
+ * @param {CreateMutation} message
+ * @param {Writer} writer
+ */
+export function writeCreateMutation(message, writer) {
+    if (message.entityType !== undefined && message.entityType !== null && message.entityType !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.entityType);
+    }
+    if (message.entityId !== undefined && message.entityId !== null && message.entityId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.entityId);
+    }
+    if (message.entity !== undefined && message.entity !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeCoreEntity(message.entity, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {CreateMutation} message
+ * @returns {Uint8Array}
+ */
+export function encodeCreateMutation(message) {
+    const writer = Writer.create();
+    writeCreateMutation(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CreateMutation}
+ */
+function decodeCreateMutationMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {entityType: 0, entityId: 0, entity: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.entityType = reader.int32();
+                break;
+            }
+            case 2: {
+                message.entityId = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.entity = decodeCoreEntityMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CreateMutation}
+ */
+export function decodeCreateMutation(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCreateMutationMessage(reader);
+}
+
+
+
+/**
+ * @param {UpdateMutation} message
+ * @param {Writer} writer
+ */
+export function writeUpdateMutation(message, writer) {
+    if (message.entityType !== undefined && message.entityType !== null && message.entityType !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.entityType);
+    }
+    if (message.entityId !== undefined && message.entityId !== null && message.entityId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.entityId);
+    }
+    if (message.entity !== undefined && message.entity !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeCoreEntity(message.entity, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {UpdateMutation} message
+ * @returns {Uint8Array}
+ */
+export function encodeUpdateMutation(message) {
+    const writer = Writer.create();
+    writeUpdateMutation(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UpdateMutation}
+ */
+function decodeUpdateMutationMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {entityType: 0, entityId: 0, entity: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.entityType = reader.int32();
+                break;
+            }
+            case 2: {
+                message.entityId = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.entity = decodeCoreEntityMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UpdateMutation}
+ */
+export function decodeUpdateMutation(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUpdateMutationMessage(reader);
+}
+
+
+
+/**
+ * @param {DeleteMutation} message
+ * @param {Writer} writer
+ */
+export function writeDeleteMutation(message, writer) {
+    if (message.entityType !== undefined && message.entityType !== null && message.entityType !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.entityType);
+    }
+    if (message.entityId !== undefined && message.entityId !== null && message.entityId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.entityId);
+    }
+}
+
+
+/**
+ * @param {DeleteMutation} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeleteMutation(message) {
+    const writer = Writer.create();
+    writeDeleteMutation(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeleteMutation}
+ */
+function decodeDeleteMutationMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {entityType: 0, entityId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.entityType = reader.int32();
+                break;
+            }
+            case 2: {
+                message.entityId = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeleteMutation}
+ */
+export function decodeDeleteMutation(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeleteMutationMessage(reader);
+}
+
+
+
+/**
+ * @param {CoreEntity} message
+ * @param {Writer} writer
+ */
+export function writeCoreEntity(message, writer) {
+    if (message.deployment !== undefined && message.deployment !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeDeployment(message.deployment, writer);
+        writer.ldelim();
+    }
+    if (message.scheduledInstance !== undefined && message.scheduledInstance !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeScheduledInstance(message.scheduledInstance, writer);
+        writer.ldelim();
+    }
+    if (message.node !== undefined && message.node !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeNode(message.node, writer);
+        writer.ldelim();
+    }
+    if (message.secret !== undefined && message.secret !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeSecret(message.secret, writer);
+        writer.ldelim();
+    }
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeConfig(message.config, writer);
+        writer.ldelim();
+    }
+    if (message.asset !== undefined && message.asset !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeAsset(message.asset, writer);
+        writer.ldelim();
+    }
+    if (message.networkPolicy !== undefined && message.networkPolicy !== null) {
+        writer.uint32(tag(7, WIRE.LDELIM)).fork();
+        writeNetworkPolicy(message.networkPolicy, writer);
+        writer.ldelim();
+    }
+    if (message.space !== undefined && message.space !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeSpace(message.space, writer);
+        writer.ldelim();
+    }
+    if (message.user !== undefined && message.user !== null) {
+        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writeUser(message.user, writer);
+        writer.ldelim();
+    }
+    if (message.valueDirectory !== undefined && message.valueDirectory !== null) {
+        writer.uint32(tag(10, WIRE.LDELIM)).fork();
+        writeValueDirectory(message.valueDirectory, writer);
+        writer.ldelim();
+    }
+    if (message.assetDirectory !== undefined && message.assetDirectory !== null) {
+        writer.uint32(tag(11, WIRE.LDELIM)).fork();
+        writeAssetDirectory(message.assetDirectory, writer);
+        writer.ldelim();
+    }
+    if (message.authzRuleTemplate !== undefined && message.authzRuleTemplate !== null) {
+        writer.uint32(tag(12, WIRE.LDELIM)).fork();
+        writeAuthzRuleTemplateRecord(message.authzRuleTemplate, writer);
+        writer.ldelim();
+    }
+    if (message.authzGrant !== undefined && message.authzGrant !== null) {
+        writer.uint32(tag(13, WIRE.LDELIM)).fork();
+        writeAuthzGrantValue(message.authzGrant, writer);
+        writer.ldelim();
+    }
+    if (message.authzGlobalRule !== undefined && message.authzGlobalRule !== null) {
+        writer.uint32(tag(14, WIRE.LDELIM)).fork();
+        writeAuthzGlobalRuleRecord(message.authzGlobalRule, writer);
+        writer.ldelim();
+    }
+    if (message.systemConfig !== undefined && message.systemConfig !== null) {
+        writer.uint32(tag(15, WIRE.LDELIM)).fork();
+        writeSystemConfig(message.systemConfig, writer);
+        writer.ldelim();
+    }
+    if (message.scheduledInstanceStatus !== undefined && message.scheduledInstanceStatus !== null) {
+        writer.uint32(tag(16, WIRE.LDELIM)).fork();
+        writeScheduledInstanceStatus(message.scheduledInstanceStatus, writer);
+        writer.ldelim();
+    }
+    if (message.nodeStatus !== undefined && message.nodeStatus !== null) {
+        writer.uint32(tag(17, WIRE.LDELIM)).fork();
+        writeNodeStatus(message.nodeStatus, writer);
+        writer.ldelim();
+    }
+    if (message.agentSession !== undefined && message.agentSession !== null) {
+        writer.uint32(tag(18, WIRE.LDELIM)).fork();
+        writeAgentSession(message.agentSession, writer);
+        writer.ldelim();
+    }
+    if (message.userSession !== undefined && message.userSession !== null) {
+        writer.uint32(tag(19, WIRE.LDELIM)).fork();
+        writeUserSession(message.userSession, writer);
+        writer.ldelim();
+    }
+    if (message.nixStoreReset !== undefined && message.nixStoreReset !== null) {
+        writer.uint32(tag(20, WIRE.LDELIM)).fork();
+        writeNixStoreReset(message.nixStoreReset, writer);
+        writer.ldelim();
+    }
+    if (message.secretKeyslot !== undefined && message.secretKeyslot !== null) {
+        writer.uint32(tag(21, WIRE.LDELIM)).fork();
+        writeSecretKeyslot(message.secretKeyslot, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {CoreEntity} message
+ * @returns {Uint8Array}
+ */
+export function encodeCoreEntity(message) {
+    const writer = Writer.create();
+    writeCoreEntity(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CoreEntity}
+ */
+function decodeCoreEntityMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deployment: undefined, scheduledInstance: undefined, node: undefined, secret: undefined, config: undefined, asset: undefined, networkPolicy: undefined, space: undefined, user: undefined, valueDirectory: undefined, assetDirectory: undefined, authzRuleTemplate: undefined, authzGrant: undefined, authzGlobalRule: undefined, systemConfig: undefined, scheduledInstanceStatus: undefined, nodeStatus: undefined, agentSession: undefined, userSession: undefined, nixStoreReset: undefined, secretKeyslot: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deployment = decodeDeploymentMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.scheduledInstance = decodeScheduledInstanceMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.node = decodeNodeMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.secret = decodeSecretMessage(reader, reader.uint32());
                 break;
             }
             case 5: {
-                message.nodeEvents.push(decodeNodeEventMessage(reader, reader.uint32()));
+                message.config = decodeConfigMessage(reader, reader.uint32());
                 break;
             }
             case 6: {
-                message.nodeStatuses.push(decodeNodeStatusMessage(reader, reader.uint32()));
+                message.asset = decodeAssetMessage(reader, reader.uint32());
                 break;
             }
             case 7: {
-                message.secretEvents.push(decodeSecretEventMessage(reader, reader.uint32()));
+                message.networkPolicy = decodeNetworkPolicyMessage(reader, reader.uint32());
                 break;
             }
             case 8: {
-                message.configEvents.push(decodeConfigEventMessage(reader, reader.uint32()));
+                message.space = decodeSpaceMessage(reader, reader.uint32());
                 break;
             }
             case 9: {
-                message.assetEvents.push(decodeAssetEventMessage(reader, reader.uint32()));
+                message.user = decodeUserMessage(reader, reader.uint32());
                 break;
             }
             case 10: {
-                message.valueDirectories.push(decodeValueDirectoryMessage(reader, reader.uint32()));
+                message.valueDirectory = decodeValueDirectoryMessage(reader, reader.uint32());
                 break;
             }
             case 11: {
-                message.assetDirectories.push(decodeAssetDirectoryMessage(reader, reader.uint32()));
+                message.assetDirectory = decodeAssetDirectoryMessage(reader, reader.uint32());
                 break;
             }
             case 12: {
-                message.spaces.push(decodeSpaceMessage(reader, reader.uint32()));
+                message.authzRuleTemplate = decodeAuthzRuleTemplateRecordMessage(reader, reader.uint32());
                 break;
             }
             case 13: {
-                message.networkPolicyEvents.push(decodeNetworkPolicyEventMessage(reader, reader.uint32()));
+                message.authzGrant = decodeAuthzGrantValueMessage(reader, reader.uint32());
                 break;
             }
             case 14: {
-                message.users.push(decodeUserMessage(reader, reader.uint32()));
+                message.authzGlobalRule = decodeAuthzGlobalRuleRecordMessage(reader, reader.uint32());
                 break;
             }
             case 15: {
-                message.agentSessions.push(decodeAgentSessionMessage(reader, reader.uint32()));
+                message.systemConfig = decodeSystemConfigMessage(reader, reader.uint32());
                 break;
             }
             case 16: {
-                message.authzRuleTemplates.push(decodeAuthzRuleTemplateRecordMessage(reader, reader.uint32()));
+                message.scheduledInstanceStatus = decodeScheduledInstanceStatusMessage(reader, reader.uint32());
                 break;
             }
             case 17: {
-                message.authzGrantEvents.push(decodeAuthzGrantEventMessage(reader, reader.uint32()));
+                message.nodeStatus = decodeNodeStatusMessage(reader, reader.uint32());
                 break;
             }
             case 18: {
-                message.authzGlobalRules.push(decodeAuthzGlobalRuleRecordMessage(reader, reader.uint32()));
+                message.agentSession = decodeAgentSessionMessage(reader, reader.uint32());
                 break;
             }
             case 19: {
-                message.secretsStatus = decodeSecretsStatusResponseMessage(reader, reader.uint32());
+                message.userSession = decodeUserSessionMessage(reader, reader.uint32());
                 break;
             }
             case 20: {
-                message.backupStatus = decodeBackupStatusMessage(reader, reader.uint32());
+                message.nixStoreReset = decodeNixStoreResetMessage(reader, reader.uint32());
                 break;
             }
             case 21: {
-                message.systemConfig = decodeSystemConfigVersionMessage(reader, reader.uint32());
-                break;
-            }
-            case 22: {
-                message.ingressDiagnostics = decodeIngressDiagnosticListMessage(reader, reader.uint32());
-                break;
-            }
-            case 23: {
-                message.userSessions.push(decodeUserSessionMessage(reader, reader.uint32()));
+                message.secretKeyslot = decodeSecretKeyslotMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -22950,160 +23439,33 @@ function decodeSnapshotMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {Snapshot}
+ * @returns {CoreEntity}
  */
-export function decodeSnapshot(buffer) {
+export function decodeCoreEntity(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSnapshotMessage(reader);
+    return decodeCoreEntityMessage(reader);
 }
 
 
 
 /**
- * @param {CoreUpdate} message
+ * @param {EventStreamRequest} message
  * @param {Writer} writer
  */
-export function writeCoreUpdate(message, writer) {
-    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int64(message.seq);
-    }
-    if (message.deploymentEvents && message.deploymentEvents.length > 0) {
-        for (const item of message.deploymentEvents) {
-            writer.uint32(tag(2, WIRE.LDELIM)).fork();
-            writeDeploymentEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.scheduledInstanceEvents && message.scheduledInstanceEvents.length > 0) {
-        for (const item of message.scheduledInstanceEvents) {
-            writer.uint32(tag(3, WIRE.LDELIM)).fork();
-            writeScheduledInstanceEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.nodeEvents && message.nodeEvents.length > 0) {
-        for (const item of message.nodeEvents) {
-            writer.uint32(tag(4, WIRE.LDELIM)).fork();
-            writeNodeEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.secretEvents && message.secretEvents.length > 0) {
-        for (const item of message.secretEvents) {
-            writer.uint32(tag(5, WIRE.LDELIM)).fork();
-            writeSecretEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.configEvents && message.configEvents.length > 0) {
-        for (const item of message.configEvents) {
-            writer.uint32(tag(6, WIRE.LDELIM)).fork();
-            writeConfigEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.assetEvents && message.assetEvents.length > 0) {
-        for (const item of message.assetEvents) {
-            writer.uint32(tag(7, WIRE.LDELIM)).fork();
-            writeAssetEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.networkPolicyEvents && message.networkPolicyEvents.length > 0) {
-        for (const item of message.networkPolicyEvents) {
-            writer.uint32(tag(8, WIRE.LDELIM)).fork();
-            writeNetworkPolicyEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.spaces && message.spaces.length > 0) {
-        for (const item of message.spaces) {
-            writer.uint32(tag(9, WIRE.LDELIM)).fork();
-            writeSpace(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.users && message.users.length > 0) {
-        for (const item of message.users) {
-            writer.uint32(tag(10, WIRE.LDELIM)).fork();
-            writeUser(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.valueDirectories && message.valueDirectories.length > 0) {
-        for (const item of message.valueDirectories) {
-            writer.uint32(tag(11, WIRE.LDELIM)).fork();
-            writeValueDirectory(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.assetDirectories && message.assetDirectories.length > 0) {
-        for (const item of message.assetDirectories) {
-            writer.uint32(tag(12, WIRE.LDELIM)).fork();
-            writeAssetDirectory(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.authzRuleTemplates !== undefined && message.authzRuleTemplates !== null) {
-        writer.uint32(tag(13, WIRE.LDELIM)).fork();
-        writeAuthzRuleTemplateList(message.authzRuleTemplates, writer);
-        writer.ldelim();
-    }
-    if (message.authzGrantEvents && message.authzGrantEvents.length > 0) {
-        for (const item of message.authzGrantEvents) {
-            writer.uint32(tag(14, WIRE.LDELIM)).fork();
-            writeAuthzGrantEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.authzGlobalRules !== undefined && message.authzGlobalRules !== null) {
-        writer.uint32(tag(15, WIRE.LDELIM)).fork();
-        writeAuthzGlobalRuleList(message.authzGlobalRules, writer);
-        writer.ldelim();
-    }
-    if (message.systemConfig !== undefined && message.systemConfig !== null) {
-        writer.uint32(tag(16, WIRE.LDELIM)).fork();
-        writeSystemConfigVersion(message.systemConfig, writer);
-        writer.ldelim();
-    }
-    if (message.instanceStatuses && message.instanceStatuses.length > 0) {
-        for (const item of message.instanceStatuses) {
-            writer.uint32(tag(17, WIRE.LDELIM)).fork();
-            writeScheduledInstanceStatus(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.nodeStatuses && message.nodeStatuses.length > 0) {
-        for (const item of message.nodeStatuses) {
-            writer.uint32(tag(18, WIRE.LDELIM)).fork();
-            writeNodeStatus(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.agentSessions && message.agentSessions.length > 0) {
-        for (const item of message.agentSessions) {
-            writer.uint32(tag(19, WIRE.LDELIM)).fork();
-            writeAgentSession(item, writer);
-            writer.ldelim();
-        }
-    }
-    if (message.userSessions && message.userSessions.length > 0) {
-        for (const item of message.userSessions) {
-            writer.uint32(tag(20, WIRE.LDELIM)).fork();
-            writeUserSession(item, writer);
-            writer.ldelim();
-        }
+export function writeEventStreamRequest(message, writer) {
+    if (message.afterSeq !== undefined && message.afterSeq !== null && message.afterSeq !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.afterSeq);
     }
 }
 
 
 /**
- * @param {CoreUpdate} message
+ * @param {EventStreamRequest} message
  * @returns {Uint8Array}
  */
-export function encodeCoreUpdate(message) {
+export function encodeEventStreamRequest(message) {
     const writer = Writer.create();
-    writeCoreUpdate(message, writer);
+    writeEventStreamRequest(message, writer);
     return writer.finish();
 }
 
@@ -23111,92 +23473,16 @@ export function encodeCoreUpdate(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {CoreUpdate}
+ * @returns {EventStreamRequest}
  */
-function decodeCoreUpdateMessage(reader, length) {
+function decodeEventStreamRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {seq: 0, deploymentEvents: [], scheduledInstanceEvents: [], nodeEvents: [], secretEvents: [], configEvents: [], assetEvents: [], networkPolicyEvents: [], spaces: [], users: [], valueDirectories: [], assetDirectories: [], authzRuleTemplates: undefined, authzGrantEvents: [], authzGlobalRules: undefined, systemConfig: undefined, instanceStatuses: [], nodeStatuses: [], agentSessions: [], userSessions: [] };
+    const message = {afterSeq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 2: {
-                message.deploymentEvents.push(decodeDeploymentEventMessage(reader, reader.uint32()));
-                break;
-            }
-            case 3: {
-                message.scheduledInstanceEvents.push(decodeScheduledInstanceEventMessage(reader, reader.uint32()));
-                break;
-            }
-            case 4: {
-                message.nodeEvents.push(decodeNodeEventMessage(reader, reader.uint32()));
-                break;
-            }
-            case 5: {
-                message.secretEvents.push(decodeSecretEventMessage(reader, reader.uint32()));
-                break;
-            }
-            case 6: {
-                message.configEvents.push(decodeConfigEventMessage(reader, reader.uint32()));
-                break;
-            }
-            case 7: {
-                message.assetEvents.push(decodeAssetEventMessage(reader, reader.uint32()));
-                break;
-            }
-            case 8: {
-                message.networkPolicyEvents.push(decodeNetworkPolicyEventMessage(reader, reader.uint32()));
-                break;
-            }
-            case 9: {
-                message.spaces.push(decodeSpaceMessage(reader, reader.uint32()));
-                break;
-            }
-            case 10: {
-                message.users.push(decodeUserMessage(reader, reader.uint32()));
-                break;
-            }
-            case 11: {
-                message.valueDirectories.push(decodeValueDirectoryMessage(reader, reader.uint32()));
-                break;
-            }
-            case 12: {
-                message.assetDirectories.push(decodeAssetDirectoryMessage(reader, reader.uint32()));
-                break;
-            }
-            case 13: {
-                message.authzRuleTemplates = decodeAuthzRuleTemplateListMessage(reader, reader.uint32());
-                break;
-            }
-            case 14: {
-                message.authzGrantEvents.push(decodeAuthzGrantEventMessage(reader, reader.uint32()));
-                break;
-            }
-            case 15: {
-                message.authzGlobalRules = decodeAuthzGlobalRuleListMessage(reader, reader.uint32());
-                break;
-            }
-            case 16: {
-                message.systemConfig = decodeSystemConfigVersionMessage(reader, reader.uint32());
-                break;
-            }
-            case 17: {
-                message.instanceStatuses.push(decodeScheduledInstanceStatusMessage(reader, reader.uint32()));
-                break;
-            }
-            case 18: {
-                message.nodeStatuses.push(decodeNodeStatusMessage(reader, reader.uint32()));
-                break;
-            }
-            case 19: {
-                message.agentSessions.push(decodeAgentSessionMessage(reader, reader.uint32()));
-                break;
-            }
-            case 20: {
-                message.userSessions.push(decodeUserSessionMessage(reader, reader.uint32()));
+                message.afterSeq = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -23209,29 +23495,32 @@ function decodeCoreUpdateMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {CoreUpdate}
+ * @returns {EventStreamRequest}
  */
-export function decodeCoreUpdate(buffer) {
+export function decodeEventStreamRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeCoreUpdateMessage(reader);
+    return decodeEventStreamRequestMessage(reader);
 }
 
 
 
 /**
- * @param {StateStreamMsg} message
+ * @param {EventStreamMsg} message
  * @param {Writer} writer
  */
-export function writeStateStreamMsg(message, writer) {
-    if (message.snapshot !== undefined && message.snapshot !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeSnapshot(message.snapshot, writer);
-        writer.ldelim();
+export function writeEventStreamMsg(message, writer) {
+    if (message.events && message.events.length > 0) {
+        for (const item of message.events) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeCoreWriteUpdate(item, writer);
+            writer.ldelim();
+        }
     }
-    if (message.core !== undefined && message.core !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeCoreUpdate(message.core, writer);
-        writer.ldelim();
+    if (message.reset === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.reset);
+    }
+    if (message.synced === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.synced);
     }
     if (message.heartbeat === true) {
         writer.uint32(tag(4, WIRE.VARINT)).bool(message.heartbeat);
@@ -23251,16 +23540,19 @@ export function writeStateStreamMsg(message, writer) {
         writeSecretsStatusResponse(message.secretsStatus, writer);
         writer.ldelim();
     }
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int64(message.seq);
+    }
 }
 
 
 /**
- * @param {StateStreamMsg} message
+ * @param {EventStreamMsg} message
  * @returns {Uint8Array}
  */
-export function encodeStateStreamMsg(message) {
+export function encodeEventStreamMsg(message) {
     const writer = Writer.create();
-    writeStateStreamMsg(message, writer);
+    writeEventStreamMsg(message, writer);
     return writer.finish();
 }
 
@@ -23268,20 +23560,24 @@ export function encodeStateStreamMsg(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {StateStreamMsg}
+ * @returns {EventStreamMsg}
  */
-function decodeStateStreamMsgMessage(reader, length) {
+function decodeEventStreamMsgMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {snapshot: undefined, core: undefined, heartbeat: false, backupStatus: undefined, ingressDiagnostics: undefined, secretsStatus: undefined };
+    const message = {events: [], reset: false, synced: false, heartbeat: false, backupStatus: undefined, ingressDiagnostics: undefined, secretsStatus: undefined, seq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.snapshot = decodeSnapshotMessage(reader, reader.uint32());
+                message.events.push(decodeCoreWriteUpdateMessage(reader, reader.uint32()));
                 break;
             }
             case 2: {
-                message.core = decodeCoreUpdateMessage(reader, reader.uint32());
+                message.reset = reader.bool();
+                break;
+            }
+            case 3: {
+                message.synced = reader.bool();
                 break;
             }
             case 4: {
@@ -23300,6 +23596,10 @@ function decodeStateStreamMsgMessage(reader, length) {
                 message.secretsStatus = decodeSecretsStatusResponseMessage(reader, reader.uint32());
                 break;
             }
+            case 8: {
+                message.seq = readInt64(reader, "int64");
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -23310,11 +23610,11 @@ function decodeStateStreamMsgMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {StateStreamMsg}
+ * @returns {EventStreamMsg}
  */
-export function decodeStateStreamMsg(buffer) {
+export function decodeEventStreamMsg(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeStateStreamMsgMessage(reader);
+    return decodeEventStreamMsgMessage(reader);
 }
 
 

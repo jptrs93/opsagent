@@ -38,7 +38,6 @@ type RuleTemplateRow struct {
 	ID        int64
 	Name      string
 	Builtin   bool
-	Deleted   bool
 	Author    int64
 	CreatedAt int64
 	Blob      []byte
@@ -95,7 +94,6 @@ func Open(store *state.Service) (*Service, error) {
 			ID:        row.ID,
 			Name:      row.Name,
 			Builtin:   row.Builtin,
-			Deleted:   row.Deleted,
 			Author:    row.Author,
 			CreatedAt: row.CreatedAt,
 			Template:  content,
@@ -239,7 +237,7 @@ func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.Aut
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing := s.templates[id]
-	if existing == nil || existing.Deleted {
+	if existing == nil {
 		return nil, ErrNotFound
 	}
 	if existing.Builtin {
@@ -277,7 +275,7 @@ func (s *Service) DeleteRuleTemplate(id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing := s.templates[id]
-	if existing == nil || existing.Deleted {
+	if existing == nil {
 		return ErrNotFound
 	}
 	if existing.Builtin {
@@ -290,12 +288,10 @@ func (s *Service) DeleteRuleTemplate(id int64) error {
 			}
 		}
 	}
-	rec := cloneTemplateRecord(existing)
-	rec.Deleted = true
 	if err := deleteRuleTemplate(s.store, id); err != nil {
 		return err
 	}
-	s.templates[id] = rec
+	delete(s.templates, id)
 	return nil
 }
 
@@ -303,7 +299,7 @@ func (s *Service) RuleTemplate(id int64) (*apigen.AuthzRuleTemplateRecord, error
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rec := s.templates[id]
-	if rec == nil || rec.Deleted {
+	if rec == nil {
 		return nil, ErrNotFound
 	}
 	return cloneTemplateRecord(rec), nil
@@ -314,9 +310,6 @@ func (s *Service) RuleTemplates() []*apigen.AuthzRuleTemplateRecord {
 	defer s.mu.RUnlock()
 	out := make([]*apigen.AuthzRuleTemplateRecord, 0, len(s.templates))
 	for _, rec := range s.templates {
-		if rec.Deleted {
-			continue
-		}
 		out = append(out, cloneTemplateRecord(rec))
 	}
 	sortByID(out, func(t *apigen.AuthzRuleTemplateRecord) int64 { return t.ID })
@@ -325,7 +318,7 @@ func (s *Service) RuleTemplates() []*apigen.AuthzRuleTemplateRecord {
 
 func (s *Service) templateNameTakenLocked(name string, excludeID int64) bool {
 	for _, rec := range s.templates {
-		if !rec.Deleted && rec.ID != excludeID && rec.Name == name {
+		if rec.ID != excludeID && rec.Name == name {
 			return true
 		}
 	}
@@ -358,7 +351,7 @@ func (s *Service) CreateGrant(g *apigen.AuthzGrantRecord) (*apigen.AuthzGrantRec
 		}
 	} else {
 		t := s.templates[rec.TemplateID]
-		if t == nil || t.Deleted {
+		if t == nil {
 			return nil, fmt.Errorf("authz: rule template %d: %w", rec.TemplateID, ErrNotFound)
 		}
 		if err := validateArgs(t, rec.Grant.Args); err != nil {

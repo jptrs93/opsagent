@@ -1,10 +1,10 @@
 package nodes
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
-	"reflect"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -27,12 +27,12 @@ func TestEnrollmentHelloRejectsEnrolledIdentifiers(t *testing.T) {
 	defer store.Close()
 	ctx := context.Background()
 	primary := EnsurePrimaryNode(store, "primary", "primary-id")
-	before := store.BuildSnapshot(ctx)
+	before := fingerprint(t, store)
 	_, _, err := UpsertEnrollmentRequest(store, "192.0.2.9", "v1", apigen.NodeReported{Identifier: primary.Identifier, UnderlayAddress: "192.0.2.9", WgPublicKey: testEnrollmentWGKey})
 	if !errors.Is(err, ErrEnrollmentIdentifierEnrolled) {
 		t.Fatalf("primary identifier hello = %v, want ErrEnrollmentIdentifierEnrolled", err)
 	}
-	if !reflect.DeepEqual(before, store.BuildSnapshot(ctx)) {
+	if !bytes.Equal(before, fingerprint(t, store)) {
 		t.Fatal("rejected primary hello changed state or sequence")
 	}
 
@@ -41,12 +41,12 @@ func TestEnrollmentHelloRejectsEnrolledIdentifiers(t *testing.T) {
 	if _, err := AcceptEnrollmentRequest(store, req.ID, "worker", reported.Identifier, version); err != nil {
 		t.Fatal(err)
 	}
-	before = store.BuildSnapshot(ctx)
+	before = fingerprint(t, store)
 	hijack := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.3", WgPublicKey: testEnrollmentWGKey}
 	if _, _, err := UpsertEnrollmentRequest(store, "192.0.2.3", "v1", hijack); !errors.Is(err, ErrEnrollmentIdentifierEnrolled) {
 		t.Fatalf("member hello = %v, want ErrEnrollmentIdentifierEnrolled", err)
 	}
-	if !reflect.DeepEqual(before, store.BuildSnapshot(ctx)) {
+	if !bytes.Equal(before, fingerprint(t, store)) {
 		t.Fatal("rejected member hello changed state or sequence")
 	}
 	row, err := store.Queries().GetNodeRowByIdentifier(ctx, "worker")

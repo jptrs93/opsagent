@@ -38,7 +38,7 @@ export function clusterPage() {
     };
     loadEnrollmentInfo();
 
-    const installCommand = () => secondaryInstallCommand(config.val?.config?.settings, enrollmentInfo.val, primaryOpenDeployVersion());
+    const installCommand = () => secondaryInstallCommand(config.val?.settings, enrollmentInfo.val, primaryOpenDeployVersion());
 
     const copyInstallCommand = async () => {
         const command = installCommand();
@@ -331,7 +331,7 @@ function nodeActions(machine) {
         overlay.val = evictNodeOverlay({
             machine,
             pinned: pinnedUserDeployments(deploymentsS.val, machine.id),
-            evict: force => capi.postV1NodesEvict({identifier: machine.identifier, expectedVersion: machine.version, force}),
+            evict: force => capi.postV1NodesEvict({identifier: machine.identifier, expectedSeq: Number(machine.seq || 0), force}),
             close: () => { overlay.val = null; },
         });
     };
@@ -519,7 +519,7 @@ function enrollmentRow(req) {
         accepting.val = true;
         rowError.val = null;
         try {
-            await capi.postV1NodesEnrollmentsAccept({id: req.id, nodeName: name, expectedVersion: req.version});
+            await capi.postV1NodesEnrollmentsAccept({id: req.id, nodeName: name, expectedSeq: Number(req.seq || 0)});
             enrollmentNameDrafts.delete(req.id);
         } catch (e) {
             rowError.val = e.message;

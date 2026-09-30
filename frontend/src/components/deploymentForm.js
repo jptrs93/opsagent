@@ -1650,8 +1650,8 @@ export function envVarsPane(form, opts = {}) {
         const signature = [
             JSON.stringify([toggles, [...collapsed].sort(), groups.map(group => [group.prefix, group.rows.map(row =>
                 `${row.id}:${row.type || 'value'}:${toggles && isBooleanRow(row) ? 1 : 0}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.secretId || 0}:${row.configId || 0}:${row.asset || ''}:${row.assetId || 0}:${row.version || 0}`)])]),
-            secretRefs().map(ref => `${ref.id}:${ref.stableId}:${ref.version}:${ref.name}`).join('|'),
-            configRefs().map(ref => `${ref.id}:${ref.stableId}:${ref.version}:${ref.name}`).join('|'),
+            secretRefs().map(ref => `${ref.stableId}:${ref.version}:${ref.name}`).join('|'),
+            configRefs().map(ref => `${ref.stableId}:${ref.version}:${ref.name}`).join('|'),
             `${form.nodeId.val}:${deployments().map(item => `${item.config?.deploymentId || 0}:${placementNodeId(item.config)}:${item.config?.value?.spaceId ?? 0}:${item.config?.value?.name || ''}:${item.config?.value?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
             `${form.spaceId.val}:${spaces().map(space => `${space.id}:${space.name || ''}`).join('|')}`,
@@ -1915,7 +1915,7 @@ function versionedRefOptions(refs, selectedKey, allRefs = refs) {
         if (catalogRefKey(ref)) byKey.set(catalogRefKey(ref), ref);
     }
     for (const ref of refs || []) {
-        if (!ref || !ref.id) continue;
+        if (!catalogRefKey(ref)) continue;
         const key = `${Number(ref.spaceId || 0)}:${ref.name || ''}`;
         const current = latestByName.get(key);
         if (!current || Number(ref.version || 0) > Number(current.version || 0)) {
@@ -1924,7 +1924,7 @@ function versionedRefOptions(refs, selectedKey, allRefs = refs) {
     }
     const options = Array.from(latestByName.values());
     const selected = byKey.get(selectedKey || '');
-    if (selected && !options.some(ref => Number(ref.id) === Number(selected.id))) {
+    if (selected && !options.some(ref => catalogRefKey(ref) === catalogRefKey(selected))) {
         options.push(selected);
     }
     return options.sort((a, b) => (a.name || '').localeCompare(b.name || '')

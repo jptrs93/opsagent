@@ -30,19 +30,16 @@ func AppendRevision(store *state.Service, author int32, blob []byte, inlockValid
 		} else if err != nil {
 			return nil, err
 		}
-		var err error
-		id, err = q.InsertSystemConfigRevision(ctx, pq.SystemConfigRevisionParams{
-			EventMeta:  pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType},
-			ConfigBlob: blob,
-		})
+		cfg, err := apigen.DecodeSystemConfig(blob)
 		if err != nil {
 			return nil, err
 		}
-		row, err := q.GetSystemConfigByID(ctx, id)
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType}
+		id, err = q.InsertSystemConfigRevision(ctx, pq.SystemConfigRevisionParams{EventMeta: meta, ConfigBlob: blob})
 		if err != nil {
 			return nil, err
 		}
-		return &apigen.CoreUpdate{SystemConfig: row}, nil
+		return pq.NewUpdate(pq.SystemConfigMutation(meta, cfg)), nil
 	})
 	return id, err
 }

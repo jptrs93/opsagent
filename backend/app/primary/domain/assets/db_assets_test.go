@@ -100,7 +100,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if lv := statetest.LatestValue(store, latest); lv.ID != v2.ID || lv.Version != 2 || latest.SpaceID() != nodes.DefaultSpaceID {
 		t.Fatalf("latest version = %+v space %d", lv, latest.SpaceID())
 	}
-	if joined, ok := GetAssetVersionJoined(store.Queries(), v2.ID); !ok || storedContent(t, joined) != "events {}\nhttp {}\n" {
+	if joined, ok := GetAssetValueJoined(store.Queries(), v2.Ref); !ok || storedContent(t, joined) != "events {}\nhttp {}\n" {
 		t.Fatalf("latest content ok=%v", ok)
 	}
 	ref, ok := GetAssetVersionRef(store.Queries(), v2.Ref)
@@ -115,7 +115,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if old := statetest.ValueVersions(store, latest)[1]; old.ID != v1.ID || old.Version != 1 {
 		t.Fatalf("old version = %+v", old)
 	}
-	if joined, ok := GetAssetVersionJoined(store.Queries(), v1.ID); !ok || storedContent(t, joined) != "events {}\n" {
+	if joined, ok := GetAssetValueJoined(store.Queries(), v1.Ref); !ok || storedContent(t, joined) != "events {}\n" {
 		t.Fatalf("old content ok=%v", ok)
 	}
 
@@ -220,7 +220,7 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 			t.Fatalf("version ref %d = %+v ok=%v, want the new key", i, ref, ok)
 		}
 	}
-	if joined, ok := GetAssetVersionJoined(store.Queries(), v1.ID); !ok || storedContent(t, joined) != "one" {
+	if joined, ok := GetAssetValueJoined(store.Queries(), v1.Ref); !ok || storedContent(t, joined) != "one" {
 		t.Fatalf("old content after rename ok=%v", ok)
 	}
 

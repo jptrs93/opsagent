@@ -96,7 +96,7 @@ func EnsureRunInstance(store *state.Service, deploymentID, deploymentVersion, no
 		if err != nil {
 			return nil, err
 		}
-		return &state.Update{ScheduledInstanceEvents: []*apigen.ScheduledInstanceEvent{event}}, nil
+		return pq.NewUpdate(pq.ScheduledInstanceMutation(event)), nil
 	}); err != nil {
 		panic(fmt.Sprintf("EnsureRunInstance: %v", err))
 	}

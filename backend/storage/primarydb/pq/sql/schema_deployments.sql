@@ -29,3 +29,5 @@ CREATE INDEX IF NOT EXISTS idx_deployment_event_log_spec_version
 CREATE INDEX IF NOT EXISTS idx_deployment_event_log_deleted
     ON deployment_event_log (event_time DESC, deployment_id DESC)
     WHERE event_type = 3;
+
+CREATE INDEX IF NOT EXISTS idx_deployment_event_log_seq ON deployment_event_log (global_seq, id);

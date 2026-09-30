@@ -35,7 +35,7 @@ func TestSchedulerNeverPlacesOnEvictedNode(t *testing.T) {
 		t.Fatalf("placements before eviction = %v, want one", got)
 	}
 
-	if _, err := nodes.EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Version, true); err != nil {
+	if _, err := nodes.EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Seq, true); err != nil {
 		t.Fatalf("EvictNode: %v", err)
 	}
 	if got := statetest.NonFinalInstances(store, cfg.DeploymentID); len(got) != 0 {

@@ -17,6 +17,7 @@ func scanNetworkPolicyEvent(row scanner) (*apigen.NetworkPolicyEvent, error) {
 		return nil, err
 	}
 	e.Value = *value
+	e.Value.CreatedTime = e.CreatedTime
 	return &e, nil
 }
 
@@ -36,23 +37,6 @@ JOIN (SELECT policy_id, MAX(version) AS version
       FROM network_policy_event_log GROUP BY policy_id) latest
   ON latest.policy_id = e.policy_id AND latest.version = e.version
 ORDER BY e.policy_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*apigen.NetworkPolicyEvent
-	for rows.Next() {
-		event, err := scanNetworkPolicyEvent(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, event)
-	}
-	return out, rows.Err()
-}
-
-func (q *Queries) ListNetworkPolicyEventsAtSeq(ctx context.Context, id int64) ([]*apigen.NetworkPolicyEvent, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT * FROM network_policy_event_log WHERE global_seq = ? ORDER BY id`, id)
 	if err != nil {
 		return nil, err
 	}

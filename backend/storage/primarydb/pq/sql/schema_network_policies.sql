@@ -11,3 +11,5 @@ CREATE TABLE IF NOT EXISTS network_policy_event_log (
     event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
     UNIQUE (policy_id, version)
 );
+
+CREATE INDEX IF NOT EXISTS idx_network_policy_event_log_seq ON network_policy_event_log (global_seq, id);

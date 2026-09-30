@@ -1,7 +1,6 @@
 package systemconfig
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/pubsubu"
@@ -22,7 +20,6 @@ import (
 type Service struct {
 	Storage                *state.Service
 	Subs                   *pubsubu.PubSub[apigen.SystemConfig]
-	VersionedSubs          *pubsubu.PubSub[apigen.SystemConfigVersion]
 	AssetOperationMu       sync.Locker
 	ValidateSettingsUpdate func(current, next apigen.ClusterSettings) error
 	mu                     sync.Mutex
@@ -126,10 +123,9 @@ func Default(initial Initial) *apigen.SystemConfig {
 
 func NewService(store *state.Service) (*Service, error) {
 	s := &Service{
-		Storage:       store,
-		Subs:          &pubsubu.PubSub[apigen.SystemConfig]{},
-		VersionedSubs: &pubsubu.PubSub[apigen.SystemConfigVersion]{},
-		targetWake:    make(chan struct{}, 1),
+		Storage:    store,
+		Subs:       &pubsubu.PubSub[apigen.SystemConfig]{},
+		targetWake: make(chan struct{}, 1),
 	}
 	cfg, row, err := s.loadConfig()
 	if err != nil {
@@ -139,7 +135,7 @@ func NewService(store *state.Service) (*Service, error) {
 		return nil, fmt.Errorf("stored network ULA prefix is invalid: %w", err)
 	}
 	s.versionID = row.ID
-	s.publishConfig(cfg, row.ID, time.UnixMilli(row.UpdatedAt))
+	s.Subs.Notify(cfg)
 	return s, nil
 }
 
@@ -176,10 +172,6 @@ func (s *Service) SnapshotAndSubscribe(filter func(a, b apigen.SystemConfig) boo
 	return s.Subs.Subscribe(filter)
 }
 
-func (s *Service) VersionedSnapshotAndSubscribe() *pubsubu.Sub[apigen.SystemConfigVersion] {
-	return s.VersionedSubs.Subscribe(nil)
-}
-
 func (s *Service) Snapshot() apigen.SystemConfig {
 	return s.Subs.Value()
 }
@@ -199,16 +191,6 @@ func (s *Service) loadConfig() (apigen.SystemConfig, pq.SystemConfigRevision, er
 		return res, pq.SystemConfigRevision{}, fmt.Errorf("DecodeConfig: %w", err)
 	}
 	return normalizeConfig(*cfg), r, nil
-}
-
-func (s *Service) publishConfig(cfg apigen.SystemConfig, version int64, updatedAt time.Time) {
-	s.Subs.Notify(cfg)
-	cfg.MasterPasswordHash = ""
-	s.VersionedSubs.Notify(apigen.SystemConfigVersion{
-		Version:   version,
-		UpdatedAt: updatedAt,
-		Config:    cfg,
-	})
 }
 
 func (s *Service) UpdateSettings(settings apigen.ClusterSettings, author int32, inlockValidate func(*pq.Queries) error) error {
@@ -240,11 +222,7 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings, author int32, 
 		return err
 	}
 	s.versionID = versionID
-	row, err := s.Storage.Queries().GetConfigByID(context.Background(), versionID)
-	if err != nil {
-		panic(fmt.Sprintf("GetConfigByID after settings update: %v", err))
-	}
-	s.publishConfig(cfg, versionID, time.UnixMilli(row.UpdatedAt))
+	s.Subs.Notify(cfg)
 	if oldTarget != newTarget {
 		select {
 		case s.targetWake <- struct{}{}:
@@ -261,11 +239,7 @@ func (s *Service) saveAndNotifyLocked(cfg apigen.SystemConfig, author int32) err
 		return fmt.Errorf("AppendRevision: %w", err)
 	}
 	s.versionID = versionID
-	row, err := s.Storage.Queries().GetConfigByID(context.Background(), versionID)
-	if err != nil {
-		panic(fmt.Sprintf("GetConfigByID after config update: %v", err))
-	}
-	s.publishConfig(cfg, versionID, time.UnixMilli(row.UpdatedAt))
+	s.Subs.Notify(cfg)
 	return nil
 }
 

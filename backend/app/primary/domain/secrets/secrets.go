@@ -46,7 +46,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -267,26 +266,6 @@ func (m *Manager) Resolve(ref apigen.ValueRef) (string, bool) {
 	return string(pt), true
 }
 
-// RevealByID returns the decrypted value of a single secret version row on
-// explicit request. ErrLocked when the store is locked, ErrNotFound when no
-// such row exists.
-func (m *Manager) RevealByID(id int32) ([]byte, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if m.smk == nil {
-		return nil, ErrLocked
-	}
-	rec, ok := m.userRecordLocked(id)
-	if !ok {
-		return nil, ErrNotFound
-	}
-	pt, err := m.openRecordLocked(rec)
-	if err != nil {
-		return nil, fmt.Errorf("decrypting secret id %d: %w", id, err)
-	}
-	return pt, nil
-}
-
 // RevealByRef returns the decrypted value of a single secret value on
 // explicit request. ErrLocked when the store is locked, ErrNotFound when no
 // such value exists.
@@ -335,18 +314,6 @@ func (m *Manager) ResolveMany(refs []apigen.ValueRef) (map[apigen.ValueRef]strin
 		out[ref] = string(pt)
 	}
 	return out, nil
-}
-
-// MetaByID describes a secret version row (never its value). Works while
-// locked: metadata needs no decryption.
-func (m *Manager) MetaByID(id int32) (Meta, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	rec, ok := m.userRecordLocked(id)
-	if !ok {
-		return Meta{}, false
-	}
-	return rec.meta(), true
 }
 
 // MetaByRef describes a secret value (never the value itself). Works while
@@ -433,7 +400,7 @@ func (m *Manager) SetByName(name string, value []byte, author int32) (Meta, erro
 
 // SetWithDeploymentUpdates appends an immutable secret version and optionally
 // rolls the caller-asserted deployment references to the new row atomically.
-func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author int32, updateDeployments bool, deployments []storage.DeploymentSpecVersion, onCommit func(Meta)) (Meta, error) {
+func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author int32, updateDeployments bool, deployments []*apigen.DeploymentExpectedSeq, onCommit func(Meta)) (Meta, error) {
 	if secretID == 0 {
 		return Meta{}, ErrNotFound
 	}

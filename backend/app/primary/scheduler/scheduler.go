@@ -85,14 +85,19 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 func (s *Scheduler) reconcile(ctx context.Context, q *pq.Queries, update *state.Update, scope func() ([]int32, error)) error {
 	affected := map[int32]bool{}
-	for _, event := range update.DeploymentEvents {
-		affected[event.DeploymentID] = true
-	}
-	for _, event := range update.ScheduledInstanceEvents {
-		affected[event.Value.DeploymentID] = true
-	}
-	for _, status := range update.InstanceStatuses {
-		affected[status.DeploymentID] = true
+	for _, m := range update.Mutations {
+		switch m.Type() {
+		case apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT:
+			affected[int32(m.EntityID())] = true
+		case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE:
+			if e := m.Entity(); e != nil && e.ScheduledInstance != nil {
+				affected[e.ScheduledInstance.DeploymentID] = true
+			}
+		case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS:
+			if e := m.Entity(); e != nil && e.ScheduledInstanceStatus != nil {
+				affected[e.ScheduledInstanceStatus.DeploymentID] = true
+			}
+		}
 	}
 	if scope != nil {
 		ids, err := scope()
@@ -117,7 +122,12 @@ func (s *Scheduler) reconcile(ctx context.Context, q *pq.Queries, update *state.
 	if err != nil {
 		return err
 	}
+	// Rows this trigger appends share the commit's time with the rows the
+	// mutate function wrote.
 	now := s.now()
+	if len(update.Mutations) > 0 && update.Time != 0 {
+		now = time.UnixMilli(update.Time)
+	}
 	for _, id := range ids {
 		cfg, instances, err := readSchedulingState(ctx, q, id)
 		if err != nil {
@@ -168,7 +178,7 @@ func evictedNodeIDs(ctx context.Context, q *pq.Queries) (map[int32]bool, error) 
 }
 
 func (tx *transaction) publish(event *apigen.ScheduledInstanceEvent) {
-	tx.update.ScheduledInstanceEvents = append(tx.update.ScheduledInstanceEvents, event)
+	pq.AppendMutations(tx.update, pq.ScheduledInstanceMutation(event))
 	tx.changed = true
 }
 

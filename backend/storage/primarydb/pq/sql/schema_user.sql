@@ -56,3 +56,9 @@ CREATE TABLE IF NOT EXISTS user_session_event_log (
 
 CREATE INDEX IF NOT EXISTS idx_user_session_event_log_session_id ON user_session_event_log (session_id, id);
 CREATE INDEX IF NOT EXISTS idx_user_session_event_log_user_id ON user_session_event_log (user_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_user_event_log_seq ON user_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_agent_session_event_log_seq ON agent_session_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_user_session_event_log_seq ON user_session_event_log (global_seq, id);

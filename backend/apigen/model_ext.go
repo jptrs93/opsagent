@@ -3,7 +3,6 @@ package apigen
 import (
 	"fmt"
 	"path/filepath"
-	"reflect"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/ainit"
@@ -342,33 +341,74 @@ func WithRunningVersion(cfg *DeploymentEvent, st ScheduledInstanceStatus) Schedu
 	return st
 }
 
-func (u *CoreUpdate) IsEmpty() bool {
-	value := reflect.ValueOf(u).Elem()
-	for i := 0; i < value.NumField(); i++ {
-		if value.Type().Field(i).Name == "Seq" {
-			continue
-		}
-		field := value.Field(i)
-		switch field.Kind() {
-		case reflect.Slice, reflect.Map:
-			if field.Len() > 0 {
-				return false
-			}
-		default:
-			if !field.IsZero() {
-				return false
-			}
+func (u *CoreWriteUpdate) IsEmpty() bool {
+	return u == nil || len(u.Mutations) == 0
+}
+
+// Kind returns the mutation kind as the matching AuthzVerb.
+func (m *CoreMutation) Kind() AuthzVerb {
+	switch {
+	case m == nil:
+		return AuthzVerb_AUTHZ_VERB_UNKNOWN
+	case m.Delete != nil:
+		return AuthzVerb_AUTHZ_VERB_DELETE
+	case m.Create != nil:
+		return AuthzVerb_AUTHZ_VERB_CREATE
+	default:
+		return AuthzVerb_AUTHZ_VERB_UPDATE
+	}
+}
+
+func (m *CoreMutation) Type() CoreEntityType {
+	switch {
+	case m == nil:
+		return CoreEntityType_CORE_ENTITY_UNSPECIFIED
+	case m.Create != nil:
+		return m.Create.EntityType
+	case m.Update != nil:
+		return m.Update.EntityType
+	case m.Delete != nil:
+		return m.Delete.EntityType
+	}
+	return CoreEntityType_CORE_ENTITY_UNSPECIFIED
+}
+
+func (m *CoreMutation) EntityID() int64 {
+	switch {
+	case m == nil:
+		return 0
+	case m.Create != nil:
+		return m.Create.EntityID
+	case m.Update != nil:
+		return m.Update.EntityID
+	case m.Delete != nil:
+		return m.Delete.EntityID
+	}
+	return 0
+}
+
+// Entity returns the payload of a create or update, and nil for a delete.
+func (m *CoreMutation) Entity() *CoreEntity {
+	switch {
+	case m == nil:
+		return nil
+	case m.Create != nil:
+		return m.Create.Entity
+	case m.Update != nil:
+		return m.Update.Entity
+	}
+	return nil
+}
+
+// Has reports whether the update carries a mutation of the given type.
+func (u *CoreWriteUpdate) Has(t CoreEntityType) bool {
+	if u == nil {
+		return false
+	}
+	for _, m := range u.Mutations {
+		if m.Type() == t {
+			return true
 		}
 	}
-	return true
-}
-
-func (u *CoreUpdate) HasObserved() bool {
-	return len(u.InstanceStatuses)+len(u.NodeStatuses) > 0
-}
-
-func (u *CoreUpdate) HasCore() bool {
-	authored := *u
-	authored.InstanceStatuses, authored.NodeStatuses = nil, nil
-	return !authored.IsEmpty()
+	return false
 }

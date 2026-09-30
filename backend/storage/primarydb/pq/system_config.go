@@ -2,9 +2,6 @@ package pq
 
 import (
 	"context"
-	"time"
-
-	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
 type SystemConfigRevisionParams struct {
@@ -25,50 +22,21 @@ func (q *Queries) InsertSystemConfigRevision(ctx context.Context, arg SystemConf
 
 type SystemConfigRevision struct {
 	ID         int64
+	GlobalSeq  int64
 	UpdatedAt  int64
 	ConfigBlob []byte
 }
 
-const systemConfigColumns = `id, event_time, config_blob`
+const systemConfigColumns = `id, global_seq, event_time, config_blob`
 
 func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevision, error) {
 	var i SystemConfigRevision
-	err := q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log WHERE id = ?`, id).Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
+	err := q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log WHERE id = ?`, id).Scan(&i.ID, &i.GlobalSeq, &i.UpdatedAt, &i.ConfigBlob)
 	return i, err
 }
 
 func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, error) {
 	var i SystemConfigRevision
-	err := q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log ORDER BY id DESC LIMIT 1`).Scan(&i.ID, &i.UpdatedAt, &i.ConfigBlob)
+	err := q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log ORDER BY id DESC LIMIT 1`).Scan(&i.ID, &i.GlobalSeq, &i.UpdatedAt, &i.ConfigBlob)
 	return i, err
-}
-
-// scanSystemConfig returns the public revision; credential hashes remain internal.
-func scanSystemConfig(row scanner) (*apigen.SystemConfigVersion, error) {
-	var e apigen.SystemConfigVersion
-	var updatedAt int64
-	var blob []byte
-	if err := row.Scan(&e.Version, &updatedAt, &blob); err != nil {
-		return nil, err
-	}
-	cfg, err := apigen.DecodeSystemConfig(blob)
-	if err != nil {
-		return nil, err
-	}
-	cfg.MasterPasswordHash = ""
-	e.Config = *cfg
-	e.UpdatedAt = time.UnixMilli(updatedAt)
-	return &e, nil
-}
-
-func (q *Queries) GetLatestSystemConfig(ctx context.Context) (*apigen.SystemConfigVersion, error) {
-	return scanSystemConfig(q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log ORDER BY id DESC LIMIT 1`))
-}
-
-func (q *Queries) GetSystemConfigByID(ctx context.Context, id int64) (*apigen.SystemConfigVersion, error) {
-	return scanSystemConfig(q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log WHERE id = ?`, id))
-}
-
-func (q *Queries) GetSystemConfigAtSeq(ctx context.Context, seq int64) (*apigen.SystemConfigVersion, error) {
-	return scanSystemConfig(q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log WHERE global_seq = ? ORDER BY id DESC LIMIT 1`, seq))
 }

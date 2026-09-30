@@ -2,9 +2,30 @@ syntax = "proto3";
 
 package opsagent.v1;
 
+import "api-contract/model/assets.proto";
+import "api-contract/model/auth.proto";
+import "api-contract/model/authz.proto";
+import "api-contract/model/backup.proto";
+import "api-contract/model/configs.proto";
+import "api-contract/model/deployments.proto";
+import "api-contract/model/network_policies.proto";
+import "api-contract/model/networking.proto";
+import "api-contract/model/nodes.proto";
+import "api-contract/model/scheduled_instances.proto";
+import "api-contract/model/secrets.proto";
+import "api-contract/model_secrets_operations.proto";
+import "api-contract/model/sessions.proto";
+import "api-contract/model/spaces.proto";
+import "api-contract/model/system_config.proto";
+import "api-contract/model_cluster_operations.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+// CoreWriteUpdate is one commit: every row it wrote, as mutations over
+// entities, under one seq, one clock reading, and one actor.
 message CoreWriteUpdate {
   int64 seq = 1;
-  int64 time = 2;
+  int64 time = 2;                  // epoch ms, equal to event_time on every row of the commit
   int32 actor = 3;                 // user id; 0 = system, negative = agent of user -actor
   repeated CoreMutation mutations = 4;
 }
@@ -51,9 +72,13 @@ enum CoreEntityType {                // numbers equal the CoreEntity field numbe
   CORE_ENTITY_SYSTEM_CONFIG = 15;
   CORE_ENTITY_SCHEDULED_INSTANCE_STATUS = 16;
   CORE_ENTITY_NODE_STATUS = 17;
+  CORE_ENTITY_AGENT_SESSION = 18;
+  CORE_ENTITY_USER_SESSION = 19;
+  CORE_ENTITY_NIX_STORE_RESET = 20;
+  CORE_ENTITY_SECRET_KEYSLOT = 21;   // replica only; never in the browser class
 }
 
-message CoreEntity {                 // exactly one set
+message CoreEntity {                 // exactly one set; field numbers equal CoreEntityType
   Deployment deployment = 1;
   ScheduledInstance scheduled_instance = 2;
   Node node = 3;
@@ -65,10 +90,36 @@ message CoreEntity {                 // exactly one set
   User user = 9;
   ValueDirectory value_directory = 10;
   AssetDirectory asset_directory = 11;
-  AuthzRuleTemplate authz_rule_template = 12;
+  AuthzRuleTemplateRecord authz_rule_template = 12;
   AuthzGrantValue authz_grant = 13;
-  AuthzGlobalRule authz_global_rule = 14;
+  AuthzGlobalRuleRecord authz_global_rule = 14;
   SystemConfig system_config = 15;
   ScheduledInstanceStatus scheduled_instance_status = 16;
   NodeStatus node_status = 17;
+  AgentSession agent_session = 18;
+  UserSession user_session = 19;
+  NixStoreReset nix_store_reset = 20;
+  SecretKeyslot secret_keyslot = 21;
+}
+
+// EventStreamRequest opens the stream after the last seq the client folded.
+// after_seq = 0 asks for a bootstrap: reset followed by the compacted history.
+message EventStreamRequest {
+  int64 after_seq = 1;
+}
+
+// EventStreamMsg is one frame of the event stream. events carry commits in
+// seq order; reset tells the client to clear its tree before folding the
+// events that follow; synced marks the point where the history has been
+// delivered and everything after it is live. The sidecars are replace-style
+// values that ride the same connection without a seq.
+message EventStreamMsg {
+  repeated CoreWriteUpdate events = 1;
+  bool reset = 2;
+  bool synced = 3;
+  bool heartbeat = 4;
+  BackupStatus backup_status = 5;
+  IngressDiagnosticList ingress_diagnostics = 6;
+  SecretsStatusResponse secrets_status = 7;
+  int64 seq = 8;
 }

@@ -29,7 +29,7 @@ func (h *Handler) PostV1NetworkPoliciesUpdate(ctx apigen.Context, req *apigen.Ne
 	if err := h.validateNetworkPolicyContent(ctx, policy); err != nil {
 		return nil, err
 	}
-	return networkpolicies.Update(h.Store, req.ID, req.Version, int32(authorID(ctx)), policy)
+	return networkpolicies.Update(h.Store, req.ID, req.ExpectedSeq, int32(authorID(ctx)), policy)
 }
 
 func (h *Handler) PostV1NetworkPoliciesDelete(ctx apigen.Context, req *apigen.NetworkPolicyDeleteRequest) error {

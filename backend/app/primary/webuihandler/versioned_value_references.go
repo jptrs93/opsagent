@@ -2,15 +2,14 @@ package webuihandler
 
 import (
 	"errors"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"net/http"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 )
 
 var InvalidReferencingDeploymentsErr = apigen.NewApiErr(
-	"Referencing deployments must contain unique positive IDs and current versions",
+	"Referencing deployments must contain unique positive IDs",
 	"invalid_referencing_deployments",
 	http.StatusBadRequest,
 )
@@ -21,21 +20,21 @@ var ReferencingDeploymentsChangedErr = apigen.NewApiErr(
 	http.StatusConflict,
 )
 
-func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentSpecVersionRef) ([]storage.DeploymentSpecVersion, error) {
+func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentExpectedSeq) ([]*apigen.DeploymentExpectedSeq, error) {
 	if !update && len(refs) != 0 {
 		return nil, InvalidReferencingDeploymentsErr
 	}
 	seen := make(map[int32]struct{}, len(refs))
-	out := make([]storage.DeploymentSpecVersion, 0, len(refs))
+	out := make([]*apigen.DeploymentExpectedSeq, 0, len(refs))
 	for _, ref := range refs {
-		if ref == nil || ref.ID <= 0 || ref.SpecVersion <= 0 {
+		if ref == nil || ref.DeploymentID <= 0 || ref.ExpectedSeq < 0 {
 			return nil, InvalidReferencingDeploymentsErr
 		}
-		if _, duplicate := seen[ref.ID]; duplicate {
+		if _, duplicate := seen[ref.DeploymentID]; duplicate {
 			return nil, InvalidReferencingDeploymentsErr
 		}
-		seen[ref.ID] = struct{}{}
-		out = append(out, storage.DeploymentSpecVersion{ID: ref.ID, SpecVersion: ref.SpecVersion})
+		seen[ref.DeploymentID] = struct{}{}
+		out = append(out, ref)
 	}
 	return out, nil
 }

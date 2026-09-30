@@ -45,23 +45,6 @@ func (q *Queries) ListLiveSecretKeyslots(ctx context.Context) ([]SecretKeyslot, 
 	return out, rows.Err()
 }
 
-func (q *Queries) ListSecretKeyslotsAtSeq(ctx context.Context, seq int64) ([]SecretKeyslot, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT `+secretKeyslotColumns+` FROM secret_keyslot_event_log WHERE global_seq = ? ORDER BY id`, seq)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []SecretKeyslot
-	for rows.Next() {
-		k, _, err := scanSecretKeyslot(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, k)
-	}
-	return out, rows.Err()
-}
-
 type SecretKeyslotEventParams struct {
 	EventMeta
 	SecretKeyslot
@@ -74,13 +57,13 @@ func (q *Queries) InsertSecretKeyslotEvent(ctx context.Context, arg SecretKeyslo
 	return err
 }
 
-func (q *Queries) DeleteNodeSecretKeyslots(ctx context.Context, meta EventMeta, nodeID int64) (int, error) {
+func (q *Queries) DeleteNodeSecretKeyslots(ctx context.Context, meta EventMeta, nodeID int64) ([]Mutation, error) {
 	live, err := q.ListLiveSecretKeyslots(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_DELETE
-	deleted := 0
+	var deleted []Mutation
 	for _, k := range live {
 		if k.Kind != apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE || k.NodeID != nodeID {
 			continue
@@ -88,7 +71,7 @@ func (q *Queries) DeleteNodeSecretKeyslots(ctx context.Context, meta EventMeta, 
 		if err := q.InsertSecretKeyslotEvent(ctx, SecretKeyslotEventParams{EventMeta: meta, SecretKeyslot: k}); err != nil {
 			return deleted, err
 		}
-		deleted++
+		deleted = append(deleted, SecretKeyslotMutation(meta, k))
 	}
 	return deleted, nil
 }

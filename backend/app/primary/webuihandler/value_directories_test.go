@@ -209,11 +209,11 @@ func TestCrossSpaceValueMove(t *testing.T) {
 	// The moved secret's value is still reachable through its new space —
 	// the Manager's denormalized space follows the identity row.
 	if revealed, err := h.PostV1SecretsReveal(testCtx(user), &apigen.SecretRevealRequest{
-		ID: statetest.ValueVersions(h.Store, secret)[0].ID,
+		SecretID: secret.SecretID, Version: statetest.ValueVersions(h.Store, secret)[0].Version,
 	}); err != nil || string(revealed.Value) != "v" {
 		t.Fatalf("reveal after move = %v, %v", revealed, err)
 	}
-	if meta, ok := h.Secrets.MetaByID(statetest.ValueVersions(h.Store, secret)[0].ID); !ok || meta.SpaceID != 2 {
+	if meta, ok := h.Secrets.MetaByRef(statetest.ValueVersions(h.Store, secret)[0].Ref); !ok || meta.SpaceID != 2 {
 		t.Fatalf("manager meta after move = %+v ok=%v, want space 2", meta, ok)
 	}
 }
@@ -435,12 +435,12 @@ func TestGlobalStateIncludesValueDirectories(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	dir := mustCreateDir(t, h, user, 1, 0, "app")
 
-	state, err := h.GetV1GlobalSnapshot(testCtx(user))
+	msg, err := h.PostV1GlobalEvents(testCtx(user), &apigen.EventStreamRequest{})
 	if err != nil {
-		t.Fatalf("GetV1GlobalSnapshot: %v", err)
+		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	if state.ValueDirectories == nil || len(state.ValueDirectories) != 1 ||
-		state.ValueDirectories[0].ID != dir.ID {
-		t.Fatalf("global state directories = %+v, want the one created", state.ValueDirectories)
+	dirs := statetest.Fold(msg.Events)[apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY]
+	if len(dirs) != 1 || dirs[int64(dir.ID)] == nil || dirs[int64(dir.ID)].ValueDirectory.ID != dir.ID {
+		t.Fatalf("bootstrap value directories = %+v, want the one created", dirs)
 	}
 }

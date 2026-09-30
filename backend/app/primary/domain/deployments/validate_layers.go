@@ -93,10 +93,6 @@ func preLockValidateDeploymentUpdate(q *pq.Queries, secretStore *secrets.Manager
 			return InvalidConfigErrf("spec: %v", err)
 		}
 	}
-	if req.RestartUpdate == nil && updated.Value.SpaceID == existing.Value.SpaceID && updated.Value.Name == existing.Value.Name &&
-		pq.DeploymentSpecsEqual(&updated.Value.Spec, &existing.Value.Spec) && pq.DeploymentSchedulingEqual(&updated.Value.Scheduling, &existing.Value.Scheduling) {
-		return InvalidConfigErrf("nothing changed")
-	}
 	if updated.Value.PlacementNodeID() != existing.Value.PlacementNodeID() {
 		return InvalidConfigErrf("scheduling.dedicatedNodes.nodes: the node cannot be changed after creation")
 	}
@@ -199,7 +195,7 @@ func inLockValidateDeploymentCreate(ctx context.Context, q *pq.Queries, reservat
 	return validateRefSpaces(ctx, q, &updated.Value.Spec, updated.Value.SpaceID)
 }
 
-func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservations []ingressplan.Reservation, updated *apigen.DeploymentEvent, expectedVersion int32) error {
+func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservations []ingressplan.Reservation, updated *apigen.DeploymentEvent, expectedSeq int64) error {
 	live, err := nodes.ReadLiveState(ctx, q)
 	if err != nil {
 		return err
@@ -208,8 +204,8 @@ func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservat
 	if existing == nil || existing.Deleted() {
 		return NotFoundErr
 	}
-	if existing.Version != expectedVersion {
-		return InvalidConfigErrf("deployment version mismatch: deployment %d has version %d, expected %d", existing.DeploymentID, existing.Version, expectedVersion)
+	if expectedSeq != 0 && existing.Seq > expectedSeq {
+		return InvalidConfigErrf("deployment %d changed since it was loaded", existing.DeploymentID)
 	}
 	if err := validateNodeNotDraining(live, updated, existing); err != nil {
 		return err
@@ -264,7 +260,7 @@ func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservat
 	return validateRefSpaces(ctx, q, &updated.Value.Spec, updated.Value.SpaceID)
 }
 
-func inLockValidateDeploymentDelete(ctx context.Context, q *pq.Queries, cluster NodeConnectivity, primaryNodeID, deploymentID, expectedVersion int32) error {
+func inLockValidateDeploymentDelete(ctx context.Context, q *pq.Queries, cluster NodeConnectivity, primaryNodeID, deploymentID int32, expectedSeq int64) error {
 	live, err := nodes.ReadLiveState(ctx, q)
 	if err != nil {
 		return err
@@ -273,8 +269,8 @@ func inLockValidateDeploymentDelete(ctx context.Context, q *pq.Queries, cluster 
 	if existing == nil || existing.Deleted() {
 		return NotFoundErr
 	}
-	if existing.Version != expectedVersion {
-		return InvalidConfigErrf("deployment version mismatch: deployment %d has version %d, expected %d", existing.DeploymentID, existing.Version, expectedVersion)
+	if expectedSeq != 0 && existing.Seq > expectedSeq {
+		return InvalidConfigErrf("deployment %d changed since it was loaded", existing.DeploymentID)
 	}
 	statuses := []apigen.ScheduledInstanceStatus{}
 	for _, entry := range live.Scheduled {

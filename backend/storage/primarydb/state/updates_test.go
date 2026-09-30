@@ -14,7 +14,9 @@ func TestSubscriberOverflowClosesOnlyTheSlowSubscriber(t *testing.T) {
 	node := testNode(s, "primary")
 	_, slow, unsubscribeSlow := Subscribe(s, func() struct{} { return struct{}{} }, func(Update) (int, bool) { return 0, true })
 	defer unsubscribeSlow()
-	_, fast, unsubscribeFast := Subscribe(s, func() struct{} { return struct{}{} }, func(u Update) (Update, bool) { return u, len(u.DeploymentEvents) > 0 })
+	_, fast, unsubscribeFast := Subscribe(s, func() struct{} { return struct{}{} }, func(u Update) (Update, bool) {
+		return u, u.Has(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT)
+	})
 	defer unsubscribeFast()
 	receive := func(want string, check func(Update) bool) {
 		t.Helper()
@@ -29,7 +31,7 @@ func TestSubscriberOverflowClosesOnlyTheSlowSubscriber(t *testing.T) {
 	}
 	dep := mustCreateDeploymentForNode(s, apigen.Context{}, defaultSpaceID, "overflow", node.ID, envRefSpec(nil, nil))
 	receive("create", func(u Update) bool {
-		return len(u.DeploymentEvents) == 1 && u.DeploymentEvents[0].DeploymentID == dep.DeploymentID
+		return len(u.Mutations) == 1 && u.Mutations[0].EntityID() == int64(dep.DeploymentID) && u.Mutations[0].Kind() == apigen.AuthzVerb_AUTHZ_VERB_CREATE
 	})
 	s.Mu.Lock()
 	for i := 0; i <= SubscriberBuffer; i++ {
@@ -45,7 +47,9 @@ func TestSubscriberOverflowClosesOnlyTheSlowSubscriber(t *testing.T) {
 	}
 	unsubscribeSlow()
 	deleteDeployment(s, apigen.Context{}, dep.DeploymentID)
-	receive("delete", func(u Update) bool { return len(u.DeploymentEvents) == 1 && u.DeploymentEvents[0].Deleted() })
+	receive("delete", func(u Update) bool {
+		return len(u.Mutations) == 1 && u.Mutations[0].EntityID() == int64(dep.DeploymentID) && u.Mutations[0].Kind() == apigen.AuthzVerb_AUTHZ_VERB_DELETE
+	})
 }
 
 func TestScheduledSubscriberDeliversCommittedStates(t *testing.T) {

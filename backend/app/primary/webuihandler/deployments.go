@@ -127,7 +127,7 @@ func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.Deploy
 		return err
 	}
 
-	return h.deploymentService().Delete(ctx, req.DeploymentID, req.Version-1)
+	return h.deploymentService().Delete(ctx, req.DeploymentID, req.ExpectedSeq)
 }
 
 func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apigen.RecentlyDeletedDeploymentsRequest) (*apigen.RecentlyDeletedDeployments, error) {

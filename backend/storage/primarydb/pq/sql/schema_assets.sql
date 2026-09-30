@@ -56,3 +56,7 @@ CREATE TABLE IF NOT EXISTS asset_directory_event_log (
 );
 
 CREATE INDEX IF NOT EXISTS idx_asset_directory_event_log_directory_id ON asset_directory_event_log (directory_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_event_log_seq ON asset_event_log (global_seq, id);
+
+CREATE INDEX IF NOT EXISTS idx_asset_directory_event_log_seq ON asset_directory_event_log (global_seq, id);

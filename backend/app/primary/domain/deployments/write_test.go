@@ -30,19 +30,19 @@ func TestUpdateCannotUseStaleAuthorizedDeployment(t *testing.T) {
 	// authorized the initial, unprivileged deployment.
 	hostSpec := remoteDeploymentSpec("nginx", hostNetworking())
 	privileged, err := svc.Update(ctx, initial, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: initial.DeploymentID, ExpectedVersion: initial.Version + 1,
+		DeploymentID: initial.DeploymentID, ExpectedSeq: initial.Seq,
 		SpecUpdate: &apigen.SpecUpdate{Spec: hostSpec},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expectedNext := range []int32{initial.Version + 1, privileged.Version + 1} {
-		_, err := svc.Update(ctx, initial, &apigen.DeploymentUpdateRequestV2{
-			DeploymentID: initial.DeploymentID, ExpectedVersion: expectedNext,
+	for _, existing := range []*apigen.DeploymentEvent{initial, privileged} {
+		_, err := svc.Update(ctx, existing, &apigen.DeploymentUpdateRequestV2{
+			DeploymentID: initial.DeploymentID, ExpectedSeq: initial.Seq,
 			VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.29"},
 		})
-		if err == nil || !strings.Contains(err.Error(), "deployment version mismatch") {
-			t.Fatalf("stale snapshot with expected next version %d: %v", expectedNext, err)
+		if err == nil || !strings.Contains(err.Error(), "changed since it was loaded") {
+			t.Fatalf("stale token against the row at seq %d: %v", existing.Seq, err)
 		}
 	}
 	latest, err := store.Queries().GetLatestDeploymentEvent(ctx, int64(initial.DeploymentID))
@@ -69,7 +69,7 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	}
 	restart := func(existing *apigen.DeploymentEvent) (*apigen.DeploymentEvent, error) {
 		return svc.Update(ctx, existing, &apigen.DeploymentUpdateRequestV2{
-			DeploymentID: existing.DeploymentID, ExpectedVersion: existing.Version + 1,
+			DeploymentID: existing.DeploymentID, ExpectedSeq: existing.Seq,
 			RestartUpdate: &apigen.RestartUpdate{},
 		})
 	}
@@ -77,7 +77,7 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 		t.Fatalf("restart of a stopped deployment: %v, want rejection", err)
 	}
 	running, err := svc.Update(ctx, initial, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: initial.DeploymentID, ExpectedVersion: initial.Version + 1,
+		DeploymentID: initial.DeploymentID, ExpectedSeq: initial.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.29"},
 	})
 	if err != nil {
@@ -87,8 +87,11 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restarted.Version != running.Version+1 {
-		t.Fatalf("version = %d, want %d", restarted.Version, running.Version+1)
+	if restarted.Version != running.Version+1 || restarted.Seq <= running.Seq {
+		t.Fatalf("version/seq = %d/%d, want %d and a later seq than %d", restarted.Version, restarted.Seq, running.Version+1, running.Seq)
+	}
+	if restarted.Value.Scheduling.Generation != running.Value.Scheduling.Generation+1 {
+		t.Fatalf("generation = %d, want %d", restarted.Value.Scheduling.Generation, running.Value.Scheduling.Generation+1)
 	}
 	if restarted.SpecVersion != running.SpecVersion || restarted.SpaceVersion != running.SpaceVersion || restarted.NameVersion != running.NameVersion {
 		t.Fatalf("facets moved: spec %d->%d space %d->%d name %d->%d",
@@ -108,8 +111,8 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	if again.Version != restarted.Version+1 || again.SpecVersion != restarted.SpecVersion {
 		t.Fatalf("second restart version/spec = %d/%d, want %d/%d", again.Version, again.SpecVersion, restarted.Version+1, restarted.SpecVersion)
 	}
-	if _, err := restart(restarted); err == nil || !strings.Contains(err.Error(), "deployment version mismatch") {
-		t.Fatalf("stale restart: %v, want version mismatch", err)
+	if _, err := restart(restarted); err == nil || !strings.Contains(err.Error(), "changed since it was loaded") {
+		t.Fatalf("stale restart: %v, want a stale token rejection", err)
 	}
 }
 
@@ -130,7 +133,7 @@ func TestRestartUpdateRejectsTheSelfDeployment(t *testing.T) {
 	}
 	svc := &Service{Store: store}
 	_, err := svc.Update(apigen.Context{Ctx: context.Background()}, self, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: self.DeploymentID, ExpectedVersion: self.Version + 1,
+		DeploymentID: self.DeploymentID, ExpectedSeq: self.Seq,
 		RestartUpdate: &apigen.RestartUpdate{},
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot be restarted") {
