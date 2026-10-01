@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"golang.org/x/crypto/argon2"
-
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/machinekey"
@@ -296,80 +294,6 @@ func toLower(s string) string {
 	return string(b)
 }
 
-func TestSealMigrationMovesLegacyBindingsAndSystemSecrets(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "primary.db")
-	store := state.Open(dbPath)
-	t.Cleanup(func() { _ = store.Close() })
-	mgr, err := Initialize(dir, store)
-	if err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
-	seal := func(pt string, aad []byte) ([]byte, []byte) {
-		ct, nonce, err := aeadSeal(mgr.smk, []byte(pt), aad)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return ct, nonce
-	}
-	ct1, n1 := seal("legacy-612", []byte("opendeploy-secret:user:s1:v1"))
-	ct2, n2 := seal("legacy-614", []byte("opendeploy-secret:user:s2:kabc"))
-	ct3, n3 := seal("ca-key", legacySystemAAD("opendeploy.cluster.ca.key"))
-	raw := sqlitedb.MustOpen(dbPath)
-	defer raw.Close()
-	exec := func(q string, args ...any) {
-		t.Helper()
-		if _, err := raw.Exec(q, args...); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	exec(`ALTER TABLE secret_event_log ADD COLUMN seal_id TEXT NOT NULL DEFAULT ''`)
-	exec(`INSERT INTO secret_event_log (global_seq, event_time, created_time, author, secret_id, version, value_version, value_changed,
-		name, value_directory_id, space_id, smk_version, ciphertext, nonce, seal_id, event_type)
-		VALUES (1, 1, 1, 0, 1, 1, 1, 1, 'old', 0, 1, 1, ?, ?, '', 1),
-		       (2, 2, 2, 0, 2, 1, 1, 1, 'dev', 0, 1, 1, ?, ?, 'kabc', 1),
-		       (3, 3, 2, 0, 2, 2, 1, 0, 'dev-renamed', 0, 1, 1, ?, ?, 'kabc', 2)`, ct1, n1, ct2, n2, ct2, n2)
-	exec(`CREATE TABLE system_secrets (name TEXT PRIMARY KEY, smk_version INTEGER NOT NULL, ciphertext BLOB NOT NULL, nonce BLOB NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`)
-	exec(`INSERT INTO system_secrets VALUES ('opendeploy.cluster.ca.key', 1, ?, ?, 1, 1)`, ct3, n3)
-
-	mgr2, err := Open(dir, store)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if got, ok := mgr2.Resolve(apigen.ValueRef{ID: 1, Version: 1}); !ok || got != "legacy-612" {
-		t.Fatalf("row bound to (secret_id, value_version) = %q, %v", got, ok)
-	}
-	if got, ok := mgr2.Resolve(apigen.ValueRef{ID: 2, Version: 1}); !ok || got != "legacy-614" {
-		t.Fatalf("row bound to (secret_id, seal_id) = %q, %v", got, ok)
-	}
-	if got, err := mgr2.RevealInternal("opendeploy.cluster.ca.key"); err != nil || string(got) != "ca-key" {
-		t.Fatalf("system secret after migration = %q, %v", got, err)
-	}
-	if pending, err := store.Queries().LegacySecretSealsPending(t.Context()); err != nil || pending {
-		t.Fatalf("legacy artifacts still pending: %v, %v", pending, err)
-	}
-	var sealColumns int
-	if err := raw.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('secret_event_log') WHERE name = 'seal_id'`).Scan(&sealColumns); err != nil || sealColumns != 0 {
-		t.Fatalf("seal_id column still present: %d, %v", sealColumns, err)
-	}
-	seals, err := store.Queries().ListSecretSealRows(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, row := range seals {
-		if _, err := aeadOpen(mgr2.smk, row.Ciphertext, row.Nonce, secretAAD(int32(row.SecretID))); err != nil {
-			t.Fatalf("row %d does not open under the secret_id binding: %v", row.ID, err)
-		}
-	}
-	before := len(ListVersionRecords(store.Queries()))
-	if _, err := Open(dir, store); err != nil {
-		t.Fatalf("second Open: %v", err)
-	}
-	if after := len(ListVersionRecords(store.Queries())); after != before || before != 3 {
-		t.Fatalf("version records before/after second open = %d/%d, want 3/3", before, after)
-	}
-}
-
 func TestKeyslotsAreNodeKeyedEvents(t *testing.T) {
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "primary.db"))
@@ -414,86 +338,5 @@ func TestKeyslotsAreNodeKeyedEvents(t *testing.T) {
 	}
 	if _, err := Open(dir, store); err != nil {
 		t.Fatalf("Open: %v", err)
-	}
-}
-
-func TestLegacyKeyslotTableIsCopied(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "primary.db")
-	store := state.Open(dbPath)
-	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
-	mgr, err := Initialize(dir, store)
-	if err != nil {
-		t.Fatalf("Initialize: %v", err)
-	}
-	meta, err := mgr.Create("k", []byte("v"), 0, 0, 0)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
-	}
-	smk := append([]byte(nil), mgr.smk...)
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	machineKey, err := (&machinekey.File{Path: filepath.Join(dir, machinekey.FileName)}).Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	code := "AAAAA-BBBBB-CCCCC-DDDDD"
-	salt := []byte("0123456789abcdef")
-	kek := argon2.IDKey([]byte(normalizeCode(code)), salt, argon2Time, argon2Memory, argon2Threads, keyLen)
-	wrappedMachine, nonceMachine, err := aeadSeal(machineKey, smk, slotAAD(slotMachine))
-	if err != nil {
-		t.Fatal(err)
-	}
-	wrappedRecovery, nonceRecovery, err := aeadSeal(kek, smk, slotAAD(slotRecovery))
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := sqlitedb.MustOpen(dbPath)
-	exec := func(q string, args ...any) {
-		t.Helper()
-		if _, err := raw.Exec(q, args...); err != nil {
-			t.Fatalf("%s: %v", q, err)
-		}
-	}
-	exec(`DROP TABLE secret_keyslot_event_log`)
-	exec(`CREATE TABLE secret_keyslots (slot TEXT PRIMARY KEY, smk_version INTEGER NOT NULL, wrapped_smk BLOB NOT NULL, nonce BLOB NOT NULL, kdf_salt BLOB, created_at INTEGER NOT NULL)`)
-	exec(`INSERT INTO secret_keyslots VALUES ('machine', 1, ?, ?, NULL, 5), ('recovery', 1, ?, ?, ?, 6)`, wrappedMachine, nonceMachine, wrappedRecovery, nonceRecovery, salt)
-	raw.Close()
-
-	store = state.Open(dbPath)
-	t.Cleanup(func() { _ = store.Close() })
-	slots := listKeyslots(store.Queries())
-	if len(slots) != 2 {
-		t.Fatalf("copied slots = %+v", slots)
-	}
-	if s, ok := findSlot(slots, slotMachine, primary.ID); !ok || s.CreatedAt != 5 {
-		t.Fatalf("machine slot after copy = %+v, %v; want node %d", s, ok, primary.ID)
-	}
-	if s, ok := findSlot(slots, slotRecovery, 0); !ok || string(s.KDFSalt) != string(salt) || s.CreatedAt != 6 {
-		t.Fatalf("recovery slot after copy = %+v, %v", s, ok)
-	}
-	mgr2, err := Open(dir, store)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	if got, ok := mgr2.Resolve(meta.Ref()); !ok || got != "v" {
-		t.Fatalf("Resolve after copied machine slot = %q, %v", got, ok)
-	}
-	raw = sqlitedb.MustOpen(dbPath)
-	defer raw.Close()
-	var rows int
-	if err := raw.QueryRow(`SELECT COUNT(*) FROM secret_keyslot_event_log`).Scan(&rows); err != nil || rows != 2 {
-		t.Fatalf("keyslot rows after Open = %d, %v; want the two copied rows and no rewrite", rows, err)
-	}
-	mgr3, err := Open(t.TempDir(), store)
-	if err != nil {
-		t.Fatalf("Open on fresh dir: %v", err)
-	}
-	if err := mgr3.Unlock(code, 3); err != nil {
-		t.Fatalf("Unlock with copied recovery slot: %v", err)
-	}
-	if got, ok := mgr3.Resolve(meta.Ref()); !ok || got != "v" {
-		t.Fatalf("Resolve after recovery unlock = %q, %v", got, ok)
 	}
 }

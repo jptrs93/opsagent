@@ -32,11 +32,8 @@ type conn struct {
 
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpenWriter(dbPath)
-	legacy := renameLegacyEventTables(db)
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
-	copyLegacyEventTables(db, legacy)
-	migrateValueRefs(db)
 	backfillWriteEvents(db)
 	return &Queries{db: &conn{DBTX: db, root: db}}
 }

@@ -63,7 +63,8 @@ rotation without reading as a new value is moot: a re-seal is a row with
 Migration. Rows from v0.0.612 and earlier are bound to
 `opendeploy-secret:user:s<id>:v<value_version>`; rows from unreleased
 v0.0.614 builds to `...:s<id>:<seal_id>`. Both need the master key to move,
-so `secrets.Manager.migrateSealsLocked` runs after every successful unlock
+so `secrets.Manager.migrateSealsLocked` (removed 2026-10-01 after the
+v0.0.614 rollout) ran after every successful unlock
 (`Open` with the machine key, `Unlock` with the recovery code): each row
 that does not open under the current binding is opened under its legacy
 one and re-sealed in place, the `system_secrets` rows are appended to the
@@ -175,7 +176,7 @@ status, secrets lock status, ingress diagnostics, the netmap).
   machine's placement flags and is rebuildable, though rebuilding it on a
   replica is deliberately not done here.
 - Inline storage is gone. Content of every size takes the staged-file path;
-  `assets.MigrateInlineContent` writes existing inline blobs out at startup,
+  `assets.MigrateInlineContent` (removed 2026-10-01) wrote existing inline blobs out at startup,
   claims them locally, and drops the column, and the reconciler moves them
   to the configured target.
 - `asset_migrations` is gone. The reconciler converges from the placement

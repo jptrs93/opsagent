@@ -31,12 +31,13 @@ func TestSecretCarryEventCopiesSealedPayload(t *testing.T) {
 	if got, want := SecretMutation(carried, sealed).Entity.Secret, (apigen.Secret{Fs: &apigen.SecretFs{Name: "renamed"}, SpaceID: 1, ValueVersion: 1, CreatedTime: 1, SmkVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{2}}); !bytes.Equal(got.Encode(), want.Encode()) {
 		t.Fatalf("carried mutation payload = %+v", got)
 	}
-	seals, err := q.ListSecretSealRows(ctx)
-	if err != nil {
+	var smkVersion int64
+	var ciphertext, nonce []byte
+	if err := q.db.QueryRowContext(ctx, `SELECT smk_version, ciphertext, nonce FROM secret_event_log WHERE secret_id = 1 AND version = 2`).Scan(&smkVersion, &ciphertext, &nonce); err != nil {
 		t.Fatal(err)
 	}
-	if len(seals) != 2 || !bytes.Equal(seals[1].Ciphertext, []byte{1}) || !bytes.Equal(seals[1].Nonce, []byte{2}) {
-		t.Fatalf("seal rows = %+v", seals)
+	if smkVersion != 1 || !bytes.Equal(ciphertext, []byte{1}) || !bytes.Equal(nonce, []byte{2}) {
+		t.Fatalf("carried row seal = %d %v %v", smkVersion, ciphertext, nonce)
 	}
 	records, err := q.ListSecretVersionRecords(ctx)
 	if err != nil {

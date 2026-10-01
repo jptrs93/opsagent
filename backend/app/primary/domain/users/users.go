@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/jptrs93/goutil/erru"
@@ -87,30 +86,6 @@ func DedupeCredentials(u *apigen.InternalUser) bool {
 	}
 	u.Credentials = kept
 	return true
-}
-
-// MigrateDuplicateCredentials is the one-time v0.0.614 clean-up of the
-// credential entries that every passkey login appended before SetCredential
-// replaced by id. Idempotent. Remove after every active cluster has rolled
-// forward, per the migrations.sql history-note convention.
-func MigrateDuplicateCredentials(store *state.Service) error {
-	ctx := context.Background()
-	rows, err := store.Queries().ListInternalUsers(ctx)
-	if err != nil {
-		return err
-	}
-	for _, u := range rows {
-		probe := &apigen.InternalUser{Credentials: u.Credentials}
-		if !DedupeCredentials(probe) {
-			continue
-		}
-		id := u.ID
-		UpdateMatching(store, func(user *apigen.InternalUser) bool { return user.ID == id }, func(user *apigen.InternalUser) {
-			DedupeCredentials(user)
-		})
-		slog.InfoContext(ctx, "collapsed duplicate passkey credential entries", "user", id, "before", len(u.Credentials), "after", len(probe.Credentials))
-	}
-	return nil
 }
 
 func ListPublic(q *pq.Queries) []*apigen.User {

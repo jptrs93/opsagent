@@ -1,6 +1,6 @@
 # Value reference pairs: implementation plan
 
-Status: steps 1–4 implemented, 2026-09-25, for the release after v0.0.612. The e2e run (step 5) and the migration removal (step 6) are open. See Implementation status.
+Status: complete. Steps 1–4 implemented 2026-09-25 and shipped in v0.0.614; the e2e run (step 5) passed on 2026-09-29 as part of the event-stream run; `migrate_value_refs.go` was removed on 2026-10-01 after the v0.0.614 rollout (step 6). See Implementation status.
 
 References from a deployment spec, a system setting, or an ACME binding to a
 secret, config, or asset value change from the event log row id to the pair
@@ -293,7 +293,7 @@ Each step builds and passes tests on its own.
    references, a value update with "update deployments", and a worker
    restart.
 6. After every cluster has rolled forward: remove `migrate_value_refs.go`,
-   record it in the `migrations.sql` history note.
+   record it in the `migrations.sql` history note. Done 2026-10-01.
 
 ## Alternatives considered
 

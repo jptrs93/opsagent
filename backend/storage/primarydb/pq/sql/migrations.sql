@@ -34,74 +34,17 @@
 -- into Deployment.scheduling) after the v0.0.611 rollout. A database from
 -- before v0.0.611 fails at startup on the missing columns rather than
 -- opening with every deployment read as stopped.
+-- The v0.0.613 and v0.0.614 statements (the value-log space facet drop, the
+-- asset storage_key backfill, the JWT key and personal_sessions drops, the
+-- legacy table drops) and the v0.0.615 status event_time columns were removed
+-- on 2026-10-01 after the v0.0.614 rollout, together with the Go-side
+-- one-time migrations of that release (pq/migrate_event_tables.go,
+-- pq/migrate_value_refs.go, pq/migrate_inline_assets.go with
+-- assets.MigrateInlineContent, and pq/migrate_secret_seals.go with
+-- secrets.Manager.migrateSealsLocked). The write log
+-- (write_events, write_event_mutations) is backfilled by pq.Open on every
+-- start and is the only startup migration that remains.
 -- Upgrading a database from before then requires stepping through a release
 -- that still carried them. Databases migrated through v0.0.541 keep a dead
 -- NULL-only nodes.enrollment_id column: its UNIQUE constraint blocks
 -- ALTER TABLE DROP COLUMN, and no query references it.
-
-DROP TABLE IF EXISTS node_statuses;
-
--- v0.0.613: drop the never-read space facet version from the value entity
--- event logs. Only deployments keep a space_version.
-ALTER TABLE secret_event_log DROP COLUMN space_version;
-ALTER TABLE secret_event_log DROP COLUMN space_changed;
-ALTER TABLE config_event_log DROP COLUMN space_version;
-ALTER TABLE config_event_log DROP COLUMN space_changed;
-ALTER TABLE asset_event_log DROP COLUMN space_version;
-ALTER TABLE asset_event_log DROP COLUMN space_changed;
-
--- v0.0.614: the secret AEAD binds secret_id alone. Rows sealed under the
--- earlier (secret_id, value_version) binding, rows from unreleased v0.0.614
--- builds that carried a seal_id column, and the system_secrets table are
--- re-sealed and folded into secret_event_log (space 0) by the secrets
--- manager at the first unlocked start, which then drops the column and the
--- table (secrets.Manager.migrateSealsLocked). Nothing to do here.
-
--- v0.0.614: asset content identity on the event log. Every asset event row
--- carries the storage key of its content (the asset_store row id that names
--- the local file and the S3 object). Inline blobs are gone: content of every
--- size lives in the large-asset root and S3, and assets.MigrateInlineContent
--- writes existing inline blobs out at startup and then drops the column.
--- asset_migrations is gone: the reconciler converges from the placement flags
--- and never needed the row. (No semicolons in this comment: the runner splits
--- on them.)
-ALTER TABLE asset_event_log ADD COLUMN storage_key TEXT NOT NULL DEFAULT '';
-UPDATE asset_event_log SET storage_key = COALESCE((SELECT s.id FROM asset_store s WHERE s.sha256 = asset_event_log.sha256), '')
- WHERE storage_key = '' AND sha256 != '';
-DROP TABLE IF EXISTS asset_migrations;
-
--- v0.0.614: bearer tokens are opaque (u_<id>.<secret>, a_<id>.<secret>) and
--- verified by session row and hash, so the JWT verification keys are gone.
--- personal_sessions became user_sessions. The old rows are not
--- carried over: their JWT-derived hashes can never match a new-format token.
-DROP TABLE IF EXISTS public_keys;
-DROP TABLE IF EXISTS personal_sessions;
-
--- v0.0.614: users, spaces, value_directories, asset_directories,
--- system_config_revisions, nix_store_resets, agent_sessions, user_sessions,
--- and secret_keyslots became the append-only *_event_log tables (one row per
--- event, global_seq, event_time, author, event_type).
--- pq.renameLegacyEventTables and pq.copyLegacyEventTables rebuild each legacy
--- table at startup, copying every row as a seq-0 create event. Nothing to do
--- here.
-
--- v0.0.614: tables no release has read for a long time, left behind in
--- primaries installed before their schema was removed: the pre-event-log
--- system_config and secret_config_directories, the code-completion events
--- table, config_displays, and two secondary tables from when the primary and
--- secondary shared one schema file. Nothing reads them, so no data moves.
-DROP TABLE IF EXISTS system_config;
-DROP TABLE IF EXISTS secret_config_directories;
-DROP TABLE IF EXISTS config_displays;
-DROP TABLE IF EXISTS events;
-DROP TABLE IF EXISTS local_runtime_inputs;
-DROP TABLE IF EXISTS local_scheduled_instance_cache;
-
--- v0.0.615: the observed status logs carry the wall-clock event time of the
--- commit that recorded them, so a status row replays on the event stream with
--- the same time as the authored rows of its commit. Existing rows take the
--- producer clock (updated_at is HLC nanoseconds).
-ALTER TABLE scheduled_instance_status ADD COLUMN event_time INTEGER NOT NULL DEFAULT 0;
-UPDATE scheduled_instance_status SET event_time = updated_at / 1000000 WHERE event_time = 0;
-ALTER TABLE node_status_log ADD COLUMN event_time INTEGER NOT NULL DEFAULT 0;
-UPDATE node_status_log SET event_time = updated_at / 1000000 WHERE event_time = 0;

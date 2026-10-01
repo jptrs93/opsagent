@@ -320,10 +320,10 @@ which is also where state-machine guards live (a pending agent session can be
 approved once, an approved one can claim a token once). Merge-streaming these
 tables with the entity event logs by `global_seq` reproduces the full event
 stream; that is the point of keeping the whole document on every row.
-Tables that predate this shape are rebuilt at startup by `pq.Open`: the
-schema creates the `*_event_log` table beside the old one, the old rows are
-copied in as seq 0 create events, and the old table is dropped
-(`pq/migrate_event_tables.go`). Every append-only table carries the
+The startup rebuild of tables that predate this shape
+(`pq/migrate_event_tables.go`) was removed on 2026-10-01 after the v0.0.614
+rollout; a database from before v0.0.614 must step through that release
+first. Every append-only table carries the
 `_event_log` suffix; the two observed-status tables, `asset_store`, and
 `global_seq` do not, because they are not logs. Every log carries an index
 `idx_<table>_seq (global_seq, id)` (the two status tables `(global_seq)`),

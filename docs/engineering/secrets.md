@@ -229,11 +229,13 @@ machine KEK (provider-supplied) ────────────────
   were bound to `opendeploy-secret:user:s<secret_id>:v<value_version>`, and
   rows from unreleased v0.0.614 builds to `...:s<secret_id>:<seal_id>`;
   system secrets were bound to `opendeploy-secret:system:<name>` in their own
-  table. `Manager.migrateSealsLocked` re-seals all of them under the current
-  binding after every successful unlock until none is left, then drops the
-  `seal_id` column and the `system_secrets` table. Restoring a database from
-  before 2026-08 still requires stepping through a release that carried the
-  name-bound sweep.
+  table. `Manager.migrateSealsLocked` re-sealed all of them under the current
+  binding after every successful unlock until none was left, then dropped the
+  `seal_id` column and the `system_secrets` table; it was removed on
+  2026-10-01 after the v0.0.614 rollout. Restoring a database from before
+  v0.0.614 requires stepping through v0.0.614 with the store unlocked, and
+  one from before 2026-08 through a release that carried the name-bound
+  sweep as well.
 - The SMK is never stored in the clear. It is stored wrapped, once per
   **keyslot**, in the append-only `secret_keyslot_event_log` event table keyed by
   `(kind, node_id)` (`SecretKeyslotKind`, an enum on the wire model though

@@ -21,7 +21,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
-	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
 type testLoader struct{}
@@ -732,59 +731,5 @@ func TestEveryVersionCarriesTheStorageKeyOfItsContent(t *testing.T) {
 	}
 	if rows := ListAssetStoreRowMetas(store.DB.Queries()); len(rows) != 1 {
 		t.Fatalf("store rows = %d, want 1", len(rows))
-	}
-}
-
-func TestMigrateInlineContentWritesBlobsOutAndDropsTheColumn(t *testing.T) {
-	root := useTempAssetRoot(t)
-	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	state.Open(dbPath).Close()
-	legacy := sqlitedb.MustOpenWriter(dbPath)
-	if _, err := legacy.Exec(`ALTER TABLE asset_store ADD COLUMN inline_blob BLOB NOT NULL DEFAULT x''`); err != nil {
-		t.Fatal(err)
-	}
-	small := []byte("inline content")
-	for _, row := range []struct {
-		id   string
-		blob []byte
-	}{{"inline-1", small}, {"inline-empty", nil}} {
-		if _, err := legacy.Exec(`INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at) VALUES (?, ?, ?, ?, 0, 0, 1)`,
-			row.id, hashBlob(row.blob), len(row.blob), append([]byte{}, row.blob...)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := legacy.Exec(`INSERT INTO asset_store (id, sha256, size_bytes, inline_blob, local_status, remote_status, created_at) VALUES ('file-1', ?, 3, x'', 1, 0, 1)`, hashBlob([]byte("abc"))); err != nil {
-		t.Fatal(err)
-	}
-	if err := legacy.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	db := state.Open(dbPath)
-	t.Cleanup(func() { _ = db.Close() })
-	store := &Store{DB: db, Config: func() *apigen.ClusterSettings { return settings }, Loader: testLoader{}}
-	for range 2 {
-		if err := store.MigrateInlineContent(context.Background()); err != nil {
-			t.Fatalf("MigrateInlineContent: %v", err)
-		}
-	}
-	if has, err := db.Queries().AssetStoreHasInlineBlobColumn(context.Background()); err != nil || has {
-		t.Fatalf("inline_blob column present = %v err=%v after migration", has, err)
-	}
-	if got, err := os.ReadFile(filepath.Join(root, "inline-1")); err != nil || !bytes.Equal(got, small) {
-		t.Fatalf("externalized blob = %q err=%v", got, err)
-	}
-	if info, err := os.Stat(filepath.Join(root, "inline-empty")); err != nil || info.Size() != 0 {
-		t.Fatalf("externalized empty blob: %v", err)
-	}
-	for _, id := range []string{"inline-1", "inline-empty", "file-1"} {
-		row, ok := GetAssetStoreRowByID(db.Queries(), id)
-		if !ok || row.LocalStatus != 1 {
-			t.Fatalf("row %s after migration = %+v ok=%v, want a local claim", id, row, ok)
-		}
-	}
-	if _, err := os.Stat(filepath.Join(root, "file-1")); !os.IsNotExist(err) {
-		t.Fatalf("row that already had a local claim was rewritten: %v", err)
 	}
 }

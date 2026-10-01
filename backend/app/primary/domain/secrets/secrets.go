@@ -191,9 +191,6 @@ func Open(dataDir string, store *state.Service) (*Manager, error) {
 		return m, nil
 	}
 	slog.InfoContext(m.ctx, "secrets store unlocked")
-	if err := m.migrateSealsLocked(); err != nil {
-		return nil, err
-	}
 	if _, ok := findSlot(slots, slotRecovery, 0); !ok {
 		slog.WarnContext(m.ctx, "secrets recovery code not configured — generate one so secrets can be recovered if this machine is lost")
 	}
@@ -616,7 +613,7 @@ func (m *Manager) Unlock(code string, author int32) error {
 	m.smk = smk
 	m.version = rec.SMKVersion
 	slog.InfoContext(m.ctx, "secrets store unlocked via recovery code; machine key re-established")
-	return m.migrateSealsLocked()
+	return nil
 }
 
 func (m *Manager) initFirstRun() error {
