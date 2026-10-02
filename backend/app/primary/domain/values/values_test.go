@@ -10,6 +10,7 @@ import (
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
@@ -21,7 +22,7 @@ func openTestStore(t *testing.T) *state.Service {
 	return store
 }
 
-func setConfigByName(s *state.Service, name, value string, author int32) *apigen.ConfigEvent {
+func setConfigByName(s *state.Service, name, value string, author int32) *pq.ConfigEvent {
 	for _, cfg := range ListConfigs(s.Queries()) {
 		if cfg.Value.Fs.Name != name || cfg.SpaceID() != nodes.DefaultSpaceID || cfg.Value.Fs.DirectoryID != 0 {
 			continue
@@ -50,9 +51,9 @@ func mutationsOf(update state.WriteUpdate, typ apigen.CoreEntityType) []*apigen.
 	return out
 }
 
-func latestConfigRef(t *testing.T, c *apigen.ConfigEvent) *statetest.ValueVersion {
+func latestConfigRef(t *testing.T, c *pq.ConfigEvent) *statetest.ValueVersion {
 	t.Helper()
-	if c == nil || c.EventID == 0 {
+	if c == nil || c.ConfigID == 0 || c.Seq == 0 {
 		t.Fatalf("config event missing: %+v", c)
 	}
 	return statetest.LatestValue(nil, c)
@@ -110,7 +111,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 		t.Fatalf("stale update error = %v, want ErrReferencingDeploymentsChanged", err)
 	}
 	latest, ok := GetConfig(store.Queries(), database.ConfigID)
-	if !ok || latestConfigRef(t, latest).ID != savedRef.ID || latestConfigRef(t, latest).Version != 3 {
+	if !ok || latestConfigRef(t, latest).Ref != savedRef.Ref || latestConfigRef(t, latest).Version != 3 {
 		t.Fatalf("latest config after rollback = %+v, ok=%v", latest, ok)
 	}
 	if erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(firstDeployment.DeploymentID))).SpecVersion != firstCurrent.SpecVersion {
@@ -136,7 +137,7 @@ func TestRenameConfigPublishesEventAndPreservesHistory(t *testing.T) {
 			t.Fatalf("expected one config update: %+v", tx)
 		}
 		update := configs[0].Entity().Config
-		if update.Fs.Name != "new-name" || int32(configs[0].EntityID()) != meta.ConfigID || update.ValueVersion != 2 || update.Value != "two" {
+		if update.Fs.Name != "new-name" || int32(configs[0].EntityID()) != meta.ConfigID || configs[0].Meta().ValueVersion != 2 || update.Value != "two" {
 			t.Fatalf("config update = %+v", update)
 		}
 		renamed, ok := GetConfig(store.Queries(), meta.ConfigID)
@@ -158,7 +159,7 @@ func TestConfigSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create config: %v", err)
 	}
-	if c, err := DeleteConfig(store, cfg.ConfigID, nil); err != nil || c.EventType != apigen.EventType_EVENT_TYPE_DELETE {
+	if c, err := DeleteConfig(store, cfg.ConfigID, nil); err != nil || c.ConfigID != cfg.ConfigID {
 		t.Fatalf("delete config = %+v err=%v", c, err)
 	}
 	if _, ok := GetConfig(store.Queries(), cfg.ConfigID); ok {
@@ -174,8 +175,8 @@ func TestConfigSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if recreated.ConfigID == cfg.ConfigID {
 		t.Fatal("recreated config reused the deleted identity")
 	}
-	if ref, ok := GetConfigVersion(store.Queries(), statetest.ValueVersions(store, cfg)[0].Ref); !ok || ref.Value != "on" {
-		t.Fatalf("pinned version of deleted config = %+v ok=%v", ref, ok)
+	if ref, ok := GetConfigVersion(store.Queries(), apigen.ValueRef{ID: cfg.ConfigID, Version: cfg.ValueVersion}); ok {
+		t.Fatalf("version of deleted config still resolves: %+v", ref)
 	}
 	if _, err := DeleteConfig(store, cfg.ConfigID, nil); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleting a deleted config err = %v, want ErrNotFound", err)
@@ -191,7 +192,7 @@ func TestSetConfigSameValueIsNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no-op set: %v", err)
 	}
-	if same.EventID != created.EventID || same.Version != created.Version || same.ValueVersion != created.ValueVersion || len(updatedIDs) != 0 {
+	if same.Seq != created.Seq || same.ValueVersion != created.ValueVersion || len(updatedIDs) != 0 {
 		t.Fatalf("no-op set returned %+v (updated %v), want the current event %+v", same, updatedIDs, created)
 	}
 	if seqAfter := erru.Must(store.Queries().GetGlobalSeq(context.Background())); seqAfter != seqBefore {
@@ -219,7 +220,7 @@ func TestSetConfigSameValueStillRepointsStaleDeployments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no-op set with deployment updates: %v", err)
 	}
-	if saved.EventID != database.EventID || saved.ValueVersion != 2 {
+	if saved.ConfigID != database.ConfigID || saved.ValueVersion != 2 {
 		t.Fatalf("saved = %+v, want the current version 2 event", saved)
 	}
 	if len(updatedIDs) != 1 || updatedIDs[0] != stale.DeploymentID {

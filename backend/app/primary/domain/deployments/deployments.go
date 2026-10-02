@@ -52,12 +52,12 @@ func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) 
 	}
 	ctx := apigen.Context{Ctx: logu.AddTag(context.Background(), "Store")}
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		events, err := q.ListLatestDeploymentEvents(ctx)
+		events, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return nil, err
 		}
 		for _, cfg := range events {
-			if cfg.Deleted() || !storage.DeploymentKeyMatches(cfg.Value, nodeID, internaldeploy.SpaceID, internaldeploy.SelfName) {
+			if !storage.DeploymentKeyMatches(cfg.Value, nodeID, internaldeploy.SpaceID, internaldeploy.SelfName) {
 				continue
 			}
 			if internaldeploy.IsSelfSpec(&cfg.Value.Spec) {
@@ -71,7 +71,7 @@ func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) 
 			def := cfg.Value
 			def.Spec = *spec
 			def.Scheduling.Running = true
-			event, err := q.WriteDeploymentUpdate(ctx, int64(cfg.DeploymentID), seq, time.Now(), &def)
+			event, err := q.DeploymentUpdateEvent(ctx, int64(cfg.DeploymentID), seq, time.Now(), &def)
 			if err != nil {
 				return nil, err
 			}
@@ -85,10 +85,7 @@ func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) 
 		if err != nil {
 			return nil, err
 		}
-		event, err := q.WriteDeploymentCreate(ctx, id, seq, time.Now(), &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.SelfName, Spec: *spec})
-		if err != nil {
-			return nil, err
-		}
+		event := pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.SelfName, Spec: *spec})
 		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	}); err != nil {
 		panic(err)
@@ -106,13 +103,13 @@ func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *
 	ctx := apigen.Context{Ctx: logu.AddTag(context.Background(), "Store")}
 	var event *apigen.DeploymentEvent
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		events, err := q.ListLatestDeploymentEvents(ctx)
+		events, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return nil, err
 		}
 		spec := internaldeploy.NetproxySpec()
 		for _, cfg := range events {
-			if cfg.Deleted() || !storage.DeploymentKeyMatches(cfg.Value, nodeID, internaldeploy.SpaceID, internaldeploy.NetproxyName) {
+			if !storage.DeploymentKeyMatches(cfg.Value, nodeID, internaldeploy.SpaceID, internaldeploy.NetproxyName) {
 				continue
 			}
 			event = cfg
@@ -125,7 +122,7 @@ func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *
 			slog.WarnContext(ctx, "repairing netproxy deployment spec", "dep", cfg.DeploymentID, "node", nodeID)
 			def := cfg.Value
 			def.Spec = *spec
-			event, err = q.WriteDeploymentUpdate(ctx, int64(cfg.DeploymentID), seq, time.Now(), &def)
+			event, err = q.DeploymentUpdateEvent(ctx, int64(cfg.DeploymentID), seq, time.Now(), &def)
 			if err != nil {
 				return nil, err
 			}
@@ -138,10 +135,7 @@ func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *
 		if err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentCreate(ctx, id, seq, time.Now(), &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.NetproxyName, Spec: *spec})
-		if err != nil {
-			return nil, err
-		}
+		event = pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.NetproxyName, Spec: *spec})
 		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	})
 	return erru.Must(event, err)

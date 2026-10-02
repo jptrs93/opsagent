@@ -16,14 +16,6 @@ message NodeAllowedSpacesRequest {
   repeated int32 space_ids = 2;
 }
 
-message NodeEventList {
-  repeated NodeEvent items = 1;
-}
-
-message NodeStatusList {
-  repeated NodeStatus items = 1;
-}
-
 message NodeDrainRequest {
   string identifier = 1;
   bool draining = 2;

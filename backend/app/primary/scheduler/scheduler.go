@@ -41,13 +41,25 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		s.bootSeq, s.bootTime = seq-1, s.now()
 		update := &state.WriteUpdate{Seq: seq}
 		err := s.reconcile(ctx, q, update, func() ([]int32, error) {
-			rows, err := q.ListLatestDeploymentEvents(ctx)
+			rows, err := q.ListActiveDeployments(ctx)
 			if err != nil {
 				return nil, err
 			}
+			instances, err := q.ListNonFinalScheduledInstances(ctx)
+			if err != nil {
+				return nil, err
+			}
+			seen := map[int32]bool{}
 			ids := make([]int32, 0, len(rows))
 			for _, row := range rows {
+				seen[row.DeploymentID] = true
 				ids = append(ids, row.DeploymentID)
+			}
+			for _, inst := range instances {
+				if !seen[inst.Value.DeploymentID] {
+					seen[inst.Value.DeploymentID] = true
+					ids = append(ids, inst.Value.DeploymentID)
+				}
 			}
 			return ids, nil
 		})
@@ -177,22 +189,18 @@ func evictedNodeIDs(ctx context.Context, q *pq.Queries) (map[int32]bool, error) 
 	return out, nil
 }
 
-func (tx *transaction) publish(event *apigen.ScheduledInstanceEvent) {
-	pq.AppendMutations(tx.update, pq.ScheduledInstanceMutation(event))
+func (tx *transaction) publish(verb apigen.AuthzVerb, event *pq.ScheduledInstanceEvent) error {
 	tx.changed = true
+	return tx.q.Apply(tx.ctx, tx.update, pq.ScheduledInstanceMutation(verb, event))
 }
 
 func (tx *transaction) set(instance *schedulingInstance, target apigen.ScheduledInstanceTarget) error {
 	if instance.Event.Value.State == target {
 		return nil
 	}
-	event, err := tx.q.AppendScheduledInstanceEvent(tx.ctx, tx.seq, &instance.Event.Value, target, tx.now)
-	if err != nil {
-		return err
-	}
+	event := pq.ScheduledInstanceTransition(tx.seq, &instance.Event, target, tx.now)
 	instance.Event = *event
-	tx.publish(event)
-	return nil
+	return tx.publish(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, event)
 }
 
 func (tx *transaction) step(cfg *apigen.DeploymentEvent, instances []schedulingInstance) error {
@@ -239,7 +247,9 @@ func (tx *transaction) step(cfg *apigen.DeploymentEvent, instances []schedulingI
 			if err != nil {
 				return err
 			}
-			tx.publish(event)
+			if err := tx.publish(apigen.AuthzVerb_AUTHZ_VERB_CREATE, event); err != nil {
+				return err
+			}
 		}
 		if exact != nil {
 			target := exact.Event.Value.State

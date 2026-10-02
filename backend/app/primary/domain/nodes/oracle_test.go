@@ -6,6 +6,7 @@ import (
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
@@ -18,13 +19,13 @@ func globalSeq(t testing.TB, store *state.Service) int64 {
 func fingerprint(t testing.TB, store *state.Service) []byte {
 	t.Helper()
 	out := []byte{byte(globalSeq(t, store))}
-	for _, event := range statetest.Bootstrap(t, store.Queries()) {
-		out = append(out, statetest.Canonical(*event)...)
+	for _, entry := range statetest.Snapshot(t, store.Queries()) {
+		out = append(out, entry.Encode()...)
 	}
 	return out
 }
 
-func latestNodeEvent(t testing.TB, store *state.Service, identifier string) apigen.NodeEvent {
+func latestNodeEvent(t testing.TB, store *state.Service, identifier string) pq.NodeEvent {
 	t.Helper()
 	row, err := store.Queries().GetNodeRowByIdentifier(context.Background(), identifier)
 	if err != nil {

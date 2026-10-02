@@ -72,11 +72,7 @@ func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		st := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: webInst.ID, DeploymentID: web.DeploymentID, Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}}
 		st.BumpUpdatedAt()
-		now := time.Now().UnixMilli()
-		if err := q.InsertScheduledInstanceStatus(ctx, seq, now, st); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, now, st)), nil
+		return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, time.Now().UnixMilli(), st)), nil
 	}); err != nil {
 		t.Fatalf("seed instance status: %v", err)
 	}

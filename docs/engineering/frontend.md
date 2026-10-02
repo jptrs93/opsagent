@@ -59,31 +59,40 @@ The dashboard uses a split-pane layout:
 `state/tree.js` owns normalized maps and one pure fold, `applyMessage(tree,
 msg)`, over the `EventStreamMsg`s of `POST /v1/global/event-stream`;
 `state/derive.js` projects the maps into the page view models after each whole
-message. Each `CoreWriteUpdate` folds by mutation: deployments keep a version
-map per id (a delete mutation becomes a tombstone entry one version above the
-latest, so pinned versions survive until their instances finalize); secrets,
-configs, and assets keep their history oldest first, and `valueVersions` picks
-the entries whose `valueVersion` changed; nodes, instances, network policies,
+message. The opening message carries a `snapshot`, which `applySnapshot`
+folds into an empty tree one `MaterialisedEntity` at a time as a create
+under the envelope its `meta` carries (`updatedSeq`, `updatedTime`,
+`updatedActor`), adding a tombstone after the last entry of a deployment
+whose entries carry `meta.deleted`. Each live `CoreWriteUpdate` folds by
+mutation with the commit's envelope and the mutation's `meta`; every
+derived fact the tree holds (`version`, `specVersion`, `valueVersion`,
+`createdTime`, `author`) comes from that meta, never from the entity.
+Deployments keep a version map per id keyed by `meta.version` (a delete
+mutation becomes a tombstone entry one version above the latest, so pinned
+versions survive until their instances finalize); secrets, configs, and
+assets keep their history oldest first, and `valueVersions` picks the
+entries whose `valueVersion` changed; nodes, instances, network policies,
 and grants keep the latest entity wrapped with the commit's `seq`,
 `eventTime`, and `author`; spaces, users, directories, sessions, rule
-templates, and global rules are plain latest-entity maps; the system config is
-the latest entity plus its `seq`. Observed statuses merge by their nanosecond
+templates, and global rules are plain latest-entity maps; the system config
+is the latest entity plus its `seq`. Observed statuses merge by their nanosecond
 `updatedAt` (the generated Date's `epochNanoseconds`), not by seq. A status may
 precede its parent inside one message, so orphans are swept once the message
 has folded rather than refused on arrival. Tombstones clear the visible entry
 while retaining its clock until the parent goes away. An event at or below
 `tree.seq` is a replay and is dropped; every message's `seq`, heartbeats
-included, advances `tree.seq`, which is the `after_seq` of the next
-connection. `reset` clears every map before the message folds; the sidecars
-(backup, secrets status, ingress diagnostics) survive it and replace only when
-present. Deployment retention uses the same placement selector as the view:
+included, advances `tree.seq`. A snapshot clears every map before it folds,
+on the first message and whenever the server resends one after a visibility
+change; the sidecars (backup, secrets status, ingress diagnostics) survive it
+and replace only when present. Deployment retention uses the same placement selector as the view:
 live pins and the newest final run retain their referenced versions, with
 obsolete versions pruned when those pins disappear.
 
-The stream client in `state/deployments.js` connects with `after_seq =
-tree.seq`, reconnects after overflow or a lost heartbeat, resets the tree
-silently when the session token changes so the new session bootstraps, and
-clears everything on logout. The runner's `runningVersion` is not on the wire:
+The stream client in `state/deployments.js` sends an empty request (there
+is no resume token: every connection opens with a snapshot), reconnects
+after overflow or a lost heartbeat, resets the tree silently when the
+session token changes so the new session opens afresh, and clears
+everything on logout. The runner's `runningVersion` is not on the wire:
 `deploymentMerge.js` fills it from the instance's pinned config when the
 runner reports that config's spec version.
 
@@ -92,7 +101,7 @@ already owner-filtered by the server, and derive to `agentSessionsS` and
 `userSessionsS` newest first; the sessions page marks the row whose id matches
 `loginS.sessionId`. Grant state follows the fold: `AUTHZ_GRANT` mutations
 populate a map keyed by entity id and delete mutations remove the entry; a
-visibility reset replaces the map with the bootstrap's live grants.
+visibility change replaces the map with the fresh snapshot's live grants.
 
 Concurrency tokens: every write that guards against a concurrent change
 (`/v2/deployments/update`, delete, evict, enrollment accept, network policy
@@ -122,10 +131,10 @@ Reveal is by `{secretId, version}` and asset content by `asset_id` plus
 - `window.__logsResult` mirrors the last response for e2e assertions.
 
 ### Cluster (`pages/cluster.js`)
-- Shows primary + worker machines and connection state, derived client-side from the state stream's `NodeEvent` and `NodeStatus` arrays.
+- Shows primary + worker machines and connection state, derived client-side from the state stream's `Node` and `NodeStatus` entities.
 - Allows editing a machine's display name without changing its certificate or deployment identity.
 
-Deployment node selectors render `NodeEvent.value.operator.name` and submit `NodeEvent.nodeId` as `DeploymentCreateRequest.nodeId`.
+Deployment node selectors render `Node.operator.name` and submit the node's entity id in `scheduling.dedicated_nodes`.
 
 ### Settings (`pages/settings.js`)
 - One flush surface in the explorer pages' style: a toolbar on the 30px baseline (a search box that filters rows by label or section title, and once anything is dirty an amber "Unsaved changes" count with Reset and Save changes), a status line (the one line of help, or an amber warning when the cluster settings changed elsewhere while the draft is dirty), then one dense table per group — Web UI, Authentication, Cluster, Repository credentials, Backup, Secrets recovery — with the group name in a merged cell down the left, centred beside its rows, and a single rule centred in the gap between one group and the next; nothing collapses and there are no lines between rows. Columns are label, source, value. Rows are `tr`s with `data-testid="setting-row-<KEY>"`. Rows a bool hides (the HTTP listen without HTTP, the backup S3 fields without backups, the separate large-asset S3 fields) stay mounted under `hidden` so a typed draft survives; a group whose rows a search leaves empty hides with them, and the first group still showing carries no rule above it.

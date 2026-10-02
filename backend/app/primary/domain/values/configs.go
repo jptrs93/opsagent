@@ -5,41 +5,34 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"log/slog"
-	"time"
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-func ListConfigs(q *pq.Queries) []*apigen.ConfigEvent {
-	rows := erru.Must(q.ListLatestLiveConfigEvents(context.Background()))
-	if rows == nil {
-		rows = []*apigen.ConfigEvent{}
-	}
-	return rows
+const configType = apigen.CoreEntityType_CORE_ENTITY_CONFIG
+
+func ListConfigs(q *pq.Queries) []*pq.ConfigEvent {
+	return erru.Must(q.ListConfigEvents(context.Background()))
 }
 
-func GetConfig(q *pq.Queries, configID int32) (*apigen.ConfigEvent, bool) {
-	row, err := q.GetLatestConfigEvent(context.Background(), int64(configID))
+func GetConfig(q *pq.Queries, configID int32) (*pq.ConfigEvent, bool) {
+	row, err := q.GetConfigEvent(context.Background(), int64(configID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false
 	}
 	if err != nil {
 		panic(err)
 	}
-	if row.EventType == apigen.EventType_EVENT_TYPE_DELETE {
-		return nil, false
-	}
 	return row, true
 }
 
 type ConfigVersion struct {
-	ID        int32
 	ConfigID  int32
 	Name      string
 	SpaceID   int32
@@ -50,16 +43,16 @@ type ConfigVersion struct {
 }
 
 func GetConfigVersion(q *pq.Queries, ref apigen.ValueRef) (ConfigVersion, bool) {
-	r, err := q.GetConfigVersionByRef(context.Background(), ref)
+	j, err := q.GetConfigVersionJoined(context.Background(), ref)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ConfigVersion{}, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetConfigVersionByRef: %v", err))
+		panic(fmt.Sprintf("GetConfigVersionJoined: %v", err))
 	}
 	return ConfigVersion{
-		ID: int32(r.ID), ConfigID: int32(r.ConfigID), Name: r.Name, SpaceID: int32(r.SpaceID),
-		Version: int32(r.Version), Value: r.Value, CreatedAt: r.CreatedAt, Author: int32(r.Author),
+		ConfigID: int32(j.Config.ID), Name: j.Config.Name, SpaceID: int32(j.Config.SpaceID),
+		Version: int32(j.Version.ValueVersion), Value: j.Version.Value, CreatedAt: j.Version.EventTime, Author: int32(j.Version.Author),
 	}, true
 }
 
@@ -81,91 +74,74 @@ func ResolveConfigs(q *pq.Queries, refs []apigen.ValueRef) (map[apigen.ValueRef]
 	return out, nil
 }
 
-func nextConfigEvent(prev *apigen.ConfigEvent, now int64, author int32, eventType apigen.EventType) apigen.ConfigEvent {
-	event := *prev
-	event.EventID, event.Seq = 0, 0
-	event.EventTime = now
-	event.Author, event.EventType = author, eventType
-	event.Version++
-	fs := *prev.Value.Fs
-	event.Value.Fs = &fs
-	return event
-}
-
-func appendConfigEvent(ctx context.Context, q *pq.Queries, seq int64, event apigen.ConfigEvent) (*apigen.ConfigEvent, *state.WriteUpdate, error) {
-	event.Seq = seq
-	if err := q.InsertConfigEvent(ctx, &event); err != nil {
-		return nil, nil, err
+func currentConfig(ctx context.Context, q *pq.Queries, configID int32) (pq.ConfigVersionJoined, error) {
+	c, err := q.GetConfigRowByID(ctx, int64(configID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return pq.ConfigVersionJoined{}, ErrNotFound
 	}
-	return &event, pq.NewUpdate(pq.ConfigMutation(&event)), nil
-}
-
-func latestConfigEvent(ctx context.Context, q *pq.Queries, configID int32) (*apigen.ConfigEvent, error) {
-	e, err := q.GetLatestConfigEvent(ctx, int64(configID))
-	if errors.Is(err, sql.ErrNoRows) || err == nil && e.EventType == apigen.EventType_EVENT_TYPE_DELETE {
-		return nil, ErrNotFound
+	if err != nil {
+		return pq.ConfigVersionJoined{}, err
 	}
-	return e, err
+	v, err := q.GetConfigVersion(ctx, apigen.ValueRef{ID: int32(c.ID), Version: int32(c.ValueVersion)})
+	if err != nil {
+		return pq.ConfigVersionJoined{}, err
+	}
+	return pq.ConfigVersionJoined{Config: c, Version: v}, nil
 }
 
-func CreateConfig(store *state.Service, name string, spaceID, directoryID, author int32, value string) (*apigen.ConfigEvent, error) {
+func configWrite(meta pq.EventMeta, id, createdTime int64, valueVersion int32, c apigen.Config) (*pq.ConfigEvent, *state.WriteUpdate) {
+	event := &pq.ConfigEvent{ConfigID: int32(id), Seq: meta.GlobalSeq, Author: int32(meta.Author), CreatedTime: createdTime, EventTime: meta.EventTime, ValueVersion: valueVersion, Value: c}
+	return event, pq.NewUpdate(pq.ConfigMutation(meta, id, c))
+}
+
+func CreateConfig(store *state.Service, name string, spaceID, directoryID, author int32, value string) (*pq.ConfigEvent, error) {
 	if !ValidName(name) {
 		return nil, ErrNameInvalid
 	}
 	ctx := context.Background()
 	space := int64(nodes.NormalizedUserSpaceID(spaceID))
-	now := time.Now().UnixMilli()
-	var created *apigen.ConfigEvent
+	now := nowMillis()
+	var created *pq.ConfigEvent
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		dirID, err := ResolveDirectory(ctx, q, space, directoryID)
 		if err != nil {
 			return nil, err
 		}
-		if err := requireNameFree(ctx, q, space, dirID, name, 0, 0, 0); err != nil {
+		if err := requireNameFree(ctx, q, space, dirID, name, 0, 0); err != nil {
 			return nil, err
 		}
-		id, err := q.NextConfigID(ctx)
+		id, err := q.NextEntityID(ctx, configType)
 		if err != nil {
 			return nil, err
 		}
-		event := apigen.ConfigEvent{
-			Seq: seq, EventTime: now, CreatedTime: now, Author: author, ConfigID: int32(id),
-			Version: 1, ValueVersion: 1,
-			Value:     apigen.Config{Fs: &apigen.ConfigFs{Name: name, DirectoryID: int32(dirID)}, SpaceID: int32(space), Value: value},
-			EventType: apigen.EventType_EVENT_TYPE_CREATE,
-		}
-		if err := q.InsertConfigEvent(ctx, &event); err != nil {
-			return nil, err
-		}
-		created = &event
-		return pq.NewUpdate(pq.ConfigMutation(&event)), nil
+		var update *state.WriteUpdate
+		created, update = configWrite(WriteMeta(seq, now, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE), id, now, 1,
+			apigen.Config{Fs: &apigen.ConfigFs{Name: name, DirectoryID: int32(dirID)}, SpaceID: int32(space), Value: value})
+		return update, nil
 	}); err != nil {
 		return nil, err
 	}
 	return created, nil
 }
 
-func AppendConfigVersion(store *state.Service, configID int32, value string, author int32, updateDeployments bool, expected []*apigen.DeploymentExpectedSeq) (*apigen.ConfigEvent, []int32, error) {
+func AppendConfigVersion(store *state.Service, configID int32, value string, author int32, updateDeployments bool, expected []*apigen.DeploymentExpectedSeq) (*pq.ConfigEvent, []int32, error) {
 	ctx := context.Background()
-	var written *apigen.ConfigEvent
-	insert := func(q *pq.Queries, globalSeq, now int64) (int32, *state.WriteUpdate, error) {
-		prev, err := latestConfigEvent(ctx, q, configID)
+	var written *pq.ConfigEvent
+	insert := func(q *pq.Queries, seq, now int64) (int32, *state.WriteUpdate, error) {
+		cur, err := currentConfig(ctx, q, configID)
 		if err != nil {
 			return 0, nil, err
 		}
-		if prev.Value.Value == value {
-			written = prev
-			return prev.ValueVersion, nil, nil
+		if cur.Version.Value == value {
+			written = pq.ConfigEventOf(cur)
+			return int32(cur.Version.ValueVersion), nil, nil
 		}
-		event := nextConfigEvent(prev, now, author, apigen.EventType_EVENT_TYPE_UPDATE)
-		event.ValueVersion = prev.ValueVersion + 1
-		event.Value.Value = value
-		event.Seq = globalSeq
-		if err := q.InsertConfigEvent(ctx, &event); err != nil {
-			return 0, nil, fmt.Errorf("insert config value event: %w", err)
-		}
-		written = &event
-		return event.ValueVersion, pq.NewUpdate(pq.ConfigMutation(&event)), nil
+		next := pq.ConfigEntity(cur.Config, cur.Version)
+		next.Value = value
+		version := int32(cur.Version.ValueVersion) + 1
+		var update *state.WriteUpdate
+		written, update = configWrite(WriteMeta(seq, now, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE), cur.Config.ID, cur.Config.CreatedTime, version, next)
+		return version, update, nil
 	}
 	updatedDeployments, err := SetVersionedValueWithDeploymentUpdates(store, ConfigReference, configID, updateDeployments, expected, author, insert, nil)
 	if err != nil {
@@ -174,32 +150,29 @@ func AppendConfigVersion(store *state.Service, configID int32, value string, aut
 	return written, updatedDeployments, nil
 }
 
-func RenameConfig(store *state.Service, configID int32, newName string) (*apigen.ConfigEvent, error) {
+func RenameConfig(store *state.Service, configID int32, newName string) (*pq.ConfigEvent, error) {
 	if !ValidName(newName) {
 		return nil, ErrNameInvalid
 	}
 	ctx := logu.AddTag(context.Background(), "Values")
-	var current *apigen.ConfigEvent
+	var current *pq.ConfigEvent
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		prev, err := latestConfigEvent(ctx, q, configID)
+		cur, err := currentConfig(ctx, q, configID)
 		if err != nil {
 			return nil, err
 		}
-		current = prev
-		if prev.Value.Fs.Name == newName {
+		current = pq.ConfigEventOf(cur)
+		if cur.Config.Name == newName {
 			return nil, nil
 		}
-		if err := requireNameFree(ctx, q, int64(prev.Value.SpaceID), int64(prev.Value.Fs.DirectoryID), newName, 0, int64(prev.ConfigID), 0); err != nil {
+		if err := requireNameFree(ctx, q, cur.Config.SpaceID, cur.Config.DirectoryID, newName, configType, cur.Config.ID); err != nil {
 			return nil, err
 		}
-		event := nextConfigEvent(prev, time.Now().UnixMilli(), 0, apigen.EventType_EVENT_TYPE_UPDATE)
-		event.Value.Fs.Name = newName
-		slog.InfoContext(ctx, fmt.Sprintf("renamed config %d from %s to %s", configID, prev.Value.Fs.Name, newName))
-		written, update, err := appendConfigEvent(ctx, q, seq, event)
-		if err != nil {
-			return nil, err
-		}
-		current = written
+		next := pq.ConfigEntity(cur.Config, cur.Version)
+		next.Fs.Name = newName
+		slog.InfoContext(ctx, fmt.Sprintf("renamed config %d from %s to %s", configID, cur.Config.Name, newName))
+		var update *state.WriteUpdate
+		current, update = configWrite(WriteMeta(seq, nowMillis(), 0, apigen.AuthzVerb_AUTHZ_VERB_UPDATE), cur.Config.ID, cur.Config.CreatedTime, int32(cur.Version.ValueVersion), next)
 		return update, nil
 	}); err != nil {
 		return nil, err
@@ -210,12 +183,12 @@ func RenameConfig(store *state.Service, configID int32, newName string) (*apigen
 func MoveConfigDirectory(store *state.Service, configID, newDirectoryID int32) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		prev, err := latestConfigEvent(ctx, q, configID)
+		cur, err := currentConfig(ctx, q, configID)
 		if err != nil {
 			return nil, err
 		}
 		dirID := int64(newDirectoryID)
-		if int64(prev.Value.Fs.DirectoryID) == dirID {
+		if cur.Config.DirectoryID == dirID {
 			return nil, nil
 		}
 		if dirID != 0 {
@@ -223,17 +196,16 @@ func MoveConfigDirectory(store *state.Service, configID, newDirectoryID int32) e
 			if err != nil {
 				return nil, err
 			}
-			if dir.SpaceID != prev.Value.SpaceID {
+			if int64(dir.SpaceID) != cur.Config.SpaceID {
 				return nil, ErrSpaceMoveUnsupported
 			}
 		}
-		if err := requireNameFree(ctx, q, int64(prev.Value.SpaceID), dirID, prev.Value.Fs.Name, 0, int64(prev.ConfigID), 0); err != nil {
+		if err := requireNameFree(ctx, q, cur.Config.SpaceID, dirID, cur.Config.Name, configType, cur.Config.ID); err != nil {
 			return nil, err
 		}
-		event := nextConfigEvent(prev, time.Now().UnixMilli(), 0, apigen.EventType_EVENT_TYPE_UPDATE)
-		event.Value.Fs.DirectoryID = int32(dirID)
-		_, update, err := appendConfigEvent(ctx, q, seq, event)
-		return update, err
+		next := pq.ConfigEntity(cur.Config, cur.Version)
+		next.Fs.DirectoryID = int32(dirID)
+		return pq.NewUpdate(pq.ConfigMutation(WriteMeta(seq, nowMillis(), 0, apigen.AuthzVerb_AUTHZ_VERB_UPDATE), cur.Config.ID, next)), nil
 	})
 }
 
@@ -245,13 +217,13 @@ func MoveConfigSpace(store *state.Service, configID, newSpaceID, newDirectoryID,
 				return nil, err
 			}
 		}
-		prev, err := latestConfigEvent(ctx, q, configID)
+		cur, err := currentConfig(ctx, q, configID)
 		if err != nil {
 			return nil, err
 		}
 		spaceID := int64(nodes.NormalizedUserSpaceID(newSpaceID))
 		dirID := int64(newDirectoryID)
-		if spaceID == int64(prev.Value.SpaceID) && dirID == int64(prev.Value.Fs.DirectoryID) {
+		if spaceID == cur.Config.SpaceID && dirID == cur.Config.DirectoryID {
 			return nil, nil
 		}
 		if dirID != 0 {
@@ -263,36 +235,30 @@ func MoveConfigSpace(store *state.Service, configID, newSpaceID, newDirectoryID,
 				return nil, ErrDirectoryNotFound
 			}
 		}
-		if err := requireNameFree(ctx, q, spaceID, dirID, prev.Value.Fs.Name, 0, int64(prev.ConfigID), 0); err != nil {
+		if err := requireNameFree(ctx, q, spaceID, dirID, cur.Config.Name, configType, cur.Config.ID); err != nil {
 			return nil, err
 		}
-		event := nextConfigEvent(prev, time.Now().UnixMilli(), author, apigen.EventType_EVENT_TYPE_UPDATE)
-		event.Value.Fs.DirectoryID = int32(dirID)
-		event.Value.SpaceID = int32(spaceID)
-		_, update, err := appendConfigEvent(ctx, q, seq, event)
-		return update, err
+		next := pq.ConfigEntity(cur.Config, cur.Version)
+		next.Fs.DirectoryID, next.SpaceID = int32(dirID), int32(spaceID)
+		return pq.NewUpdate(pq.ConfigMutation(WriteMeta(seq, nowMillis(), author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE), cur.Config.ID, next)), nil
 	})
 }
 
-func DeleteConfig(store *state.Service, configID int32, inlockValidate func(*pq.Queries) error) (*apigen.ConfigEvent, error) {
+func DeleteConfig(store *state.Service, configID int32, inlockValidate func(*pq.Queries) error) (*pq.ConfigEvent, error) {
 	ctx := context.Background()
-	var deleted *apigen.ConfigEvent
+	var deleted *pq.ConfigEvent
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
 				return nil, err
 			}
 		}
-		prev, err := latestConfigEvent(ctx, q, configID)
+		cur, err := currentConfig(ctx, q, configID)
 		if err != nil {
 			return nil, err
 		}
-		written, update, err := appendConfigEvent(ctx, q, seq, nextConfigEvent(prev, time.Now().UnixMilli(), 0, apigen.EventType_EVENT_TYPE_DELETE))
-		if err != nil {
-			return nil, err
-		}
-		deleted = written
-		return update, nil
+		deleted = pq.ConfigEventOf(cur)
+		return pq.NewUpdate(pq.DeleteMutation(WriteMeta(seq, nowMillis(), 0, apigen.AuthzVerb_AUTHZ_VERB_DELETE), configType, cur.Config.ID)), nil
 	})
 	if err != nil {
 		return nil, err

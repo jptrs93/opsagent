@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -27,36 +28,14 @@ func ValidName(name string) bool {
 	return !strings.ContainsAny(name, "/\\\x00")
 }
 
-func SiblingNameTaken(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, name string, excludeSecretID, excludeConfigID, excludeDirectoryID int64) (bool, error) {
-	secretCount, err := q.CountSecretSiblingsWithName(ctx, pq.CountSecretSiblingsWithNameParams{
-		SpaceID: spaceID, ValueDirectoryID: directoryID, Name: name, ID: excludeSecretID,
-	})
-	if err != nil {
-		return false, err
-	}
-	if secretCount > 0 {
-		return true, nil
-	}
-	configCount, err := q.CountConfigSiblingsWithName(ctx, pq.CountConfigSiblingsWithNameParams{
-		SpaceID: spaceID, ValueDirectoryID: directoryID, Name: name, ID: excludeConfigID,
-	})
-	if err != nil {
-		return false, err
-	}
-	if configCount > 0 {
-		return true, nil
-	}
-	dirCount, err := q.CountValueDirectorySiblingsWithName(ctx, pq.CountValueDirectorySiblingsWithNameParams{
-		SpaceID: spaceID, ParentID: directoryID, Name: name, ID: excludeDirectoryID,
-	})
-	if err != nil {
-		return false, err
-	}
-	return dirCount > 0, nil
+// NameTaken reports whether name under a directory belongs to a secret,
+// config, or directory other than the entity given by self and selfID.
+func NameTaken(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, name string, self apigen.CoreEntityType, selfID int64) (bool, error) {
+	return q.ValueNameTaken(ctx, spaceID, directoryID, name, self, selfID)
 }
 
-func requireNameFree(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, name string, excludeSecretID, excludeConfigID, excludeDirectoryID int64) error {
-	taken, err := SiblingNameTaken(ctx, q, spaceID, directoryID, name, excludeSecretID, excludeConfigID, excludeDirectoryID)
+func requireNameFree(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, name string, self apigen.CoreEntityType, selfID int64) error {
+	taken, err := NameTaken(ctx, q, spaceID, directoryID, name, self, selfID)
 	if err != nil {
 		return err
 	}
@@ -65,6 +44,13 @@ func requireNameFree(ctx context.Context, q *pq.Queries, spaceID, directoryID in
 	}
 	return nil
 }
+
+// WriteMeta is the envelope of one value write.
+func WriteMeta(seq, now int64, author int32, verb apigen.AuthzVerb) pq.EventMeta {
+	return pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: verb}
+}
+
+func nowMillis() int64 { return time.Now().UnixMilli() }
 
 func GetDirectory(ctx context.Context, q *pq.Queries, id int64) (*apigen.ValueDirectory, error) {
 	d, err := q.GetValueDirectoryByID(ctx, id)

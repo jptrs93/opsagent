@@ -55,10 +55,7 @@ func (s *Service) Create(ctx apigen.Context, dep *apigen.Deployment) (*apigen.De
 		if err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentCreate(ctx, id, seq, time.Now(), &newDep.Value)
-		if err != nil {
-			return nil, err
-		}
+		event = pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), &newDep.Value)
 		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	})
 	return event, err
@@ -105,7 +102,7 @@ func (s *Service) Update(ctx apigen.Context, existing *apigen.DeploymentEvent, r
 		if err := inLockValidateDeploymentUpdate(ctx, q, s.reservations(), updated, req.ExpectedSeq); err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentUpdate(ctx, int64(req.DeploymentID), seq, time.Now(), &updated.Value)
+		event, err = q.DeploymentUpdateEvent(ctx, int64(req.DeploymentID), seq, time.Now(), &updated.Value)
 		if errors.Is(err, pq.ErrDeploymentUnchanged) {
 			event, err = q.GetLatestDeploymentEvent(ctx, int64(req.DeploymentID))
 			return nil, err
@@ -125,7 +122,7 @@ func (s *Service) Delete(ctx apigen.Context, deploymentID int32, expectedSeq int
 		if err := inLockValidateDeploymentDelete(ctx, q, s.Cluster, s.PrimaryNodeID, deploymentID, expectedSeq); err != nil {
 			return nil, err
 		}
-		event, err := q.WriteDeploymentDelete(ctx, int64(deploymentID), seq, time.Now())
+		event, err := q.DeploymentDeleteEvent(ctx, int64(deploymentID), seq, time.Now())
 		if err != nil {
 			return nil, err
 		}

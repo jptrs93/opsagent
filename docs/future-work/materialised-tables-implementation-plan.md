@@ -1,8 +1,11 @@
 # Materialised Tables Implementation Plan
 
-Status: planned (2026-10-01). Depends on the write log shipped in v0.0.614
-(`write_events`, `write_event_mutations`, the `Commit` dual write and the
-startup backfill; see `docs/engineering/api.md`, The write log).
+Status: complete (2026-10-01), targeted at v0.0.615. Depends on the write
+log shipped in v0.0.614 (`write_events`, `write_event_mutations`, the
+`Commit` dual write and the startup backfill; see
+`docs/engineering/api.md`, The write log). Every group landed straight in
+the step 4 shape (writers emit mutations, the reducer owns the tables); see
+"Status" at the end for what shipped and where it deviates.
 
 ## Goal
 
@@ -72,9 +75,11 @@ version", a real rule only if value versions are ever pruned).
 
 ## Step 0: sweep (done 2026-10-01)
 
-With v0.0.614 rolled out, the startup migrations that the log makes
-unnecessary and that the reshape would otherwise have to carry through were
-removed:
+With v0.0.614 tagged, the startup migrations that the log makes unnecessary
+and that the reshape would otherwise have to carry through were removed
+(the two production clusters were still on v0.0.612 at the time, so the
+rollout order v0.0.612, v0.0.614, v0.0.615 is mandatory and the open-time
+check below enforces the stop):
 
 - `pq/migrate_event_tables.go` (`renameLegacyEventTables`,
   `copyLegacyEventTables`) and their calls in `pq.Open`.
@@ -93,8 +98,10 @@ not Go code, and old `deployment_event_log.value` rows still decode through
 it until step 3 drops that table, so
 `state/deployment_def_legacy_blob_test.go` stays until then.
 
-After the sweep a database older than v0.0.614 fails to open on a missing
-table or column, which is the documented behaviour for skipped releases.
+After the sweep a database older than v0.0.614 is refused by the write-log
+check, which `pq.Open` runs before the schema or any migration touches the
+file, with a message naming the release to start on; the file is left as
+it was.
 
 ## Step 1: the reducer and the rebuild (against the current schema)
 
@@ -228,6 +235,237 @@ today.
   rebuild never needs the master key, and nothing about the key hierarchy or
   the machine keys changes.
 
+## Status (2026-10-01)
+
+Done, targeted at v0.0.615, out of the planned order because the value
+tables were the riskiest reshape and the only ones with a per-version
+history to project:
+
+- `pq/materialise.go`: `Reduce`, `ReduceUpdate`, `RebuildFromLog`,
+  `NextEntityID` over `entity_ids`, for secrets, configs, assets, value
+  directories, and asset directories (the reduced types; a no-op for every
+  other type). `Commit` calls `ReduceUpdate` after the triggers and before
+  the log append, so these writers return mutations only (design B of step
+  4 for this group): `pq.SecretMutation(meta, id, secret)`,
+  `pq.ConfigMutation`, `pq.AssetMutation`, `pq.ValueDirectoryMutation`,
+  `pq.AssetDirectoryMutation`, `pq.DeleteMutation(meta, type, id)`.
+- Schema (`sql/schema_values.sql`, `sql/schema_assets.sql`): identity rows
+  `secrets`, `configs`, `assets`; version rows `secret_versions`,
+  `config_versions`, `asset_versions` keyed by `(entity id, value_version)`,
+  each with its own envelope and never rewritten (`ON CONFLICT DO NOTHING`);
+  `value_directories`, `asset_directories`; the namespace tables
+  `value_names` and `asset_keys` with primary key `(space_id, parent_id,
+  name|key)` and unique `(kind, id)`, so sibling uniqueness across kinds is
+  a constraint. A delete removes identity, versions, and name; a deleted
+  value's pinned refs no longer resolve (the delete guards already refuse a
+  referenced value). `SecretEvent`, `ConfigEvent`, and `AssetEvent` reserve
+  `version`, `event_id`, and `event_type` (tags 2, 4, 6).
+- `WriteEventsInRange` and `LatestMutation` read the write log for every
+  type (step 2's replay half). `MutationsInRange` and the
+  startup backfill are gone; `pq.Open` refuses a log that stops short of
+  `global_seq` and writes seq 0 (the two seeded spaces) on a fresh database.
+  The opening is `pq.Snapshot` (`pq/snapshot.go`) over the tables, see the
+  2026-10-02 entry below.
+- Oracles: `TestRebuildFromLogReproducesMaterialisedTables` (rebuild equals
+  the live tables row by row), `TestOpenRefusesTruncatedWriteLog`, and the
+  existing fold tests extended to assets and both directory kinds.
+- Operator command: `opendeploy primary rebuild-tables`.
+- Migration (`pq/migrate_materialise.go`, `materialiseLegacyTables`): when
+  any of the sixteen moved `*_event_log` tables is present, one transaction
+  rebuilds the materialised tables from the log, compares them with the old
+  tables' live rows and version payloads (sealed bytes included; nested
+  documents re-encoded so an older encoder's bytes compare equal), and drops
+  the old tables; any mismatch leaves the database untouched and refuses to
+  start (`TestMaterialiseLegacyTablesVerifiesAndDrops` and
+  `...RefusesAMismatch` drive it against the v0.0.614 table shapes). Before
+  the rename and the schema, which run outside that transaction,
+  `backupLegacyDatabase` copies the file to `<db>.pre-materialise` with
+  `VACUUM INTO` and keeps an existing copy across retries, so a refused
+  start and a return to v0.0.614 both have the original file; the refusal
+  names the copy (`TestOpenRefusesADatabaseFromBeforeTheWriteLogUntouched`
+  covers the pre-v0.0.614 refusal leaving the file and no copy behind).
+  The v0.0.614 re-seal pass rewrites the write log's copy of
+  each secret's bytes together with the table row (fixed before that
+  release reached any cluster), which is what makes the log a complete
+  source for the rebuild.
+
+Also done (2026-10-01), group 1 minus the sessions, resets, keyslots, system
+config, and nodes: `spaces`, `users`, `network_policies`,
+`authz_rule_templates`, `authz_grants`, `authz_global_rules` as latest-only
+rows keyed by entity id with the payload facts as columns, a nested
+document blob where there is one, and the envelope of the last write
+(`sql/schema_spaces.sql`, `schema_user.sql`, `schema_network_policies.sql`,
+`schema_authz.sql`). Writers return mutations only
+(`nodes.CreateSpace/UpdateSpace/DeleteSpace`, `users.Write` which now
+allocates the id inside its commit, `networkpolicies.Create/Update/Delete`
+with the `expected_seq` check against the row's `seq`, `authz/store.go`);
+`seedGlobalRule` asks the log whether the name was ever written so an
+operator's deletion sticks; `upsertBuiltinRuleTemplate` compares the row
+with the shipped definition. Seq 0 of a fresh database is reduced and
+logged in one transaction (`seedWriteLogGenesis`), and the schema no longer
+seeds the two spaces itself. `NetworkPolicyEvent` reserves `version`,
+`event_id`, `event_type` (tags 2, 4, 6); `AuthzGrantEvent` is removed. The
+oracle tests cover all eleven reduced types; `TestRebuildFromLogReproducesMaterialisedTables`
+covers the sixteen materialised tables.
+
+Also done (2026-10-01), the rest of group 1 except nodes: `agent_sessions`,
+`user_sessions`, `nix_store_resets`, `secret_keyslots`, `system_config`
+(`sql/schema_user.sql`, `schema_nix_stores.sql`, `schema_secrets.sql`,
+`schema.sql`). Sessions and resets keep their stream entity id as the row
+id (the legacy id was the first log row's id; new ones come from
+`entity_ids`) with `session_id` and `repo` unique; keyslots are keyed by
+`node_id * 256 + kind` (`SecretKeyslotEntityID`), and the system config is
+the single row 1 (`SystemConfigEntityID`) whose wire version is now the
+`seq` of its last write. Writers return mutations only
+(`agentsessions.Service` with its transitions as in-place row rewrites
+guarded under the commit lock, `users.InsertUserSession/RevokeUserSession`,
+`nixstores`, `secrets/store.go` `writeKeyslot`, `NodeSecretKeyslotDeletes`
+for eviction, `systemconfig.Store.AppendRevision` returning the seq). The
+agent session row drops `revoked_at`, which the payload never carried; the
+double-revoke guard is status-based. The oracle tests
+(`seedLatestOnlyHistory`) and the rebuild test cover all sixteen reduced
+types and twenty-one materialised tables, and the migration test drives
+the five legacy shapes with their id rules. `mutationTables` is down to
+deployments, scheduled instances, nodes, and the two statuses.
+
+Deviations from the plan: the writers of these groups skipped the interim
+"writers still write the tables" step; the two directory kinds moved with
+the values rather than with group 1 because they share the namespace
+tables; the secrets Manager's cache is keyed by `ValueRef` and `Record` and
+`Meta` lost their row ids; `authz_global_rules` drops the never-wired
+`disabled` column.
+
+Also done (2026-10-01), the final batch: nodes, both observed statuses,
+deployments, and scheduled instances (`sql/schema_nodes.sql`,
+`schema_deployments.sql`, `schema_scheduled_instances.sql`), which makes
+every type a reduced type and leaves no append-only entity table.
+
+- `nodes` keyed by entity id with the operator and reported facts as
+  columns and `identifier` unique; `node_status` and
+  `scheduled_instance_status` keyed by parent id, upserted under the HLC
+  merge, persisting `runtime_versions` for the first time; `deployments` as
+  the current row plus `deployment_versions` keyed by `(deployment_id,
+  version)` with the def blob stripped of the version facts;
+  `scheduled_instances` one row per retained instance with the
+  `(deployment_id, instance_ordinal, id)` index.
+- Writers are builders (`pq.NewNode`, `nodes.appendNodeVersion`,
+  `pq.DeploymentCreateEvent`, `q.DeploymentUpdateEvent`,
+  `q.DeploymentDeleteEvent`, `pq.NewScheduledInstanceEvent`,
+  `pq.ScheduledInstanceTransition`, `q.NodeConnectionStatus`,
+  `q.NodeObservedMetaStatus`); the converters take the verb
+  (`pq.ScheduledInstanceMutation(verb, e)`, `pq.NodeMutation(verb, e)`);
+  `DeploymentMutation` of a delete event carries no payload.
+- `Commit` reduces the writer's mutations before the triggers and each
+  trigger's tail after it, with `q.Apply` for a trigger whose later reads
+  depend on its own write; the transaction `Queries` tracks the reduced
+  prefix per update.
+- Retention (`retainDeployment`) runs in `ReduceUpdate` per touched
+  deployment as a function of table state: finals pruned when the
+  deployment is deleted, superseded at their ordinal, or older than another
+  final at it; statuses follow their instance; versions neither current nor
+  pinned go. `RetainedScheduledInstances`,
+  `ListLatestScheduledInstancePerOrdinal`, `ListLatestDeploymentEvents`,
+  `ListLatestScheduledInstanceEvents`, and `mutation_tables.go` are gone;
+  `ListRetainedScheduledInstances` and `ListActiveDeployments` replace them,
+  and the scheduler's startup scope is the active deployments plus those
+  with non-final instances.
+- History reads the log: `ListDeploymentEvents`,
+  `ListDeletedDeploymentEvents` (tombstone = previous payload under a
+  delete envelope), the two status history readers, and
+  `NextEnrollmentRequestedAt`. A stale observed report (older HLC) is
+  dropped rather than kept as unpublished history.
+- Proto: `DeploymentEvent` reserves the facet counters and `event_id`;
+  `NodeEvent` and `ScheduledInstanceEvent` reserve `version`, `event_id`,
+  `event_type`. The frontend never read those fields.
+- The opening from the tables for every type (now `pq.Snapshot`, a
+  deleted-but-pinned deployment as its versions with `meta.deleted` under
+  the log's delete envelope); `RebuildFromLog` replays every type.
+- Migration: `legacyEventTables` grows to twenty-one;
+  `renameLegacyStatusLog` runs before the schema because the old status
+  history table carried the new table's name; checks compare the current
+  deployment rows and the retained version pairs (defs re-encoded with the
+  version facts stripped), the retained instance set computed with the
+  legacy per-ordinal rule, the statuses of retained instances by newest
+  clock, the latest node rows with JSON lists canonicalised and the underlay
+  taken from `addresses[0]`, and the newest node statuses. The migration
+  test drives the five legacy shapes with the real retention cases.
+- Tests: the oracle compares the retained fold with the tables for all
+  twenty-one types including both statuses; the rebuild test covers
+  twenty-seven materialised tables; `deployment_def_legacy_blob_test.go`
+  is gone with the table it read.
+
+Deviations from the plan in this batch: `deployment_versions` keeps the
+whole `Deployment` blob (scheduling included) rather than only the def,
+because a pinned version is read back as a `DeploymentEvent` and the
+browser already folds the full document; the "recently deleted" view reads
+the log as planned.
+
+### Snapshot opening and entity meta (2026-10-02)
+
+The opening is no longer mutations. `pq.Snapshot` (`pq/snapshot.go`,
+replacing `pq/materialise_bootstrap.go` and `BootstrapMutations`) reads
+every reduced type in a fixed type order into `MaterialisedEntity{
+entity_type, entity_id, entity, meta}` entries: one per live row, one per
+retained version row of a deployment or value in version order, and one
+per pinned version of a deleted deployment with `meta.deleted` set, and
+the handler sends it as a `CoreSnapshot{seq, entities}` in place of the
+`reset` bootstrap and the `after_seq` replay, both removed together with
+`pq.LatestPayload`, `pq.LatestSeqOf`, and `pq.VisibilityChangesSince`. The
+derived facts
+(`version`, `spec_version`, `value_version`, `created_time`, `author`)
+left the payloads for `EntityMeta`, which the reducer stamps from the rows
+onto every live create and update (`pq/meta.go`: `rowEnvelope`, `newMeta`,
+`rowMeta`, `MetaOf`, `StampMeta` for write receipts) and which the log
+never stores. Consequences in the tables: the reducer derives a
+deployment's `version` and `spec_version` as it folds
+(`deploymentVersionFacts`, `DeploymentSpecsEqual`) and a value's
+`value_version` as the next number after its newest version row
+(`nextValueVersion`); every identity row keeps the create time of its first
+write across later writes (`upsert` returns the existing `created_time`);
+`spaces`, `system_config`, `nix_store_resets`, `secret_keyslots`,
+`node_status`, and `scheduled_instance_status` gained `created_time` in
+their table definitions, filled by the legacy migration's rebuild on a
+v0.0.614 database (which also moves the session `created_at` columns to
+milliseconds); seq 0 carries the time the log was born so the
+seeded spaces have a create time. The legacy migration no longer compares
+the old tables' created columns and derives the deployment counters it
+checks with the same rule as the reducer. Oracles: `assertUpdateMeta`
+(every live create and update carries meta consistent with its envelope
+and type), `assertSnapshotMatchesRebuild` (the live snapshot equals, entry
+for entry and meta included, the snapshot of a `RebuildFromLog` run in a
+rolled-back transaction after every fixture commit),
+`assertSnapshotWellFormed`, and the replay fold oracle asserting the log
+carries no meta; `AssertUpdateMatchesRows` is gone.
+
+Found by the first full e2e run after retention moved into the commit
+(2026-10-02): a rollover finalizes the old instance and creates its
+replacement in one commit, retention prunes the finalized row inside that
+commit, and the scheduled-instance subscription, which re-read each
+affected instance from the tables, skipped it, so the worker never learned
+the instance had ended and its netproxy kept serving the removed TLS
+passthrough route. The projection now falls back to
+`pq.PrunedScheduledInstanceState` (instance from the commit payload,
+pinned version from the tables or the write log, status from the commit or
+the log); `TestScheduledSubscriberDeliversAnInstancePrunedByItsFinalizingCommit`
+covers it.
+
+### Clean-up before tagging v0.0.615 (2026-10-02)
+
+Nothing since v0.0.614 had reached a cluster, so the intermediate steps
+were collapsed: `pq.Open` now checks the write log before anything else
+and copies the file before the move (above); the separate
+`rebuildForCreatedTimes` pass and the six `ALTER TABLE ... ADD COLUMN
+created_time` statements are gone, since every v0.0.614 database goes
+through the legacy migration's rebuild and the schema files define the
+column; `migrations.sql` holds only the history note; and the helpers the
+refactor left without callers were deleted (the REST list filters in
+`webuihandler/visibility.go`, `nodeAllowedSpaces`, `visibleNetworkPolicies`,
+`respond`/`respondErr`, `nodes.ListClusterNodes`, `nodes.MustReadLiveState`,
+`users.ListPublic`/`Count`/`DedupeCredentials`, `networkpolicies.List`,
+`assets.ListAssetIDsBySha`, `deployments.ValidateSpecWithAssets`,
+`pq.Events`, `pq.IsReducedType`), with the enforcement tests that used the
+filters now asserting on the opening snapshot of the caller's event stream.
+
 ## Open questions
 
 - Whether `deployment_versions` keeps a per-version `scheduling` snapshot or
@@ -236,7 +474,8 @@ today.
 - Whether to keep `scheduled_instances.space_id` and
   `deployment_spec_version` denormalised for the scheduler's hot reads or
   join `deployment_versions`.
-- Payload evolution policy: a renamed or removed proto field in a
-  `CoreEntity` must stay decodable from old events. Reserved tags as today,
-  plus a reducer default per added field, is the proposal; a payload schema
-  version on `write_events` is the alternative if that ever proves too weak.
+- Payload evolution policy, adopted for now: a `CoreEntity` field is never
+  renumbered or retyped; a removed field reserves its tag; an added field
+  gets its default from the reducer when an old payload lacks it, and the
+  reducer may read a reserved old tag during a transition. A payload schema
+  version on `write_events` is the fallback if that ever proves too weak.

@@ -30,7 +30,7 @@ func TestCreateAssetNotifiesSubscribers(t *testing.T) {
 		if asset.Fs == nil || asset.Fs.Key != "notify-check.txt" {
 			t.Fatalf("asset.Fs = %+v", asset.Fs)
 		}
-		if update.Mutations[0].EntityID() == 0 || asset.ValueVersion != 1 {
+		if update.Mutations[0].EntityID() == 0 || update.Mutations[0].Meta() == nil || update.Mutations[0].Meta().ValueVersion != 1 {
 			t.Fatalf("asset = %+v, want a first content version with an id", asset)
 		}
 	case <-time.After(2 * time.Second):

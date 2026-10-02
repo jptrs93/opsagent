@@ -16,8 +16,8 @@ const spaceAdminSpacesArgID int64 = 1
 // must not resurrect that decision.
 const DefaultUserVisibilityRuleName = "default_user_visibility"
 
-func defaultUserVisibilityRule() *apigen.AuthzGlobalRule {
-	return &apigen.AuthzGlobalRule{
+func defaultUserVisibilityRule() *apigen.AuthzGlobalRuleSpec {
+	return &apigen.AuthzGlobalRuleSpec{
 		DelegationAllowed: true,
 		Permissions:       &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
 		Spaces:            &apigen.AuthzSelector{Include: []int64{0}},
@@ -26,7 +26,7 @@ func defaultUserVisibilityRule() *apigen.AuthzGlobalRule {
 	}
 }
 
-func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
+func builtinTemplates() []*apigen.AuthzRuleTemplate {
 	all := func() *apigen.AuthzSelector { return &apigen.AuthzSelector{Wildcard: true} }
 	withoutHostAccess := func() *apigen.AuthzSelector {
 		return &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{
@@ -92,18 +92,18 @@ func builtinTemplates() []*apigen.AuthzRuleTemplateRecord {
 		}}
 		return append(rules, delegableRules(delegableSpaces)...)
 	}
-	return []*apigen.AuthzRuleTemplateRecord{
+	return []*apigen.AuthzRuleTemplate{
 		{
-			ID:       ClusterAdminTemplateID,
-			Name:     "cluster_admin",
-			Builtin:  true,
-			Template: &apigen.AuthzRuleTemplate{Rules: templateRules(all, all, clusterAdminSpaces)},
+			ID:      ClusterAdminTemplateID,
+			Name:    "cluster_admin",
+			Builtin: true,
+			Spec:    &apigen.AuthzRuleTemplateSpec{Rules: templateRules(all, all, clusterAdminSpaces)},
 		},
 		{
 			ID:      SpaceAdminTemplateID,
 			Name:    "space_admin",
 			Builtin: true,
-			Template: &apigen.AuthzRuleTemplate{
+			Spec: &apigen.AuthzRuleTemplateSpec{
 				Arguments: []*apigen.AuthzTemplateArgument{{ID: spaceAdminSpacesArgID, Name: "spaces"}},
 				Rules:     templateRules(withoutHostAccess, spaceAdminSpaces, spaceAdminSpaces),
 			},

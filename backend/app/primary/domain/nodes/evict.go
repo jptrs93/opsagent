@@ -43,7 +43,7 @@ func isPrimaryRow(row pq.CurrentNode) bool {
 	return slices.Contains(row.Event.Value.Operator.Roles, NodeRolePrimary)
 }
 
-func SetNodeDraining(ctx apigen.Context, store *state.Service, identifier string, draining bool) (*apigen.NodeEvent, error) {
+func SetNodeDraining(ctx apigen.Context, store *state.Service, identifier string, draining bool) (*pq.NodeEvent, error) {
 	var row pq.CurrentNode
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
@@ -64,13 +64,13 @@ func SetNodeDraining(ctx apigen.Context, store *state.Service, identifier string
 			return nil, nil
 		}
 		var changed bool
-		row, changed, err = appendNodeVersion(ctx, q, seq, time.Now().UnixMilli(), current, ctx.AttributionUserID(), func(spec *nodeEventSpec) {
+		row, changed = appendNodeVersion(seq, time.Now().UnixMilli(), current, ctx.AttributionUserID(), func(spec *nodeEventSpec) {
 			spec.Status = target
 		})
-		if err != nil || !changed {
-			return nil, err
+		if !changed {
+			return nil, nil
 		}
-		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
+		return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event)), nil
 	})
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func SetNodeDraining(ctx apigen.Context, store *state.Service, identifier string
 
 // EvictNode evicts the node as long as it has no event newer than
 // expectedSeq; zero skips the check.
-func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expectedSeq int64, force bool) (*apigen.NodeEvent, error) {
+func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expectedSeq int64, force bool) (*pq.NodeEvent, error) {
 	var row pq.CurrentNode
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
@@ -119,7 +119,7 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			if cfg.Value.PlacementNodeID() != nodeID || !internaldeploy.IsInternalConfig(cfg) {
 				continue
 			}
-			event, err := q.WriteDeploymentDelete(ctx, int64(cfg.DeploymentID), seq, now)
+			event, err := q.DeploymentDeleteEvent(ctx, int64(cfg.DeploymentID), seq, now)
 			if err != nil {
 				return nil, err
 			}
@@ -134,11 +134,8 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			if inst.NodeID != nodeID {
 				continue
 			}
-			finalized, err := q.AppendScheduledInstanceEvent(ctx, seq, &inst, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED, now)
-			if err != nil {
-				return nil, err
-			}
-			pq.AppendMutations(update, pq.ScheduledInstanceMutation(finalized))
+			finalized := pq.ScheduledInstanceTransition(seq, event, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED, now)
+			pq.AppendMutations(update, pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, finalized))
 			previous, err := q.GetLatestScheduledInstanceStatus(ctx, inst.ID)
 			if errors.Is(err, sql.ErrNoRows) {
 				continue
@@ -148,9 +145,6 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			}
 			tombstone := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: inst.ID, DeploymentID: inst.DeploymentID, UpdatedAt: previous.UpdatedAt}
 			tombstone.BumpUpdatedAt()
-			if err := q.InsertScheduledInstanceStatus(ctx, seq, now.UnixMilli(), tombstone); err != nil {
-				return nil, err
-			}
 			pq.AppendMutations(update, pq.ScheduledInstanceStatusMutation(seq, now.UnixMilli(), tombstone))
 		}
 		previousStatus, err := q.GetLatestNodeStatus(ctx, nodeID)
@@ -162,23 +156,17 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			statusTombstone.UpdatedAt = previousStatus.UpdatedAt
 		}
 		statusTombstone.BumpUpdatedAt()
-		if err := q.InsertNodeStatus(ctx, seq, now.UnixMilli(), statusTombstone); err != nil {
-			return nil, err
-		}
 		pq.AppendMutations(update, pq.NodeStatusMutation(seq, now.UnixMilli(), statusTombstone))
-		keyslots, err := q.DeleteNodeSecretKeyslots(ctx, pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(ctx.AttributionUserID())}, int64(nodeID))
+		keyslots, err := q.NodeSecretKeyslotDeletes(ctx, pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(ctx.AttributionUserID())}, int64(nodeID))
 		if err != nil {
 			return nil, err
 		}
 		pq.AppendMutations(update, keyslots...)
-		row, _, err = appendNodeVersion(ctx, q, seq, now.UnixMilli(), current, ctx.AttributionUserID(), func(spec *nodeEventSpec) {
+		row, _ = appendNodeVersion(seq, now.UnixMilli(), current, ctx.AttributionUserID(), func(spec *nodeEventSpec) {
 			spec.Status = apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED
 			spec.EnrollmentRequestedAt = 0
 		})
-		if err != nil {
-			return nil, err
-		}
-		pq.AppendMutations(update, pq.NodeMutation(&row.Event))
+		pq.AppendMutations(update, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event))
 		return update, nil
 	})
 	if err != nil {
@@ -208,7 +196,7 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 			out.Deployments = append(out.Deployments, cfg)
 		}
 	}
-	events, err := q.ListLatestScheduledInstanceEventsForNode(ctx, nodeID)
+	events, err := q.ListRetainedScheduledInstancesForNode(ctx, nodeID)
 	if err != nil {
 		return out, err
 	}

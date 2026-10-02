@@ -76,7 +76,7 @@ enum ScheduledInstanceTarget {
 // row it was scheduled against, which is the complete def snapshot it runs.
 message ScheduledInstance {
   int32 id = 1;
-  int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  reserved 2; // created_at: EntityMeta on the mutation
   int32 deployment_id = 3;
   int32 node_id = 5;
   int32 instance_ordinal = 6;
@@ -140,14 +140,3 @@ message RunnerStatus {
 }
 
 // Browser assignment event. The worker retains ScheduledInstanceState.
-message ScheduledInstanceEvent {
-  int32 scheduled_instance_id = 1;
-  int32 version = 2;
-  int64 seq = 3;
-  int64 event_id = 4;
-  int32 author = 5;
-  EventType event_type = 6;
-  int64 created_time = 7;
-  int64 event_time = 8;
-  ScheduledInstance value = 9 [(cp.go_value) = true];
-}

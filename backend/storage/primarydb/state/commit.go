@@ -40,8 +40,14 @@ func (s *Service) Commit(ctx context.Context, preLockValidate func(*pq.Queries) 
 			update = &WriteUpdate{}
 		}
 		update.Seq = seq
+		if err := q.ReduceUpdate(ctx, update); err != nil {
+			return err
+		}
 		for _, trigger := range s.updateTriggers {
 			if err := trigger(ctx, q, update); err != nil {
+				return err
+			}
+			if err := q.ReduceUpdate(ctx, update); err != nil {
 				return err
 			}
 		}

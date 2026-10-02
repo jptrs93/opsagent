@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {written, DEPLOYMENT} from "../state/tree.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {restartDeploymentOverlay, restartDeploymentPayload} from "./restartDeploymentOverlay.js";
 import {formInvalidReason} from "./deploymentForm.js";
@@ -186,7 +187,7 @@ export function deploymentEditorWidget(opts) {
             let result = moved;
             if (mode === 'create') {
                 result = await actions.createDeployment(payload);
-                if (!result?.deploymentId) throw new Error('Create response did not include a deployment ID');
+                if (!written(result, DEPLOYMENT)?.id) throw new Error('Create response did not include a deployment ID');
             } else {
                 if (payload) {
                     if (result) payload.expectedSeq = Number(result.seq || 0);

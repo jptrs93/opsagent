@@ -76,19 +76,19 @@ export function usersPage() {
 
     // The card's header is one line naming what is explained.
     const templateRulePill = (rule, record, index) => explainPill(
-        ruleDisplay(rule, {spaceNames: spaceNameMap(), argNames: argNamesOf(record.template), titles: false}),
+        ruleDisplay(rule, {spaceNames: spaceNameMap(), argNames: argNamesOf(record.spec), titles: false}),
         () => ({
             kind: "template",
             subtitle: `Rule ${index + 1} of ${record.name}`,
             rules: [rule],
             spaceNames: spaceNameMap(),
             spaces: liveSpaces(),
-            argNames: argNamesOf(record.template),
+            argNames: argNamesOf(record.spec),
         }));
 
     const globalRulePill = (record) => explainPill(
-        globalRuleDisplay(record.rule, {spaceNames: spaceNameMap(), titles: false}),
-        () => ({kind: "global", subtitle: `Global rule ${record.name || record.id}`, rules: [record.rule], spaceNames: spaceNameMap(), spaces: liveSpaces()}));
+        globalRuleDisplay(record.spec, {spaceNames: spaceNameMap(), titles: false}),
+        () => ({kind: "global", subtitle: `Global rule ${record.name || record.id}`, rules: [record.spec], spaceNames: spaceNameMap(), spaces: liveSpaces()}));
 
     // A role's name explains the whole role: every rule together, so the
     // access table is their union with a Rule tab per rule on the left.
@@ -96,14 +96,14 @@ export function usersPage() {
         // Same radius as a rule pill, so the pinned ring reads the same;
         // the negative margin keeps the text on the column's left edge.
         const el = span({class: "-mx-1 truncate rounded-md px-1 py-px text-gray-200 transition-colors hover:text-blue-300", "data-testid": `template-name-${record.id}`}, record.name);
-        const rules = record.template?.rules || [];
+        const rules = record.spec?.rules || [];
         const subject = () => ({
             kind: "template",
             subtitle: `Role ${record.name}`,
             rules,
             spaceNames: spaceNameMap(),
             spaces: liveSpaces(),
-            argNames: argNamesOf(record.template),
+            argNames: argNamesOf(record.spec),
         });
         return explainable(el, (openState) => renderExplainer(subject(), openState), {
             width: () => explainerWidth(subject()),
@@ -335,7 +335,7 @@ export function usersPage() {
     };
 
     const templateRow = (record) => {
-        const args = templateArguments(record.template);
+        const args = templateArguments(record.spec);
         const holders = usedBy(record.id);
         return tr(
             {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `template-row-${record.id}`},
@@ -349,7 +349,7 @@ export function usersPage() {
                 args.length ? args.map((a) => "${" + a.name + "}").join(", ") : span({class: "text-gray-600"}, "—")),
             td({class: "py-1.5 pr-3 min-w-0"},
                 div({class: "flex flex-col gap-1"},
-                    ...(record.template?.rules || []).map((rule, i) => templateRulePill(rule, record, i)))),
+                    ...(record.spec?.rules || []).map((rule, i) => templateRulePill(rule, record, i)))),
             td({class: "py-1.5 pr-3 min-w-0"},
                 holders.length
                     ? div({class: "flex flex-wrap gap-1"}, ...holders.map((name) => span(
@@ -395,7 +395,7 @@ export function usersPage() {
                     overlayS.val = {
                         type: "confirm",
                         title: "Delete global rule",
-                        body: record.rule?.deny
+                        body: record.spec?.deny
                             ? `Delete the global rule ${record.name || record.id}? Requests it denied become subject to user grants again.`
                             : `Delete the global rule ${record.name || record.id}? Everyone loses what it allowed unless their own grants cover it.`,
                         onConfirm: () => capi.postV1AccessGlobalRulesDelete({id: record.id}),

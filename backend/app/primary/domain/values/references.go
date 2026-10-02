@@ -64,9 +64,6 @@ func SetVersionedValueWithDeploymentUpdates(
 			}
 			event, _ := pq.BuildDeploymentUpdateEvent(update.prev, def, author, time.UnixMilli(now))
 			event.Seq = seq
-			if err := q.InsertDeploymentEvent(ctx, event); err != nil {
-				return nil, fmt.Errorf("update deployment %d reference: %w", update.prev.DeploymentID, err)
-			}
 			updatedEvents = append(updatedEvents, event)
 			pq.AppendMutations(published, pq.DeploymentMutation(event))
 		}
@@ -92,14 +89,11 @@ func prepareDeploymentReferenceUpdates(ctx context.Context, q *pq.Queries, refer
 		return nil, nil
 	}
 	actual := make(map[int32]deploymentReferenceUpdate)
-	rows, err := q.ListLatestDeploymentEvents(ctx)
+	rows, err := q.ListActiveDeployments(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, event := range rows {
-		if event.Deleted() {
-			continue
-		}
 		def, err := apigen.DecodeDeployment(event.Value.Encode())
 		if err != nil {
 			return nil, err

@@ -1,51 +1,36 @@
--- rules; see backend/lib/authz.
-CREATE TABLE IF NOT EXISTS authz_rule_template_event_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    global_seq   INTEGER NOT NULL,
-    event_time   INTEGER NOT NULL,  -- epoch ms
-    created_time INTEGER NOT NULL,  -- epoch ms, first event's event_time
-    author       INTEGER NOT NULL,
-    template_id  INTEGER NOT NULL,
-    version      INTEGER NOT NULL,  -- top-level: bumps on every event
+-- Materialised views of the write log for access control, maintained by the
+-- reducer in pq/materialise.go; see backend/lib/authz for the rule model.
+-- seq, event_time, and author are the envelope of the last write.
+CREATE TABLE IF NOT EXISTS authz_rule_templates (
+    id           INTEGER PRIMARY KEY,
     name         TEXT    NOT NULL,
     builtin      INTEGER NOT NULL,
-    data_blob    BLOB    NOT NULL,
-    event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
-    UNIQUE (template_id, version)
+    data_blob    BLOB    NOT NULL,  -- AuthzRuleTemplate
+    created_time INTEGER NOT NULL,  -- epoch ms
+    seq          INTEGER NOT NULL,
+    event_time   INTEGER NOT NULL,  -- epoch ms
+    author       INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS authz_grant_event_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    global_seq   INTEGER NOT NULL,
-    event_time   INTEGER NOT NULL,  -- epoch ms
-    created_time INTEGER NOT NULL,  -- epoch ms, first event's event_time
-    author       INTEGER NOT NULL,
-    grant_id     INTEGER NOT NULL,
-    version      INTEGER NOT NULL,  -- top-level: bumps on every event
+CREATE TABLE IF NOT EXISTS authz_grants (
+    id           INTEGER PRIMARY KEY,
     user_id      INTEGER NOT NULL,
     template_id  INTEGER NOT NULL,
-    data_blob    BLOB    NOT NULL,
-    event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
-    UNIQUE (grant_id, version)
-);
-
-CREATE TABLE IF NOT EXISTS global_access_rule_event_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    global_seq   INTEGER NOT NULL,
+    data_blob    BLOB    NOT NULL,  -- AuthzGrant
+    created_time INTEGER NOT NULL,  -- epoch ms
+    seq          INTEGER NOT NULL,
     event_time   INTEGER NOT NULL,  -- epoch ms
-    created_time INTEGER NOT NULL,  -- epoch ms, first event's event_time
-    author       INTEGER NOT NULL,
-    rule_id      INTEGER NOT NULL,
-    version      INTEGER NOT NULL,  -- top-level: bumps on every event
-    name         TEXT    NOT NULL,
-    disabled     INTEGER NOT NULL DEFAULT 0,  -- reserved, not yet wired
-    data_blob    BLOB    NOT NULL,
-    event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
-    UNIQUE (rule_id, version)
+    author       INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_authz_rule_template_event_log_seq ON authz_rule_template_event_log (global_seq, id);
+CREATE INDEX IF NOT EXISTS idx_authz_grants_user ON authz_grants (user_id, id);
 
-CREATE INDEX IF NOT EXISTS idx_authz_grant_event_log_seq ON authz_grant_event_log (global_seq, id);
-
-CREATE INDEX IF NOT EXISTS idx_global_access_rule_event_log_seq ON global_access_rule_event_log (global_seq, id);
+CREATE TABLE IF NOT EXISTS authz_global_rules (
+    id           INTEGER PRIMARY KEY,
+    name         TEXT    NOT NULL,
+    data_blob    BLOB    NOT NULL,  -- AuthzGlobalRule
+    created_time INTEGER NOT NULL,  -- epoch ms
+    seq          INTEGER NOT NULL,
+    event_time   INTEGER NOT NULL,  -- epoch ms
+    author       INTEGER NOT NULL
+);

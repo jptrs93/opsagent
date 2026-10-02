@@ -39,12 +39,12 @@ func TestIngressListenOnPrimaryAgainstWebUIReservation(t *testing.T) {
 	wildcardWebUI := ingressplan.WebUIReservations(primary.ID, true, ":443", false, "")
 	// Default listen: accepted; the reservation drops the 443 claims instead
 	// of rejecting the route.
-	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), wildcardWebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test")); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), wildcardWebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test")); err != nil {
 		t.Fatalf("default listen on the primary rejected: %v", err)
 	}
 	// Literal address on the reserved port: rejected naming the Web UI.
 	literal := &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"203.0.113.10"}}}
-	err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), wildcardWebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", literal))
+	err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), wildcardWebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", literal))
 	if err == nil || !strings.Contains(err.Error(), "reserved by the primary Web UI") {
 		t.Fatalf("literal listen on a wildcard-reserved port must be rejected, got %v", err)
 	}
@@ -52,30 +52,30 @@ func TestIngressListenOnPrimaryAgainstWebUIReservation(t *testing.T) {
 	// the IPv6 literal is not.
 	v6WebUI := ingressplan.WebUIReservations(primary.ID, true, "[2001:db8::10]:443", false, "")
 	ipv4 := &apigen.IngressListen{Address: &apigen.AddressSelector{Family: apigen.AddressFamily_ADDRESS_FAMILY_IPV4}}
-	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", ipv4)); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", ipv4)); err != nil {
 		t.Fatalf("ipv4() beside an IPv6 Web UI listen rejected: %v", err)
 	}
-	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", literal)); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", literal)); err != nil {
 		t.Fatalf("IPv4 literal beside an IPv6 Web UI listen rejected: %v", err)
 	}
 	v6Literal := &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"2001:db8::10"}}}
-	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", v6Literal)); err == nil {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), v6WebUI, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", v6Literal)); err == nil {
 		t.Fatal("the literal equal to the Web UI address must be rejected")
 	}
 	// Node selectors must name a registered node, and only the hosting node
 	// until cross-node backend dialling exists.
 	unknown := &apigen.IngressListen{Node: &apigen.NodeSelector{NodeID: 99}}
-	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", unknown)); err == nil || !strings.Contains(err.Error(), "unknown node id 99") {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", unknown)); err == nil || !strings.Contains(err.Error(), "unknown node id 99") {
 		t.Fatalf("unknown node selector must be rejected, got %v", err)
 	}
 	other := nodes.EnsurePrimaryNode(store, "worker-2", "worker-2-id")
 	crossNode := &apigen.IngressListen{Node: &apigen.NodeSelector{NodeID: other.ID}}
-	err = deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", crossNode))
+	err = deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", crossNode))
 	if err == nil || !strings.Contains(err.Error(), `node "worker-2" cannot publish a route for a deployment on another node`) {
 		t.Fatalf("cross-node listen selector must be rejected, got %v", err)
 	}
 	ownNode := &apigen.IngressListen{Node: &apigen.NodeSelector{NodeID: primary.ID}}
-	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", ownNode)); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), nil, primary.ID, echo.DeploymentID, httpsSpec("web.example.test", ownNode)); err != nil {
 		t.Fatalf("own-node listen selector rejected: %v", err)
 	}
 }
@@ -90,15 +90,15 @@ func TestIngressListenCollisionBetweenDeployments(t *testing.T) {
 	api := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "api", worker.ID, &remoteVirtualSpec)
 	_ = root
 	overlap := &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: []string{"203.0.113.20"}}}
-	err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, worker.ID, api.DeploymentID, httpsSpec("web.example.test", overlap))
+	err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), nil, worker.ID, api.DeploymentID, httpsSpec("web.example.test", overlap))
 	if err == nil || !strings.Contains(err.Error(), "already claimed by another deployment") {
 		t.Fatalf("overlapping selector must be rejected, got %v", err)
 	}
 	// A create (id 0) is evaluated as the newcomer too.
-	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, worker.ID, 0, httpsSpec("web.example.test")); err == nil {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), nil, worker.ID, 0, httpsSpec("web.example.test")); err == nil {
 		t.Fatal("a new deployment claiming an owned hostname must be rejected")
 	}
-	if err := deployments.ValidateNodeNetworkingClaims(nodes.MustReadLiveState(store.Queries()), nil, worker.ID, 0, httpsSpec("other.example.test")); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), nil, worker.ID, 0, httpsSpec("other.example.test")); err != nil {
 		t.Fatalf("a distinct hostname is accepted: %v", err)
 	}
 }

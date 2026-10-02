@@ -56,7 +56,7 @@ func openTestStore(t *testing.T) *state.Service {
 
 // SetAssetByKey creates the asset in spaceID's root on first use and appends a
 // version on each later call. Test-only convenience over the public write API.
-func setAssetByKey(s *state.Service, key string, blob []byte, spaceIDs ...int32) *apigen.AssetEvent {
+func setAssetByKey(s *state.Service, key string, blob []byte, spaceIDs ...int32) *pq.AssetEvent {
 	spaceID := nodes.DefaultSpaceID
 	if len(spaceIDs) > 0 {
 		spaceID = nodes.NormalizedUserSpaceID(spaceIDs[0])
@@ -81,7 +81,7 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 
 	a1 := setAssetByKey(store, "nginx.conf", []byte("events {}\n"))
 	v1 := statetest.LatestValue(store, a1)
-	if a1.AssetID == 0 || v1 == nil || v1.ID == 0 || v1.Version != 1 || a1.SpaceID() != nodes.DefaultSpaceID {
+	if a1.AssetID == 0 || v1 == nil || v1.Version != 1 || a1.SpaceID() != nodes.DefaultSpaceID {
 		t.Fatalf("first write = asset %d latest %+v space %d, want nonzero ids version 1 space %d", a1.AssetID, v1, a1.SpaceID(), nodes.DefaultSpaceID)
 	}
 	if v1.Sha256 != contentSha([]byte("events {}\n")) {
@@ -89,15 +89,15 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	}
 	a2 := setAssetByKey(store, "nginx.conf", []byte("events {}\nhttp {}\n"))
 	v2 := statetest.LatestValue(store, a2)
-	if v2.ID == 0 || v2.ID == v1.ID || v2.Version != 2 || a2.AssetID != a1.AssetID {
-		t.Fatalf("second version = id %d asset %d version %d, want new id, same asset, version 2", v2.ID, a2.AssetID, v2.Version)
+	if v2.Ref == v1.Ref || v2.Version != 2 || a2.AssetID != a1.AssetID {
+		t.Fatalf("second version = %s asset %d version %d, want new ref, same asset, version 2", v2.Ref, a2.AssetID, v2.Version)
 	}
 
 	latest, ok := GetAsset(store.Queries(), a1.AssetID)
 	if !ok {
 		t.Fatal("asset not found")
 	}
-	if lv := statetest.LatestValue(store, latest); lv.ID != v2.ID || lv.Version != 2 || latest.SpaceID() != nodes.DefaultSpaceID {
+	if lv := statetest.LatestValue(store, latest); lv.Ref != v2.Ref || lv.Version != 2 || latest.SpaceID() != nodes.DefaultSpaceID {
 		t.Fatalf("latest version = %+v space %d", lv, latest.SpaceID())
 	}
 	if joined, ok := GetAssetValueJoined(store.Queries(), v2.Ref); !ok || storedContent(t, joined) != "events {}\nhttp {}\n" {
@@ -107,12 +107,12 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	if !ok || ref.Key != "nginx.conf" || ref.Ref != (apigen.ValueRef{ID: a1.AssetID, Version: 2}) || ref.SpaceID != nodes.DefaultSpaceID {
 		t.Fatalf("version ref by pair = %+v ok=%v", ref, ok)
 	}
-	if joined, ok := GetAssetValueJoined(store.Queries(), v1.Ref); !ok || joined.Version.ID != int64(v1.ID) || storedContent(t, joined) != "events {}\n" {
+	if joined, ok := GetAssetValueJoined(store.Queries(), v1.Ref); !ok || joined.Version.ValueVersion != 1 || storedContent(t, joined) != "events {}\n" {
 		t.Fatalf("old value by pair = %+v ok=%v", joined, ok)
 	}
 
 	// The old version is immutable: still listed and its content still resolves.
-	if old := statetest.ValueVersions(store, latest)[1]; old.ID != v1.ID || old.Version != 1 {
+	if old := statetest.ValueVersions(store, latest)[1]; old.Ref != v1.Ref || old.Version != 1 {
 		t.Fatalf("old version = %+v", old)
 	}
 	if joined, ok := GetAssetValueJoined(store.Queries(), v1.Ref); !ok || storedContent(t, joined) != "events {}\n" {
@@ -129,11 +129,11 @@ func TestAssetsAreVersionedAndImmutable(t *testing.T) {
 	}
 	// content_versions are newest first: [0] is the latest.
 	if len(statetest.ValueVersions(store, asset)) != 2 ||
-		statetest.ValueVersions(store, asset)[0].ID != v2.ID || statetest.ValueVersions(store, asset)[0].Version != 2 ||
+		statetest.ValueVersions(store, asset)[0].Ref != v2.Ref || statetest.ValueVersions(store, asset)[0].Version != 2 ||
 		statetest.ValueVersions(store, asset)[0].SizeBytes != int64(len("events {}\nhttp {}\n")) ||
 		statetest.ValueVersions(store, asset)[0].Sha256 != v2.Sha256 ||
 		!statetest.ValueVersions(store, asset)[0].CreatedAt.Equal(v2.CreatedAt) ||
-		statetest.ValueVersions(store, asset)[1].ID != v1.ID || statetest.ValueVersions(store, asset)[1].Version != 1 {
+		statetest.ValueVersions(store, asset)[1].Ref != v1.Ref || statetest.ValueVersions(store, asset)[1].Version != 1 {
 		t.Fatalf("asset content versions = %+v", statetest.ValueVersions(store, asset))
 	}
 
@@ -199,7 +199,7 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 		t.Fatalf("rename asset: %v", err)
 	}
 	if renamed.AssetID != a.AssetID || renamed.Value.Fs.Key != "new-name" ||
-		len(statetest.ValueVersions(store, renamed)) != 2 || statetest.ValueVersions(store, renamed)[0].ID != v2.ID || statetest.ValueVersions(store, renamed)[0].Version != 2 {
+		len(statetest.ValueVersions(store, renamed)) != 2 || statetest.ValueVersions(store, renamed)[0].Ref != v2.Ref || statetest.ValueVersions(store, renamed)[0].Version != 2 {
 		t.Fatalf("renamed asset = %+v", renamed)
 	}
 	if _, ok := GetAssetInDirectory(store.Queries(), nodes.DefaultSpaceID, 0, "old-name"); ok {
@@ -210,7 +210,7 @@ func TestRenameAssetPreservesVersions(t *testing.T) {
 	// survive; only the key changed.
 	want := []*statetest.ValueVersion{v2, v1} // newest first
 	for i, got := range statetest.ValueVersions(store, renamed) {
-		if got.ID != want[i].ID || got.Version != want[i].Version ||
+		if got.Ref != want[i].Ref || got.Version != want[i].Version ||
 			got.SizeBytes != want[i].SizeBytes || got.Sha256 != want[i].Sha256 ||
 			!got.CreatedAt.Equal(want[i].CreatedAt) {
 			t.Fatalf("renamed version %d = %+v, want original metadata %+v", i, got, want[i])
@@ -290,12 +290,12 @@ func TestSoftDeleteHidesRowAndFreesName(t *testing.T) {
 	if got := ListAssets(store.Queries()); len(got) != 0 {
 		t.Fatalf("ListAssets after delete = %d items, want 0", len(got))
 	}
-	// The name is reusable, and the old asset's version rows survive.
+	// The name is reusable, and the old asset's version rows go with it.
 	replacement := setAssetByKey(store, "app.conf", []byte("v2"))
 	if replacement.AssetID == v.AssetID {
 		t.Fatal("recreated asset reused the deleted identity")
 	}
-	if _, ok := GetAssetValueJoined(store.Queries(), apigen.ValueRef{ID: v.AssetID, Version: 1}); !ok {
-		t.Fatal("deleted asset value row was not retained")
+	if joined, ok := GetAssetValueJoined(store.Queries(), apigen.ValueRef{ID: v.AssetID, Version: 1}); ok {
+		t.Fatalf("deleted asset version still resolves: %+v", joined)
 	}
 }

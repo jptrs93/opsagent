@@ -2,6 +2,8 @@ package state
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
@@ -64,7 +66,10 @@ func (s *Service) MustFetchScheduledSnapshotAndSubscribe(predicate storage.Sched
 		var out []apigen.ScheduledInstanceState
 		for _, id := range affectedInstanceIDs(u) {
 			state, err := q.GetScheduledInstanceState(ctx, id)
-			if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				state, err = q.PrunedScheduledInstanceState(ctx, &u, id)
+			}
+			if err != nil || state == nil {
 				continue
 			}
 			if predicate == nil || predicate(*state) {

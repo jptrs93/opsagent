@@ -36,17 +36,17 @@ func TestDrainingNodeRefusesNewDeployments(t *testing.T) {
 	node := acceptSecondaryNode(t, h.Store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	if _, err := h.PostV1NodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: true}); err != nil {
+	if _, err := h.nodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: true}); err != nil {
 		t.Fatalf("drain: %v", err)
 	}
-	_, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec})
+	_, err := h.deploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec})
 	if err == nil || !strings.Contains(err.Error(), "node_draining") {
 		t.Fatalf("create on draining node: got %v, want node_draining", err)
 	}
-	if _, err := h.PostV1NodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: false}); err != nil {
+	if _, err := h.nodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: false}); err != nil {
 		t.Fatalf("undrain: %v", err)
 	}
-	if _, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec}); err != nil {
+	if _, err := h.deploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec}); err != nil {
 		t.Fatalf("create after undrain: %v", err)
 	}
 }
@@ -55,26 +55,24 @@ func TestEvictEndpointRefusesPinnedDeploymentsThenForces(t *testing.T) {
 	h, _ := newNodeSpacesHandler(t)
 	node := acceptSecondaryNode(t, h.Store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
-	cfg, err := h.PostV1DeploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: remoteDeploymentSpec("nginx", hostNetworking())})
+	cfg, err := h.deploymentsCreate(ctx, &apigen.DeploymentCreateRequest{SpaceID: nodes.DefaultSpaceID, Name: "web", Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: remoteDeploymentSpec("nginx", hostNetworking())})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	_, err = h.PostV1NodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq})
+	_, err = h.nodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq})
 	if err == nil || !strings.Contains(err.Error(), "node_has_deployments") {
 		t.Fatalf("evict without force: got %v, want node_has_deployments", err)
 	}
-	if _, err := h.PostV1NodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq - 1, Force: true}); !errors.Is(err, NodeVersionChangedErr) {
+	if _, err := h.nodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq - 1, Force: true}); !errors.Is(err, NodeVersionChangedErr) {
 		t.Fatalf("evict with stale seq: got %v, want NodeVersionChangedErr", err)
 	}
 	if err := h.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		return &state.WriteUpdate{}, q.InsertSecretKeyslotEvent(ctx, pq.SecretKeyslotEventParams{
-			EventMeta:     pq.EventMeta{GlobalSeq: seq, EventTime: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE},
-			SecretKeyslot: pq.SecretKeyslot{Kind: apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE, NodeID: int64(node.ID), SmkVersion: 1, WrappedSmk: []byte{1}, Nonce: []byte{2}},
-		})
+		return pq.NewUpdate(pq.SecretKeyslotMutation(pq.EventMeta{GlobalSeq: seq, EventTime: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE},
+			pq.SecretKeyslot{Kind: apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE, NodeID: int64(node.ID), SmkVersion: 1, WrappedSmk: []byte{1}, Nonce: []byte{2}, UpdatedAt: 1})), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
-	event, err := h.PostV1NodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq, Force: true})
+	event, err := h.nodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq, Force: true})
 	if err != nil || event.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
 		t.Fatalf("forced evict: event=%+v err=%v", event, err)
 	}
@@ -83,7 +81,7 @@ func TestEvictEndpointRefusesPinnedDeploymentsThenForces(t *testing.T) {
 			t.Fatalf("evicted node's machine keyslot still live: %+v", slot)
 		}
 	}
-	if _, err := h.PostV1NodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: true}); !errors.Is(err, NodeNotFoundErr) {
+	if _, err := h.nodesDrain(ctx, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: true}); !errors.Is(err, NodeNotFoundErr) {
 		t.Fatalf("drain evicted node: got %v, want NodeNotFoundErr", err)
 	}
 	exposure, err := h.PostV1NodesExposure(ctx, &apigen.NodeExposureRequest{Identifier: node.Identifier})
@@ -102,23 +100,23 @@ func TestEvictionRequiresNodeDelete(t *testing.T) {
 	h, _ := newEnforcementTestHandler(t)
 	admin, spaceop := enforceCtx(1, false), enforceCtx(2, false)
 	node := acceptSecondaryNode(t, h.Store, "secondary-id")
-	if _, err := h.PostV1NodesEvict(spaceop, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq}); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.nodesEvict(spaceop, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("space operator evict: got %v, want AccessDeniedErr", err)
 	}
 	if _, err := h.PostV1NodesExposure(spaceop, &apigen.NodeExposureRequest{Identifier: node.Identifier}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("space operator exposure: got %v, want AccessDeniedErr", err)
 	}
-	if _, err := h.PostV1NodesDrain(spaceop, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: true}); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.nodesDrain(spaceop, &apigen.NodeDrainRequest{Identifier: node.Identifier, Draining: true}); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("space operator drain: got %v, want AccessDeniedErr", err)
 	}
-	if _, err := h.PostV1NodesEvict(admin, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq}); err != nil {
+	if _, err := h.nodesEvict(admin, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq}); err != nil {
 		t.Fatalf("admin evict: %v", err)
 	}
 }
 
 func mustSlots(t *testing.T, store *state.Service) []pq.SecretKeyslot {
 	t.Helper()
-	slots, err := store.Queries().ListLiveSecretKeyslots(context.Background())
+	slots, err := store.Queries().ListSecretKeyslots(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

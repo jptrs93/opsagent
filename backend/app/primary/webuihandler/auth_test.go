@@ -361,7 +361,7 @@ func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
 	if fetchErr != nil {
 		t.Fatalf("FetchAgentSession: %v", fetchErr)
 	}
-	if !rec.RevokedAt.IsZero() {
+	if rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_REVOKED || rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_REJECTED {
 		t.Fatal("session was revoked by a different user")
 	}
 }

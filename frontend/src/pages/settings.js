@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {written, SECRET} from "../state/tree.js";
 import {capi} from "../capi/index.js";
 import {codeBlock} from "../components/codeBlock.js";
 import {referencePicker} from "../components/referencePicker.js";
@@ -369,7 +370,8 @@ export function settingsPage() {
                 name,
                 value: new TextEncoder().encode(value),
             });
-            patchDraft(target.settingKey, {secretKey: refKey(saved?.secretId, saved?.valueVersion)});
+            const secret = written(saved, SECRET);
+            patchDraft(target.settingKey, {secretKey: refKey(secret?.id, secret?.meta?.valueVersion)});
         } catch (e) {
             error.val = e.message;
             throw e;
@@ -413,7 +415,8 @@ export function settingsPage() {
                 secretId: target.stableId,
                 value: new TextEncoder().encode(value),
             });
-            patchDraft(target.settingKey, {secretKey: refKey(saved?.secretId, saved?.valueVersion)});
+            const secret = written(saved, SECRET);
+            patchDraft(target.settingKey, {secretKey: refKey(secret?.id, secret?.meta?.valueVersion)});
         } catch (e) {
             error.val = e.message;
             throw e;

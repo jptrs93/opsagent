@@ -2,41 +2,38 @@ package pq
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-type SystemConfigRevisionParams struct {
-	EventMeta
-	ConfigBlob []byte
-}
-
-// InsertSystemConfigRevision appends a settings revision and returns its row
-// id, which is the revision's version number.
-func (q *Queries) InsertSystemConfigRevision(ctx context.Context, arg SystemConfigRevisionParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, `INSERT INTO system_config_event_log (global_seq, event_time, author, event_type, config_blob) VALUES (?, ?, ?, ?, ?)`,
-		arg.GlobalSeq, arg.EventTime, arg.Author, arg.EventType, arg.ConfigBlob)
-	if err != nil {
-		return 0, err
-	}
-	return result.LastInsertId()
-}
-
+// SystemConfigRevision is the live settings document with the envelope of
+// the write that made it; Seq is its version.
 type SystemConfigRevision struct {
-	ID         int64
-	GlobalSeq  int64
-	UpdatedAt  int64
-	ConfigBlob []byte
+	Seq         int64
+	UpdatedAt   int64
+	Author      int64
+	CreatedTime int64
+	ConfigBlob  []byte
 }
 
-const systemConfigColumns = `id, global_seq, event_time, config_blob`
-
-func (q *Queries) GetConfigByID(ctx context.Context, id int64) (SystemConfigRevision, error) {
+func (q *Queries) GetSystemConfig(ctx context.Context) (SystemConfigRevision, error) {
 	var i SystemConfigRevision
-	err := q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log WHERE id = ?`, id).Scan(&i.ID, &i.GlobalSeq, &i.UpdatedAt, &i.ConfigBlob)
+	err := q.db.QueryRowContext(ctx, `SELECT seq, event_time, author, created_time, config_blob FROM system_config WHERE id = ?`, SystemConfigEntityID).Scan(&i.Seq, &i.UpdatedAt, &i.Author, &i.CreatedTime, &i.ConfigBlob)
 	return i, err
 }
 
-func (q *Queries) GetLatestConfig(ctx context.Context) (SystemConfigRevision, error) {
-	var i SystemConfigRevision
-	err := q.db.QueryRowContext(ctx, `SELECT `+systemConfigColumns+` FROM system_config_event_log ORDER BY id DESC LIMIT 1`).Scan(&i.ID, &i.GlobalSeq, &i.UpdatedAt, &i.ConfigBlob)
-	return i, err
+func (q *Queries) reduceSystemConfig(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, cfg *apigen.SystemConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("payload has no config")
+	}
+	return q.upsert(ctx, meta, `INSERT INTO system_config (id, config_blob, seq, event_time, author, created_time) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET config_blob = excluded.config_blob, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
+RETURNING created_time`,
+		id, notNullBlob(cfg.Encode()), env.Seq, env.EventTime, env.Author, env.EventTime)
+}
+
+func (q *Queries) deleteSystemConfigRow(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, `DELETE FROM system_config WHERE id = ?`, id)
+	return err
 }

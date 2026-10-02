@@ -78,7 +78,6 @@ func userSessionToProto(rec users.UserSession) *apigen.UserSession {
 	return &apigen.UserSession{
 		ID:                rec.ID,
 		UserID:            rec.UserID,
-		CreatedAt:         rec.CreatedAt,
 		ExpiresAt:         rec.ExpiresAt,
 		RevokedAt:         rec.RevokedAt,
 		RequestingAddress: rec.RequestingAddress,

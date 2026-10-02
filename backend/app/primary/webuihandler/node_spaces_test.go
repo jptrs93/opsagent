@@ -2,6 +2,7 @@ package webuihandler
 
 import (
 	"context"
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -21,9 +23,9 @@ func newNodeSpacesHandler(t *testing.T) (*Handler, *nodes.Node) {
 	return &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries()}, node
 }
 
-func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*apigen.NodeEvent, error) {
+func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*pq.NodeEvent, error) {
 	t.Helper()
-	return h.PostV1NodesAllowedSpaces(apigen.Context{Ctx: context.Background()},
+	return h.nodesAllowedSpaces(apigen.Context{Ctx: context.Background()},
 		&apigen.NodeAllowedSpacesRequest{Identifier: identifier, SpaceIds: spaces})
 }
 
@@ -37,7 +39,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	// Creating the space opened it on every node, so placing into it works
 	// before anyone narrows anything. This is the default-open half.
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	if _, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: space.ID, Name: "web",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       spec,
@@ -54,7 +56,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 		t.Fatalf("narrowing: %v", err)
 	}
 
-	_, err = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	_, err = h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: fenced.ID, Name: "web2",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       spec,
@@ -71,7 +73,7 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 		t.Fatalf("CreateSpace: %v", err)
 	}
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	cfg, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	cfg, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: nodes.DefaultSpaceID, Name: "web",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       spec,
@@ -83,7 +85,7 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 		t.Fatalf("narrowing: %v", err)
 	}
 
-	_, err = h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+	_, err = h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID:        cfg.DeploymentID,
 		ExpectedSeq:         cfg.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: space.ID},
@@ -98,7 +100,7 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
 	spec := remoteDeploymentSpec("nginx", hostNetworking())
-	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	if _, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: nodes.DefaultSpaceID, Name: "web",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       spec,
@@ -144,9 +146,9 @@ func TestClusterNodesCarryAllowedSpaces(t *testing.T) {
 	}
 
 	var got []int32
-	for _, item := range nodes.ListClusterNodes(h.Store.Queries()) {
-		if item != nil && item.NodeID == node.ID {
-			got = item.Value.Operator.AllowedSpaces
+	for _, row := range erru.Must(h.Store.Queries().ListNodeRows(context.Background(), pq.MemberNodeStatuses)) {
+		if row.Event.NodeID == node.ID {
+			got = row.Event.Value.Operator.AllowedSpaces
 		}
 	}
 	slices.Sort(got)
@@ -172,6 +174,10 @@ func TestSetAllowedSpacesAlwaysKeepsTheOpendeploySpace(t *testing.T) {
 }
 
 func nodeAllowsSpaceForTest(h *Handler, nodeID, spaceID int32) bool {
-	node := nodes.MustReadLiveState(h.Store.Queries()).Nodes[nodeID]
+	node := liveNodes(h.Store.Queries()).Nodes[nodeID]
 	return node != nil && slices.Contains(node.AllowedSpaces, spaceID)
+}
+
+func liveNodes(q *pq.Queries) nodes.LiveState {
+	return erru.Must(nodes.ReadLiveState(context.Background(), q))
 }

@@ -471,12 +471,13 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 
-	next := *rolloverSpec("v2")
-	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, &next)
 	// Mid-rollover, as found on disk: the superseded placement draining, its
-	// replacement already serving, both containers up.
+	// replacement already serving, both containers up. The draining placement
+	// pins the first version before the update supersedes it.
 	drainingInst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
+	next := *rolloverSpec("v2")
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, &next)
 	servingInst := statetest.CreateScheduledInstance(store, updated.DeploymentID, updated.Version, updated.Value.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, drainingInst.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)

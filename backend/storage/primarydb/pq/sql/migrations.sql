@@ -37,13 +37,26 @@
 -- The v0.0.613 and v0.0.614 statements (the value-log space facet drop, the
 -- asset storage_key backfill, the JWT key and personal_sessions drops, the
 -- legacy table drops) and the v0.0.615 status event_time columns were removed
--- on 2026-10-01 after the v0.0.614 rollout, together with the Go-side
--- one-time migrations of that release (pq/migrate_event_tables.go,
--- pq/migrate_value_refs.go, pq/migrate_inline_assets.go with
--- assets.MigrateInlineContent, and pq/migrate_secret_seals.go with
--- secrets.Manager.migrateSealsLocked). The write log
--- (write_events, write_event_mutations) is backfilled by pq.Open on every
--- start and is the only startup migration that remains.
+-- on 2026-10-01, once v0.0.614 was tagged and before any cluster ran it,
+-- together with the Go-side one-time migrations of that release
+-- (pq/migrate_event_tables.go, pq/migrate_value_refs.go,
+-- pq/migrate_inline_assets.go with assets.MigrateInlineContent, and
+-- pq/migrate_secret_seals.go with secrets.Manager.migrateSealsLocked), and
+-- the write log backfill that pq.Open ran on every start was replaced by an
+-- open-time check that the log reaches global_seq. A cluster on v0.0.612
+-- therefore has to run v0.0.614 once before v0.0.615: pq.Open refuses an
+-- older database before it touches the file, naming that step. The one
+-- startup migration that remains is pq/migrate_materialise.go
+-- (materialiseLegacyTables with the pre-schema renameLegacyStatusLog step
+-- and the file copy backupLegacyDatabase takes first): the one-time move of
+-- every entity type from its append-only event table (secrets, configs,
+-- assets, both directory kinds, spaces, users, network policies, authz rule
+-- templates, authz grants, authz global rules, agent and user sessions, Nix
+-- store resets, keyslots, the system config, nodes, node statuses,
+-- deployments, scheduled instances, and instance statuses) to the
+-- materialised tables rebuilt from the write log, which drops the
+-- twenty-one old tables. Remove it after every active cluster has rolled
+-- forward past v0.0.615.
 -- Upgrading a database from before then requires stepping through a release
 -- that still carried them. Databases migrated through v0.0.541 keep a dead
 -- NULL-only nodes.enrollment_id column: its UNIQUE constraint blocks

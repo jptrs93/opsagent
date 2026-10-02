@@ -71,8 +71,8 @@ func TestConfigSubscriptionDeliversPersistedRevisions(t *testing.T) {
 		t.Fatal("initial config is missing")
 	}
 	initialRow, stored := persisted()
-	if service.VersionID() != initialRow.ID || initialRow.UpdatedAt == 0 {
-		t.Fatalf("version id = %d, want revision %d with a timestamp", service.VersionID(), initialRow.ID)
+	if service.VersionID() != initialRow.Seq || initialRow.UpdatedAt == 0 {
+		t.Fatalf("version id = %d, want revision %d with a timestamp", service.VersionID(), initialRow.Seq)
 	}
 	if sub.InitialValue.MasterPasswordHash != "initial-hash" || !reflect.DeepEqual(sub.InitialValue, stored) {
 		t.Fatalf("initial config = %+v, want the persisted revision %+v", sub.InitialValue, stored)
@@ -84,8 +84,8 @@ func TestConfigSubscriptionDeliversPersistedRevisions(t *testing.T) {
 	select {
 	case got := <-sub.Ch:
 		row, stored := persisted()
-		if row.ID == initialRow.ID || service.VersionID() != row.ID {
-			t.Fatalf("version id = %d, want the new revision %d after %d", service.VersionID(), row.ID, initialRow.ID)
+		if row.Seq == initialRow.Seq || service.VersionID() != row.Seq {
+			t.Fatalf("version id = %d, want the new revision %d after %d", service.VersionID(), row.Seq, initialRow.Seq)
 		}
 		if got.MasterPasswordHash != "changed-hash" || !reflect.DeepEqual(got, stored) {
 			t.Fatalf("update = %+v, want the persisted revision %+v", got, stored)

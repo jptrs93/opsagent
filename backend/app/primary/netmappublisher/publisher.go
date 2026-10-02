@@ -19,6 +19,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -460,7 +461,7 @@ func renderIngressPlan(inputs nodes.NetworkMapInputs, reservations []ingressplan
 // deployment peer becomes (current space, deployment id), a space peer becomes
 // (space, 0). A rule referencing a deleted deployment cannot be resolved and
 // is not distributed — the deleted deployment's addresses are vacant anyway.
-func renderPolicyRules(policies []*apigen.NetworkPolicyEvent, deploymentSpaces map[int32]int32) []*apigen.NetPolicyRule {
+func renderPolicyRules(policies []*pq.NetworkPolicyEvent, deploymentSpaces map[int32]int32) []*apigen.NetPolicyRule {
 	rules := make([]*apigen.NetPolicyRule, 0, len(policies))
 	for _, event := range policies {
 		if event == nil {

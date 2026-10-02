@@ -92,21 +92,8 @@ func writeStatus(ctx context.Context, q *pq.Queries, seq int64, st *apigen.Sched
 		return nil, err
 	}
 	st.DeploymentID = inst.DeploymentID
-	publish := previous == nil || !st.UpdatedAt.Before(previous.UpdatedAt)
-	rowSeq := int64(0)
-	if publish {
-		rowSeq = seq
-	}
-	now := time.Now().UnixMilli()
-	if err := q.InsertScheduledInstanceStatus(ctx, rowSeq, now, st); err != nil {
-		return nil, err
-	}
-	if !publish {
+	if previous != nil && st.UpdatedAt.Before(previous.UpdatedAt) {
 		return nil, nil
 	}
-	stored, err := q.GetLatestScheduledInstanceStatus(ctx, inst.ID)
-	if err != nil {
-		return nil, err
-	}
-	return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, now, stored)), nil
+	return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, time.Now().UnixMilli(), pq.CanonicalScheduledInstanceStatus(st))), nil
 }

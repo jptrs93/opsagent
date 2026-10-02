@@ -118,26 +118,26 @@ func (s *Store) effectiveS3Identity(settings apigen.ClusterSettings) s3Identity 
 
 // CreateAsset creates a new asset in directoryID (0 = the space root) of
 // spaceID with its first version.
-func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, author int32, blob []byte) (*apigen.AssetEvent, error) {
+func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, author int32, blob []byte) (*pq.AssetEvent, error) {
 	return s.CreateAssetFromReader(ctx, key, spaceID, directoryID, author, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, author int32, sizeBytes int64, r io.Reader) (*apigen.AssetEvent, error) {
+func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, author int32, sizeBytes int64, r io.Reader) (*pq.AssetEvent, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
-		func(sha, storageKey string) (*apigen.AssetEvent, error) {
+		func(sha, storageKey string) (*pq.AssetEvent, error) {
 			return CreateAssetWithVersion(s.DB, key, spaceID, directoryID, author, sha, storageKey, sizeBytes)
 		})
 }
 
 // AppendAssetVersion appends the next version of an existing asset. The asset
 // identity — key, space, directory — cannot change here.
-func (s *Store) AppendAssetVersion(ctx context.Context, assetID, author int32, blob []byte) (*apigen.AssetEvent, error) {
+func (s *Store) AppendAssetVersion(ctx context.Context, assetID, author int32, blob []byte) (*pq.AssetEvent, error) {
 	return s.AppendAssetVersionFromReader(ctx, assetID, author, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, author int32, sizeBytes int64, r io.Reader) (*apigen.AssetEvent, error) {
+func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, author int32, sizeBytes int64, r io.Reader) (*pq.AssetEvent, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
-		func(sha, storageKey string) (*apigen.AssetEvent, error) {
+		func(sha, storageKey string) (*pq.AssetEvent, error) {
 			return AppendAssetVersion(s.DB, assetID, author, sha, storageKey, sizeBytes)
 		})
 }
@@ -145,7 +145,7 @@ func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, autho
 // writeVersion stores the content first — deduplicated by sha256 against the
 // content store — and creates the identity rows only once the content is
 // durable, so an identity can never point at content that failed to land.
-func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha, storageKey string) (*apigen.AssetEvent, error)) (*apigen.AssetEvent, error) {
+func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha, storageKey string) (*pq.AssetEvent, error)) (*pq.AssetEvent, error) {
 	if sizeBytes < 0 {
 		return nil, fmt.Errorf("asset upload requires a content length")
 	}
@@ -155,7 +155,7 @@ func (s *Store) writeVersion(ctx context.Context, sizeBytes int64, r io.Reader, 
 	return s.writeContent(ctx, sizeBytes, r, insert)
 }
 
-func (s *Store) writeContent(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha, storageKey string) (*apigen.AssetEvent, error)) (*apigen.AssetEvent, error) {
+func (s *Store) writeContent(ctx context.Context, sizeBytes int64, r io.Reader, insert func(sha, storageKey string) (*pq.AssetEvent, error)) (*pq.AssetEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -298,7 +298,7 @@ func (s *Store) DeleteAssetLocked(ctx context.Context, assetID int32, inlockVali
 	return DeleteAsset(s.DB, assetID, inlockValidate)
 }
 
-func (s *Store) RenameAsset(ctx context.Context, assetID int32, newKey string) (*apigen.AssetEvent, error) {
+func (s *Store) RenameAsset(ctx context.Context, assetID int32, newKey string) (*pq.AssetEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

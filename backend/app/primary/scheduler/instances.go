@@ -14,7 +14,7 @@ import (
 )
 
 type schedulingInstance struct {
-	Event  apigen.ScheduledInstanceEvent
+	Event  pq.ScheduledInstanceEvent
 	Config apigen.DeploymentEvent
 	Status apigen.ScheduledInstanceStatus
 }
@@ -49,13 +49,13 @@ func readSchedulingState(ctx context.Context, q *pq.Queries, deploymentID int32)
 	return cfg, out, nil
 }
 
-func newInstance(ctx context.Context, q *pq.Queries, seq int64, cfg *apigen.DeploymentEvent, ordinal int32, target apigen.ScheduledInstanceTarget, at time.Time) (*apigen.ScheduledInstanceEvent, error) {
+func newInstance(ctx context.Context, q *pq.Queries, seq int64, cfg *apigen.DeploymentEvent, ordinal int32, target apigen.ScheduledInstanceTarget, at time.Time) (*pq.ScheduledInstanceEvent, error) {
 	id, err := q.NextScheduledInstanceID(ctx)
 	if err != nil {
 		return nil, err
 	}
 	inst := &apigen.ScheduledInstance{ID: id, DeploymentID: cfg.DeploymentID, DeploymentVersion: cfg.Version, DeploymentSpecVersion: cfg.SpecVersion, NodeID: cfg.Value.PlacementNodeID(), InstanceOrdinal: ordinal, SpaceID: cfg.Value.SpaceID}
-	return q.AppendScheduledInstanceEvent(ctx, seq, inst, target, at)
+	return pq.NewScheduledInstanceEvent(seq, inst, target, at), nil
 }
 
 func EnsureRunInstance(store *state.Service, deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) (*apigen.ScheduledInstance, bool) {
@@ -66,7 +66,6 @@ func EnsureRunInstance(store *state.Service, deploymentID, deploymentVersion, no
 	var existing *apigen.ScheduledInstance
 	now := time.Now()
 	inst := &apigen.ScheduledInstance{
-		CreatedAt:         time.UnixMilli(now.UnixMilli()),
 		DeploymentID:      deploymentID,
 		DeploymentVersion: deploymentVersion,
 		NodeID:            nodeID,
@@ -92,11 +91,8 @@ func EnsureRunInstance(store *state.Service, deploymentID, deploymentVersion, no
 		inst.DeploymentSpecVersion = cfg.SpecVersion
 		inst.SpaceID = cfg.Value.SpaceID
 		inst.ID = erru.Must(q.NextScheduledInstanceID(ctx))
-		event, err := q.AppendScheduledInstanceEvent(ctx, seq, inst, initial, now)
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.ScheduledInstanceMutation(event)), nil
+		event := pq.NewScheduledInstanceEvent(seq, inst, initial, now)
+		return pq.NewUpdate(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, event)), nil
 	}); err != nil {
 		panic(fmt.Sprintf("EnsureRunInstance: %v", err))
 	}

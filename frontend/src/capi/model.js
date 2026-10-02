@@ -5,9 +5,7 @@
  * @property {number} spaceId
  * @property {string} name
  * @property {Scheduling} scheduling
- * @property {number} version
- * @property {number} specVersion
- * @property {Date} createdTime
+ * @property {number} id
  */
 /**
  * @typedef {Object} Scheduling
@@ -24,15 +22,11 @@
  * @property {number} deploymentId
  * @property {number} version
  * @property {number} seq
- * @property {number} eventId
  * @property {number} author
  * @property {number} eventType
  * @property {Date} createdTime
  * @property {Date} eventTime
  * @property {number} specVersion
- * @property {number} spaceVersion
- * @property {number} nameVersion
- * @property {number} schedulingVersion
  * @property {Deployment} value
  */
 /**
@@ -209,7 +203,6 @@
 /**
  * @typedef {Object} ScheduledInstance
  * @property {number} id
- * @property {Date} createdAt
  * @property {number} deploymentId
  * @property {number} nodeId
  * @property {number} instanceOrdinal
@@ -256,18 +249,6 @@
  * @property {number} exitCode
  */
 /**
- * @typedef {Object} ScheduledInstanceEvent
- * @property {number} scheduledInstanceId
- * @property {number} version
- * @property {number} seq
- * @property {number} eventId
- * @property {number} author
- * @property {number} eventType
- * @property {number} createdTime
- * @property {number} eventTime
- * @property {ScheduledInstance} value
- */
-/**
  * @typedef {Object} DeploymentUpdateRequestV2
  * @property {number} deploymentId
  * @property {number} expectedSeq
@@ -312,8 +293,13 @@
  * @property {number} limit
  */
 /**
+ * @typedef {Object} DeploymentRecord
+ * @property {Deployment} deployment
+ * @property {EntityMeta} meta
+ */
+/**
  * @typedef {Object} RecentlyDeletedDeployments
- * @property {DeploymentEvent[]} items
+ * @property {DeploymentRecord[]} items
  */
 /**
  * @typedef {Object} DeploymentDeleteRequest
@@ -424,13 +410,13 @@
  */
 /**
  * @typedef {Object} DeploymentGetResponse
- * @property {DeploymentEvent} deploymentEvent
- * @property {ScheduledInstanceEvent[]} scheduledInstanceEvents
+ * @property {DeploymentRecord} deployment
+ * @property {ScheduledInstance[]} scheduledInstances
  * @property {ScheduledInstanceStatus[]} instanceStatuses
  */
 /**
  * @typedef {Object} DeploymentHistoryEntry
- * @property {DeploymentEvent} config
+ * @property {DeploymentRecord} deployment
  * @property {ScheduledInstanceStatus} status
  */
 /**
@@ -682,27 +668,13 @@
  * @property {string[]} warnings
  */
 /**
- * @typedef {Object} SecretEvent
- * @property {number} secretId
- * @property {number} version
- * @property {number} seq
- * @property {number} eventId
- * @property {number} author
- * @property {number} eventType
- * @property {number} createdTime
- * @property {number} eventTime
- * @property {number} valueVersion
- * @property {Secret} value
- */
-/**
  * @typedef {Object} Secret
  * @property {SecretFs} fs
  * @property {number} spaceId
- * @property {number} valueVersion
- * @property {number} createdTime
  * @property {number} smkVersion
  * @property {Uint8Array} ciphertext
  * @property {Uint8Array} nonce
+ * @property {number} id
  */
 /**
  * @typedef {Object} SecretKeyslot
@@ -718,10 +690,6 @@
  * @typedef {Object} SecretFs
  * @property {string} name
  * @property {number} directoryId
- */
-/**
- * @typedef {Object} SecretEventList
- * @property {SecretEvent[]} items
  */
 /**
  * @typedef {Object} SecretCreateRequest
@@ -786,25 +754,11 @@
  * @property {string} code
  */
 /**
- * @typedef {Object} ConfigEvent
- * @property {number} configId
- * @property {number} version
- * @property {number} seq
- * @property {number} eventId
- * @property {number} author
- * @property {number} eventType
- * @property {number} createdTime
- * @property {number} eventTime
- * @property {number} valueVersion
- * @property {Config} value
- */
-/**
  * @typedef {Object} Config
  * @property {ConfigFs} fs
  * @property {number} spaceId
  * @property {string} value
- * @property {number} valueVersion
- * @property {number} createdTime
+ * @property {number} id
  */
 /**
  * @typedef {Object} ConfigFs
@@ -817,12 +771,6 @@
  * @property {number} spaceId
  * @property {string} name
  * @property {number} parentId
- * @property {Date} createdAt
- * @property {number} author
- */
-/**
- * @typedef {Object} ConfigEventList
- * @property {ConfigEvent[]} items
  */
 /**
  * @typedef {Object} ConfigCreateRequest
@@ -854,27 +802,13 @@
  * @property {number} spaceId
  */
 /**
- * @typedef {Object} AssetEvent
- * @property {number} assetId
- * @property {number} version
- * @property {number} seq
- * @property {number} eventId
- * @property {number} author
- * @property {number} eventType
- * @property {number} createdTime
- * @property {number} eventTime
- * @property {number} valueVersion
- * @property {Asset} value
- */
-/**
  * @typedef {Object} Asset
  * @property {AssetFs} fs
  * @property {number} spaceId
  * @property {string} sha256
  * @property {number} sizeBytes
  * @property {string} storageKey
- * @property {number} valueVersion
- * @property {number} createdTime
+ * @property {number} id
  */
 /**
  * @typedef {Object} AssetFs
@@ -887,12 +821,6 @@
  * @property {number} spaceId
  * @property {string} key
  * @property {number} parentId
- * @property {Date} createdAt
- * @property {number} author
- */
-/**
- * @typedef {Object} AssetEventList
- * @property {AssetEvent[]} items
  */
 /**
  * @typedef {Object} AssetRenameRequest
@@ -981,7 +909,6 @@
  * @typedef {Object} User
  * @property {number} id
  * @property {string} name
- * @property {number} createdAt
  * @property {Uint8Array} credentials
  */
 /**
@@ -1044,7 +971,6 @@
  * @typedef {Object} AgentSession
  * @property {number} userId
  * @property {string} id
- * @property {Date} createdAt
  * @property {Date} expiresAt
  * @property {string} tokenPrefix
  * @property {number} status
@@ -1056,7 +982,6 @@
 /**
  * @typedef {Object} UserSession
  * @property {string} id
- * @property {Date} createdAt
  * @property {Date} expiresAt
  * @property {Date} revokedAt
  * @property {string} requestingAddress
@@ -1132,18 +1057,16 @@
  * @property {string} name
  */
 /**
- * @typedef {Object} AuthzRuleTemplate
+ * @typedef {Object} AuthzRuleTemplateSpec
  * @property {AuthzTemplateArgument[]} arguments
  * @property {AuthzRule[]} rules
  */
 /**
- * @typedef {Object} AuthzRuleTemplateRecord
+ * @typedef {Object} AuthzRuleTemplate
  * @property {number} id
  * @property {string} name
  * @property {boolean} builtin
- * @property {number} author
- * @property {number} createdAt
- * @property {AuthzRuleTemplate} template
+ * @property {AuthzRuleTemplateSpec} spec
  */
 /**
  * @typedef {Object} AuthzArgumentBinding
@@ -1151,21 +1074,19 @@
  * @property {number[]} values
  */
 /**
- * @typedef {Object} AuthzGrant
+ * @typedef {Object} AuthzGrantSpec
  * @property {AuthzArgumentBinding[]} args
  * @property {AuthzRule} rule
  */
 /**
- * @typedef {Object} AuthzGrantRecord
- * @property {number} id
+ * @typedef {Object} AuthzGrant
  * @property {number} userId
  * @property {number} templateId
- * @property {number} author
- * @property {number} createdAt
- * @property {AuthzGrant} grant
+ * @property {AuthzGrantSpec} spec
+ * @property {number} id
  */
 /**
- * @typedef {Object} AuthzGlobalRule
+ * @typedef {Object} AuthzGlobalRuleSpec
  * @property {AuthzSelector} permissions
  * @property {AuthzSelector} spaces
  * @property {AuthzSelector} entityTypes
@@ -1175,61 +1096,35 @@
  * @property {boolean} deny
  */
 /**
- * @typedef {Object} AuthzGlobalRuleRecord
+ * @typedef {Object} AuthzGlobalRule
  * @property {number} id
  * @property {string} name
- * @property {number} author
- * @property {number} createdAt
- * @property {AuthzGlobalRule} rule
- */
-/**
- * @typedef {Object} AuthzGrantValue
- * @property {number} userId
- * @property {number} templateId
- * @property {AuthzGrant} grant
- * @property {number} author
- * @property {number} createdTime
- */
-/**
- * @typedef {Object} AuthzGrantEvent
- * @property {number} authzGrantId
- * @property {number} version
- * @property {number} seq
- * @property {number} eventId
- * @property {number} author
- * @property {number} eventType
- * @property {number} createdTime
- * @property {number} eventTime
- * @property {AuthzGrantValue} value
+ * @property {AuthzGlobalRuleSpec} spec
  */
 /**
  * @typedef {Object} AuthzRuleTemplateList
- * @property {AuthzRuleTemplateRecord[]} items
+ * @property {AuthzRuleTemplate[]} items
  */
 /**
  * @typedef {Object} AuthzRuleTemplateCreateRequest
  * @property {string} name
- * @property {AuthzRuleTemplate} template
+ * @property {AuthzRuleTemplateSpec} spec
  */
 /**
  * @typedef {Object} AuthzRuleTemplateUpdateRequest
  * @property {number} id
  * @property {string} name
- * @property {AuthzRuleTemplate} template
+ * @property {AuthzRuleTemplateSpec} spec
  */
 /**
  * @typedef {Object} AuthzRuleTemplateDeleteRequest
  * @property {number} id
  */
 /**
- * @typedef {Object} AuthzGrantList
- * @property {AuthzGrantRecord[]} items
- */
-/**
  * @typedef {Object} AuthzGrantCreateRequest
  * @property {number} userId
  * @property {number} templateId
- * @property {AuthzGrant} grant
+ * @property {AuthzGrantSpec} spec
  */
 /**
  * @typedef {Object} AuthzGrantDeleteRequest
@@ -1238,12 +1133,12 @@
  */
 /**
  * @typedef {Object} AuthzGlobalRuleList
- * @property {AuthzGlobalRuleRecord[]} items
+ * @property {AuthzGlobalRule[]} items
  */
 /**
  * @typedef {Object} AuthzGlobalRuleCreateRequest
  * @property {string} name
- * @property {AuthzGlobalRule} rule
+ * @property {AuthzGlobalRuleSpec} spec
  */
 /**
  * @typedef {Object} AuthzGlobalRuleDeleteRequest
@@ -1270,19 +1165,7 @@
  * @property {number} enrollmentRequestedAt
  * @property {NodeOperator} operator
  * @property {NodeReported} reported
- * @property {number} createdTime
- */
-/**
- * @typedef {Object} NodeEvent
- * @property {number} nodeId
- * @property {number} version
- * @property {number} seq
- * @property {number} eventId
- * @property {number} author
- * @property {number} eventType
- * @property {number} createdTime
- * @property {number} eventTime
- * @property {Node} value
+ * @property {number} id
  */
 /**
  * @typedef {Object} NodeStatus
@@ -1318,14 +1201,6 @@
  * @typedef {Object} NodeAllowedSpacesRequest
  * @property {string} identifier
  * @property {number[]} spaceIds
- */
-/**
- * @typedef {Object} NodeEventList
- * @property {NodeEvent[]} items
- */
-/**
- * @typedef {Object} NodeStatusList
- * @property {NodeStatus[]} items
  */
 /**
  * @typedef {Object} NodeDrainRequest
@@ -1515,28 +1390,12 @@
  * @property {NetworkPolicyPeerRef} source
  * @property {NetworkPolicyPeerRef} destination
  * @property {NetPortMatch[]} ports
- * @property {number} createdTime
+ * @property {number} id
  */
 /**
  * @typedef {Object} NetworkPolicyPeerRef
  * @property {number} kind
  * @property {number} id
- */
-/**
- * @typedef {Object} NetworkPolicyEvent
- * @property {number} networkPolicyId
- * @property {number} version
- * @property {number} seq
- * @property {number} eventId
- * @property {number} author
- * @property {number} eventType
- * @property {number} createdTime
- * @property {number} eventTime
- * @property {NetworkPolicy} value
- */
-/**
- * @typedef {Object} NetworkPolicyEventList
- * @property {NetworkPolicyEvent[]} items
  */
 /**
  * @typedef {Object} NetworkPolicyCreateRequest
@@ -1811,12 +1670,37 @@
  * @property {number} entityType
  * @property {number} entityId
  * @property {CoreEntity} entity
+ * @property {EntityMeta} meta
  */
 /**
  * @typedef {Object} UpdateMutation
  * @property {number} entityType
  * @property {number} entityId
  * @property {CoreEntity} entity
+ * @property {EntityMeta} meta
+ */
+/**
+ * @typedef {Object} EntityMeta
+ * @property {number} createdTime
+ * @property {number} updatedTime
+ * @property {number} updatedSeq
+ * @property {number} updatedActor
+ * @property {number} version
+ * @property {number} specVersion
+ * @property {number} valueVersion
+ * @property {boolean} deleted
+ */
+/**
+ * @typedef {Object} MaterialisedEntity
+ * @property {number} entityType
+ * @property {number} entityId
+ * @property {CoreEntity} entity
+ * @property {EntityMeta} meta
+ */
+/**
+ * @typedef {Object} CoreSnapshot
+ * @property {number} seq
+ * @property {MaterialisedEntity[]} entities
  */
 /**
  * @typedef {Object} DeleteMutation
@@ -1836,9 +1720,9 @@
  * @property {User} user
  * @property {ValueDirectory} valueDirectory
  * @property {AssetDirectory} assetDirectory
- * @property {AuthzRuleTemplateRecord} authzRuleTemplate
- * @property {AuthzGrantValue} authzGrant
- * @property {AuthzGlobalRuleRecord} authzGlobalRule
+ * @property {AuthzRuleTemplate} authzRuleTemplate
+ * @property {AuthzGrant} authzGrant
+ * @property {AuthzGlobalRule} authzGlobalRule
  * @property {SystemConfig} systemConfig
  * @property {ScheduledInstanceStatus} scheduledInstanceStatus
  * @property {NodeStatus} nodeStatus
@@ -1849,12 +1733,11 @@
  */
 /**
  * @typedef {Object} EventStreamRequest
- * @property {number} afterSeq
  */
 /**
  * @typedef {Object} EventStreamMsg
  * @property {CoreWriteUpdate[]} events
- * @property {boolean} reset
+ * @property {CoreSnapshot} snapshot
  * @property {boolean} synced
  * @property {boolean} heartbeat
  * @property {BackupStatus} backupStatus
@@ -1906,14 +1789,8 @@ export function writeDeployment(message, writer) {
         writeScheduling(message.scheduling, writer);
         writer.ldelim();
     }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(15, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
-        writer.uint32(tag(16, WIRE.VARINT)).int32(message.specVersion);
-    }
-    if (message.createdTime instanceof Date && message.createdTime.getTime() !== 0) {
-        writer.uint32(tag(17, WIRE.VARINT)).int64(Math.trunc(message.createdTime.getTime()));
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(18, WIRE.VARINT)).int32(message.id);
     }
 }
 
@@ -1936,7 +1813,7 @@ export function encodeDeployment(message) {
  */
 function decodeDeploymentMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {spec: undefined, spaceId: 0, name: "", scheduling: undefined, version: 0, specVersion: 0, createdTime: new Date(0) };
+    const message = {spec: undefined, spaceId: 0, name: "", scheduling: undefined, id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -1956,16 +1833,8 @@ function decodeDeploymentMessage(reader, length) {
                 message.scheduling = decodeSchedulingMessage(reader, reader.uint32());
                 break;
             }
-            case 15: {
-                message.version = reader.int32();
-                break;
-            }
-            case 16: {
-                message.specVersion = reader.int32();
-                break;
-            }
-            case 17: {
-                message.createdTime = new Date(readInt64(reader, "int64"));
+            case 18: {
+                message.id = reader.int32();
                 break;
             }
             default:
@@ -2138,9 +2007,6 @@ export function writeDeploymentEvent(message, writer) {
     if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
         writer.uint32(tag(19, WIRE.VARINT)).int64(message.seq);
     }
-    if (message.eventId !== undefined && message.eventId !== null && message.eventId !== 0) {
-        writer.uint32(tag(20, WIRE.VARINT)).int64(message.eventId);
-    }
     if (message.author !== undefined && message.author !== null && message.author !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
     }
@@ -2155,15 +2021,6 @@ export function writeDeploymentEvent(message, writer) {
     }
     if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
         writer.uint32(tag(7, WIRE.VARINT)).int32(message.specVersion);
-    }
-    if (message.spaceVersion !== undefined && message.spaceVersion !== null && message.spaceVersion !== 0) {
-        writer.uint32(tag(12, WIRE.VARINT)).int32(message.spaceVersion);
-    }
-    if (message.nameVersion !== undefined && message.nameVersion !== null && message.nameVersion !== 0) {
-        writer.uint32(tag(14, WIRE.VARINT)).int32(message.nameVersion);
-    }
-    if (message.schedulingVersion !== undefined && message.schedulingVersion !== null && message.schedulingVersion !== 0) {
-        writer.uint32(tag(21, WIRE.VARINT)).int32(message.schedulingVersion);
     }
     if (message.value !== undefined && message.value !== null) {
         writer.uint32(tag(18, WIRE.LDELIM)).fork();
@@ -2191,7 +2048,7 @@ export function encodeDeploymentEvent(message) {
  */
 function decodeDeploymentEventMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: new Date(0), eventTime: new Date(0), specVersion: 0, spaceVersion: 0, nameVersion: 0, schedulingVersion: 0, value: undefined };
+    const message = {deploymentId: 0, version: 0, seq: 0, author: 0, eventType: 0, createdTime: new Date(0), eventTime: new Date(0), specVersion: 0, value: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -2205,10 +2062,6 @@ function decodeDeploymentEventMessage(reader, length) {
             }
             case 19: {
                 message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 20: {
-                message.eventId = readInt64(reader, "int64");
                 break;
             }
             case 6: {
@@ -2229,18 +2082,6 @@ function decodeDeploymentEventMessage(reader, length) {
             }
             case 7: {
                 message.specVersion = reader.int32();
-                break;
-            }
-            case 12: {
-                message.spaceVersion = reader.int32();
-                break;
-            }
-            case 14: {
-                message.nameVersion = reader.int32();
-                break;
-            }
-            case 21: {
-                message.schedulingVersion = reader.int32();
                 break;
             }
             case 18: {
@@ -4366,9 +4207,6 @@ export function writeScheduledInstance(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int32(message.id);
     }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
     if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int32(message.deploymentId);
     }
@@ -4411,16 +4249,12 @@ export function encodeScheduledInstance(message) {
  */
 function decodeScheduledInstanceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, createdAt: new Date(0), deploymentId: 0, nodeId: 0, instanceOrdinal: 0, state: 0, deploymentVersion: 0, deploymentSpecVersion: 0, spaceId: 0 };
+    const message = {id: 0, deploymentId: 0, nodeId: 0, instanceOrdinal: 0, state: 0, deploymentVersion: 0, deploymentSpecVersion: 0, spaceId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.id = reader.int32();
-                break;
-            }
-            case 2: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             case 3: {
@@ -4883,120 +4717,6 @@ function decodeRunnerStatusMessage(reader, length) {
 export function decodeRunnerStatus(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeRunnerStatusMessage(reader);
-}
-
-
-
-/**
- * @param {ScheduledInstanceEvent} message
- * @param {Writer} writer
- */
-export function writeScheduledInstanceEvent(message, writer) {
-    if (message.scheduledInstanceId !== undefined && message.scheduledInstanceId !== null && message.scheduledInstanceId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.scheduledInstanceId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.seq);
-    }
-    if (message.eventId !== undefined && message.eventId !== null && message.eventId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.eventId);
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.author);
-    }
-    if (message.eventType !== undefined && message.eventType !== null && message.eventType !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.eventType);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
-    }
-    if (message.eventTime !== undefined && message.eventTime !== null && message.eventTime !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int64(message.eventTime);
-    }
-    if (message.value !== undefined && message.value !== null) {
-        writer.uint32(tag(9, WIRE.LDELIM)).fork();
-        writeScheduledInstance(message.value, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {ScheduledInstanceEvent} message
- * @returns {Uint8Array}
- */
-export function encodeScheduledInstanceEvent(message) {
-    const writer = Writer.create();
-    writeScheduledInstanceEvent(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ScheduledInstanceEvent}
- */
-function decodeScheduledInstanceEventMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scheduledInstanceId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, value: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.scheduledInstanceId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
-                break;
-            }
-            case 3: {
-                message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.eventId = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.author = reader.int32();
-                break;
-            }
-            case 6: {
-                message.eventType = reader.int32();
-                break;
-            }
-            case 7: {
-                message.createdTime = readInt64(reader, "int64");
-                break;
-            }
-            case 8: {
-                message.eventTime = readInt64(reader, "int64");
-                break;
-            }
-            case 9: {
-                message.value = decodeScheduledInstanceMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ScheduledInstanceEvent}
- */
-export function decodeScheduledInstanceEvent(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeScheduledInstanceEventMessage(reader);
 }
 
 
@@ -5578,14 +5298,81 @@ export function decodeRecentlyDeletedDeploymentsRequest(buffer) {
 
 
 /**
+ * @param {DeploymentRecord} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentRecord(message, writer) {
+    if (message.deployment !== undefined && message.deployment !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeDeployment(message.deployment, writer);
+        writer.ldelim();
+    }
+    if (message.meta !== undefined && message.meta !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeEntityMeta(message.meta, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {DeploymentRecord} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentRecord(message) {
+    const writer = Writer.create();
+    writeDeploymentRecord(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentRecord}
+ */
+function decodeDeploymentRecordMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deployment: undefined, meta: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deployment = decodeDeploymentMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.meta = decodeEntityMetaMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentRecord}
+ */
+export function decodeDeploymentRecord(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentRecordMessage(reader);
+}
+
+
+
+/**
  * @param {RecentlyDeletedDeployments} message
  * @param {Writer} writer
  */
 export function writeRecentlyDeletedDeployments(message, writer) {
     if (message.items && message.items.length > 0) {
         for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeDeploymentEvent(item, writer);
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeDeploymentRecord(item, writer);
             writer.ldelim();
         }
     }
@@ -5614,8 +5401,8 @@ function decodeRecentlyDeletedDeploymentsMessage(reader, length) {
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeDeploymentEventMessage(reader, reader.uint32()));
+            case 2: {
+                message.items.push(decodeDeploymentRecordMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -6923,15 +6710,15 @@ export function decodeDeploymentGetRequest(buffer) {
  * @param {Writer} writer
  */
 export function writeDeploymentGetResponse(message, writer) {
-    if (message.deploymentEvent !== undefined && message.deploymentEvent !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentEvent(message.deploymentEvent, writer);
+    if (message.deployment !== undefined && message.deployment !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeDeploymentRecord(message.deployment, writer);
         writer.ldelim();
     }
-    if (message.scheduledInstanceEvents && message.scheduledInstanceEvents.length > 0) {
-        for (const item of message.scheduledInstanceEvents) {
-            writer.uint32(tag(2, WIRE.LDELIM)).fork();
-            writeScheduledInstanceEvent(item, writer);
+    if (message.scheduledInstances && message.scheduledInstances.length > 0) {
+        for (const item of message.scheduledInstances) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeScheduledInstance(item, writer);
             writer.ldelim();
         }
     }
@@ -6963,16 +6750,16 @@ export function encodeDeploymentGetResponse(message) {
  */
 function decodeDeploymentGetResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentEvent: undefined, scheduledInstanceEvents: [], instanceStatuses: [] };
+    const message = {deployment: undefined, scheduledInstances: [], instanceStatuses: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.deploymentEvent = decodeDeploymentEventMessage(reader, reader.uint32());
+            case 5: {
+                message.deployment = decodeDeploymentRecordMessage(reader, reader.uint32());
                 break;
             }
-            case 2: {
-                message.scheduledInstanceEvents.push(decodeScheduledInstanceEventMessage(reader, reader.uint32()));
+            case 4: {
+                message.scheduledInstances.push(decodeScheduledInstanceMessage(reader, reader.uint32()));
                 break;
             }
             case 3: {
@@ -7003,9 +6790,9 @@ export function decodeDeploymentGetResponse(buffer) {
  * @param {Writer} writer
  */
 export function writeDeploymentHistoryEntry(message, writer) {
-    if (message.config !== undefined && message.config !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeDeploymentEvent(message.config, writer);
+    if (message.deployment !== undefined && message.deployment !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeDeploymentRecord(message.deployment, writer);
         writer.ldelim();
     }
     if (message.status !== undefined && message.status !== null) {
@@ -7034,12 +6821,12 @@ export function encodeDeploymentHistoryEntry(message) {
  */
 function decodeDeploymentHistoryEntryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {config: undefined, status: undefined };
+    const message = {deployment: undefined, status: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.config = decodeDeploymentEventMessage(reader, reader.uint32());
+            case 3: {
+                message.deployment = decodeDeploymentRecordMessage(reader, reader.uint32());
                 break;
             }
             case 2: {
@@ -9575,127 +9362,6 @@ export function decodeMetricsLatestResponse(buffer) {
 
 
 /**
- * @param {SecretEvent} message
- * @param {Writer} writer
- */
-export function writeSecretEvent(message, writer) {
-    if (message.secretId !== undefined && message.secretId !== null && message.secretId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.secretId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.seq);
-    }
-    if (message.eventId !== undefined && message.eventId !== null && message.eventId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.eventId);
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.author);
-    }
-    if (message.eventType !== undefined && message.eventType !== null && message.eventType !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.eventType);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
-    }
-    if (message.eventTime !== undefined && message.eventTime !== null && message.eventTime !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int64(message.eventTime);
-    }
-    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
-        writer.uint32(tag(9, WIRE.VARINT)).int32(message.valueVersion);
-    }
-    if (message.value !== undefined && message.value !== null) {
-        writer.uint32(tag(11, WIRE.LDELIM)).fork();
-        writeSecret(message.value, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {SecretEvent} message
- * @returns {Uint8Array}
- */
-export function encodeSecretEvent(message) {
-    const writer = Writer.create();
-    writeSecretEvent(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {SecretEvent}
- */
-function decodeSecretEventMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {secretId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, value: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.secretId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
-                break;
-            }
-            case 3: {
-                message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.eventId = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.author = reader.int32();
-                break;
-            }
-            case 6: {
-                message.eventType = reader.int32();
-                break;
-            }
-            case 7: {
-                message.createdTime = readInt64(reader, "int64");
-                break;
-            }
-            case 8: {
-                message.eventTime = readInt64(reader, "int64");
-                break;
-            }
-            case 9: {
-                message.valueVersion = reader.int32();
-                break;
-            }
-            case 11: {
-                message.value = decodeSecretMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {SecretEvent}
- */
-export function decodeSecretEvent(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSecretEventMessage(reader);
-}
-
-
-
-/**
  * @param {Secret} message
  * @param {Writer} writer
  */
@@ -9708,12 +9374,6 @@ export function writeSecret(message, writer) {
     if (message.spaceId !== undefined && message.spaceId !== null && message.spaceId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int32(message.spaceId);
     }
-    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.valueVersion);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdTime);
-    }
     if (message.smkVersion !== undefined && message.smkVersion !== null && message.smkVersion !== 0) {
         writer.uint32(tag(6, WIRE.VARINT)).int64(message.smkVersion);
     }
@@ -9722,6 +9382,9 @@ export function writeSecret(message, writer) {
     }
     if (message.nonce && message.nonce.length > 0) {
         writer.uint32(tag(8, WIRE.LDELIM)).bytes(message.nonce);
+    }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.id);
     }
 }
 
@@ -9744,7 +9407,7 @@ export function encodeSecret(message) {
  */
 function decodeSecretMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0, valueVersion: 0, createdTime: 0, smkVersion: 0, ciphertext: new Uint8Array(0), nonce: new Uint8Array(0) };
+    const message = {fs: undefined, spaceId: 0, smkVersion: 0, ciphertext: new Uint8Array(0), nonce: new Uint8Array(0), id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -9754,14 +9417,6 @@ function decodeSecretMessage(reader, length) {
             }
             case 2: {
                 message.spaceId = reader.int32();
-                break;
-            }
-            case 4: {
-                message.valueVersion = reader.int32();
-                break;
-            }
-            case 5: {
-                message.createdTime = readInt64(reader, "int64");
                 break;
             }
             case 6: {
@@ -9774,6 +9429,10 @@ function decodeSecretMessage(reader, length) {
             }
             case 8: {
                 message.nonce = reader.bytes();
+                break;
+            }
+            case 9: {
+                message.id = reader.int32();
                 break;
             }
             default:
@@ -9952,66 +9611,6 @@ function decodeSecretFsMessage(reader, length) {
 export function decodeSecretFs(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSecretFsMessage(reader);
-}
-
-
-
-/**
- * @param {SecretEventList} message
- * @param {Writer} writer
- */
-export function writeSecretEventList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeSecretEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {SecretEventList} message
- * @returns {Uint8Array}
- */
-export function encodeSecretEventList(message) {
-    const writer = Writer.create();
-    writeSecretEventList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {SecretEventList}
- */
-function decodeSecretEventListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeSecretEventMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {SecretEventList}
- */
-export function decodeSecretEventList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeSecretEventListMessage(reader);
 }
 
 
@@ -10793,127 +10392,6 @@ export function decodeSecretUnlockRequest(buffer) {
 
 
 /**
- * @param {ConfigEvent} message
- * @param {Writer} writer
- */
-export function writeConfigEvent(message, writer) {
-    if (message.configId !== undefined && message.configId !== null && message.configId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.configId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.seq);
-    }
-    if (message.eventId !== undefined && message.eventId !== null && message.eventId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.eventId);
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.author);
-    }
-    if (message.eventType !== undefined && message.eventType !== null && message.eventType !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.eventType);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
-    }
-    if (message.eventTime !== undefined && message.eventTime !== null && message.eventTime !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int64(message.eventTime);
-    }
-    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
-        writer.uint32(tag(9, WIRE.VARINT)).int32(message.valueVersion);
-    }
-    if (message.value !== undefined && message.value !== null) {
-        writer.uint32(tag(11, WIRE.LDELIM)).fork();
-        writeConfig(message.value, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {ConfigEvent} message
- * @returns {Uint8Array}
- */
-export function encodeConfigEvent(message) {
-    const writer = Writer.create();
-    writeConfigEvent(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ConfigEvent}
- */
-function decodeConfigEventMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, value: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.configId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
-                break;
-            }
-            case 3: {
-                message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.eventId = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.author = reader.int32();
-                break;
-            }
-            case 6: {
-                message.eventType = reader.int32();
-                break;
-            }
-            case 7: {
-                message.createdTime = readInt64(reader, "int64");
-                break;
-            }
-            case 8: {
-                message.eventTime = readInt64(reader, "int64");
-                break;
-            }
-            case 9: {
-                message.valueVersion = reader.int32();
-                break;
-            }
-            case 11: {
-                message.value = decodeConfigMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ConfigEvent}
- */
-export function decodeConfigEvent(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigEventMessage(reader);
-}
-
-
-
-/**
  * @param {Config} message
  * @param {Writer} writer
  */
@@ -10929,11 +10407,8 @@ export function writeConfig(message, writer) {
     if (message.value !== undefined && message.value !== null && message.value !== "") {
         writer.uint32(tag(3, WIRE.LDELIM)).string(message.value);
     }
-    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int32(message.valueVersion);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdTime);
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.id);
     }
 }
 
@@ -10956,7 +10431,7 @@ export function encodeConfig(message) {
  */
 function decodeConfigMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0, value: "", valueVersion: 0, createdTime: 0 };
+    const message = {fs: undefined, spaceId: 0, value: "", id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10972,12 +10447,8 @@ function decodeConfigMessage(reader, length) {
                 message.value = reader.string();
                 break;
             }
-            case 4: {
-                message.valueVersion = reader.int32();
-                break;
-            }
-            case 5: {
-                message.createdTime = readInt64(reader, "int64");
+            case 6: {
+                message.id = reader.int32();
                 break;
             }
             default:
@@ -11079,12 +10550,6 @@ export function writeValueDirectory(message, writer) {
     if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.parentId);
     }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
-    }
 }
 
 
@@ -11106,7 +10571,7 @@ export function encodeValueDirectory(message) {
  */
 function decodeValueDirectoryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, spaceId: 0, name: "", parentId: 0, createdAt: new Date(0), author: 0 };
+    const message = {id: 0, spaceId: 0, name: "", parentId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11126,14 +10591,6 @@ function decodeValueDirectoryMessage(reader, length) {
                 message.parentId = reader.int32();
                 break;
             }
-            case 5: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 6: {
-                message.author = reader.int32();
-                break;
-            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -11149,66 +10606,6 @@ function decodeValueDirectoryMessage(reader, length) {
 export function decodeValueDirectory(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeValueDirectoryMessage(reader);
-}
-
-
-
-/**
- * @param {ConfigEventList} message
- * @param {Writer} writer
- */
-export function writeConfigEventList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeConfigEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {ConfigEventList} message
- * @returns {Uint8Array}
- */
-export function encodeConfigEventList(message) {
-    const writer = Writer.create();
-    writeConfigEventList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ConfigEventList}
- */
-function decodeConfigEventListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeConfigEventMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ConfigEventList}
- */
-export function decodeConfigEventList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeConfigEventListMessage(reader);
 }
 
 
@@ -11561,127 +10958,6 @@ export function decodeConfigMoveRequest(buffer) {
 
 
 /**
- * @param {AssetEvent} message
- * @param {Writer} writer
- */
-export function writeAssetEvent(message, writer) {
-    if (message.assetId !== undefined && message.assetId !== null && message.assetId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.assetId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.seq);
-    }
-    if (message.eventId !== undefined && message.eventId !== null && message.eventId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.eventId);
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.author);
-    }
-    if (message.eventType !== undefined && message.eventType !== null && message.eventType !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.eventType);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
-    }
-    if (message.eventTime !== undefined && message.eventTime !== null && message.eventTime !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int64(message.eventTime);
-    }
-    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
-        writer.uint32(tag(9, WIRE.VARINT)).int32(message.valueVersion);
-    }
-    if (message.value !== undefined && message.value !== null) {
-        writer.uint32(tag(11, WIRE.LDELIM)).fork();
-        writeAsset(message.value, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {AssetEvent} message
- * @returns {Uint8Array}
- */
-export function encodeAssetEvent(message) {
-    const writer = Writer.create();
-    writeAssetEvent(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {AssetEvent}
- */
-function decodeAssetEventMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {assetId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, valueVersion: 0, value: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.assetId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
-                break;
-            }
-            case 3: {
-                message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.eventId = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.author = reader.int32();
-                break;
-            }
-            case 6: {
-                message.eventType = reader.int32();
-                break;
-            }
-            case 7: {
-                message.createdTime = readInt64(reader, "int64");
-                break;
-            }
-            case 8: {
-                message.eventTime = readInt64(reader, "int64");
-                break;
-            }
-            case 9: {
-                message.valueVersion = reader.int32();
-                break;
-            }
-            case 11: {
-                message.value = decodeAssetMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {AssetEvent}
- */
-export function decodeAssetEvent(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAssetEventMessage(reader);
-}
-
-
-
-/**
  * @param {Asset} message
  * @param {Writer} writer
  */
@@ -11703,11 +10979,8 @@ export function writeAsset(message, writer) {
     if (message.storageKey !== undefined && message.storageKey !== null && message.storageKey !== "") {
         writer.uint32(tag(5, WIRE.LDELIM)).string(message.storageKey);
     }
-    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.valueVersion);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).int32(message.id);
     }
 }
 
@@ -11730,7 +11003,7 @@ export function encodeAsset(message) {
  */
 function decodeAssetMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {fs: undefined, spaceId: 0, sha256: "", sizeBytes: 0, storageKey: "", valueVersion: 0, createdTime: 0 };
+    const message = {fs: undefined, spaceId: 0, sha256: "", sizeBytes: 0, storageKey: "", id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11754,12 +11027,8 @@ function decodeAssetMessage(reader, length) {
                 message.storageKey = reader.string();
                 break;
             }
-            case 6: {
-                message.valueVersion = reader.int32();
-                break;
-            }
-            case 7: {
-                message.createdTime = readInt64(reader, "int64");
+            case 8: {
+                message.id = reader.int32();
                 break;
             }
             default:
@@ -11861,12 +11130,6 @@ export function writeAssetDirectory(message, writer) {
     if (message.parentId !== undefined && message.parentId !== null && message.parentId !== 0) {
         writer.uint32(tag(4, WIRE.VARINT)).int32(message.parentId);
     }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.author);
-    }
 }
 
 
@@ -11888,7 +11151,7 @@ export function encodeAssetDirectory(message) {
  */
 function decodeAssetDirectoryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, spaceId: 0, key: "", parentId: 0, createdAt: new Date(0), author: 0 };
+    const message = {id: 0, spaceId: 0, key: "", parentId: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11908,14 +11171,6 @@ function decodeAssetDirectoryMessage(reader, length) {
                 message.parentId = reader.int32();
                 break;
             }
-            case 5: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
-                break;
-            }
-            case 6: {
-                message.author = reader.int32();
-                break;
-            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -11931,66 +11186,6 @@ function decodeAssetDirectoryMessage(reader, length) {
 export function decodeAssetDirectory(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAssetDirectoryMessage(reader);
-}
-
-
-
-/**
- * @param {AssetEventList} message
- * @param {Writer} writer
- */
-export function writeAssetEventList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeAssetEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {AssetEventList} message
- * @returns {Uint8Array}
- */
-export function encodeAssetEventList(message) {
-    const writer = Writer.create();
-    writeAssetEventList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {AssetEventList}
- */
-function decodeAssetEventListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeAssetEventMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {AssetEventList}
- */
-export function decodeAssetEventList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAssetEventListMessage(reader);
 }
 
 
@@ -13075,9 +12270,6 @@ export function writeUser(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
     }
-    if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.createdAt);
-    }
     if (message.credentials && message.credentials.length > 0) {
         writer.uint32(tag(5, WIRE.LDELIM)).bytes(message.credentials);
     }
@@ -13102,7 +12294,7 @@ export function encodeUser(message) {
  */
 function decodeUserMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", createdAt: 0, credentials: new Uint8Array(0) };
+    const message = {id: 0, name: "", credentials: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13112,10 +12304,6 @@ function decodeUserMessage(reader, length) {
             }
             case 2: {
                 message.name = reader.string();
-                break;
-            }
-            case 3: {
-                message.createdAt = readInt64(reader, "int64");
                 break;
             }
             case 5: {
@@ -13828,9 +13016,6 @@ export function writeAgentSession(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
     }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
     if (message.expiresAt instanceof Date && message.expiresAt.getTime() !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.expiresAt.getTime()));
     }
@@ -13873,7 +13058,7 @@ export function encodeAgentSession(message) {
  */
 function decodeAgentSessionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {userId: 0, id: "", createdAt: new Date(0), expiresAt: new Date(0), tokenPrefix: "", status: 0, requestingAddress: "", approvalCode: "", approvedAt: new Date(0), tokenHash: new Uint8Array(0) };
+    const message = {userId: 0, id: "", expiresAt: new Date(0), tokenPrefix: "", status: 0, requestingAddress: "", approvalCode: "", approvedAt: new Date(0), tokenHash: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13883,10 +13068,6 @@ function decodeAgentSessionMessage(reader, length) {
             }
             case 1: {
                 message.id = reader.string();
-                break;
-            }
-            case 2: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             case 3: {
@@ -13944,9 +13125,6 @@ export function writeUserSession(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.id);
     }
-    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
-    }
     if (message.expiresAt instanceof Date && message.expiresAt.getTime() !== 0) {
         writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.expiresAt.getTime()));
     }
@@ -13989,16 +13167,12 @@ export function encodeUserSession(message) {
  */
 function decodeUserSessionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: "", createdAt: new Date(0), expiresAt: new Date(0), revokedAt: new Date(0), requestingAddress: "", userAgent: "", userId: 0, kind: 0, tokenHash: new Uint8Array(0) };
+    const message = {id: "", expiresAt: new Date(0), revokedAt: new Date(0), requestingAddress: "", userAgent: "", userId: 0, kind: 0, tokenHash: new Uint8Array(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.id = reader.string();
-                break;
-            }
-            case 2: {
-                message.createdAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             case 3: {
@@ -14911,10 +14085,10 @@ export function decodeAuthzTemplateArgument(buffer) {
 
 
 /**
- * @param {AuthzRuleTemplate} message
+ * @param {AuthzRuleTemplateSpec} message
  * @param {Writer} writer
  */
-export function writeAuthzRuleTemplate(message, writer) {
+export function writeAuthzRuleTemplateSpec(message, writer) {
     if (message.arguments && message.arguments.length > 0) {
         for (const item of message.arguments) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
@@ -14933,12 +14107,12 @@ export function writeAuthzRuleTemplate(message, writer) {
 
 
 /**
- * @param {AuthzRuleTemplate} message
+ * @param {AuthzRuleTemplateSpec} message
  * @returns {Uint8Array}
  */
-export function encodeAuthzRuleTemplate(message) {
+export function encodeAuthzRuleTemplateSpec(message) {
     const writer = Writer.create();
-    writeAuthzRuleTemplate(message, writer);
+    writeAuthzRuleTemplateSpec(message, writer);
     return writer.finish();
 }
 
@@ -14946,9 +14120,9 @@ export function encodeAuthzRuleTemplate(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {AuthzRuleTemplate}
+ * @returns {AuthzRuleTemplateSpec}
  */
-function decodeAuthzRuleTemplateMessage(reader, length) {
+function decodeAuthzRuleTemplateSpecMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {arguments: [], rules: [] };
     while (reader.pos < end) {
@@ -14972,20 +14146,20 @@ function decodeAuthzRuleTemplateMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {AuthzRuleTemplate}
+ * @returns {AuthzRuleTemplateSpec}
  */
-export function decodeAuthzRuleTemplate(buffer) {
+export function decodeAuthzRuleTemplateSpec(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzRuleTemplateMessage(reader);
+    return decodeAuthzRuleTemplateSpecMessage(reader);
 }
 
 
 
 /**
- * @param {AuthzRuleTemplateRecord} message
+ * @param {AuthzRuleTemplate} message
  * @param {Writer} writer
  */
-export function writeAuthzRuleTemplateRecord(message, writer) {
+export function writeAuthzRuleTemplate(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
     }
@@ -14995,27 +14169,21 @@ export function writeAuthzRuleTemplateRecord(message, writer) {
     if (message.builtin === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.builtin);
     }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.author);
-    }
-    if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int64(message.createdAt);
-    }
-    if (message.template !== undefined && message.template !== null) {
+    if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(7, WIRE.LDELIM)).fork();
-        writeAuthzRuleTemplate(message.template, writer);
+        writeAuthzRuleTemplateSpec(message.spec, writer);
         writer.ldelim();
     }
 }
 
 
 /**
- * @param {AuthzRuleTemplateRecord} message
+ * @param {AuthzRuleTemplate} message
  * @returns {Uint8Array}
  */
-export function encodeAuthzRuleTemplateRecord(message) {
+export function encodeAuthzRuleTemplate(message) {
     const writer = Writer.create();
-    writeAuthzRuleTemplateRecord(message, writer);
+    writeAuthzRuleTemplate(message, writer);
     return writer.finish();
 }
 
@@ -15023,11 +14191,11 @@ export function encodeAuthzRuleTemplateRecord(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {AuthzRuleTemplateRecord}
+ * @returns {AuthzRuleTemplate}
  */
-function decodeAuthzRuleTemplateRecordMessage(reader, length) {
+function decodeAuthzRuleTemplateMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", builtin: false, author: 0, createdAt: 0, template: undefined };
+    const message = {id: 0, name: "", builtin: false, spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15043,16 +14211,8 @@ function decodeAuthzRuleTemplateRecordMessage(reader, length) {
                 message.builtin = reader.bool();
                 break;
             }
-            case 5: {
-                message.author = readInt64(reader, "int64");
-                break;
-            }
-            case 6: {
-                message.createdAt = readInt64(reader, "int64");
-                break;
-            }
             case 7: {
-                message.template = decodeAuthzRuleTemplateMessage(reader, reader.uint32());
+                message.spec = decodeAuthzRuleTemplateSpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -15065,11 +14225,11 @@ function decodeAuthzRuleTemplateRecordMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {AuthzRuleTemplateRecord}
+ * @returns {AuthzRuleTemplate}
  */
-export function decodeAuthzRuleTemplateRecord(buffer) {
+export function decodeAuthzRuleTemplate(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzRuleTemplateRecordMessage(reader);
+    return decodeAuthzRuleTemplateMessage(reader);
 }
 
 
@@ -15147,10 +14307,10 @@ export function decodeAuthzArgumentBinding(buffer) {
 
 
 /**
- * @param {AuthzGrant} message
+ * @param {AuthzGrantSpec} message
  * @param {Writer} writer
  */
-export function writeAuthzGrant(message, writer) {
+export function writeAuthzGrantSpec(message, writer) {
     if (message.args && message.args.length > 0) {
         for (const item of message.args) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
@@ -15167,12 +14327,12 @@ export function writeAuthzGrant(message, writer) {
 
 
 /**
- * @param {AuthzGrant} message
+ * @param {AuthzGrantSpec} message
  * @returns {Uint8Array}
  */
-export function encodeAuthzGrant(message) {
+export function encodeAuthzGrantSpec(message) {
     const writer = Writer.create();
-    writeAuthzGrant(message, writer);
+    writeAuthzGrantSpec(message, writer);
     return writer.finish();
 }
 
@@ -15180,9 +14340,9 @@ export function encodeAuthzGrant(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {AuthzGrant}
+ * @returns {AuthzGrantSpec}
  */
-function decodeAuthzGrantMessage(reader, length) {
+function decodeAuthzGrantSpecMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {args: [], rule: undefined };
     while (reader.pos < end) {
@@ -15206,50 +14366,44 @@ function decodeAuthzGrantMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {AuthzGrant}
+ * @returns {AuthzGrantSpec}
  */
-export function decodeAuthzGrant(buffer) {
+export function decodeAuthzGrantSpec(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzGrantMessage(reader);
+    return decodeAuthzGrantSpecMessage(reader);
 }
 
 
 
 /**
- * @param {AuthzGrantRecord} message
+ * @param {AuthzGrant} message
  * @param {Writer} writer
  */
-export function writeAuthzGrantRecord(message, writer) {
-    if (message.id !== undefined && message.id !== null && message.id !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
-    }
+export function writeAuthzGrant(message, writer) {
     if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(message.userId);
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.userId);
     }
     if (message.templateId !== undefined && message.templateId !== null && message.templateId !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.templateId);
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.templateId);
     }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.author);
-    }
-    if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdAt);
-    }
-    if (message.grant !== undefined && message.grant !== null) {
-        writer.uint32(tag(6, WIRE.LDELIM)).fork();
-        writeAuthzGrant(message.grant, writer);
+    if (message.spec !== undefined && message.spec !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeAuthzGrantSpec(message.spec, writer);
         writer.ldelim();
+    }
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int64(message.id);
     }
 }
 
 
 /**
- * @param {AuthzGrantRecord} message
+ * @param {AuthzGrant} message
  * @returns {Uint8Array}
  */
-export function encodeAuthzGrantRecord(message) {
+export function encodeAuthzGrant(message) {
     const writer = Writer.create();
-    writeAuthzGrantRecord(message, writer);
+    writeAuthzGrant(message, writer);
     return writer.finish();
 }
 
@@ -15257,36 +14411,28 @@ export function encodeAuthzGrantRecord(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {AuthzGrantRecord}
+ * @returns {AuthzGrant}
  */
-function decodeAuthzGrantRecordMessage(reader, length) {
+function decodeAuthzGrantMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, userId: 0, templateId: 0, author: 0, createdAt: 0, grant: undefined };
+    const message = {userId: 0, templateId: 0, spec: undefined, id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.id = readInt64(reader, "int64");
-                break;
-            }
-            case 2: {
                 message.userId = readInt64(reader, "int64");
                 break;
             }
-            case 3: {
+            case 2: {
                 message.templateId = readInt64(reader, "int64");
                 break;
             }
-            case 4: {
-                message.author = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.createdAt = readInt64(reader, "int64");
+            case 3: {
+                message.spec = decodeAuthzGrantSpecMessage(reader, reader.uint32());
                 break;
             }
             case 6: {
-                message.grant = decodeAuthzGrantMessage(reader, reader.uint32());
+                message.id = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -15299,20 +14445,20 @@ function decodeAuthzGrantRecordMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {AuthzGrantRecord}
+ * @returns {AuthzGrant}
  */
-export function decodeAuthzGrantRecord(buffer) {
+export function decodeAuthzGrant(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzGrantRecordMessage(reader);
+    return decodeAuthzGrantMessage(reader);
 }
 
 
 
 /**
- * @param {AuthzGlobalRule} message
+ * @param {AuthzGlobalRuleSpec} message
  * @param {Writer} writer
  */
-export function writeAuthzGlobalRule(message, writer) {
+export function writeAuthzGlobalRuleSpec(message, writer) {
     if (message.permissions !== undefined && message.permissions !== null) {
         writer.uint32(tag(1, WIRE.LDELIM)).fork();
         writeAuthzSelector(message.permissions, writer);
@@ -15346,12 +14492,12 @@ export function writeAuthzGlobalRule(message, writer) {
 
 
 /**
- * @param {AuthzGlobalRule} message
+ * @param {AuthzGlobalRuleSpec} message
  * @returns {Uint8Array}
  */
-export function encodeAuthzGlobalRule(message) {
+export function encodeAuthzGlobalRuleSpec(message) {
     const writer = Writer.create();
-    writeAuthzGlobalRule(message, writer);
+    writeAuthzGlobalRuleSpec(message, writer);
     return writer.finish();
 }
 
@@ -15359,9 +14505,9 @@ export function encodeAuthzGlobalRule(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {AuthzGlobalRule}
+ * @returns {AuthzGlobalRuleSpec}
  */
-function decodeAuthzGlobalRuleMessage(reader, length) {
+function decodeAuthzGlobalRuleSpecMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
     const message = {permissions: undefined, spaces: undefined, entityTypes: undefined, entityRefs: undefined, delegatedOnly: false, delegationAllowed: false, deny: false };
     while (reader.pos < end) {
@@ -15405,47 +14551,41 @@ function decodeAuthzGlobalRuleMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {AuthzGlobalRule}
+ * @returns {AuthzGlobalRuleSpec}
  */
-export function decodeAuthzGlobalRule(buffer) {
+export function decodeAuthzGlobalRuleSpec(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzGlobalRuleMessage(reader);
+    return decodeAuthzGlobalRuleSpecMessage(reader);
 }
 
 
 
 /**
- * @param {AuthzGlobalRuleRecord} message
+ * @param {AuthzGlobalRule} message
  * @param {Writer} writer
  */
-export function writeAuthzGlobalRuleRecord(message, writer) {
+export function writeAuthzGlobalRule(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).int64(message.id);
     }
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
     }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.author);
-    }
-    if (message.createdAt !== undefined && message.createdAt !== null && message.createdAt !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.createdAt);
-    }
-    if (message.rule !== undefined && message.rule !== null) {
+    if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeAuthzGlobalRule(message.rule, writer);
+        writeAuthzGlobalRuleSpec(message.spec, writer);
         writer.ldelim();
     }
 }
 
 
 /**
- * @param {AuthzGlobalRuleRecord} message
+ * @param {AuthzGlobalRule} message
  * @returns {Uint8Array}
  */
-export function encodeAuthzGlobalRuleRecord(message) {
+export function encodeAuthzGlobalRule(message) {
     const writer = Writer.create();
-    writeAuthzGlobalRuleRecord(message, writer);
+    writeAuthzGlobalRule(message, writer);
     return writer.finish();
 }
 
@@ -15453,11 +14593,11 @@ export function encodeAuthzGlobalRuleRecord(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {AuthzGlobalRuleRecord}
+ * @returns {AuthzGlobalRule}
  */
-function decodeAuthzGlobalRuleRecordMessage(reader, length) {
+function decodeAuthzGlobalRuleMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", author: 0, createdAt: 0, rule: undefined };
+    const message = {id: 0, name: "", spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15469,16 +14609,8 @@ function decodeAuthzGlobalRuleRecordMessage(reader, length) {
                 message.name = reader.string();
                 break;
             }
-            case 3: {
-                message.author = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.createdAt = readInt64(reader, "int64");
-                break;
-            }
             case 5: {
-                message.rule = decodeAuthzGlobalRuleMessage(reader, reader.uint32());
+                message.spec = decodeAuthzGlobalRuleSpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -15491,211 +14623,11 @@ function decodeAuthzGlobalRuleRecordMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {AuthzGlobalRuleRecord}
+ * @returns {AuthzGlobalRule}
  */
-export function decodeAuthzGlobalRuleRecord(buffer) {
+export function decodeAuthzGlobalRule(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzGlobalRuleRecordMessage(reader);
-}
-
-
-
-/**
- * @param {AuthzGrantValue} message
- * @param {Writer} writer
- */
-export function writeAuthzGrantValue(message, writer) {
-    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int64(message.userId);
-    }
-    if (message.templateId !== undefined && message.templateId !== null && message.templateId !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int64(message.templateId);
-    }
-    if (message.grant !== undefined && message.grant !== null) {
-        writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeAuthzGrant(message.grant, writer);
-        writer.ldelim();
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.author);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdTime);
-    }
-}
-
-
-/**
- * @param {AuthzGrantValue} message
- * @returns {Uint8Array}
- */
-export function encodeAuthzGrantValue(message) {
-    const writer = Writer.create();
-    writeAuthzGrantValue(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {AuthzGrantValue}
- */
-function decodeAuthzGrantValueMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {userId: 0, templateId: 0, grant: undefined, author: 0, createdTime: 0 };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.userId = readInt64(reader, "int64");
-                break;
-            }
-            case 2: {
-                message.templateId = readInt64(reader, "int64");
-                break;
-            }
-            case 3: {
-                message.grant = decodeAuthzGrantMessage(reader, reader.uint32());
-                break;
-            }
-            case 4: {
-                message.author = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.createdTime = readInt64(reader, "int64");
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {AuthzGrantValue}
- */
-export function decodeAuthzGrantValue(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzGrantValueMessage(reader);
-}
-
-
-
-/**
- * @param {AuthzGrantEvent} message
- * @param {Writer} writer
- */
-export function writeAuthzGrantEvent(message, writer) {
-    if (message.authzGrantId !== undefined && message.authzGrantId !== null && message.authzGrantId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int64(message.authzGrantId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.seq);
-    }
-    if (message.eventId !== undefined && message.eventId !== null && message.eventId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.eventId);
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.author);
-    }
-    if (message.eventType !== undefined && message.eventType !== null && message.eventType !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.eventType);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
-    }
-    if (message.eventTime !== undefined && message.eventTime !== null && message.eventTime !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int64(message.eventTime);
-    }
-    if (message.value !== undefined && message.value !== null) {
-        writer.uint32(tag(9, WIRE.LDELIM)).fork();
-        writeAuthzGrantValue(message.value, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {AuthzGrantEvent} message
- * @returns {Uint8Array}
- */
-export function encodeAuthzGrantEvent(message) {
-    const writer = Writer.create();
-    writeAuthzGrantEvent(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {AuthzGrantEvent}
- */
-function decodeAuthzGrantEventMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {authzGrantId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, value: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.authzGrantId = readInt64(reader, "int64");
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
-                break;
-            }
-            case 3: {
-                message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.eventId = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.author = readInt64(reader, "int64");
-                break;
-            }
-            case 6: {
-                message.eventType = reader.int32();
-                break;
-            }
-            case 7: {
-                message.createdTime = readInt64(reader, "int64");
-                break;
-            }
-            case 8: {
-                message.eventTime = readInt64(reader, "int64");
-                break;
-            }
-            case 9: {
-                message.value = decodeAuthzGrantValueMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {AuthzGrantEvent}
- */
-export function decodeAuthzGrantEvent(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzGrantEventMessage(reader);
+    return decodeAuthzGlobalRuleMessage(reader);
 }
 
 
@@ -15708,7 +14640,7 @@ export function writeAuthzRuleTemplateList(message, writer) {
     if (message.items && message.items.length > 0) {
         for (const item of message.items) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeAuthzRuleTemplateRecord(item, writer);
+            writeAuthzRuleTemplate(item, writer);
             writer.ldelim();
         }
     }
@@ -15738,7 +14670,7 @@ function decodeAuthzRuleTemplateListMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.items.push(decodeAuthzRuleTemplateRecordMessage(reader, reader.uint32()));
+                message.items.push(decodeAuthzRuleTemplateMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -15768,9 +14700,9 @@ export function writeAuthzRuleTemplateCreateRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
-    if (message.template !== undefined && message.template !== null) {
+    if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeAuthzRuleTemplate(message.template, writer);
+        writeAuthzRuleTemplateSpec(message.spec, writer);
         writer.ldelim();
     }
 }
@@ -15794,7 +14726,7 @@ export function encodeAuthzRuleTemplateCreateRequest(message) {
  */
 function decodeAuthzRuleTemplateCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", template: undefined };
+    const message = {name: "", spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15803,7 +14735,7 @@ function decodeAuthzRuleTemplateCreateRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.template = decodeAuthzRuleTemplateMessage(reader, reader.uint32());
+                message.spec = decodeAuthzRuleTemplateSpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -15836,9 +14768,9 @@ export function writeAuthzRuleTemplateUpdateRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
     }
-    if (message.template !== undefined && message.template !== null) {
+    if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeAuthzRuleTemplate(message.template, writer);
+        writeAuthzRuleTemplateSpec(message.spec, writer);
         writer.ldelim();
     }
 }
@@ -15862,7 +14794,7 @@ export function encodeAuthzRuleTemplateUpdateRequest(message) {
  */
 function decodeAuthzRuleTemplateUpdateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", template: undefined };
+    const message = {id: 0, name: "", spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -15875,7 +14807,7 @@ function decodeAuthzRuleTemplateUpdateRequestMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.template = decodeAuthzRuleTemplateMessage(reader, reader.uint32());
+                message.spec = decodeAuthzRuleTemplateSpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -15954,66 +14886,6 @@ export function decodeAuthzRuleTemplateDeleteRequest(buffer) {
 
 
 /**
- * @param {AuthzGrantList} message
- * @param {Writer} writer
- */
-export function writeAuthzGrantList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeAuthzGrantRecord(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {AuthzGrantList} message
- * @returns {Uint8Array}
- */
-export function encodeAuthzGrantList(message) {
-    const writer = Writer.create();
-    writeAuthzGrantList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {AuthzGrantList}
- */
-function decodeAuthzGrantListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeAuthzGrantRecordMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {AuthzGrantList}
- */
-export function decodeAuthzGrantList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeAuthzGrantListMessage(reader);
-}
-
-
-
-/**
  * @param {AuthzGrantCreateRequest} message
  * @param {Writer} writer
  */
@@ -16024,9 +14896,9 @@ export function writeAuthzGrantCreateRequest(message, writer) {
     if (message.templateId !== undefined && message.templateId !== null && message.templateId !== 0) {
         writer.uint32(tag(2, WIRE.VARINT)).int64(message.templateId);
     }
-    if (message.grant !== undefined && message.grant !== null) {
+    if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
-        writeAuthzGrant(message.grant, writer);
+        writeAuthzGrantSpec(message.spec, writer);
         writer.ldelim();
     }
 }
@@ -16050,7 +14922,7 @@ export function encodeAuthzGrantCreateRequest(message) {
  */
 function decodeAuthzGrantCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {userId: 0, templateId: 0, grant: undefined };
+    const message = {userId: 0, templateId: 0, spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -16063,7 +14935,7 @@ function decodeAuthzGrantCreateRequestMessage(reader, length) {
                 break;
             }
             case 3: {
-                message.grant = decodeAuthzGrantMessage(reader, reader.uint32());
+                message.spec = decodeAuthzGrantSpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -16156,7 +15028,7 @@ export function writeAuthzGlobalRuleList(message, writer) {
     if (message.items && message.items.length > 0) {
         for (const item of message.items) {
             writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeAuthzGlobalRuleRecord(item, writer);
+            writeAuthzGlobalRule(item, writer);
             writer.ldelim();
         }
     }
@@ -16186,7 +15058,7 @@ function decodeAuthzGlobalRuleListMessage(reader, length) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.items.push(decodeAuthzGlobalRuleRecordMessage(reader, reader.uint32()));
+                message.items.push(decodeAuthzGlobalRuleMessage(reader, reader.uint32()));
                 break;
             }
             default:
@@ -16216,9 +15088,9 @@ export function writeAuthzGlobalRuleCreateRequest(message, writer) {
     if (message.name !== undefined && message.name !== null && message.name !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
     }
-    if (message.rule !== undefined && message.rule !== null) {
+    if (message.spec !== undefined && message.spec !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeAuthzGlobalRule(message.rule, writer);
+        writeAuthzGlobalRuleSpec(message.spec, writer);
         writer.ldelim();
     }
 }
@@ -16242,7 +15114,7 @@ export function encodeAuthzGlobalRuleCreateRequest(message) {
  */
 function decodeAuthzGlobalRuleCreateRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", rule: undefined };
+    const message = {name: "", spec: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -16251,7 +15123,7 @@ function decodeAuthzGlobalRuleCreateRequestMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.rule = decodeAuthzGlobalRuleMessage(reader, reader.uint32());
+                message.spec = decodeAuthzGlobalRuleSpecMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -16531,8 +15403,8 @@ export function writeNode(message, writer) {
         writeNodeReported(message.reported, writer);
         writer.ldelim();
     }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int64(message.createdTime);
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.id);
     }
 }
 
@@ -16555,7 +15427,7 @@ export function encodeNode(message) {
  */
 function decodeNodeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {status: 0, enrollmentRequestedAt: 0, operator: undefined, reported: undefined, createdTime: 0 };
+    const message = {status: 0, enrollmentRequestedAt: 0, operator: undefined, reported: undefined, id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -16575,8 +15447,8 @@ function decodeNodeMessage(reader, length) {
                 message.reported = decodeNodeReportedMessage(reader, reader.uint32());
                 break;
             }
-            case 5: {
-                message.createdTime = readInt64(reader, "int64");
+            case 6: {
+                message.id = reader.int32();
                 break;
             }
             default:
@@ -16594,120 +15466,6 @@ function decodeNodeMessage(reader, length) {
 export function decodeNode(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeNodeMessage(reader);
-}
-
-
-
-/**
- * @param {NodeEvent} message
- * @param {Writer} writer
- */
-export function writeNodeEvent(message, writer) {
-    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.nodeId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.seq);
-    }
-    if (message.eventId !== undefined && message.eventId !== null && message.eventId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.eventId);
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.author);
-    }
-    if (message.eventType !== undefined && message.eventType !== null && message.eventType !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.eventType);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
-    }
-    if (message.eventTime !== undefined && message.eventTime !== null && message.eventTime !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int64(message.eventTime);
-    }
-    if (message.value !== undefined && message.value !== null) {
-        writer.uint32(tag(9, WIRE.LDELIM)).fork();
-        writeNode(message.value, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {NodeEvent} message
- * @returns {Uint8Array}
- */
-export function encodeNodeEvent(message) {
-    const writer = Writer.create();
-    writeNodeEvent(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NodeEvent}
- */
-function decodeNodeEventMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {nodeId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, value: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.nodeId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
-                break;
-            }
-            case 3: {
-                message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.eventId = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.author = reader.int32();
-                break;
-            }
-            case 6: {
-                message.eventType = reader.int32();
-                break;
-            }
-            case 7: {
-                message.createdTime = readInt64(reader, "int64");
-                break;
-            }
-            case 8: {
-                message.eventTime = readInt64(reader, "int64");
-                break;
-            }
-            case 9: {
-                message.value = decodeNodeMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NodeEvent}
- */
-export function decodeNodeEvent(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNodeEventMessage(reader);
 }
 
 
@@ -17104,126 +15862,6 @@ function decodeNodeAllowedSpacesRequestMessage(reader, length) {
 export function decodeNodeAllowedSpacesRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeNodeAllowedSpacesRequestMessage(reader);
-}
-
-
-
-/**
- * @param {NodeEventList} message
- * @param {Writer} writer
- */
-export function writeNodeEventList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeNodeEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {NodeEventList} message
- * @returns {Uint8Array}
- */
-export function encodeNodeEventList(message) {
-    const writer = Writer.create();
-    writeNodeEventList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NodeEventList}
- */
-function decodeNodeEventListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeNodeEventMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NodeEventList}
- */
-export function decodeNodeEventList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNodeEventListMessage(reader);
-}
-
-
-
-/**
- * @param {NodeStatusList} message
- * @param {Writer} writer
- */
-export function writeNodeStatusList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeNodeStatus(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {NodeStatusList} message
- * @returns {Uint8Array}
- */
-export function encodeNodeStatusList(message) {
-    const writer = Writer.create();
-    writeNodeStatusList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NodeStatusList}
- */
-function decodeNodeStatusListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeNodeStatusMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NodeStatusList}
- */
-export function decodeNodeStatusList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNodeStatusListMessage(reader);
 }
 
 
@@ -19465,8 +18103,8 @@ export function writeNetworkPolicy(message, writer) {
             writer.ldelim();
         }
     }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int64(message.createdTime);
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.id);
     }
 }
 
@@ -19489,7 +18127,7 @@ export function encodeNetworkPolicy(message) {
  */
 function decodeNetworkPolicyMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {action: 0, source: undefined, destination: undefined, ports: [], createdTime: 0 };
+    const message = {action: 0, source: undefined, destination: undefined, ports: [], id: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19509,8 +18147,8 @@ function decodeNetworkPolicyMessage(reader, length) {
                 message.ports.push(decodeNetPortMatchMessage(reader, reader.uint32()));
                 break;
             }
-            case 8: {
-                message.createdTime = readInt64(reader, "int64");
+            case 9: {
+                message.id = reader.int32();
                 break;
             }
             default:
@@ -19591,180 +18229,6 @@ function decodeNetworkPolicyPeerRefMessage(reader, length) {
 export function decodeNetworkPolicyPeerRef(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeNetworkPolicyPeerRefMessage(reader);
-}
-
-
-
-/**
- * @param {NetworkPolicyEvent} message
- * @param {Writer} writer
- */
-export function writeNetworkPolicyEvent(message, writer) {
-    if (message.networkPolicyId !== undefined && message.networkPolicyId !== null && message.networkPolicyId !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int32(message.networkPolicyId);
-    }
-    if (message.version !== undefined && message.version !== null && message.version !== 0) {
-        writer.uint32(tag(2, WIRE.VARINT)).int32(message.version);
-    }
-    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
-        writer.uint32(tag(3, WIRE.VARINT)).int64(message.seq);
-    }
-    if (message.eventId !== undefined && message.eventId !== null && message.eventId !== 0) {
-        writer.uint32(tag(4, WIRE.VARINT)).int64(message.eventId);
-    }
-    if (message.author !== undefined && message.author !== null && message.author !== 0) {
-        writer.uint32(tag(5, WIRE.VARINT)).int32(message.author);
-    }
-    if (message.eventType !== undefined && message.eventType !== null && message.eventType !== 0) {
-        writer.uint32(tag(6, WIRE.VARINT)).int32(message.eventType);
-    }
-    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
-        writer.uint32(tag(7, WIRE.VARINT)).int64(message.createdTime);
-    }
-    if (message.eventTime !== undefined && message.eventTime !== null && message.eventTime !== 0) {
-        writer.uint32(tag(8, WIRE.VARINT)).int64(message.eventTime);
-    }
-    if (message.value !== undefined && message.value !== null) {
-        writer.uint32(tag(9, WIRE.LDELIM)).fork();
-        writeNetworkPolicy(message.value, writer);
-        writer.ldelim();
-    }
-}
-
-
-/**
- * @param {NetworkPolicyEvent} message
- * @returns {Uint8Array}
- */
-export function encodeNetworkPolicyEvent(message) {
-    const writer = Writer.create();
-    writeNetworkPolicyEvent(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NetworkPolicyEvent}
- */
-function decodeNetworkPolicyEventMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {networkPolicyId: 0, version: 0, seq: 0, eventId: 0, author: 0, eventType: 0, createdTime: 0, eventTime: 0, value: undefined };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.networkPolicyId = reader.int32();
-                break;
-            }
-            case 2: {
-                message.version = reader.int32();
-                break;
-            }
-            case 3: {
-                message.seq = readInt64(reader, "int64");
-                break;
-            }
-            case 4: {
-                message.eventId = readInt64(reader, "int64");
-                break;
-            }
-            case 5: {
-                message.author = reader.int32();
-                break;
-            }
-            case 6: {
-                message.eventType = reader.int32();
-                break;
-            }
-            case 7: {
-                message.createdTime = readInt64(reader, "int64");
-                break;
-            }
-            case 8: {
-                message.eventTime = readInt64(reader, "int64");
-                break;
-            }
-            case 9: {
-                message.value = decodeNetworkPolicyMessage(reader, reader.uint32());
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NetworkPolicyEvent}
- */
-export function decodeNetworkPolicyEvent(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNetworkPolicyEventMessage(reader);
-}
-
-
-
-/**
- * @param {NetworkPolicyEventList} message
- * @param {Writer} writer
- */
-export function writeNetworkPolicyEventList(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeNetworkPolicyEvent(item, writer);
-            writer.ldelim();
-        }
-    }
-}
-
-
-/**
- * @param {NetworkPolicyEventList} message
- * @returns {Uint8Array}
- */
-export function encodeNetworkPolicyEventList(message) {
-    const writer = Writer.create();
-    writeNetworkPolicyEventList(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NetworkPolicyEventList}
- */
-function decodeNetworkPolicyEventListMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.items.push(decodeNetworkPolicyEventMessage(reader, reader.uint32()));
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NetworkPolicyEventList}
- */
-export function decodeNetworkPolicyEventList(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNetworkPolicyEventListMessage(reader);
 }
 
 
@@ -23019,6 +21483,11 @@ export function writeCreateMutation(message, writer) {
         writeCoreEntity(message.entity, writer);
         writer.ldelim();
     }
+    if (message.meta !== undefined && message.meta !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeEntityMeta(message.meta, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -23040,7 +21509,7 @@ export function encodeCreateMutation(message) {
  */
 function decodeCreateMutationMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {entityType: 0, entityId: 0, entity: undefined };
+    const message = {entityType: 0, entityId: 0, entity: undefined, meta: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -23054,6 +21523,10 @@ function decodeCreateMutationMessage(reader, length) {
             }
             case 3: {
                 message.entity = decodeCoreEntityMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.meta = decodeEntityMetaMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -23091,6 +21564,11 @@ export function writeUpdateMutation(message, writer) {
         writeCoreEntity(message.entity, writer);
         writer.ldelim();
     }
+    if (message.meta !== undefined && message.meta !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeEntityMeta(message.meta, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -23112,7 +21590,7 @@ export function encodeUpdateMutation(message) {
  */
 function decodeUpdateMutationMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {entityType: 0, entityId: 0, entity: undefined };
+    const message = {entityType: 0, entityId: 0, entity: undefined, meta: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -23126,6 +21604,10 @@ function decodeUpdateMutationMessage(reader, length) {
             }
             case 3: {
                 message.entity = decodeCoreEntityMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.meta = decodeEntityMetaMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -23143,6 +21625,259 @@ function decodeUpdateMutationMessage(reader, length) {
 export function decodeUpdateMutation(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeUpdateMutationMessage(reader);
+}
+
+
+
+/**
+ * @param {EntityMeta} message
+ * @param {Writer} writer
+ */
+export function writeEntityMeta(message, writer) {
+    if (message.createdTime !== undefined && message.createdTime !== null && message.createdTime !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.createdTime);
+    }
+    if (message.updatedTime !== undefined && message.updatedTime !== null && message.updatedTime !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.updatedTime);
+    }
+    if (message.updatedSeq !== undefined && message.updatedSeq !== null && message.updatedSeq !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(message.updatedSeq);
+    }
+    if (message.updatedActor !== undefined && message.updatedActor !== null && message.updatedActor !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.updatedActor);
+    }
+    if (message.version !== undefined && message.version !== null && message.version !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int32(message.version);
+    }
+    if (message.specVersion !== undefined && message.specVersion !== null && message.specVersion !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.specVersion);
+    }
+    if (message.valueVersion !== undefined && message.valueVersion !== null && message.valueVersion !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int32(message.valueVersion);
+    }
+    if (message.deleted === true) {
+        writer.uint32(tag(8, WIRE.VARINT)).bool(message.deleted);
+    }
+}
+
+
+/**
+ * @param {EntityMeta} message
+ * @returns {Uint8Array}
+ */
+export function encodeEntityMeta(message) {
+    const writer = Writer.create();
+    writeEntityMeta(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {EntityMeta}
+ */
+function decodeEntityMetaMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {createdTime: 0, updatedTime: 0, updatedSeq: 0, updatedActor: 0, version: 0, specVersion: 0, valueVersion: 0, deleted: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.createdTime = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.updatedTime = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.updatedSeq = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.updatedActor = reader.int32();
+                break;
+            }
+            case 5: {
+                message.version = reader.int32();
+                break;
+            }
+            case 6: {
+                message.specVersion = reader.int32();
+                break;
+            }
+            case 7: {
+                message.valueVersion = reader.int32();
+                break;
+            }
+            case 8: {
+                message.deleted = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {EntityMeta}
+ */
+export function decodeEntityMeta(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeEntityMetaMessage(reader);
+}
+
+
+
+/**
+ * @param {MaterialisedEntity} message
+ * @param {Writer} writer
+ */
+export function writeMaterialisedEntity(message, writer) {
+    if (message.entityType !== undefined && message.entityType !== null && message.entityType !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.entityType);
+    }
+    if (message.entityId !== undefined && message.entityId !== null && message.entityId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(message.entityId);
+    }
+    if (message.entity !== undefined && message.entity !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeCoreEntity(message.entity, writer);
+        writer.ldelim();
+    }
+    if (message.meta !== undefined && message.meta !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeEntityMeta(message.meta, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {MaterialisedEntity} message
+ * @returns {Uint8Array}
+ */
+export function encodeMaterialisedEntity(message) {
+    const writer = Writer.create();
+    writeMaterialisedEntity(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {MaterialisedEntity}
+ */
+function decodeMaterialisedEntityMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {entityType: 0, entityId: 0, entity: undefined, meta: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.entityType = reader.int32();
+                break;
+            }
+            case 2: {
+                message.entityId = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.entity = decodeCoreEntityMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.meta = decodeEntityMetaMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {MaterialisedEntity}
+ */
+export function decodeMaterialisedEntity(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeMaterialisedEntityMessage(reader);
+}
+
+
+
+/**
+ * @param {CoreSnapshot} message
+ * @param {Writer} writer
+ */
+export function writeCoreSnapshot(message, writer) {
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.seq);
+    }
+    if (message.entities && message.entities.length > 0) {
+        for (const item of message.entities) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeMaterialisedEntity(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {CoreSnapshot} message
+ * @returns {Uint8Array}
+ */
+export function encodeCoreSnapshot(message) {
+    const writer = Writer.create();
+    writeCoreSnapshot(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {CoreSnapshot}
+ */
+function decodeCoreSnapshotMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {seq: 0, entities: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.seq = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.entities.push(decodeMaterialisedEntityMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {CoreSnapshot}
+ */
+export function decodeCoreSnapshot(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeCoreSnapshotMessage(reader);
 }
 
 
@@ -23272,17 +22007,17 @@ export function writeCoreEntity(message, writer) {
     }
     if (message.authzRuleTemplate !== undefined && message.authzRuleTemplate !== null) {
         writer.uint32(tag(12, WIRE.LDELIM)).fork();
-        writeAuthzRuleTemplateRecord(message.authzRuleTemplate, writer);
+        writeAuthzRuleTemplate(message.authzRuleTemplate, writer);
         writer.ldelim();
     }
     if (message.authzGrant !== undefined && message.authzGrant !== null) {
         writer.uint32(tag(13, WIRE.LDELIM)).fork();
-        writeAuthzGrantValue(message.authzGrant, writer);
+        writeAuthzGrant(message.authzGrant, writer);
         writer.ldelim();
     }
     if (message.authzGlobalRule !== undefined && message.authzGlobalRule !== null) {
         writer.uint32(tag(14, WIRE.LDELIM)).fork();
-        writeAuthzGlobalRuleRecord(message.authzGlobalRule, writer);
+        writeAuthzGlobalRule(message.authzGlobalRule, writer);
         writer.ldelim();
     }
     if (message.systemConfig !== undefined && message.systemConfig !== null) {
@@ -23390,15 +22125,15 @@ function decodeCoreEntityMessage(reader, length) {
                 break;
             }
             case 12: {
-                message.authzRuleTemplate = decodeAuthzRuleTemplateRecordMessage(reader, reader.uint32());
+                message.authzRuleTemplate = decodeAuthzRuleTemplateMessage(reader, reader.uint32());
                 break;
             }
             case 13: {
-                message.authzGrant = decodeAuthzGrantValueMessage(reader, reader.uint32());
+                message.authzGrant = decodeAuthzGrantMessage(reader, reader.uint32());
                 break;
             }
             case 14: {
-                message.authzGlobalRule = decodeAuthzGlobalRuleRecordMessage(reader, reader.uint32());
+                message.authzGlobalRule = decodeAuthzGlobalRuleMessage(reader, reader.uint32());
                 break;
             }
             case 15: {
@@ -23453,9 +22188,6 @@ export function decodeCoreEntity(buffer) {
  * @param {Writer} writer
  */
 export function writeEventStreamRequest(message, writer) {
-    if (message.afterSeq !== undefined && message.afterSeq !== null && message.afterSeq !== 0) {
-        writer.uint32(tag(1, WIRE.VARINT)).int64(message.afterSeq);
-    }
 }
 
 
@@ -23477,14 +22209,10 @@ export function encodeEventStreamRequest(message) {
  */
 function decodeEventStreamRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {afterSeq: 0 };
+    const message = { };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.afterSeq = readInt64(reader, "int64");
-                break;
-            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -23516,8 +22244,10 @@ export function writeEventStreamMsg(message, writer) {
             writer.ldelim();
         }
     }
-    if (message.reset === true) {
-        writer.uint32(tag(2, WIRE.VARINT)).bool(message.reset);
+    if (message.snapshot !== undefined && message.snapshot !== null) {
+        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writeCoreSnapshot(message.snapshot, writer);
+        writer.ldelim();
     }
     if (message.synced === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.synced);
@@ -23564,7 +22294,7 @@ export function encodeEventStreamMsg(message) {
  */
 function decodeEventStreamMsgMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {events: [], reset: false, synced: false, heartbeat: false, backupStatus: undefined, ingressDiagnostics: undefined, secretsStatus: undefined, seq: 0 };
+    const message = {events: [], snapshot: undefined, synced: false, heartbeat: false, backupStatus: undefined, ingressDiagnostics: undefined, secretsStatus: undefined, seq: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -23572,8 +22302,8 @@ function decodeEventStreamMsgMessage(reader, length) {
                 message.events.push(decodeCoreWriteUpdateMessage(reader, reader.uint32()));
                 break;
             }
-            case 2: {
-                message.reset = reader.bool();
+            case 9: {
+                message.snapshot = decodeCoreSnapshotMessage(reader, reader.uint32());
                 break;
             }
             case 3: {

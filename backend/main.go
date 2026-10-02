@@ -56,6 +56,14 @@ func main() {
 	case ainit.CommandPrimary:
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		if ainit.Args.Subcommand == ainit.SubcommandRebuildTables {
+			if err := primary.RebuildTables(ctx); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "\nerror: %v\n", err)
+				stop()
+				os.Exit(1)
+			}
+			return
+		}
 		err := primary.Run(ctx, fsys)
 		if err != nil {
 			if errors.Is(err, primary.ErrRestartRequired) {

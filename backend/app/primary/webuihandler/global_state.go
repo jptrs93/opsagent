@@ -6,6 +6,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.DeploymentGetRequest) (*apigen.DeploymentGetResponse, error) {
@@ -20,16 +21,16 @@ func (h *Handler) PostV1DeploymentsGet(ctx apigen.Context, req *apigen.Deploymen
 		return nil, err
 	}
 	q := h.Store.Queries()
-	instances, err := q.RetainedScheduledInstances(ctx, nil)
+	instances, err := q.ListRetainedScheduledInstances(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := &apigen.DeploymentGetResponse{DeploymentEvent: cfg}
+	out := &apigen.DeploymentGetResponse{Deployment: pq.DeploymentRecord(cfg)}
 	for _, e := range instances {
 		if e.Value.DeploymentID != req.ID {
 			continue
 		}
-		out.ScheduledInstanceEvents = append(out.ScheduledInstanceEvents, e)
+		out.ScheduledInstances = append(out.ScheduledInstances, &e.Value)
 		status, err := q.GetLatestScheduledInstanceStatus(ctx, e.ScheduledInstanceID)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue

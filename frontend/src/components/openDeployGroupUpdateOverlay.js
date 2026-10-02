@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {written, DEPLOYMENT} from "../state/tree.js";
 import {capi} from "../capi/index.js";
 import {refreshIcon} from "../lib/icons.js";
 import {spinnerButton} from "./spinnerbutton.js";
@@ -161,7 +162,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                     return;
                 }
                 phase.val = {state: 'waiting', detail: ''};
-                const result = await waitForConvergence(member.id, target, Number(applied?.specVersion || 0));
+                const result = await waitForConvergence(member.id, target, Number(written(applied, DEPLOYMENT)?.meta?.specVersion || 0));
                 if (!result.ok) {
                     phase.val = {state: 'failed', detail: result.detail};
                     updateError.val = `Upgrade halted: ${member.node} did not reach ${target} (${result.detail}).`;

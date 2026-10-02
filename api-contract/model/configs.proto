@@ -7,26 +7,12 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message ConfigEvent {
-  int32 config_id = 1;
-  int32 version = 2;
-  int64 seq = 3;
-  int64 event_id = 4;
-  int32 author = 5;
-  EventType event_type = 6;
-  int64 created_time = 7;
-  int64 event_time = 8;
-  int32 value_version = 9;
-  reserved 10;
-  Config value = 11 [(cp.go_value) = true];
-}
-
 message Config {
   ConfigFs fs = 1;
   int32 space_id = 2;
   string value = 3;
-  int32 value_version = 4;
-  int64 created_time = 5;
+  reserved 4, 5; // value_version, created_time: EntityMeta on the mutation
+  int32 id = 6;
 }
 
 message ConfigFs {
@@ -39,7 +25,6 @@ message ValueDirectory {
   int32 space_id = 2;
   string name = 3;
   int32 parent_id = 4;     // 0 = the implicit root
-  int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 author = 6;        // user id that created the directory; 0 = unknown/system, negative = agent of user -author
+  reserved 5, 6;           // created_at, author: EntityMeta on the mutation
   reserved 7;              // deleted: a delete mutation on the event stream
 }

@@ -241,11 +241,14 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 		if status.Runner.ExitCode == nil || *status.Runner.ExitCode != 2 {
 			return fmt.Errorf("hook did not see triggering status")
 		}
-		event, err := q.AppendScheduledInstanceEvent(ctx, seq, inst, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED, time.UnixMilli(update.Time))
+		current, err := q.GetScheduledInstance(ctx, inst.ID)
 		if err != nil {
 			return err
 		}
-		pq.AppendMutations(update, pq.ScheduledInstanceMutation(event))
+		event := pq.ScheduledInstanceTransition(seq, current, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED, time.UnixMilli(update.Time))
+		if err := q.Apply(ctx, update, pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, event)); err != nil {
+			return err
+		}
 		if reject {
 			return fail
 		}

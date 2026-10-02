@@ -9,13 +9,14 @@ import (
 	"sort"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 type exportedConfigBundle struct {
 	Deployments []*apigen.DeploymentEvent `json:"deployments"`
-	Configs     []*apigen.ConfigEvent     `json:"configs"`
-	Secrets     []*apigen.SecretEvent     `json:"secrets"`
-	Assets      []*apigen.AssetEvent      `json:"assets"`
+	Configs     []*pq.ConfigEvent         `json:"configs"`
+	Secrets     []*pq.SecretEvent         `json:"secrets"`
+	Assets      []*pq.AssetEvent          `json:"assets"`
 	Spaces      []*apigen.Space           `json:"spaces"`
 	Settings    apigen.ClusterSettings    `json:"settings"`
 }

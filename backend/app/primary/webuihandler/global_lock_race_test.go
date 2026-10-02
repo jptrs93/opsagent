@@ -21,7 +21,7 @@ func TestConcurrentCreatesRejectDuplicateIdentity(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+			_, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 				SpaceID: 1, Name: "raced",
 				Scheduling: apigen.DedicatedScheduling(false, 1),
 				Spec:       remoteDeploymentSpec("nginx", hostNetworking()),
@@ -62,7 +62,7 @@ func TestConcurrentCreatesRejectDuplicateIngressClaim(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+			_, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 				SpaceID: 1, Name: fmt.Sprintf("claimant-%d", i),
 				Scheduling: apigen.DedicatedScheduling(false, 1),
 				Spec:       spec,
@@ -108,7 +108,7 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
-			created, createErr = h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+			created, createErr = h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 				SpaceID: prod.ID, Name: fmt.Sprintf("pinner-%d", round),
 				Scheduling: apigen.DedicatedScheduling(false, node.ID),
 				Spec:       secretEnvSpec("nginx", sec.Ref()),
@@ -116,7 +116,7 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			_, moveErr = h.PostV1SecretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
+			_, moveErr = h.secretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
 				SecretID: sec.SecretID,
 				SpaceID:  staging.ID,
 			})

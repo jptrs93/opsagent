@@ -5,6 +5,7 @@ package opsagent.v1;
 import "api-contract/model/deployments.proto";
 import "api-contract/options.proto";
 import "api-contract/model/scheduled_instances.proto";
+import "api-contract/model/events.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
@@ -73,11 +74,21 @@ message RecentlyDeletedDeploymentsRequest {
   int32 limit = 1;  // max entries to return; 0 or out of range uses the server default
 }
 
+// DeploymentRecord is one version of a deployment as a REST response carries
+// it: the payload with the meta the stream would attach to it. For a deleted
+// deployment the meta is the last version's with deleted set and updated_*
+// the delete.
+message DeploymentRecord {
+  Deployment deployment = 1;
+  EntityMeta meta = 2;
+}
+
 message RecentlyDeletedDeployments {
-  // Final config of each deleted deployment, most recently deleted first. The
+  reserved 1; // items as DeploymentEvent: the retired per-entity envelope
+  // Final version of each deleted deployment, most recently deleted first. The
   // spec is intact, so a client can seed a new deployment from one; the id and
   // spec version belong to the deleted deployment and cannot be reused.
-  repeated DeploymentEvent items = 1;
+  repeated DeploymentRecord items = 2;
 }
 
 message DeploymentDeleteRequest {
@@ -198,13 +209,17 @@ message DeploymentGetRequest {
 }
 
 message DeploymentGetResponse {
-  DeploymentEvent deployment_event = 1;
-  repeated ScheduledInstanceEvent scheduled_instance_events = 2;
+  reserved 1, 2; // deployment_event, scheduled_instance_events: the retired per-entity envelopes
+  DeploymentRecord deployment = 5;
+  repeated ScheduledInstance scheduled_instances = 4;
   repeated ScheduledInstanceStatus instance_statuses = 3;
 }
 
+// DeploymentHistoryEntry is one row of a deployment's history: a version of
+// the deployment or an observed status, never both.
 message DeploymentHistoryEntry {
-  DeploymentEvent config = 1;
+  reserved 1; // config as DeploymentEvent: the retired per-entity envelope
+  DeploymentRecord deployment = 3;
   ScheduledInstanceStatus status = 2;
 }
 

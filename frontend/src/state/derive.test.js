@@ -6,8 +6,9 @@ import {deriveEnrollments, configViewModel, authzGrantViewModel, nodeViewModel} 
 
 const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17;
 const fields = {[DEPLOYMENT]: 'deployment', [SCHEDULED_INSTANCE]: 'scheduledInstance', [NODE]: 'node', [SCHEDULED_INSTANCE_STATUS]: 'scheduledInstanceStatus', [NODE_STATUS]: 'nodeStatus'};
-const create = (type, id, entity) => ({create: {entityType: type, entityId: id, entity: {[fields[type]]: entity}}});
-const deployment = version => ({version, specVersion: version, spec: {container1Spec: {running: false, version: `sha-${version}`}}});
+const create = (type, id, entity, meta) => ({create: {entityType: type, entityId: id, entity: {[fields[type]]: entity}, ...(meta ? {meta} : {})}});
+const deployment = version => ({spec: {container1Spec: {running: false, version: `sha-${version}`}}});
+const deploymentMeta = version => ({version, specVersion: version});
 const instance = (id, version = 1, state = 0, ordinal = 0) => ({id, deploymentId: 7, deploymentVersion: version, state, instanceOrdinal: ordinal});
 const fold = (mutations, seq = 1) => {
     const tree = createTree();
@@ -15,7 +16,7 @@ const fold = (mutations, seq = 1) => {
     return tree;
 };
 const rows = (versions, instances = [], statuses = []) => deriveDeploymentRows(fold([
-    ...versions.map(v => create(DEPLOYMENT, 7, deployment(v))),
+    ...versions.map(v => create(DEPLOYMENT, 7, deployment(v), deploymentMeta(v))),
     ...instances.map(i => create(SCHEDULED_INSTANCE, i.id, i)),
     ...statuses.map(s => create(SCHEDULED_INSTANCE_STATUS, s.scheduledInstanceId, s)),
 ]));
@@ -95,7 +96,7 @@ test('rename and move history preserve the value versions that can be pinned', (
 });
 
 test('grant view preserves subject, bindings and attribution from the event', () => {
-    const value = {userId: 7, templateId: 2, grant: {args: [{argumentId: 1, values: [3]}]}, author: 4, createdTime: 123};
+    const value = {userId: 7, templateId: 2, spec: {args: [{argumentId: 1, values: [3]}]}, createdTime: 123};
     assert.deepEqual(authzGrantViewModel({authzGrantId: 10, author: 4, createdTime: 123, value}), {
         ...value, id: 10, author: 4, createdAt: 123,
     });

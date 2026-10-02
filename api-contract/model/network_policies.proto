@@ -18,7 +18,8 @@ message NetworkPolicy {
   NetworkPolicyPeerRef source = 4;
   NetworkPolicyPeerRef destination = 5;
   repeated NetPortMatch ports = 6; // empty = all ports and protocols
-  int64 created_time = 8;          // epoch ms of the policy's first row
+  reserved 8;                      // created_time: EntityMeta on the mutation
+  int32 id = 9;
 }
 
 // DENY is schema-reserved and rejected on writes until enforced.
@@ -39,14 +40,4 @@ enum NetworkPolicyPeerKind {
   NETWORK_POLICY_PEER_KIND_DEPLOYMENT = 2;
 }
 
-message NetworkPolicyEvent {
-  int32 network_policy_id = 1;
-  int32 version = 2;
-  int64 seq = 3;
-  int64 event_id = 4;
-  int32 author = 5;
-  EventType event_type = 6;
-  int64 created_time = 7;
-  int64 event_time = 8;
-  NetworkPolicy value = 9 [(cp.go_value) = true];
-}
+// NetworkPolicyEvent is a live policy with the envelope of its last write.

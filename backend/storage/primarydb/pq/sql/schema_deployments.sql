@@ -1,33 +1,29 @@
-CREATE TABLE IF NOT EXISTS deployment_event_log (
-    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-    global_seq               INTEGER NOT NULL,
-    event_time               INTEGER NOT NULL,  -- epoch ms
-    created_time             INTEGER NOT NULL,  -- epoch ms
-    author                   INTEGER NOT NULL,
-    deployment_id            INTEGER NOT NULL CHECK (deployment_id BETWEEN 1 AND 16777215),
-    version                  INTEGER NOT NULL,  -- top-level: bumps on every event
-    spec_version             INTEGER NOT NULL,
-    space_assignment_version INTEGER NOT NULL,
-    name_version             INTEGER NOT NULL,
-    spec_changed             INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped spec_version
-    space_assignment_changed INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped space_assignment_version
-    name_changed             INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped name_version
-    scheduling_version       INTEGER NOT NULL DEFAULT 0,
-    scheduling_changed       INTEGER NOT NULL DEFAULT 0,  -- 1 iff this event bumped scheduling_version
-    value                    BLOB NOT NULL,     -- Deployment value snapshot
-    event_type               INTEGER NOT NULL DEFAULT 0,  -- AuthzVerb value: 1 create / 2 update / 3 delete
-    UNIQUE (deployment_id, version)
+-- Materialised views of the write log, maintained by the reducer in
+-- pq/materialise.go. deployments holds the current row of every live
+-- deployment; deployment_versions holds the current version of every live
+-- deployment plus every version a retained scheduled instance pins, each
+-- with the envelope of the write that produced it. A deleted deployment has
+-- no current row; its pinned versions stay until the last pin goes.
+CREATE TABLE IF NOT EXISTS deployments (
+    id           INTEGER PRIMARY KEY CHECK (id BETWEEN 1 AND 16777215),
+    space_id     INTEGER NOT NULL,
+    name         TEXT    NOT NULL,
+    version      INTEGER NOT NULL,
+    spec_version INTEGER NOT NULL,
+    created_time INTEGER NOT NULL,  -- epoch ms
+    seq          INTEGER NOT NULL,
+    event_time   INTEGER NOT NULL,  -- epoch ms
+    author       INTEGER NOT NULL
 );
 
--- Spec-writing rows only: exactly one per (deployment_id, spec_version).
-CREATE INDEX IF NOT EXISTS idx_deployment_event_log_spec_version
-    ON deployment_event_log (deployment_id, spec_version)
-    WHERE spec_changed != 0;
-
--- Delete tombstones in the order the deleted-deployments listing wants them.
--- A delete is terminal, so this holds one row per deleted deployment.
-CREATE INDEX IF NOT EXISTS idx_deployment_event_log_deleted
-    ON deployment_event_log (event_time DESC, deployment_id DESC)
-    WHERE event_type = 3;
-
-CREATE INDEX IF NOT EXISTS idx_deployment_event_log_seq ON deployment_event_log (global_seq, id);
+CREATE TABLE IF NOT EXISTS deployment_versions (
+    deployment_id INTEGER NOT NULL,
+    version       INTEGER NOT NULL,
+    spec_version  INTEGER NOT NULL,
+    created_time  INTEGER NOT NULL,  -- epoch ms
+    value         BLOB    NOT NULL,  -- Deployment without version, spec_version, created_time
+    seq           INTEGER NOT NULL,
+    event_time    INTEGER NOT NULL,  -- epoch ms
+    author        INTEGER NOT NULL,
+    PRIMARY KEY (deployment_id, version)
+);

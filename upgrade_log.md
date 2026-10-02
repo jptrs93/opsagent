@@ -4,6 +4,73 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.615 (unreleased)
+
+### What changed
+
+- **Secrets, configs, assets, both directory kinds, spaces, users, network
+  policies, the three authz tables, agent and user sessions, Nix store
+  resets, keyslots, and the system config are materialised tables rebuilt
+  from the write log.** `secret_event_log`, `config_event_log`,
+  `asset_event_log`, `value_directory_event_log`,
+  `asset_directory_event_log`, `space_event_log`, `user_event_log`,
+  `network_policy_event_log`, `authz_rule_template_event_log`,
+  `authz_grant_event_log`, `global_access_rule_event_log`,
+  `agent_session_event_log`, `user_session_event_log`,
+  `nix_store_reset_event_log`, `secret_keyslot_event_log`, and
+  `system_config_event_log` are replaced by `secrets` + `secret_versions`,
+  `configs` + `config_versions`, `assets` + `asset_versions`,
+  `value_directories`, `asset_directories`, the namespace tables
+  `value_names` and `asset_keys`, `spaces`, `users`, `network_policies`,
+  `authz_rule_templates`, `authz_grants`, `authz_global_rules`,
+  `agent_sessions`, `user_sessions`, `nix_store_resets`,
+  `secret_keyslots`, `system_config`, and the id counter `entity_ids`. The
+  reducer in `pq/materialise.go` maintains them from the committed
+  mutations; the write log is the only durable history. A deleted value
+  takes its version rows with it (its history stays in the log); the delete
+  endpoints already refuse a value a deployment references. A deleted
+  space, user, policy, template, grant, rule, or keyslot has no row at all.
+  Sessions and resets keep the entity id they had on the stream; new ones
+  take theirs from `entity_ids`. The agent session document never carried
+  `revoked_at`, so the column is gone: the status says revoked and the
+  row's `event_time` says when. The system config's version on the wire is
+  now the seq of its last write, not a row id.
+- **The write log is required, not backfilled.** The startup backfill that
+  v0.0.614 ran is gone; a database whose log stops short of `global_seq`
+  refuses to start.
+- **`SecretEvent`, `ConfigEvent`, `AssetEvent`, and `NetworkPolicyEvent`
+  lose `version`, `event_id`, `event_type`** (tags 2, 4, 6 reserved), and
+  `AuthzGrantEvent` is removed from the schema. The event stream and the
+  browser tree are unchanged; the one-shot and list responses carry `seq`,
+  `author`, the times, `value_version` where there is one, and `value`.
+- **New operator command** `opendeploy primary rebuild-tables`: regenerates
+  the materialised tables from the write log. Run it with the primary
+  stopped.
+
+### Before upgrading
+
+- **The primary must have started on v0.0.614 at least once**, so its write
+  log is complete. A primary skipping from v0.0.613 or earlier refuses to
+  start with `the write log ends at seq N but the database is at seq M`.
+- **Back up `primary.db`.** The table move is one-way.
+
+### What the primary does on first start
+
+- In one transaction: rebuilds the new tables from the write log, checks
+  them row by row against the old tables' live state (sealed secret bytes
+  included), and drops the sixteen old tables. One log line. Any mismatch
+  leaves the database untouched and the primary refuses to start, naming
+  the first differing row.
+- Writes seq 0 (the two seeded spaces) to the write log on a fresh
+  database only.
+
+### After upgrading
+
+- Secrets stay sealed throughout: the rebuild moves ciphertext, never opens
+  it, and the machine keys and keyslots are untouched.
+- Check `primary.db` size: the eleven dropped tables held a full copy of
+  every event, so `VACUUM` reclaims the space when convenient.
+
 ## v0.0.614 (unreleased)
 
 ### What changed

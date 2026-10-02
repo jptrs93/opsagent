@@ -51,7 +51,7 @@ func TestUserSessionLoginListRevoke(t *testing.T) {
 	if session.ID != current.SessionID || session.UserID != user.ID {
 		t.Fatalf("listed session %+v does not match the calling session %s", session, current.SessionID)
 	}
-	if session.ExpiresAt.IsZero() || session.CreatedAt.IsZero() {
+	if session.ExpiresAt.IsZero() {
 		t.Fatalf("session timestamps not populated: %#v", session)
 	}
 

@@ -37,7 +37,7 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 		}
 		now := time.Now().UnixMilli()
 		update := &state.WriteUpdate{}
-		instances, err := q.ListLatestScheduledInstanceEvents(ctx)
+		instances, err := q.ListRetainedScheduledInstances(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -62,9 +62,6 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 			}
 			tombstone := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: inst.ID, DeploymentID: inst.DeploymentID, UpdatedAt: previous.UpdatedAt}
 			tombstone.BumpUpdatedAt()
-			if err := q.InsertScheduledInstanceStatus(ctx, seq, now, tombstone); err != nil {
-				return nil, err
-			}
 			pq.AppendMutations(update, pq.ScheduledInstanceStatusMutation(seq, now, tombstone))
 			invalidated++
 		}
@@ -77,9 +74,6 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 			tombstone.UpdatedAt = previous.UpdatedAt
 		}
 		tombstone.BumpUpdatedAt()
-		if err := q.InsertNodeStatus(ctx, seq, now, tombstone); err != nil {
-			return nil, err
-		}
 		pq.AppendMutations(update, pq.NodeStatusMutation(seq, now, tombstone))
 		return update, nil
 	})
@@ -98,31 +92,26 @@ func ListSpaces(q *pq.Queries) []*apigen.Space {
 	return out
 }
 
-func spaceEvent(seq, now int64, author int32, eventType apigen.AuthzVerb, id int64, name string) pq.SpaceEventParams {
-	return pq.SpaceEventParams{
-		EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: eventType},
-		SpaceID:   id, Name: name,
-	}
+func spaceMeta(seq, now int64, author int32) pq.EventMeta {
+	return pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
 }
 
 func CreateSpace(store *state.Service, name string, author int32) (*apigen.Space, error) {
 	ctx := context.Background()
 	var space *apigen.Space
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		id, err := q.NextSpaceID(ctx)
+		id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_SPACE)
 		if err != nil {
 			return nil, err
 		}
-		event := spaceEvent(seq, time.Now().UnixMilli(), author, apigen.AuthzVerb_AUTHZ_VERB_CREATE, id, name)
-		if err := q.InsertSpaceEvent(ctx, event); err != nil {
-			return nil, err
-		}
+		meta := spaceMeta(seq, time.Now().UnixMilli(), author)
+		meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
 		space = &apigen.Space{ID: int32(id), Name: name}
-		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, event.EventTime, func(spaces []int32) []int32 { return append(spaces, space.ID) })
+		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, meta.EventTime, func(spaces []int32) []int32 { return append(spaces, space.ID) })
 		if err != nil {
 			return nil, err
 		}
-		update := pq.NewUpdate(pq.SpaceMutation(event.EventMeta, *space))
+		update := pq.NewUpdate(pq.SpaceMutation(meta, *space))
 		pq.AppendMutations(update, nodes...)
 		return update, nil
 	})
@@ -136,12 +125,8 @@ func UpdateSpace(store *state.Service, id int32, name string, author int32) (*ap
 		if _, err := q.GetSpace(ctx, int64(id)); err != nil {
 			return nil, err
 		}
-		event := spaceEvent(seq, time.Now().UnixMilli(), author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, int64(id), name)
-		if err := q.InsertSpaceEvent(ctx, event); err != nil {
-			return nil, err
-		}
 		space = &apigen.Space{ID: id, Name: name}
-		return pq.NewUpdate(pq.SpaceMutation(event.EventMeta, *space)), nil
+		return pq.NewUpdate(pq.SpaceMutation(spaceMeta(seq, time.Now().UnixMilli(), author), *space)), nil
 	})
 	return space, err
 }
@@ -149,15 +134,11 @@ func UpdateSpace(store *state.Service, id int32, name string, author int32) (*ap
 func DeleteSpace(store *state.Service, id int32, author int32) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		current, err := q.GetSpace(ctx, int64(id))
-		if err != nil {
+		if _, err := q.GetSpace(ctx, int64(id)); err != nil {
 			return nil, err
 		}
-		event := spaceEvent(seq, time.Now().UnixMilli(), author, apigen.AuthzVerb_AUTHZ_VERB_DELETE, int64(id), current.Name)
-		if err := q.InsertSpaceEvent(ctx, event); err != nil {
-			return nil, err
-		}
-		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, event.EventTime, func(spaces []int32) []int32 {
+		meta := spaceMeta(seq, time.Now().UnixMilli(), author)
+		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, meta.EventTime, func(spaces []int32) []int32 {
 			out := spaces[:0:0]
 			for _, space := range spaces {
 				if space != id {
@@ -169,7 +150,7 @@ func DeleteSpace(store *state.Service, id int32, author int32) error {
 		if err != nil {
 			return nil, err
 		}
-		update := pq.NewUpdate(pq.SpaceMutation(event.EventMeta, apigen.Space{ID: id, Name: current.Name}))
+		update := pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_SPACE, int64(id)))
 		pq.AppendMutations(update, nodes...)
 		return update, nil
 	})

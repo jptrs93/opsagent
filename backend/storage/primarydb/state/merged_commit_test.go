@@ -36,7 +36,7 @@ func TestMergedCommitConditionallyStoresSequence(t *testing.T) {
 		if seq != before+2 {
 			t.Errorf("candidate = %d, want %d", seq, before+2)
 		}
-		return nil, q.InsertUserSessionEvent(ctx, pq.UserSessionEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, SessionID: "internal", UserID: 1, CreatedAt: 1, ExpiresAt: 2, TokenHash: []byte{1}})
+		return nil, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,12 +72,11 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 		for i := 0; i < writes; i++ {
 			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 				runtime.Gosched()
-				now := time.Now().UnixMilli()
-				status, err := q.SetNodeConnectionStatus(ctx, seq, now, node.Identifier, true, time.Now())
+				status, err := q.NodeConnectionStatus(ctx, node.Identifier, true, time.Now())
 				if err != nil {
 					return nil, err
 				}
-				return pq.NewUpdate(pq.NodeStatusMutation(seq, now, status)), nil
+				return pq.NewUpdate(pq.NodeStatusMutation(seq, time.Now().UnixMilli(), status)), nil
 			})
 			if err != nil {
 				failures <- err
@@ -91,14 +90,12 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 		for i := 0; i < writes; i++ {
 			id := fmt.Sprintf("session-%d", i)
 			err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-				if err := q.InsertAgentSessionEvent(ctx, pq.AgentSessionEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, SessionID: id, UserID: 1, CreatedAt: time.Now().Unix(), TokenHash: []byte{}}); err != nil {
-					return nil, err
-				}
-				row, err := q.GetAgentSession(ctx, id)
+				entityID, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION)
 				if err != nil {
 					return nil, err
 				}
-				return pq.NewUpdate(pq.AgentSessionMutation(row)), nil
+				meta := pq.EventMeta{GlobalSeq: seq, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
+				return pq.NewUpdate(pq.AgentSessionMutation(meta, entityID, &apigen.AgentSession{ID: id, UserID: 1, Status: apigen.AgentSessionStatus_AGENT_SESSION_PENDING})), nil
 			})
 			if err != nil {
 				failures <- err
@@ -120,8 +117,8 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 		t.Fatalf("sessions=%d err=%v", len(sessions), err)
 	}
 	for _, row := range sessions {
-		if row.GlobalSeq <= before {
-			t.Fatalf("session %s carries seq %d, before the run started", row.SessionID, row.GlobalSeq)
+		if row.Seq <= before {
+			t.Fatalf("session %s carries seq %d, before the run started", row.SessionID, row.Seq)
 		}
 	}
 	if len(erru.Must(s.q.ListNodeStatusHistorySince(context.Background(), node.ID, time.Time{}))) != writes {

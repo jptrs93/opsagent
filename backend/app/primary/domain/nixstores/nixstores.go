@@ -4,6 +4,7 @@ package nixstores
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"sync"
@@ -56,27 +57,26 @@ func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time, 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var items []*apigen.NixStoreReset
 	err := s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		eventType := apigen.AuthzVerb_AUTHZ_VERB_CREATE
-		if exists, err := q.NixStoreResetExists(ctx, repo); err != nil {
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
+		var id int64
+		switch previous, err := q.GetNixStoreReset(ctx, repo); {
+		case errors.Is(err, sql.ErrNoRows):
+			meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
+			if id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET); err != nil {
+				return nil, err
+			}
+		case err != nil:
 			return nil, err
-		} else if exists {
-			eventType = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
+		default:
+			id = previous.ID
 		}
-		row, err := q.InsertNixStoreResetEvent(ctx, pq.NixStoreResetEventParams{
-			EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(author), EventType: eventType},
-			Repo:      repo, RequestedAt: now.UnixMilli(),
-		})
-		if err != nil {
-			return nil, err
-		}
-		items, err = q.ListNixStoreResets(ctx)
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.NixStoreResetMutation(row)), nil
+		return pq.NewUpdate(pq.NixStoreResetMutation(meta, id, &apigen.NixStoreReset{Repo: repo, RequestedAt: now.UnixMilli()})), nil
 	})
+	if err != nil {
+		return err
+	}
+	items, err := s.store.Queries().ListNixStoreResets(ctx)
 	if err != nil {
 		return err
 	}

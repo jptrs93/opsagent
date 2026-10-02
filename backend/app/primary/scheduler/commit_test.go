@@ -3,7 +3,10 @@ package scheduler
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"errors"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -18,7 +21,13 @@ import (
 func assertInstanceMutationsMatchRows(t *testing.T, store *state.Service, update state.WriteUpdate) {
 	t.Helper()
 	for _, m := range mutationsOf(update, instanceType) {
-		persisted := erru.Must(store.Queries().GetScheduledInstance(context.Background(), int32(m.EntityID())))
+		persisted, err := store.Queries().GetScheduledInstance(context.Background(), int32(m.EntityID()))
+		if errors.Is(err, sql.ErrNoRows) && m.Entity().ScheduledInstance.State.IsFinal() {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
 		if persisted.Seq != update.Seq || !bytes.Equal(persisted.Value.Encode(), m.Entity().ScheduledInstance.Encode()) {
 			t.Fatal("published instance differs from written row")
 		}
@@ -78,7 +87,7 @@ func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 	}
 }
 
-func TestStaleReportIsHistoryAndCannotDriveScheduler(t *testing.T) {
+func TestStaleReportIsDroppedAndCannotDriveScheduler(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
@@ -107,8 +116,8 @@ func TestStaleReportIsHistoryAndCannotDriveScheduler(t *testing.T) {
 	if !bytes.Equal(before, fingerprint(t, store)) {
 		t.Fatal("delayed STOPPED report changed the bootstrap or the sequence")
 	}
-	if len(erru.Must(store.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), older.ID, time.Time{}))) != 2 {
-		t.Fatal("delayed history discarded")
+	if len(erru.Must(store.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), older.ID, time.Time{}))) != 1 {
+		t.Fatal("delayed report entered history")
 	}
 	select {
 	case <-sub:
@@ -159,7 +168,7 @@ func TestDrainDeadlineSurvivesRepeatedTriggers(t *testing.T) {
 	now = drainedAt.Add(drainTimeout - time.Millisecond)
 	sweep(t, store)
 	sweep(t, store)
-	if globalSeq(t, store) != before || !bytes.Equal(drain.Encode(), erru.Must(store.Queries().GetScheduledInstance(context.Background(), older.ID)).Encode()) {
+	if globalSeq(t, store) != before || !reflect.DeepEqual(drain, erru.Must(store.Queries().GetScheduledInstance(context.Background(), older.ID))) {
 		t.Fatal("reconcile reset persisted wait or consumed a sequence")
 	}
 	now = drainedAt.Add(drainTimeout + time.Millisecond)

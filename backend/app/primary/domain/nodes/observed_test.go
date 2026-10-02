@@ -9,6 +9,7 @@ import (
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -17,7 +18,9 @@ func TestNodeObservationHistorySurvivesRestartAndClockRegression(t *testing.T) {
 	s := state.Open(path)
 	node := testNode(s, "primary")
 	future := time.Now().Add(24 * time.Hour).UnixNano()
-	if err := s.Queries().InsertNodeStatus(context.Background(), 0, time.Now().UnixMilli(), &apigen.NodeStatus{NodeID: node.ID, UpdatedAt: time.Unix(0, future), IsConnected: true}); err != nil {
+	if err := s.Commit(context.Background(), nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
+		return pq.NewUpdate(pq.NodeStatusMutation(seq, time.Now().UnixMilli(), &apigen.NodeStatus{NodeID: node.ID, UpdatedAt: time.Unix(0, future), IsConnected: true})), nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Close(); err != nil {

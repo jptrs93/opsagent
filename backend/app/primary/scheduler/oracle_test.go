@@ -43,8 +43,8 @@ func hasObserved(update state.WriteUpdate) bool {
 func fingerprint(t testing.TB, store *state.Service) []byte {
 	t.Helper()
 	out := []byte{byte(globalSeq(t, store))}
-	for _, event := range statetest.Bootstrap(t, store.Queries()) {
-		out = append(out, statetest.Canonical(*event)...)
+	for _, entry := range statetest.Snapshot(t, store.Queries()) {
+		out = append(out, entry.Encode()...)
 	}
 	return out
 }

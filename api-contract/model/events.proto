@@ -40,12 +40,47 @@ message CreateMutation {
   CoreEntityType entity_type = 1;
   int64 entity_id = 2;
   CoreEntity entity = 3;
+  EntityMeta meta = 4;
 }
 
 message UpdateMutation {
   CoreEntityType entity_type = 1;
   int64 entity_id = 2;
   CoreEntity entity = 3;
+  EntityMeta meta = 4;
+}
+
+// EntityMeta is what the write log says about an entity besides its payload,
+// derived by the reducer and never stored in the entity: when it was first
+// written, the commit that last wrote it, whether it has since been deleted,
+// and the counters that number its versions. created_time, updated_*, and
+// deleted are set for every type; the counters only for the types named.
+message EntityMeta {
+  int64 created_time = 1;   // epoch ms of the entity's first mutation
+  int64 updated_time = 2;   // epoch ms of the newest mutation
+  int64 updated_seq = 3;
+  int32 updated_actor = 4;  // user id; 0 = system, negative = agent of user -actor
+  int32 version = 5;        // Deployment: bumps on every write
+  int32 spec_version = 6;   // Deployment: bumps when the spec changes
+  int32 value_version = 7;  // Secret, Config, Asset: bumps when the value changes
+  bool deleted = 8;         // snapshot only: a retained version of a deleted deployment; updated_* is the delete
+}
+
+// MaterialisedEntity is one entry of a snapshot: an entity as the tables
+// hold it with its meta. A deployment or value appears once per retained
+// version, in version order, each entry carrying that version's document.
+message MaterialisedEntity {
+  CoreEntityType entity_type = 1;
+  int64 entity_id = 2;
+  CoreEntity entity = 3;
+  EntityMeta meta = 4;
+}
+
+// CoreSnapshot is the materialised state at seq: what a client starts from
+// before folding the commits after it.
+message CoreSnapshot {
+  int64 seq = 1;
+  repeated MaterialisedEntity entities = 2;
 }
 
 message DeleteMutation {
@@ -90,9 +125,9 @@ message CoreEntity {                 // exactly one set; field numbers equal Cor
   User user = 9;
   ValueDirectory value_directory = 10;
   AssetDirectory asset_directory = 11;
-  AuthzRuleTemplateRecord authz_rule_template = 12;
-  AuthzGrantValue authz_grant = 13;
-  AuthzGlobalRuleRecord authz_global_rule = 14;
+  AuthzRuleTemplate authz_rule_template = 12;
+  AuthzGrant authz_grant = 13;
+  AuthzGlobalRule authz_global_rule = 14;
   SystemConfig system_config = 15;
   ScheduledInstanceStatus scheduled_instance_status = 16;
   NodeStatus node_status = 17;
@@ -102,20 +137,21 @@ message CoreEntity {                 // exactly one set; field numbers equal Cor
   SecretKeyslot secret_keyslot = 21;
 }
 
-// EventStreamRequest opens the stream after the last seq the client folded.
-// after_seq = 0 asks for a bootstrap: reset followed by the compacted history.
+// EventStreamRequest opens the stream. Every opening is a snapshot followed
+// by the live commits after it.
 message EventStreamRequest {
-  int64 after_seq = 1;
+  reserved 1; // after_seq: replay from an arbitrary seq was dropped with the snapshot opening
 }
 
-// EventStreamMsg is one frame of the event stream. events carry commits in
-// seq order; reset tells the client to clear its tree before folding the
-// events that follow; synced marks the point where the history has been
-// delivered and everything after it is live. The sidecars are replace-style
-// values that ride the same connection without a seq.
+// EventStreamMsg is one frame of the event stream. A snapshot replaces the
+// client's tree with the materialised state at its seq; events carry commits
+// in seq order; synced marks the snapshot frame, after which everything is
+// live. The sidecars are replace-style values that ride the same connection
+// without a seq.
 message EventStreamMsg {
   repeated CoreWriteUpdate events = 1;
-  bool reset = 2;
+  reserved 2; // reset: the snapshot frame replaces the tree
+  CoreSnapshot snapshot = 9;
   bool synced = 3;
   bool heartbeat = 4;
   BackupStatus backup_status = 5;

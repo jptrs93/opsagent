@@ -12,13 +12,8 @@ message Deployment {
   int32 space_id = 10;
   string name = 11;
   Scheduling scheduling = 14 [(cp.go_value) = true];
-  // Facts of the stored version, set by the server on every write and
-  // ignored on requests: the top-level version ordinal (instances pin it),
-  // the spec version (artifacts, logs, and metrics key on it), and the time
-  // the deployment was created.
-  int32 version = 15;
-  int32 spec_version = 16;
-  int64 created_time = 17 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  reserved 15, 16, 17; // version, spec_version, created_time: EntityMeta on the mutation
+  int32 id = 18;
 }
 
 // Scheduling is where and whether a deployment runs. running applies to every
@@ -46,18 +41,15 @@ enum EventType {
 
 message DeploymentEvent {
   reserved 2, 3, 4, 5, 8, 9, 10, 11;
+  reserved 12, 14, 20, 21; // space_version, name_version, event_id, scheduling_version: the write log is the history
   int32 deployment_id = 1;
-  int32 version = 13;        // bumps on every deployment event
+  int32 version = 13;        // bumps on every deployment write
   int64 seq = 19;
-  int64 event_id = 20;
   int32 author = 6;
   EventType event_type = 15;
   int64 created_time = 16 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int64 event_time = 17 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   int32 spec_version = 7;
-  int32 space_version = 12;
-  int32 name_version = 14;
-  int32 scheduling_version = 21;
   Deployment value = 18 [(cp.go_value) = true];
 }
 

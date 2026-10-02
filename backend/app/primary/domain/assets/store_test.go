@@ -3,6 +3,8 @@ package assets
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -732,4 +734,9 @@ func TestEveryVersionCarriesTheStorageKeyOfItsContent(t *testing.T) {
 	if rows := ListAssetStoreRowMetas(store.DB.Queries()); len(rows) != 1 {
 		t.Fatalf("store rows = %d, want 1", len(rows))
 	}
+}
+
+func hashBlob(blob []byte) string {
+	sum := sha256.Sum256(blob)
+	return hex.EncodeToString(sum[:])
 }

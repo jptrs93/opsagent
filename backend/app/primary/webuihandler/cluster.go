@@ -12,17 +12,14 @@ import (
 	"strings"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 var InvalidNodeRenameErr = apigen.NewApiErr("Node name and identifier are required", "invalid_node_rename", http.StatusBadRequest)
 var NodeNotFoundErr = apigen.NewApiErr("Node not found", "node_not_found", http.StatusNotFound)
 var DuplicateNodeNameErr = apigen.NewApiErr("A node with this display name already exists", "duplicate_node_name", http.StatusConflict)
 
-func (h *Handler) PostV1NodesList(ctx apigen.Context) (*apigen.NodeEventList, error) {
-	return &apigen.NodeEventList{Items: h.filterNodes(ctx, nodes.ListClusterNodes(h.Store.Queries()))}, nil
-}
-
-func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRequest) (*apigen.NodeEvent, error) {
+func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRequest) (*apigen.CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, InvalidNodeRenameErr
 	}
@@ -45,7 +42,7 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	}
 	node, err := nodes.RenameNode(h.Store, identifier, name)
 	if err == nil {
-		return node, nil
+		return h.written(ctx, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, node)), nil
 	}
 	if err == sql.ErrNoRows {
 		return nil, NodeNotFoundErr
@@ -61,7 +58,7 @@ var UnknownSpaceErr = apigen.NewApiErr("One or more spaces do not exist", "unkno
 
 // PostV1NodesAllowedSpaces replaces the set of spaces whose deployments may
 // be placed on a node.
-func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeAllowedSpacesRequest) (*apigen.NodeEvent, error) {
+func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeAllowedSpacesRequest) (*apigen.CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, InvalidAllowedSpacesErr
 	}
@@ -124,7 +121,7 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	// The allow list feeds derived node visibility, and a viewer who just lost
 	// a node has no pending update to take it away — only a full re-filter of
 	// each open stream removes (or reveals) the row.
-	return updated, nil
+	return h.written(ctx, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, updated)), nil
 }
 
 var NodeNotMemberErr = apigen.NewApiErr("Node is not a cluster member", "node_not_member", http.StatusConflict)
@@ -166,7 +163,7 @@ func mapNodeLifecycleErr(err error) error {
 	return err
 }
 
-func (h *Handler) PostV1NodesDrain(ctx apigen.Context, req *apigen.NodeDrainRequest) (*apigen.NodeEvent, error) {
+func (h *Handler) PostV1NodesDrain(ctx apigen.Context, req *apigen.NodeDrainRequest) (*apigen.CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, InvalidNodeRequestErr
 	}
@@ -178,10 +175,13 @@ func (h *Handler) PostV1NodesDrain(ctx apigen.Context, req *apigen.NodeDrainRequ
 		return nil, err
 	}
 	event, err := nodes.SetNodeDraining(ctx, h.Store, node.Identifier, req.Draining)
-	return event, mapNodeLifecycleErr(err)
+	if err != nil {
+		return nil, mapNodeLifecycleErr(err)
+	}
+	return h.written(ctx, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, event)), nil
 }
 
-func (h *Handler) PostV1NodesEvict(ctx apigen.Context, req *apigen.NodeEvictRequest) (*apigen.NodeEvent, error) {
+func (h *Handler) PostV1NodesEvict(ctx apigen.Context, req *apigen.NodeEvictRequest) (*apigen.CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, InvalidNodeRequestErr
 	}
@@ -196,7 +196,7 @@ func (h *Handler) PostV1NodesEvict(ctx apigen.Context, req *apigen.NodeEvictRequ
 	if err != nil {
 		return nil, mapNodeLifecycleErr(err)
 	}
-	return event, nil
+	return h.written(ctx, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, event)), nil
 }
 
 func (h *Handler) PostV1NodesExposure(ctx apigen.Context, req *apigen.NodeExposureRequest) (*apigen.NodeExposure, error) {

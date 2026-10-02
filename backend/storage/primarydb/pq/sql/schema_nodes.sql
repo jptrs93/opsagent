@@ -1,38 +1,38 @@
-CREATE TABLE IF NOT EXISTS node_event_log (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    global_seq     INTEGER NOT NULL,
-    event_time     INTEGER NOT NULL,  -- epoch ms
-    created_time   INTEGER NOT NULL,  -- epoch ms, first event's event_time
-    author         INTEGER NOT NULL,
-    node_id        INTEGER NOT NULL,
-    version        INTEGER NOT NULL,  -- top-level: bumps on every event
-    name           TEXT    NOT NULL,
-    identifier     TEXT    NOT NULL,
-    enrolled_time  INTEGER NOT NULL,  -- 0 until accept; stamped by the accept event, copied forward
-    status         INTEGER NOT NULL,
-    roles          TEXT    NOT NULL,  -- JSON
-    addresses      TEXT    NOT NULL,  -- JSON
-    wg_public_key  TEXT    NOT NULL,
-    allowed_spaces TEXT    NOT NULL,  -- JSON
-    event_type     INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update / 3 delete
-    host_addresses TEXT NOT NULL DEFAULT '[]',
-    enrollment_requested_at INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (node_id, version)
+-- Materialised views of the write log, maintained by the reducer in
+-- pq/materialise.go. seq, event_time, and author are the envelope of the last
+-- write. A node is never deleted: eviction is a status.
+CREATE TABLE IF NOT EXISTS nodes (
+    id                      INTEGER PRIMARY KEY,
+    name                    TEXT    NOT NULL,
+    identifier              TEXT    NOT NULL UNIQUE,
+    status                  INTEGER NOT NULL,
+    roles                   TEXT    NOT NULL,  -- JSON
+    allowed_spaces          TEXT    NOT NULL,  -- JSON
+    enrolled_time           INTEGER NOT NULL,  -- epoch ms, 0 until accept
+    enrollment_requested_at INTEGER NOT NULL,  -- epoch ms, 0 outside a request
+    underlay_address        TEXT    NOT NULL,
+    wg_public_key           TEXT    NOT NULL,
+    host_addresses          TEXT    NOT NULL,  -- JSON
+    host_addresses_unknown  INTEGER NOT NULL,
+    created_time            INTEGER NOT NULL,  -- epoch ms
+    seq                     INTEGER NOT NULL,
+    event_time              INTEGER NOT NULL,  -- epoch ms
+    author                  INTEGER NOT NULL
 );
 
--- Observed history is retained in full. updated_at is an HLC in unix nanos.
-CREATE TABLE IF NOT EXISTS node_status_log (
-    node_id INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    global_seq INTEGER NOT NULL DEFAULT 0,
-    event_time INTEGER NOT NULL DEFAULT 0,
-    last_connected_at INTEGER NOT NULL DEFAULT 0,
-    is_connected INTEGER NOT NULL DEFAULT 0,
-    opendeploy_version TEXT NOT NULL DEFAULT '',
-    remote_address TEXT NOT NULL DEFAULT '',
-    PRIMARY KEY (node_id, updated_at)
+-- The newest observed status per node. updated_at is an HLC in unix nanos;
+-- the reducer keeps the row with the greater clock. Earlier reports live in
+-- the log.
+CREATE TABLE IF NOT EXISTS node_status (
+    node_id            INTEGER PRIMARY KEY,
+    updated_at         INTEGER NOT NULL,
+    is_connected       INTEGER NOT NULL,
+    last_connected_at  INTEGER NOT NULL,  -- epoch ms
+    opendeploy_version TEXT    NOT NULL,
+    remote_address     TEXT    NOT NULL,
+    runtime_versions   TEXT    NOT NULL,
+    seq                INTEGER NOT NULL,
+    event_time         INTEGER NOT NULL,  -- epoch ms
+    author             INTEGER NOT NULL,
+    created_time       INTEGER NOT NULL   -- epoch ms of the first row
 );
-
-CREATE INDEX IF NOT EXISTS idx_node_event_log_seq ON node_event_log (global_seq, id);
-
-CREATE INDEX IF NOT EXISTS idx_node_status_log_seq ON node_status_log (global_seq);

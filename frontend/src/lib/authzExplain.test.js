@@ -182,19 +182,19 @@ test("a role's rules fold into one table per space", () => {
 test("grantSubject binds a role grant and names a direct rule", () => {
     const template = {
         id: 2, name: "space_admin",
-        template: {arguments: [{id: 1, name: "spaces", kind: "spaces"}], rules: [rule(all(), arg(1), all(), all())]},
+        spec: {arguments: [{id: 1, name: "spaces", kind: "spaces"}], rules: [rule(all(), arg(1), all(), all())]},
     };
     const templatesById = new Map([[2, template]]);
-    const bound = grantSubject({templateId: 2, grant: {args: [{argumentId: 1, values: [2]}]}}, {templatesById, spaceNames, spaces: SPACES});
+    const bound = grantSubject({templateId: 2, spec: {args: [{argumentId: 1, values: [2]}]}}, {templatesById, spaceNames, spaces: SPACES});
     assert.equal(bound.subtitle, "Role space_admin with ${spaces} = prod");
     assert.deepEqual([...bound.bindings.entries()], [[1, [2]]]);
     assert.equal(bound.argNames.get(1), "spaces");
     assert.equal(bound.rules.length, 1);
 
-    const direct = grantSubject({templateId: 0, grant: {rule: rule(list(V.view), all(), all(), all())}}, {templatesById, spaceNames, spaces: SPACES});
+    const direct = grantSubject({templateId: 0, spec: {rule: rule(list(V.view), all(), all(), all())}}, {templatesById, spaceNames, spaces: SPACES});
     assert.equal(direct.subtitle, "A single rule granted directly, not through a role.");
     assert.equal(direct.rules.length, 1);
 
-    const gone = grantSubject({templateId: 9, grant: {}}, {templatesById, spaceNames, spaces: SPACES});
+    const gone = grantSubject({templateId: 9, spec: {}}, {templatesById, spaceNames, spaces: SPACES});
     assert.equal(gone.rules.length, 0);
 });

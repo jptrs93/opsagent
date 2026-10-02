@@ -23,13 +23,6 @@ type UserSession struct {
 	UserAgent         string
 }
 
-func unixOrZero(t time.Time) int64 {
-	if t.IsZero() {
-		return 0
-	}
-	return t.Unix()
-}
-
 func timeOrZero(unix int64) time.Time {
 	if unix <= 0 {
 		return time.Time{}
@@ -39,31 +32,23 @@ func timeOrZero(unix int64) time.Time {
 
 func userSessionFromRow(row pq.UserSession) UserSession {
 	return UserSession{
-		ID: row.SessionID, UserID: int32(row.UserID), CreatedAt: time.Unix(row.CreatedAt, 0), ExpiresAt: timeOrZero(row.ExpiresAt),
+		ID: row.SessionID, UserID: int32(row.UserID), CreatedAt: time.UnixMilli(row.CreatedAt), ExpiresAt: timeOrZero(row.ExpiresAt),
 		TokenHash: row.TokenHash, RevokedAt: timeOrZero(row.RevokedAt), Kind: apigen.UserSessionKind(row.Kind),
 		RequestingAddress: row.RequestingAddress, UserAgent: row.UserAgent,
 	}
 }
 
-func sessionUpdate(ctx context.Context, q *pq.Queries, id string) (*state.WriteUpdate, error) {
-	row, err := q.GetUserSession(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return pq.NewUpdate(pq.UserSessionMutation(row)), nil
-}
-
 func InsertUserSession(store *state.Service, rec UserSession) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		if err := q.InsertUserSessionEvent(ctx, pq.UserSessionEventParams{
-			EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(rec.UserID), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE},
-			SessionID: rec.ID, UserID: int64(rec.UserID), CreatedAt: rec.CreatedAt.Unix(), ExpiresAt: unixOrZero(rec.ExpiresAt), TokenHash: rec.TokenHash,
-			Kind: int64(rec.Kind), RequestingAddress: rec.RequestingAddress, UserAgent: rec.UserAgent,
-		}); err != nil {
+		id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION)
+		if err != nil {
 			return nil, err
 		}
-		return sessionUpdate(ctx, q, rec.ID)
+		doc := &apigen.UserSession{ID: rec.ID, UserID: rec.UserID, ExpiresAt: rec.ExpiresAt, TokenHash: rec.TokenHash,
+			Kind: rec.Kind, RequestingAddress: rec.RequestingAddress, UserAgent: rec.UserAgent}
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(rec.UserID), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
+		return pq.NewUpdate(pq.UserSessionMutation(meta, id, doc)), nil
 	})
 }
 
@@ -104,13 +89,10 @@ func RevokeUserSession(store *state.Service, id string, userID int32, at time.Ti
 		if row.UserID != int64(userID) || row.RevokedAt != 0 {
 			return nil, nil
 		}
-		event := row.Event(pq.EventMeta{GlobalSeq: seq, EventTime: at.UnixMilli(), Author: int64(userID), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE})
-		event.RevokedAt = at.Unix()
-		if err := q.InsertUserSessionEvent(ctx, event); err != nil {
-			return nil, err
-		}
+		row.RevokedAt = at.Unix()
 		revoked = true
-		return sessionUpdate(ctx, q, id)
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: at.UnixMilli(), Author: int64(userID), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
+		return pq.NewUpdate(pq.UserSessionMutation(meta, row.ID, row.Entity())), nil
 	})
 	return revoked, err
 }

@@ -16,9 +16,10 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-func createTestAsset(h *Handler, ctx apigen.Context, key string, spaceID, directoryID int32, blob []byte) (*apigen.AssetEvent, error) {
+func createTestAsset(h *Handler, ctx apigen.Context, key string, spaceID, directoryID int32, blob []byte) (*pq.AssetEvent, error) {
 	query := url.Values{"key": {key}, "space_id": {strconv.Itoa(int(spaceID))}}
 	if directoryID != 0 {
 		query.Set("directory_id", strconv.Itoa(int(directoryID)))
@@ -106,7 +107,7 @@ func TestGetAssetContentStreamsRawBytes(t *testing.T) {
 func TestCreateAssetInsideDirectory(t *testing.T) {
 	h, user := newAssetTestHandler(t)
 	dir := mustCreateAssetDir(t, h, user, 1, 0, "nginx")
-	if dir.SpaceID != 1 || dir.ParentID != 0 || dir.Author != user.ID {
+	if dir.SpaceID != 1 || dir.ParentID != 0 {
 		t.Fatalf("dir = %+v, want a root directory in space 1 created by %d", dir, user.ID)
 	}
 
@@ -194,7 +195,7 @@ func TestMoveAssetBetweenDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("createTestAsset: %v", err)
 	}
-	moved, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+	moved, err := h.assetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, AssetDirectoryID: dir.ID,
 	})
 	if err != nil {
@@ -205,15 +206,15 @@ func TestMoveAssetBetweenDirectories(t *testing.T) {
 	}
 	// The version index survives the move untouched: deployment specs pin
 	// (asset id, value version) pairs.
-	if len(statetest.ValueVersions(h.Store, moved)) != 1 || statetest.ValueVersions(h.Store, moved)[0].ID != statetest.ValueVersions(h.Store, asset)[0].ID {
-		t.Fatalf("content versions changed across the move: %+v, want version id %d", statetest.ValueVersions(h.Store, moved), statetest.ValueVersions(h.Store, asset)[0].ID)
+	if len(statetest.ValueVersions(h.Store, moved)) != 1 || statetest.ValueVersions(h.Store, moved)[0].Ref != statetest.ValueVersions(h.Store, asset)[0].Ref {
+		t.Fatalf("content versions changed across the move: %+v, want version %s", statetest.ValueVersions(h.Store, moved), statetest.ValueVersions(h.Store, asset)[0].Ref)
 	}
 
 	// A sibling with the same key blocks the move back out.
 	if _, err := createTestAsset(h, testCtx(user), "config.yaml", 1, 0, []byte("root")); err != nil {
 		t.Fatalf("createTestAsset at root: %v", err)
 	}
-	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+	if _, err := h.assetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, AssetDirectoryID: 0,
 	}); !errors.Is(err, AssetAlreadyExistsErr) {
 		t.Fatalf("move onto taken key err = %v, want AssetAlreadyExistsErr", err)
@@ -233,7 +234,7 @@ func TestCrossSpaceAssetMove(t *testing.T) {
 		t.Fatalf("createTestAsset: %v", err)
 	}
 
-	moved, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+	moved, err := h.assetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, AssetDirectoryID: 0, SpaceID: 2,
 	})
 	if err != nil {
@@ -244,8 +245,8 @@ func TestCrossSpaceAssetMove(t *testing.T) {
 	}
 	// The version index survives the move untouched: deployment specs pin
 	// (asset id, value version) pairs.
-	if len(statetest.ValueVersions(h.Store, moved)) != 1 || statetest.ValueVersions(h.Store, moved)[0].ID != statetest.ValueVersions(h.Store, asset)[0].ID {
-		t.Fatalf("content versions changed across the move: %+v, want version id %d", statetest.ValueVersions(h.Store, moved), statetest.ValueVersions(h.Store, asset)[0].ID)
+	if len(statetest.ValueVersions(h.Store, moved)) != 1 || statetest.ValueVersions(h.Store, moved)[0].Ref != statetest.ValueVersions(h.Store, asset)[0].Ref {
+		t.Fatalf("content versions changed across the move: %+v, want version %s", statetest.ValueVersions(h.Store, moved), statetest.ValueVersions(h.Store, asset)[0].Ref)
 	}
 
 	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
@@ -253,17 +254,17 @@ func TestCrossSpaceAssetMove(t *testing.T) {
 		Asset: statetest.ValueVersions(h.Store, asset)[0].Ref, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
 	}}
 	createTestDeployment(h.Store, "node1", 2, "web", &spec)
-	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+	if _, err := h.assetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, SpaceID: 3,
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("mounted asset move err = %v, want deployments.MoveReferencesOutsideSpaceErr", err)
 	}
-	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+	if _, err := h.assetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, SpaceID: 1,
 	}); err != nil {
 		t.Fatalf("mounted asset move to global: %v", err)
 	}
-	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+	if _, err := h.assetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, SpaceID: 2,
 	}); err != nil {
 		t.Fatalf("mounted asset move back to the mounting space: %v", err)
@@ -292,7 +293,7 @@ func TestCrossSpaceAssetMove(t *testing.T) {
 	// Naming the row's own space is a no-op, not a rejection: the explorer sends
 	// the target space on every drop, including same-space ones — and it must
 	// not trip the reference check even though the asset is mounted.
-	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{
+	if _, err := h.assetsMove(testCtx(user), &apigen.AssetMoveRequest{
 		AssetID: asset.AssetID, AssetDirectoryID: 0, SpaceID: 2,
 	}); err != nil {
 		t.Fatalf("same-space move with an explicit space: %v", err)
@@ -356,7 +357,7 @@ func TestDeleteAssetDirectoryOnlyWhenEmpty(t *testing.T) {
 		t.Fatalf("delete of non-empty directory err = %v, want AssetDirectoryNotEmptyErr", err)
 	}
 
-	if _, err := h.PostV1AssetsMove(testCtx(user), &apigen.AssetMoveRequest{AssetID: asset.AssetID}); err != nil {
+	if _, err := h.assetsMove(testCtx(user), &apigen.AssetMoveRequest{AssetID: asset.AssetID}); err != nil {
 		t.Fatalf("PostV1AssetsMove to root: %v", err)
 	}
 	if err := h.PostV1AssetDirectoriesDelete(testCtx(user), &apigen.AssetDirectoryDeleteRequest{
@@ -384,7 +385,7 @@ func TestGlobalStateIncludesAssetDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	dirs := statetest.Fold(msg.Events)[apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY]
+	dirs := foldOpening(msg)[apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY]
 	if len(dirs) != 1 || dirs[int64(dir.ID)] == nil || dirs[int64(dir.ID)].AssetDirectory.ID != dir.ID {
 		t.Fatalf("bootstrap asset directories = %+v, want the one created", dirs)
 	}

@@ -4,11 +4,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// Mutation is one row of an append-only entity table expressed as the event
-// stream carries it: the row's envelope, the entity it belongs to, and the
-// entity payload. The same converters build it for a row a producer just
-// wrote and for a row read back for replay, so the live and replayed
-// payloads always agree.
+// Mutation is one entity write expressed as the event stream carries it: the
+// envelope, the entity it belongs to, and the entity payload. Producers build
+// it for the write they made; openings build it from the materialised rows.
+// RowID only orders mutations that share a seq. The meta the stream carries
+// is stamped by the reducer inside Commit, or by StampMeta on a receipt.
 type Mutation struct {
 	EventMeta
 	RowID  int64
@@ -51,96 +51,80 @@ func eventMetaOf(seq, eventTime int64, author int64, eventType apigen.EventType)
 	return EventMeta{GlobalSeq: seq, EventTime: eventTime, Author: author, EventType: apigen.AuthzVerb(eventType)}
 }
 
+// DeploymentMutation carries the deployment document; a delete event
+// carries no payload.
 func DeploymentMutation(e *apigen.DeploymentEvent) Mutation {
-	value := e.Value
-	value.Version, value.SpecVersion, value.CreatedTime = e.Version, e.SpecVersion, e.CreatedTime
-	return Mutation{
+	m := Mutation{
 		EventMeta: eventMetaOf(e.Seq, e.EventTime.UnixMilli(), int64(e.Author), e.EventType),
-		RowID:     e.EventID, Type: apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT, ID: int64(e.DeploymentID),
-		Entity: apigen.CoreEntity{Deployment: &value},
+		RowID:     int64(e.Version), Type: apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT, ID: int64(e.DeploymentID),
 	}
+	if e.EventType != apigen.EventType_EVENT_TYPE_DELETE {
+		value := e.Value
+		value.ID = e.DeploymentID
+		m.Entity = apigen.CoreEntity{Deployment: &value}
+	}
+	return m
 }
 
-func ScheduledInstanceMutation(e *apigen.ScheduledInstanceEvent) Mutation {
+// DeploymentRecord is a deployment version for a REST response: the
+// document with the meta the stream would carry for it, a delete rendered
+// as the last version with deleted set under the delete's envelope.
+func DeploymentRecord(e *apigen.DeploymentEvent) *apigen.DeploymentRecord {
+	value := e.Value
+	value.ID = e.DeploymentID
+	return &apigen.DeploymentRecord{Deployment: &value, Meta: &apigen.EntityMeta{
+		CreatedTime: e.CreatedTime.UnixMilli(), UpdatedTime: e.EventTime.UnixMilli(), UpdatedSeq: e.Seq, UpdatedActor: e.Author,
+		Version: e.Version, SpecVersion: e.SpecVersion, Deleted: e.EventType == apigen.EventType_EVENT_TYPE_DELETE,
+	}}
+}
+
+func ScheduledInstanceMutation(verb apigen.AuthzVerb, e *ScheduledInstanceEvent) Mutation {
 	value := e.Value
 	return Mutation{
-		EventMeta: eventMetaOf(e.Seq, e.EventTime, 0, e.EventType),
-		RowID:     e.EventID, Type: apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE, ID: int64(e.ScheduledInstanceID),
+		EventMeta: EventMeta{GlobalSeq: e.Seq, EventTime: e.EventTime, EventType: verb},
+		RowID:     int64(e.ScheduledInstanceID), Type: apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE, ID: int64(e.ScheduledInstanceID),
 		Entity: apigen.CoreEntity{ScheduledInstance: &value},
 	}
 }
 
-func NodeMutation(e *apigen.NodeEvent) Mutation {
+func NodeMutation(verb apigen.AuthzVerb, e *NodeEvent) Mutation {
 	value := e.Value
-	value.CreatedTime = e.CreatedTime
+	value.ID = e.NodeID
 	return Mutation{
-		EventMeta: eventMetaOf(e.Seq, e.EventTime, int64(e.Author), e.EventType),
-		RowID:     e.EventID, Type: apigen.CoreEntityType_CORE_ENTITY_NODE, ID: int64(e.NodeID),
+		EventMeta: EventMeta{GlobalSeq: e.Seq, EventTime: e.EventTime, Author: int64(e.Author), EventType: verb},
+		RowID:     int64(e.NodeID), Type: apigen.CoreEntityType_CORE_ENTITY_NODE, ID: int64(e.NodeID),
 		Entity: apigen.CoreEntity{Node: &value},
 	}
 }
 
-// SealedValue is the sealed payload of one secret row. It rides the replica
-// class of the event stream and never the browser class.
-type SealedValue struct {
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
+func SecretMutation(meta EventMeta, id int64, s apigen.Secret) Mutation {
+	s.ID = int32(id)
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_SECRET, ID: id, Entity: apigen.CoreEntity{Secret: &s}}
 }
 
-func SecretMutation(e *apigen.SecretEvent, sealed SealedValue) Mutation {
-	fs := *e.Value.Fs
-	value := apigen.Secret{Fs: &fs, SpaceID: e.Value.SpaceID, ValueVersion: e.ValueVersion, CreatedTime: e.CreatedTime,
-		SmkVersion: sealed.SmkVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce}
-	return Mutation{
-		EventMeta: eventMetaOf(e.Seq, e.EventTime, int64(e.Author), e.EventType),
-		RowID:     e.EventID, Type: apigen.CoreEntityType_CORE_ENTITY_SECRET, ID: int64(e.SecretID),
-		Entity: apigen.CoreEntity{Secret: &value},
-	}
+func ConfigMutation(meta EventMeta, id int64, c apigen.Config) Mutation {
+	c.ID = int32(id)
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_CONFIG, ID: id, Entity: apigen.CoreEntity{Config: &c}}
 }
 
-func ConfigMutation(e *apigen.ConfigEvent) Mutation {
-	fs := *e.Value.Fs
-	value := e.Value
-	value.Fs = &fs
-	value.ValueVersion, value.CreatedTime = e.ValueVersion, e.CreatedTime
-	return Mutation{
-		EventMeta: eventMetaOf(e.Seq, e.EventTime, int64(e.Author), e.EventType),
-		RowID:     e.EventID, Type: apigen.CoreEntityType_CORE_ENTITY_CONFIG, ID: int64(e.ConfigID),
-		Entity: apigen.CoreEntity{Config: &value},
-	}
+func AssetMutation(meta EventMeta, id int64, a apigen.Asset) Mutation {
+	a.ID = int32(id)
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_ASSET, ID: id, Entity: apigen.CoreEntity{Asset: &a}}
 }
 
-func AssetMutation(e *apigen.AssetEvent) Mutation {
-	fs := *e.Value.Fs
-	value := e.Value
-	value.Fs = &fs
-	value.ValueVersion, value.CreatedTime = e.ValueVersion, e.CreatedTime
-	return Mutation{
-		EventMeta: eventMetaOf(e.Seq, e.EventTime, int64(e.Author), e.EventType),
-		RowID:     e.EventID, Type: apigen.CoreEntityType_CORE_ENTITY_ASSET, ID: int64(e.AssetID),
-		Entity: apigen.CoreEntity{Asset: &value},
-	}
-}
-
-func NetworkPolicyMutation(e *apigen.NetworkPolicyEvent) Mutation {
-	value := e.Value
-	value.CreatedTime = e.CreatedTime
-	return Mutation{
-		EventMeta: eventMetaOf(e.Seq, e.EventTime, int64(e.Author), e.EventType),
-		RowID:     e.EventID, Type: apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, ID: int64(e.NetworkPolicyID),
-		Entity: apigen.CoreEntity{NetworkPolicy: &value},
-	}
+func NetworkPolicyMutation(meta EventMeta, id int64, p apigen.NetworkPolicy) Mutation {
+	p.ID = int32(id)
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, ID: id, Entity: apigen.CoreEntity{NetworkPolicy: &p}}
 }
 
 func SpaceMutation(meta EventMeta, space apigen.Space) Mutation {
 	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_SPACE, ID: int64(space.ID), Entity: apigen.CoreEntity{Space: &space}}
 }
 
-func UserMutation(r UserRow) Mutation {
-	value := r.Public()
-	value.Credentials = r.DataBlob
-	return Mutation{EventMeta: r.EventMeta, RowID: r.ID, Type: apigen.CoreEntityType_CORE_ENTITY_USER, ID: r.UserID, Entity: apigen.CoreEntity{User: &value}}
+// UserMutation carries the public user with the encoded InternalUser as
+// Credentials.
+func UserMutation(meta EventMeta, u apigen.User) Mutation {
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_USER, ID: int64(u.ID), Entity: apigen.CoreEntity{User: &u}}
 }
 
 func ValueDirectoryMutation(meta EventMeta, d *apigen.ValueDirectory) Mutation {
@@ -152,40 +136,17 @@ func AssetDirectoryMutation(meta EventMeta, d apigen.AssetDirectory) Mutation {
 	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY, ID: int64(d.ID), Entity: apigen.CoreEntity{AssetDirectory: &d}}
 }
 
-func AuthzRuleTemplateMutation(r AuthzRuleTemplateEvent) (Mutation, error) {
-	template, err := apigen.DecodeAuthzRuleTemplate(r.DataBlob)
-	if err != nil {
-		return Mutation{}, err
-	}
-	value := &apigen.AuthzRuleTemplateRecord{ID: r.TemplateID, Name: r.Name, Builtin: r.Builtin != 0, Author: r.Author, CreatedAt: r.CreatedTime, Template: template}
-	return Mutation{
-		EventMeta: EventMeta{GlobalSeq: r.GlobalSeq, EventTime: r.EventTime, Author: r.Author, EventType: apigen.AuthzVerb(r.EventType)},
-		RowID:     r.ID, Type: apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, ID: r.TemplateID,
-		Entity: apigen.CoreEntity{AuthzRuleTemplate: value},
-	}, nil
+func AuthzRuleTemplateMutation(meta EventMeta, t apigen.AuthzRuleTemplate) Mutation {
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, ID: t.ID, Entity: apigen.CoreEntity{AuthzRuleTemplate: &t}}
 }
 
-func AuthzGrantMutation(e *apigen.AuthzGrantEvent) Mutation {
-	value := e.Value
-	value.Author, value.CreatedTime = e.Author, e.CreatedTime
-	return Mutation{
-		EventMeta: eventMetaOf(e.Seq, e.EventTime, e.Author, e.EventType),
-		RowID:     e.EventID, Type: apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT, ID: e.AuthzGrantID,
-		Entity: apigen.CoreEntity{AuthzGrant: &value},
-	}
+func AuthzGrantMutation(meta EventMeta, id int64, g apigen.AuthzGrant) Mutation {
+	g.ID = id
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT, ID: id, Entity: apigen.CoreEntity{AuthzGrant: &g}}
 }
 
-func GlobalAccessRuleMutation(r GlobalAccessRuleEvent) (Mutation, error) {
-	rule, err := apigen.DecodeAuthzGlobalRule(r.DataBlob)
-	if err != nil {
-		return Mutation{}, err
-	}
-	value := &apigen.AuthzGlobalRuleRecord{ID: r.RuleID, Name: r.Name, Author: r.Author, CreatedAt: r.CreatedTime, Rule: rule}
-	return Mutation{
-		EventMeta: EventMeta{GlobalSeq: r.GlobalSeq, EventTime: r.EventTime, Author: r.Author, EventType: apigen.AuthzVerb(r.EventType)},
-		RowID:     r.ID, Type: apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE, ID: r.RuleID,
-		Entity: apigen.CoreEntity{AuthzGlobalRule: value},
-	}, nil
+func AuthzGlobalRuleMutation(meta EventMeta, r apigen.AuthzGlobalRule) Mutation {
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE, ID: r.ID, Entity: apigen.CoreEntity{AuthzGlobalRule: &r}}
 }
 
 const SystemConfigEntityID int64 = 1
@@ -213,21 +174,21 @@ func NodeStatusMutation(seq, eventTime int64, st *apigen.NodeStatus) Mutation {
 	}
 }
 
-func AgentSessionMutation(r AgentSession) Mutation {
-	value := r.Proto()
-	value.TokenHash = r.TokenHash
-	return Mutation{EventMeta: r.EventMeta, RowID: r.ID, Type: apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION, ID: r.EntityID, Entity: apigen.CoreEntity{AgentSession: value}}
+// AgentSessionMutation and UserSessionMutation carry the session document
+// with its token hash; id is the stream entity id, not the token's.
+func AgentSessionMutation(meta EventMeta, id int64, s *apigen.AgentSession) Mutation {
+	value := *s
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION, ID: id, Entity: apigen.CoreEntity{AgentSession: &value}}
 }
 
-func UserSessionMutation(r UserSession) Mutation {
-	value := r.Proto()
-	value.TokenHash = r.TokenHash
-	return Mutation{EventMeta: r.EventMeta, RowID: r.ID, Type: apigen.CoreEntityType_CORE_ENTITY_USER_SESSION, ID: r.EntityID, Entity: apigen.CoreEntity{UserSession: value}}
+func UserSessionMutation(meta EventMeta, id int64, s *apigen.UserSession) Mutation {
+	value := *s
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_USER_SESSION, ID: id, Entity: apigen.CoreEntity{UserSession: &value}}
 }
 
-func NixStoreResetMutation(r NixStoreResetRow) Mutation {
-	value := &apigen.NixStoreReset{Repo: r.Repo, RequestedAt: r.RequestedAt}
-	return Mutation{EventMeta: r.EventMeta, RowID: r.ID, Type: apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET, ID: r.EntityID, Entity: apigen.CoreEntity{NixStoreReset: value}}
+func NixStoreResetMutation(meta EventMeta, id int64, r *apigen.NixStoreReset) Mutation {
+	value := *r
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET, ID: id, Entity: apigen.CoreEntity{NixStoreReset: &value}}
 }
 
 // SecretKeyslotEntityID keys a keyslot by the node it belongs to and its kind.
@@ -236,19 +197,33 @@ func SecretKeyslotEntityID(k SecretKeyslot) int64 {
 }
 
 func SecretKeyslotMutation(meta EventMeta, k SecretKeyslot) Mutation {
-	value := &apigen.SecretKeyslot{Kind: k.Kind, NodeID: int32(k.NodeID), SmkVersion: k.SmkVersion, WrappedSmk: k.WrappedSmk, Nonce: k.Nonce, KdfSalt: k.KdfSalt, UpdatedAt: k.UpdatedAt}
-	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT, ID: SecretKeyslotEntityID(k), Entity: apigen.CoreEntity{SecretKeyslot: value}}
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT, ID: SecretKeyslotEntityID(k), Entity: apigen.CoreEntity{SecretKeyslot: k.Entity()}}
 }
 
-// Events groups mutations already ordered by seq into one CoreWriteUpdate per
-// commit. Time and actor come from the first mutation of each commit.
-func Events(ms []Mutation) []*apigen.CoreWriteUpdate {
-	var out []*apigen.CoreWriteUpdate
-	for _, m := range ms {
-		if n := len(out); n == 0 || out[n-1].Seq != m.GlobalSeq {
-			out = append(out, &apigen.CoreWriteUpdate{Seq: m.GlobalSeq})
-		}
-		AppendMutations(out[len(out)-1], m)
+// DeleteMutation is the delete of one entity; the payload stays empty.
+func DeleteMutation(meta EventMeta, t apigen.CoreEntityType, id int64) Mutation {
+	meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_DELETE
+	return Mutation{EventMeta: meta, Type: t, ID: id}
+}
+
+func StampEntityID(e *apigen.CoreEntity, id int64) {
+	if e == nil {
+		return
 	}
-	return out
+	switch {
+	case e.Deployment != nil:
+		e.Deployment.ID = int32(id)
+	case e.Node != nil:
+		e.Node.ID = int32(id)
+	case e.Secret != nil:
+		e.Secret.ID = int32(id)
+	case e.Config != nil:
+		e.Config.ID = int32(id)
+	case e.Asset != nil:
+		e.Asset.ID = int32(id)
+	case e.NetworkPolicy != nil:
+		e.NetworkPolicy.ID = int32(id)
+	case e.AuthzGrant != nil:
+		e.AuthzGrant.ID = id
+	}
 }

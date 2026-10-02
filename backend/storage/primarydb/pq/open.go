@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"embed"
 
+	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
@@ -23,6 +24,9 @@ type DBTX interface {
 
 type Queries struct {
 	db DBTX
+	// applied counts, per update, the mutations a transaction has already
+	// materialised, so an update grown by a trigger is reduced once.
+	applied map[*apigen.CoreWriteUpdate]int
 }
 
 type conn struct {
@@ -32,9 +36,13 @@ type conn struct {
 
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpenWriter(dbPath)
+	requireCompleteWriteLog(db)
+	backup := backupLegacyDatabase(db, dbPath)
+	renameLegacyStatusLog(db)
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
-	backfillWriteEvents(db)
+	materialiseLegacyTables(db, backup)
+	seedWriteLogGenesis(db)
 	return &Queries{db: &conn{DBTX: db, root: db}}
 }
 
@@ -56,7 +64,7 @@ func (q *Queries) Tx(ctx context.Context, fn func(*Queries) error) error {
 		return err
 	}
 	defer tx.Rollback()
-	transaction := &Queries{db: &conn{DBTX: tx}}
+	transaction := &Queries{db: &conn{DBTX: tx}, applied: map[*apigen.CoreWriteUpdate]int{}}
 	if err := fn(transaction); err != nil {
 		return err
 	}

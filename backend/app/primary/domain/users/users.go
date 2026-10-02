@@ -7,7 +7,6 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -15,40 +14,34 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-func appendUser(ctx context.Context, q *pq.Queries, seq int64, user *apigen.InternalUser) (*state.WriteUpdate, error) {
+func userMutation(ctx context.Context, q *pq.Queries, seq int64, user *apigen.InternalUser) (*state.WriteUpdate, error) {
 	now := time.Now().UnixMilli()
 	meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(user.ID), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
-	createdAt := now
-	previous, err := q.GetUserRow(ctx, int64(user.ID))
+	_, err := q.GetUserRow(ctx, int64(user.ID))
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
 	case err != nil:
 		return nil, err
-	default:
-		createdAt = previous.CreatedAt
 	}
-	if err := q.InsertUserEvent(ctx, pq.UserEventParams{EventMeta: meta, UserID: int64(user.ID), Name: user.Name, DataBlob: user.Encode(), CreatedAt: createdAt}); err != nil {
-		return nil, err
-	}
-	row, err := q.GetUserRow(ctx, int64(user.ID))
-	if err != nil {
-		return nil, err
-	}
-	return pq.NewUpdate(pq.UserMutation(row)), nil
+	return pq.NewUpdate(pq.UserMutation(meta, apigen.User{ID: user.ID, Name: user.Name, Credentials: user.Encode()})), nil
 }
 
+// Write stores the account, allocating its id when it has none.
 func Write(store *state.Service, user *apigen.InternalUser) {
 	ctx := context.Background()
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		return appendUser(ctx, q, seq, user)
+		if user.ID == 0 {
+			id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_USER)
+			if err != nil {
+				return nil, err
+			}
+			user.ID = int32(id)
+		}
+		return userMutation(ctx, q, seq, user)
 	}); err != nil {
 		panic(err)
 	}
-}
-
-func NextID(q *pq.Queries) int32 {
-	return int32(erru.Must(q.NextUserID(context.Background())))
 }
 
 // SetCredential stores a passkey by credential id. The library hands back the
@@ -62,43 +55,6 @@ func SetCredential(u *apigen.InternalUser, id, data []byte) {
 		}
 	}
 	u.Credentials = append(u.Credentials, &apigen.WebAuthnCredential{ID: id, Data: data})
-}
-
-// DedupeCredentials collapses entries that share a credential id onto the
-// last one, which carries the newest sign counter. It reports whether
-// anything changed.
-func DedupeCredentials(u *apigen.InternalUser) bool {
-	last := make(map[string]*apigen.WebAuthnCredential, len(u.Credentials))
-	for _, c := range u.Credentials {
-		last[string(c.ID)] = c
-	}
-	if len(last) == len(u.Credentials) {
-		return false
-	}
-	kept := make([]*apigen.WebAuthnCredential, 0, len(last))
-	seen := make(map[string]bool, len(last))
-	for _, c := range u.Credentials {
-		if seen[string(c.ID)] {
-			continue
-		}
-		seen[string(c.ID)] = true
-		kept = append(kept, last[string(c.ID)])
-	}
-	u.Credentials = kept
-	return true
-}
-
-func ListPublic(q *pq.Queries) []*apigen.User {
-	rows := erru.Must(q.ListUsers(context.Background()))
-	out := make([]*apigen.User, 0, len(rows))
-	for i := range rows {
-		out = append(out, &rows[i])
-	}
-	return out
-}
-
-func Count(q *pq.Queries) int {
-	return len(erru.Must(q.ListUsers(context.Background())))
 }
 
 func ByID(q *pq.Queries, id int32) (*apigen.InternalUser, error) {
@@ -137,7 +93,7 @@ func UpdateMatching(store *state.Service, predicate func(*apigen.InternalUser) b
 			return nil, err
 		}
 		f(user)
-		return appendUser(ctx, q, seq, user)
+		return userMutation(ctx, q, seq, user)
 	}); err != nil {
 		panic(err)
 	}

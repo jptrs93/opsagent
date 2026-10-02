@@ -162,15 +162,3 @@ func (h *Handler) nodeVisible(ctx apigen.Context, nodeID int64, allowedSpaces []
 	}
 	return false
 }
-
-// nodeAllowedSpaces snapshots each node's allow list for visibility checks on
-// records that carry only a node id.
-func (h *Handler) nodeAllowedSpaces() map[int32][]int32 {
-	out := map[int32][]int32{}
-	for _, node := range nodes.ListClusterNodes(h.Store.Queries()) {
-		if node != nil {
-			out[node.NodeID] = node.Value.Operator.AllowedSpaces
-		}
-	}
-	return out
-}

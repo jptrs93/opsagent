@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -30,10 +29,7 @@ func createDeployment(s *state.Service, ctx apigen.Context, def *apigen.Deployme
 		if err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentCreate(ctx, id, seq, time.Now(), def)
-		if err != nil {
-			return nil, err
-		}
+		event = pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), def)
 		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	})
 	return event, err
@@ -46,14 +42,11 @@ func updateDeployment(s *state.Service, ctx apigen.Context, deploymentID int32, 
 		if err != nil {
 			return nil, err
 		}
-		if existing.Deleted() {
-			return nil, fmt.Errorf("deployment %d is deleted", deploymentID)
-		}
 		def := existing.Value
 		if err := mutate(&def, existing); err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentUpdate(ctx, int64(deploymentID), seq, time.Now(), &def)
+		event, err = q.DeploymentUpdateEvent(ctx, int64(deploymentID), seq, time.Now(), &def)
 		if errors.Is(err, pq.ErrDeploymentUnchanged) {
 			event = existing
 			return nil, nil
@@ -77,12 +70,12 @@ func MustCreateStoppedDeploymentForNode(s *state.Service, ctx apigen.Context, sp
 func mustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, running bool, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
 	stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
 	return erru.Must(createDeployment(s, ctx, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(running, nodeID), SpaceID: spaceID, Name: name, Spec: *stored}, func(q *pq.Queries) error {
-		events, err := q.ListLatestDeploymentEvents(ctx)
+		events, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return err
 		}
 		for _, cfg := range events {
-			if !cfg.Deleted() && storage.DeploymentKeyMatches(cfg.Value, nodeID, spaceID, name) {
+			if storage.DeploymentKeyMatches(cfg.Value, nodeID, spaceID, name) {
 				return fmt.Errorf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name)
 			}
 		}
@@ -145,7 +138,7 @@ func DeleteDeployment(s *state.Service, ctx apigen.Context, deploymentID int32) 
 	var event *apigen.DeploymentEvent
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
-		event, err = q.WriteDeploymentDelete(ctx, int64(deploymentID), seq, time.Now())
+		event, err = q.DeploymentDeleteEvent(ctx, int64(deploymentID), seq, time.Now())
 		if err != nil {
 			return nil, err
 		}
@@ -158,7 +151,6 @@ func CreateScheduledInstance(s *state.Service, deploymentID, deploymentVersion, 
 	ctx := context.Background()
 	now := time.Now()
 	inst := &apigen.ScheduledInstance{
-		CreatedAt:         time.UnixMilli(now.UnixMilli()),
 		DeploymentID:      deploymentID,
 		DeploymentVersion: deploymentVersion,
 		NodeID:            nodeID,
@@ -173,11 +165,8 @@ func CreateScheduledInstance(s *state.Service, deploymentID, deploymentVersion, 
 		inst.DeploymentSpecVersion = cfg.SpecVersion
 		inst.SpaceID = cfg.Value.SpaceID
 		inst.ID = erru.Must(q.NextScheduledInstanceID(ctx))
-		event, err := q.AppendScheduledInstanceEvent(ctx, seq, inst, target, now)
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.ScheduledInstanceMutation(event)), nil
+		event := pq.NewScheduledInstanceEvent(seq, inst, target, now)
+		return pq.NewUpdate(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, event)), nil
 	}))
 	return inst
 }
@@ -189,15 +178,11 @@ func SetScheduledInstanceState(s *state.Service, instanceID int32, target apigen
 		if err != nil {
 			return nil, err
 		}
-		inst := current.Value
-		if inst.State == target {
+		if current.Value.State == target {
 			return nil, nil
 		}
-		event, err := q.AppendScheduledInstanceEvent(ctx, seq, &inst, target, time.Now())
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.ScheduledInstanceMutation(event)), nil
+		event := pq.ScheduledInstanceTransition(seq, current, target, time.Now())
+		return pq.NewUpdate(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, event)), nil
 	}))
 }
 
@@ -261,13 +246,31 @@ func DeploymentEnvRef(t testing.TB, cfg *apigen.DeploymentEvent, key string, sec
 	return *value.Config
 }
 
-// Canonical encodes an update with its mutations in a fixed order so two
-// updates that carry the same facts compare equal.
+// Canonical encodes an update with its mutations in a fixed order and
+// without meta, so a published update and its write log replay compare
+// equal.
 func Canonical(update state.WriteUpdate) []byte {
 	cp := update
-	cp.Mutations = slices.Clone(update.Mutations)
+	cp.Mutations = make([]*apigen.CoreMutation, 0, len(update.Mutations))
+	for _, m := range update.Mutations {
+		cp.Mutations = append(cp.Mutations, withoutMeta(m))
+	}
 	sort.Slice(cp.Mutations, func(i, j int) bool { return bytes.Compare(cp.Mutations[i].Encode(), cp.Mutations[j].Encode()) < 0 })
 	return cp.Encode()
+}
+
+func withoutMeta(m *apigen.CoreMutation) *apigen.CoreMutation {
+	switch {
+	case m.Create != nil:
+		c := *m.Create
+		c.Meta = nil
+		return &apigen.CoreMutation{Create: &c}
+	case m.Update != nil:
+		u := *m.Update
+		u.Meta = nil
+		return &apigen.CoreMutation{Update: &u}
+	}
+	return m
 }
 
 // AssertUpdateMatchesRows checks a published update against the rows the
@@ -280,7 +283,7 @@ func AssertUpdateMatchesRows(t testing.TB, s *state.Service, update state.WriteU
 	if update.Seq != seq {
 		t.Fatalf("published sequence = %d, database sequence = %d", update.Seq, seq)
 	}
-	events := pq.Events(erru.Must(s.Queries().MutationsInRange(ctx, seq-1, seq)))
+	events := erru.Must(s.Queries().WriteEventsInRange(ctx, seq-1, seq))
 	if len(events) != 1 {
 		t.Fatalf("seq %d replays as %d events", seq, len(events))
 	}
@@ -308,16 +311,33 @@ func Fold(events []*apigen.CoreWriteUpdate) map[apigen.CoreEntityType]map[int64]
 	return out
 }
 
-// Bootstrap returns the compacted history as events, the same shape the
-// stream sends a fresh subscriber.
-func Bootstrap(t testing.TB, q *pq.Queries) []*apigen.CoreWriteUpdate {
+// Snapshot returns the opening snapshot, the same shape the stream sends a
+// fresh subscriber.
+func Snapshot(t testing.TB, q *pq.Queries) []*apigen.MaterialisedEntity {
 	t.Helper()
-	return pq.Events(erru.Must(q.BootstrapMutations(context.Background())))
+	return erru.Must(q.Snapshot(context.Background()))
 }
 
-// Live returns the entity payloads a fresh subscriber holds after folding the
-// bootstrap.
+// FoldSnapshot returns, by type and id, the live entity payloads a fresh
+// subscriber holds after the opening snapshot: the newest retained version of
+// each entity, and nothing for deleted ones.
+func FoldSnapshot(entries []*apigen.MaterialisedEntity) map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity {
+	out := map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity{}
+	for _, e := range entries {
+		if e.Meta != nil && e.Meta.Deleted {
+			continue
+		}
+		if out[e.EntityType] == nil {
+			out[e.EntityType] = map[int64]*apigen.CoreEntity{}
+		}
+		out[e.EntityType][e.EntityID] = e.Entity
+	}
+	return out
+}
+
+// Live returns the entity payloads a fresh subscriber holds after the opening
+// snapshot.
 func Live(t testing.TB, q *pq.Queries, typ apigen.CoreEntityType) map[int64]*apigen.CoreEntity {
 	t.Helper()
-	return Fold(Bootstrap(t, q))[typ]
+	return FoldSnapshot(Snapshot(t, q))[typ]
 }

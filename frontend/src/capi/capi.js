@@ -8,23 +8,15 @@ import {
   decodeAgentSessionRequest,
   decodeAssetDirectory,
   decodeAssetDirectoryList,
-  decodeAssetEvent,
-  decodeAssetEventList,
   decodeAuthMethodsResponse,
   decodeAuthzGlobalRuleList,
-  decodeAuthzGlobalRuleRecord,
-  decodeAuthzGrantList,
-  decodeAuthzGrantRecord,
   decodeAuthzRuleTemplateList,
-  decodeAuthzRuleTemplateRecord,
   decodeClusterConfigsResponse,
   decodeClusterIssuedTLSResponse,
   decodeClusterRenewCertificateResponse,
   decodeClusterSecretsResponse,
   decodeClusterSettings,
-  decodeConfigEvent,
-  decodeConfigEventList,
-  decodeDeploymentEvent,
+  decodeCoreWriteUpdate,
   decodeDeploymentGetResponse,
   decodeDeploymentHistory,
   decodeDeploymentRunReport,
@@ -40,17 +32,11 @@ import {
   decodeMetricsLatestResponse,
   decodeMetricsQueryResponse,
   decodeMsgToSecondary,
-  decodeNetworkPolicyEvent,
-  decodeNetworkPolicyEventList,
   decodeNodeEnrollmentInfo,
-  decodeNodeEvent,
-  decodeNodeEventList,
   decodeNodeExposure,
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
   decodeRepoValidateResponse,
-  decodeSecretEvent,
-  decodeSecretEventList,
   decodeSecretRecoveryCodeResponse,
   decodeSecretRevealResponse,
   decodeSecretsStatusResponse,
@@ -556,27 +542,27 @@ export class Capi {
   /**
    * @param {AuthzRuleTemplateCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AuthzRuleTemplateRecord>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1AccessRuleTemplatesCreate(payload, options = {}) {
     const response = await this.#request("/v1/access/rule-templates/create", { method: 'POST', body: encodeAuthzRuleTemplateCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAuthzRuleTemplateRecord(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {AuthzRuleTemplateUpdateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AuthzRuleTemplateRecord>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1AccessRuleTemplatesUpdate(payload, options = {}) {
     const response = await this.#request("/v1/access/rule-templates/update", { method: 'POST', body: encodeAuthzRuleTemplateUpdateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAuthzRuleTemplateRecord(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -593,28 +579,16 @@ export class Capi {
   }
 
   /**
-   * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AuthzGrantList>}
-   */
-  async postV1AccessGrantsList(options = {}) {
-    const response = await this.#request("/v1/access/grants/list", { method: 'POST', signal: options.signal });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeAuthzGrantList(await response.arrayBuffer());
-  }
-
-  /**
    * @param {AuthzGrantCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AuthzGrantRecord>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1AccessGrantsCreate(payload, options = {}) {
     const response = await this.#request("/v1/access/grants/create", { method: 'POST', body: encodeAuthzGrantCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAuthzGrantRecord(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -645,14 +619,14 @@ export class Capi {
   /**
    * @param {AuthzGlobalRuleCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AuthzGlobalRuleRecord>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1AccessGlobalRulesCreate(payload, options = {}) {
     const response = await this.#request("/v1/access/global-rules/create", { method: 'POST', body: encodeAuthzGlobalRuleCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAuthzGlobalRuleRecord(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -727,27 +701,27 @@ export class Capi {
   /**
    * @param {DeploymentCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<DeploymentEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1DeploymentsCreate(payload, options = {}) {
     const response = await this.#request("/v1/deployments/create", { method: 'POST', body: encodeDeploymentCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {DeploymentUpdateRequestV2} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<DeploymentEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV2DeploymentsUpdate(payload, options = {}) {
     const response = await this.#request("/v2/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequestV2(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeDeploymentEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -886,67 +860,55 @@ export class Capi {
   }
 
   /**
-   * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NodeEventList>}
-   */
-  async postV1NodesList(options = {}) {
-    const response = await this.#request("/v1/nodes/list", { method: 'POST', signal: options.signal });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeNodeEventList(await response.arrayBuffer());
-  }
-
-  /**
    * @param {NodeRenameRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NodeEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1NodesRename(payload, options = {}) {
     const response = await this.#request("/v1/nodes/rename", { method: 'POST', body: encodeNodeRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNodeEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {NodeAllowedSpacesRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NodeEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1NodesAllowedSpaces(payload, options = {}) {
     const response = await this.#request("/v1/nodes/allowed-spaces", { method: 'POST', body: encodeNodeAllowedSpacesRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNodeEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {NodeDrainRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NodeEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1NodesDrain(payload, options = {}) {
     const response = await this.#request("/v1/nodes/drain", { method: 'POST', body: encodeNodeDrainRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNodeEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {NodeEvictRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NodeEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1NodesEvict(payload, options = {}) {
     const response = await this.#request("/v1/nodes/evict", { method: 'POST', body: encodeNodeEvictRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNodeEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -1039,41 +1001,29 @@ export class Capi {
   }
 
   /**
-   * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NetworkPolicyEventList>}
-   */
-  async postV1NetworkPoliciesList(options = {}) {
-    const response = await this.#request("/v1/network-policies/list", { method: 'POST', signal: options.signal });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeNetworkPolicyEventList(await response.arrayBuffer());
-  }
-
-  /**
    * @param {NetworkPolicyCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NetworkPolicyEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1NetworkPoliciesCreate(payload, options = {}) {
     const response = await this.#request("/v1/network-policies/create", { method: 'POST', body: encodeNetworkPolicyCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNetworkPolicyEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {NetworkPolicyUpdateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<NetworkPolicyEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1NetworkPoliciesUpdate(payload, options = {}) {
     const response = await this.#request("/v1/network-policies/update", { method: 'POST', body: encodeNetworkPolicyUpdateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeNetworkPolicyEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -1090,80 +1040,68 @@ export class Capi {
   }
 
   /**
-   * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<SecretEventList>}
-   */
-  async postV1SecretsList(options = {}) {
-    const response = await this.#request("/v1/secrets/list", { method: 'POST', signal: options.signal });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeSecretEventList(await response.arrayBuffer());
-  }
-
-  /**
    * @param {SecretCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<SecretEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1SecretsCreate(payload, options = {}) {
     const response = await this.#request("/v1/secrets/create", { method: 'POST', body: encodeSecretCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretSetRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<SecretEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1SecretsSet(payload, options = {}) {
     const response = await this.#request("/v1/secrets/set", { method: 'POST', body: encodeSecretSetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretGenerateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<SecretEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1SecretsGenerate(payload, options = {}) {
     const response = await this.#request("/v1/secrets/generate", { method: 'POST', body: encodeSecretGenerateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretRenameRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<SecretEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1SecretsRename(payload, options = {}) {
     const response = await this.#request("/v1/secrets/rename", { method: 'POST', body: encodeSecretRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {SecretMoveRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<SecretEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1SecretsMove(payload, options = {}) {
     const response = await this.#request("/v1/secrets/move", { method: 'POST', body: encodeSecretMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeSecretEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -1230,54 +1168,42 @@ export class Capi {
   }
 
   /**
-   * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ConfigEventList>}
-   */
-  async postV1ConfigsList(options = {}) {
-    const response = await this.#request("/v1/configs/list", { method: 'POST', signal: options.signal });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeConfigEventList(await response.arrayBuffer());
-  }
-
-  /**
    * @param {ConfigCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ConfigEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1ConfigsCreate(payload, options = {}) {
     const response = await this.#request("/v1/configs/create", { method: 'POST', body: encodeConfigCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {ConfigSetRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ConfigEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1ConfigsSet(payload, options = {}) {
     const response = await this.#request("/v1/configs/set", { method: 'POST', body: encodeConfigSetRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {ConfigRenameRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ConfigEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1ConfigsRename(payload, options = {}) {
     const response = await this.#request("/v1/configs/rename", { method: 'POST', body: encodeConfigRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -1296,14 +1222,14 @@ export class Capi {
   /**
    * @param {ConfigMoveRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<ConfigEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1ConfigsMove(payload, options = {}) {
     const response = await this.#request("/v1/configs/move", { method: 'POST', body: encodeConfigMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeConfigEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -1372,18 +1298,6 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AssetEventList>}
-   */
-  async postV1AssetsList(options = {}) {
-    const response = await this.#request("/v1/assets/list", { method: 'POST', signal: options.signal });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeAssetEventList(await response.arrayBuffer());
-  }
-
-  /**
-   * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
   async getV1AssetsContent(options = {}) {
@@ -1396,27 +1310,27 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AssetEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1AssetsUpload(options = {}) {
     const response = await this.#request("/v1/assets/upload", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
    * @param {AssetRenameRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AssetEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1AssetsRename(payload, options = {}) {
     const response = await this.#request("/v1/assets/rename", { method: 'POST', body: encodeAssetRenameRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**
@@ -1435,14 +1349,14 @@ export class Capi {
   /**
    * @param {AssetMoveRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AssetEvent>}
+   * @returns {Promise<CoreWriteUpdate>}
    */
   async postV1AssetsMove(payload, options = {}) {
     const response = await this.#request("/v1/assets/move", { method: 'POST', body: encodeAssetMoveRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAssetEvent(await response.arrayBuffer());
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
   }
 
   /**

@@ -7,32 +7,28 @@ import "api-contract/model/authz.proto";
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message AuthzRuleTemplateList {
-  repeated AuthzRuleTemplateRecord items = 1;
+  repeated AuthzRuleTemplate items = 1;
 }
 
 message AuthzRuleTemplateCreateRequest {
   string name = 1;
-  AuthzRuleTemplate template = 2;
+  AuthzRuleTemplateSpec spec = 2;
 }
 
 message AuthzRuleTemplateUpdateRequest {
   int64 id = 1;
   string name = 2;
-  AuthzRuleTemplate template = 3;
+  AuthzRuleTemplateSpec spec = 3;
 }
 
 message AuthzRuleTemplateDeleteRequest {
   int64 id = 1;
 }
 
-message AuthzGrantList {
-  repeated AuthzGrantRecord items = 1;
-}
-
 message AuthzGrantCreateRequest {
   int64 user_id = 1;
   int64 template_id = 2;
-  AuthzGrant grant = 3;
+  AuthzGrantSpec spec = 3;
 }
 
 message AuthzGrantDeleteRequest {
@@ -41,12 +37,12 @@ message AuthzGrantDeleteRequest {
 }
 
 message AuthzGlobalRuleList {
-  repeated AuthzGlobalRuleRecord items = 1;
+  repeated AuthzGlobalRule items = 1;
 }
 
 message AuthzGlobalRuleCreateRequest {
   string name = 1;
-  AuthzGlobalRule rule = 2;
+  AuthzGlobalRuleSpec spec = 2;
 }
 
 message AuthzGlobalRuleDeleteRequest {

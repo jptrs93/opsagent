@@ -30,12 +30,12 @@ func TestUnknownHostInventoryPreservesLastReport(t *testing.T) {
 		t.Fatal("unknown inventory cleared addresses or appended an event")
 	}
 	mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", *wire)
-	if node = ReportNode(store, reported.Identifier, *wire); node.Version != 1 || node.ID != req.ID {
+	if node = ReportNode(store, reported.Identifier, *wire); nodeVersion(t, store, node.ID) != 1 || node.ID != req.ID {
 		t.Fatal("unknown inventory changed a pending enrollment")
 	}
 	wire.HostAddressesUnknown = false
 	node = ReportNode(store, reported.Identifier, *wire)
-	if len(node.HostAddresses) != 0 || node.Version != 2 {
+	if len(node.HostAddresses) != 0 || nodeVersion(t, store, node.ID) != 2 {
 		t.Fatal("known empty inventory did not clear old addresses")
 	}
 }
@@ -51,7 +51,7 @@ func TestEnrollmentCleanupGuardsRequestInsteadOfNodeVersion(t *testing.T) {
 	if err := EndEnrollmentRequest(store, req.ID, at, false); err != nil {
 		t.Fatal(err)
 	}
-	if node := latestNodeEvent(t, store, reported.Identifier); node.Value.EnrollmentRequestedAt != 0 || node.Version != 3 {
+	if node := latestNodeEvent(t, store, reported.Identifier); node.Value.EnrollmentRequestedAt != 0 || nodeVersion(t, store, node.NodeID) != 3 {
 		t.Fatal("an interleaved node event prevented cancellation")
 	}
 	fresh, _ := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
@@ -71,26 +71,26 @@ func TestEnrollmentReportsHaveNoTrailingEvents(t *testing.T) {
 	defer store.Close()
 	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2", HostAddresses: []string{"203.0.113.2"}}
 	req, version := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
-	if version != globalSeq(t, store) || latestNodeEvent(t, store, reported.Identifier).Version != 1 {
+	if version != globalSeq(t, store) || nodeVersion(t, store, latestNodeEvent(t, store, reported.Identifier).NodeID) != 1 {
 		t.Fatalf("request seq = %d, want the seq of the first node event", version)
 	}
 	if _, err := AcceptEnrollmentRequest(store, req.ID, "worker", reported.Identifier, version); err != nil {
 		t.Fatal(err)
 	}
 	hello := ReportNode(store, reported.Identifier, reported)
-	if hello.Version != 2 {
-		t.Fatalf("first cluster hello version = %d, want 2", hello.Version)
+	if v := nodeVersion(t, store, hello.ID); v != 2 {
+		t.Fatalf("first cluster hello version = %d, want 2", v)
 	}
-	if node := ReportNode(store, reported.Identifier, reported); node.Version != 2 {
+	if node := ReportNode(store, reported.Identifier, reported); nodeVersion(t, store, node.ID) != 2 {
 		t.Fatal("reconnect appended an event")
 	}
 	reported.HostAddresses = []string{"203.0.113.3", "203.0.113.2", "203.0.113.2"}
 	node := ReportNode(store, reported.Identifier, reported)
-	if node.Version != 3 {
-		t.Fatalf("address change version = %d, want 3", node.Version)
+	if v := nodeVersion(t, store, node.ID); v != 3 {
+		t.Fatalf("address change version = %d, want 3", v)
 	}
 	reported.HostAddresses = []string{"203.0.113.2", "203.0.113.3"}
-	if node := ReportNode(store, reported.Identifier, reported); node.Version != 3 {
+	if node := ReportNode(store, reported.Identifier, reported); nodeVersion(t, store, node.ID) != 3 {
 		t.Fatal("equivalent address set appended an event")
 	}
 	sub, unsub := store.SubscribeUpdates()
@@ -107,7 +107,7 @@ func TestEnrollmentReportsHaveNoTrailingEvents(t *testing.T) {
 		t.Fatal("rejected member hello published")
 	default:
 	}
-	if node := ReportNode(store, reported.Identifier, reported); node.Version != 3 || node.EnrollmentRequestedAt != 0 {
+	if node := ReportNode(store, reported.Identifier, reported); nodeVersion(t, store, node.ID) != 3 || node.EnrollmentRequestedAt != 0 {
 		t.Fatalf("member after rejected hello = %+v", node)
 	}
 }
@@ -150,25 +150,42 @@ func TestEnrollmentCancellationExpiryAndAcceptedSessionCleanup(t *testing.T) {
 		t.Fatalf("expired node: %+v", node)
 	}
 	req, version = mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
-	requested := latestNodeEvent(t, store, reported.Identifier)
+	requestedVersion := nodeVersion(t, store, latestNodeEvent(t, store, reported.Identifier).NodeID)
 	if _, err := AcceptEnrollmentRequest(store, req.ID, "worker", reported.Identifier, version); err != nil {
 		t.Fatal(err)
 	}
 	accepted := latestNodeEvent(t, store, reported.Identifier)
-	if accepted.Version != requested.Version+1 {
-		t.Fatalf("accept appended %d versions, want one", accepted.Version-requested.Version)
+	acceptedVersion := nodeVersion(t, store, accepted.NodeID)
+	if acceptedVersion != requestedVersion+1 {
+		t.Fatalf("accept appended %d versions, want one", acceptedVersion-requestedVersion)
 	}
 	if err := EndEnrollmentRequest(store, req.ID, req.CreatedAt.UnixMilli(), false); err != nil {
 		t.Fatal(err)
 	}
-	if node = latestNodeEvent(t, store, reported.Identifier); node.Version != accepted.Version {
+	if node = latestNodeEvent(t, store, reported.Identifier); nodeVersion(t, store, node.NodeID) != acceptedVersion {
 		t.Fatal("accepted session cleanup appended a trailing event")
 	}
 	if _, _, err := UpsertEnrollmentRequest(store, "192.0.2.2", "v1", reported); !errors.Is(err, ErrEnrollmentIdentifierEnrolled) {
 		t.Fatalf("member hello = %v, want ErrEnrollmentIdentifierEnrolled", err)
 	}
 	node = latestNodeEvent(t, store, reported.Identifier)
-	if node.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL || node.Value.EnrollmentRequestedAt != 0 || node.Version != accepted.Version {
+	if node.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL || node.Value.EnrollmentRequestedAt != 0 || nodeVersion(t, store, node.NodeID) != acceptedVersion {
 		t.Fatal("rejected member hello changed admitted node lifecycle")
 	}
+}
+
+// nodeVersion counts the node's authored writes in the log: the version the
+// node row used to carry.
+func nodeVersion(t testing.TB, store *state.Service, id int32) int {
+	t.Helper()
+	ctx := context.Background()
+	count := 0
+	for _, e := range erru.Must(store.Queries().WriteEventsInRange(ctx, -1, erru.Must(store.Queries().GetGlobalSeq(ctx)))) {
+		for _, m := range e.Mutations {
+			if m.Type() == apigen.CoreEntityType_CORE_ENTITY_NODE && m.EntityID() == int64(id) {
+				count++
+			}
+		}
+	}
+	return count
 }

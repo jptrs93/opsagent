@@ -5,65 +5,37 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-// maxReplaySeqs bounds a reconnect replay; a browser further behind gets the
-// compacted history instead.
-const maxReplaySeqs = 10_000
-
 type opening struct {
-	seq    int64
-	reset  bool
-	events []*apigen.CoreWriteUpdate
+	seq      int64
+	entities []*apigen.MaterialisedEntity
 }
 
-// openEventsLocked reads the events a subscriber starts from: a replay of
-// everything after afterSeq when that window is small and nothing in it can
-// have changed what the viewer may see, otherwise the compacted history with
-// reset set. The caller holds h.Store.Mu so the read and the live
-// subscription see the same seq.
-func (h *Handler) openEventsLocked(ctx apigen.Context, afterSeq int64) (opening, error) {
+// openSnapshotLocked reads the state a subscriber starts from: the
+// materialised snapshot at the current seq. The caller holds h.Store.Mu so
+// the read and the live subscription see the same seq.
+func (h *Handler) openSnapshotLocked(ctx apigen.Context) (opening, error) {
 	q := h.Store.Queries()
 	seq, err := q.GetGlobalSeq(ctx)
 	if err != nil {
 		return opening{}, err
 	}
-	bootstrap := afterSeq <= 0 || afterSeq > seq || seq-afterSeq > maxReplaySeqs
-	if !bootstrap {
-		changed, err := q.VisibilityChangesSince(ctx, afterSeq, userIDOf(ctx))
-		if err != nil {
-			return opening{}, err
-		}
-		bootstrap = changed
-	}
-	if bootstrap {
-		ms, err := q.BootstrapMutations(ctx)
-		return opening{seq: seq, reset: true, events: pq.Events(ms)}, err
-	}
-	ms, err := q.MutationsInRange(ctx, afterSeq, seq)
-	return opening{seq: seq, events: pq.Events(ms)}, err
+	entities, err := q.Snapshot(ctx)
+	return opening{seq: seq, entities: entities}, err
 }
 
-func (h *Handler) openEvents(ctx apigen.Context, afterSeq int64) (opening, error) {
+func (h *Handler) openSnapshot(ctx apigen.Context) (opening, error) {
 	h.Store.Mu.Lock()
 	defer h.Store.Mu.Unlock()
-	return h.openEventsLocked(ctx, afterSeq)
-}
-
-func userIDOf(ctx apigen.Context) int64 {
-	if ctx.User == nil {
-		return 0
-	}
-	return int64(ctx.User.ID)
+	return h.openSnapshotLocked(ctx)
 }
 
 func openingMsg(visibility *streamVisibility, op opening) *apigen.EventStreamMsg {
-	if op.reset {
-		visibility.reset()
-	}
-	return &apigen.EventStreamMsg{Seq: op.seq, Reset: op.reset, Synced: true, Events: visibility.visibleEvents(op.events)}
+	visibility.reset()
+	snapshot := &apigen.CoreSnapshot{Seq: op.seq, Entities: visibility.visibleSnapshot(op.entities)}
+	return &apigen.EventStreamMsg{Seq: op.seq, Synced: true, Snapshot: snapshot}
 }
 
 func (h *Handler) sidecarMsg(ctx apigen.Context, secrets apigen.SecretsStatusResponse, backup apigen.BackupStatus, diagnostics *apigen.IngressDiagnosticList) *apigen.EventStreamMsg {
@@ -74,7 +46,7 @@ func (h *Handler) sidecarMsg(ctx apigen.Context, secrets apigen.SecretsStatusRes
 }
 
 func (h *Handler) PostV1GlobalEvents(ctx apigen.Context, req *apigen.EventStreamRequest) (*apigen.EventStreamMsg, error) {
-	op, err := h.openEvents(ctx, req.AfterSeq)
+	op, err := h.openSnapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -98,11 +70,12 @@ func (h *Handler) PostV1GlobalEvents(ctx apigen.Context, req *apigen.EventStream
 	return msg, nil
 }
 
-// PostV1GlobalEventStream sends the opening events for after_seq, the
-// sidecar statuses, then every later commit as it happens. A commit that can
-// change what the viewer may see (a grant, a space move) is not forwarded;
-// after a short debounce the stream sends the compacted history again with
-// reset set. Every message carries the seq the browser is now at.
+// PostV1GlobalEventStream sends the sidecar statuses, the opening snapshot,
+// then every later commit as it happens. A commit that can change what the
+// viewer may see (a grant, a space move) is not forwarded; after a short
+// debounce the stream sends a fresh snapshot instead, which the browser
+// applies as its whole state. Every message carries the seq the browser is
+// now at.
 func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventStreamRequest) iter.Seq2[*apigen.EventStreamMsg, error] {
 	return func(yield func(*apigen.EventStreamMsg, error) bool) {
 		secretSub := h.secretsUpdates.Subscribe(nil)
@@ -128,7 +101,7 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 		visibility := newStreamVisibility(h, ctx)
 		var openErr error
 		op, updates, unsubscribe := state.Subscribe(h.Store, func() opening {
-			out, err := h.openEventsLocked(ctx, req.AfterSeq)
+			out, err := h.openSnapshotLocked(ctx)
 			openErr = err
 			return out
 		}, func(u state.WriteUpdate) (state.WriteUpdate, bool) { return u, true })
@@ -207,7 +180,7 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 				}
 			case <-resetC:
 				reset, resetC = nil, nil
-				current, err := h.openEvents(ctx, 0)
+				current, err := h.openSnapshot(ctx)
 				if err != nil {
 					yield(nil, err)
 					return

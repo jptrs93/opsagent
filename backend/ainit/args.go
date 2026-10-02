@@ -23,10 +23,13 @@ const (
 )
 
 type Arguments struct {
-	Program   string
-	Command   Command
-	Installer bool
+	Program    string
+	Command    Command
+	Subcommand string
+	Installer  bool
 }
+
+const SubcommandRebuildTables = "rebuild-tables"
 
 var Args Arguments
 
@@ -44,6 +47,14 @@ func initArgs() {
 	switch Command(os.Args[1]) {
 	case CommandPrimary:
 		Args.Command = CommandPrimary
+		if len(os.Args) > 2 {
+			if os.Args[2] != SubcommandRebuildTables {
+				usage(os.Stderr, Args.Program)
+				fmt.Fprintf(os.Stderr, "\nunknown primary subcommand: %s\n", os.Args[2])
+				os.Exit(2)
+			}
+			Args.Subcommand = os.Args[2]
+		}
 	case CommandSecondary:
 		Args.Command = CommandSecondary
 	case CommandInstall:
@@ -79,6 +90,7 @@ func usage(w io.Writer, prog string) {
 	fmt.Fprintf(w, `%[1]s - deployment management server
 Usage:
   %[1]s primary
+  %[1]s primary rebuild-tables
   %[1]s secondary
   %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--password-login true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--web-hosts host1,host2] [--acme-hosts host1,host2] [--primary-name primary] [--dry-run]
   %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
@@ -88,6 +100,7 @@ Usage:
 
 Commands:
   primary     Run the primary HTTP server and cluster listeners.
+              With rebuild-tables: rebuild the materialised tables from the write log and exit (run while the primary is stopped).
   secondary   Run a secondary that enrolls with and connects to the primary.
   install     Fresh install of a primary or secondary.
   upgrade     In-place upgrade of the installed node.

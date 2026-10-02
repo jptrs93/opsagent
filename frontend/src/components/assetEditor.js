@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {written, ASSET} from "../state/tree.js";
 import {closeIcon} from "../lib/icons.js";
 
 const {button, div, h2, input, p, span, textarea} = van.tags;
@@ -104,14 +105,14 @@ export function assetEditor({
         originalRevision.val += 1;
     };
 
-    // Upload responses are AssetEvents; the editor keeps the content it saved.
     const hydrateFromSaved = (saved, blob) => {
+        const asset = written(saved, ASSET);
         hydrate({
-            assetId: Number(saved?.assetId || 0),
-            key: saved?.value?.fs?.key || "",
-            version: Number(saved?.valueVersion || 0),
-            createdAt: saved?.eventTime ? new Date(saved.eventTime) : null,
-            sizeBytes: Number(saved?.value?.sizeBytes || 0),
+            assetId: Number(asset?.id || 0),
+            key: asset?.entity?.fs?.key || "",
+            version: Number(asset?.meta?.valueVersion || 0),
+            createdAt: asset?.time ? new Date(asset.time) : null,
+            sizeBytes: Number(asset?.entity?.sizeBytes || 0),
             large: false,
             blob,
         });

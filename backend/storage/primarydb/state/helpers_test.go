@@ -47,10 +47,7 @@ func createDeploymentForTest(s *Service, ctx apigen.Context, def *apigen.Deploym
 		if err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentCreate(ctx, id, seq, time.Now(), def)
-		if err != nil {
-			return nil, err
-		}
+		event = pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), def)
 		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
 	})
 	return event, err
@@ -70,7 +67,7 @@ func updateDeploymentForTest(s *Service, ctx apigen.Context, deploymentID int32,
 		if err := mutate(&def, existing); err != nil {
 			return nil, err
 		}
-		event, err = q.WriteDeploymentUpdate(ctx, int64(deploymentID), seq, time.Now(), &def)
+		event, err = q.DeploymentUpdateEvent(ctx, int64(deploymentID), seq, time.Now(), &def)
 		if errors.Is(err, pq.ErrDeploymentUnchanged) {
 			event = existing
 			return nil, nil
@@ -90,12 +87,12 @@ func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID int32, 
 func mustCreateDeploymentForNodeRunning(s *Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, running bool, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
 	stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
 	return erru.Must(createDeploymentForTest(s, ctx, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(running, nodeID), SpaceID: spaceID, Name: name, Spec: *stored}, func(q *pq.Queries) error {
-		events, err := q.ListLatestDeploymentEvents(ctx)
+		events, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return err
 		}
 		for _, cfg := range events {
-			if !cfg.Deleted() && storage.DeploymentKeyMatches(cfg.Value, nodeID, spaceID, name) {
+			if storage.DeploymentKeyMatches(cfg.Value, nodeID, spaceID, name) {
 				return fmt.Errorf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name)
 			}
 		}
@@ -121,7 +118,7 @@ func deleteDeployment(s *Service, ctx apigen.Context, deploymentID int32) *apige
 	var event *apigen.DeploymentEvent
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
-		event, err = q.WriteDeploymentDelete(ctx, int64(deploymentID), seq, time.Now())
+		event, err = q.DeploymentDeleteEvent(ctx, int64(deploymentID), seq, time.Now())
 		if err != nil {
 			return nil, err
 		}
@@ -165,7 +162,6 @@ func createScheduledInstanceForTest(s *Service, deploymentID, deploymentVersion,
 	ctx := context.Background()
 	now := time.Now()
 	inst := &apigen.ScheduledInstance{
-		CreatedAt:         time.UnixMilli(now.UnixMilli()),
 		DeploymentID:      deploymentID,
 		DeploymentVersion: deploymentVersion,
 		NodeID:            nodeID,
@@ -180,11 +176,8 @@ func createScheduledInstanceForTest(s *Service, deploymentID, deploymentVersion,
 		inst.DeploymentSpecVersion = cfg.SpecVersion
 		inst.SpaceID = cfg.Value.SpaceID
 		inst.ID = erru.Must(q.NextScheduledInstanceID(ctx))
-		event, err := q.AppendScheduledInstanceEvent(ctx, seq, inst, target, now)
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.ScheduledInstanceMutation(event)), nil
+		event := pq.NewScheduledInstanceEvent(seq, inst, target, now)
+		return pq.NewUpdate(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, event)), nil
 	}))
 	return inst
 }
@@ -193,18 +186,17 @@ func setScheduledInstanceState(s *Service, instanceID int32, target apigen.Sched
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		current, err := q.GetScheduledInstance(ctx, instanceID)
-		if err != nil {
-			return nil, err
-		}
-		inst := current.Value
-		if inst.State == target {
+		if errors.Is(err, sql.ErrNoRows) && target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
 			return nil, nil
 		}
-		event, err := q.AppendScheduledInstanceEvent(ctx, seq, &inst, target, time.Now())
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.ScheduledInstanceMutation(event)), nil
+		if current.Value.State == target {
+			return nil, nil
+		}
+		event := pq.ScheduledInstanceTransition(seq, current, target, time.Now())
+		return pq.NewUpdate(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, event)), nil
 	}))
 }
 
@@ -224,15 +216,7 @@ func writeInstanceStatusForTest(s *Service, instanceID int32, f func(*apigen.Sch
 		current.ScheduledInstanceID = instanceID
 		current.DeploymentID = event.Value.DeploymentID
 		f(current)
-		now := time.Now().UnixMilli()
-		if err := q.InsertScheduledInstanceStatus(ctx, seq, now, current); err != nil {
-			return nil, err
-		}
-		stored, err := q.GetLatestScheduledInstanceStatus(ctx, instanceID)
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, now, stored)), nil
+		return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, time.Now().UnixMilli(), pq.CanonicalScheduledInstanceStatus(current))), nil
 	}))
 }
 
@@ -276,11 +260,12 @@ func testNode(s *Service, identifier string) testNodeRef {
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		now := time.Now().UnixMilli()
 		var err error
-		row, err = q.InsertNodeRow(ctx, pq.InsertNodeParams{CreatedAt: now, EnrolledAt: now, Name: identifier, Identifier: identifier, Status: int64(apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL), RolesJSON: "[0]", AddressesJSON: "[]", GlobalSeq: seq})
+		row, err = q.NewNode(ctx, seq, now, apigen.Node{Status: apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL,
+			Operator: apigen.NodeOperator{Name: identifier, EnrolledTime: now, Roles: []int32{0}}, Reported: apigen.NodeReported{Identifier: identifier}})
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
+		return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, &row.Event)), nil
 	}))
 	return testNodeRef{ID: row.Event.NodeID, Identifier: identifier}
 }
@@ -288,12 +273,11 @@ func testNode(s *Service, identifier string) testNodeRef {
 func setNodeStatusForTest(s *Service, identifier string, connected bool, at time.Time) {
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		now := time.Now().UnixMilli()
-		status, err := q.SetNodeConnectionStatus(ctx, seq, now, identifier, connected, time.UnixMilli(at.UnixMilli()))
+		status, err := q.NodeConnectionStatus(ctx, identifier, connected, time.UnixMilli(at.UnixMilli()))
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.NodeStatusMutation(seq, now, status)), nil
+		return pq.NewUpdate(pq.NodeStatusMutation(seq, time.Now().UnixMilli(), status)), nil
 	}))
 }
 
@@ -301,14 +285,11 @@ func createSpaceForTest(s *Service, name string) *apigen.Space {
 	ctx := context.Background()
 	var space apigen.Space
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		id, err := q.NextSpaceID(ctx)
+		id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_SPACE)
 		if err != nil {
 			return nil, err
 		}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
-		if err := q.InsertSpaceEvent(ctx, pq.SpaceEventParams{EventMeta: meta, SpaceID: id, Name: name}); err != nil {
-			return nil, err
-		}
 		space = apigen.Space{ID: int32(id), Name: name}
 		return pq.NewUpdate(pq.SpaceMutation(meta, space)), nil
 	}))
@@ -318,15 +299,11 @@ func createSpaceForTest(s *Service, name string) *apigen.Space {
 func deleteSpaceForTest(s *Service, id int32) {
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		current, err := q.GetSpace(ctx, int64(id))
-		if err != nil {
+		if _, err := q.GetSpace(ctx, int64(id)); err != nil {
 			return nil, err
 		}
-		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_DELETE}
-		if err := q.InsertSpaceEvent(ctx, pq.SpaceEventParams{EventMeta: meta, SpaceID: int64(id), Name: current.Name}); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.SpaceMutation(meta, apigen.Space{ID: id, Name: current.Name})), nil
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli()}
+		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_SPACE, int64(id))), nil
 	}))
 }
 
@@ -341,85 +318,4 @@ func putAssetContentForTest(s *Service, blob []byte) (sha, storageKey string) {
 	}
 	row := erru.Must(s.q.InsertAssetStoreRow(ctx, pq.InsertAssetStoreRowParams{ID: uuid.Must(uuid.NewV7()).String(), Sha256: sha, SizeBytes: int64(len(blob)), LocalStatus: 1, CreatedAt: time.Now().UnixMilli()}))
 	return sha, row.ID
-}
-
-func setAssetByKeyForTest(s *Service, key string, blob []byte) *apigen.AssetEvent {
-	ctx := context.Background()
-	sha, storageKey := putAssetContentForTest(s, blob)
-	now := time.Now().UnixMilli()
-	var event apigen.AssetEvent
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		existing, err := q.GetAssetInDirectoryByKey(ctx, pq.GetAssetInDirectoryByKeyParams{SpaceID: int64(defaultSpaceID), AssetDirectoryID: 0, Key: key})
-		if err == nil {
-			prev := erru.Must(q.GetLatestAssetEvent(ctx, existing.ID))
-			event = prev
-			event.EventID, event.Seq, event.EventTime, event.EventType = 0, seq, now, apigen.EventType_EVENT_TYPE_UPDATE
-			event.Version++
-			event.ValueVersion++
-			event.Value.Fs = &apigen.AssetFs{Key: prev.Value.Fs.Key, DirectoryID: prev.Value.Fs.DirectoryID}
-			event.Value.SizeBytes, event.Value.Sha256, event.Value.StorageKey = int64(len(blob)), sha, storageKey
-		} else if errors.Is(err, sql.ErrNoRows) {
-			id := erru.Must(q.NextAssetID(ctx))
-			event = apigen.AssetEvent{Seq: seq, EventTime: now, CreatedTime: now, AssetID: int32(id), Version: 1, ValueVersion: 1, Value: apigen.Asset{Fs: &apigen.AssetFs{Key: key}, SpaceID: defaultSpaceID, SizeBytes: int64(len(blob)), Sha256: sha, StorageKey: storageKey}, EventType: apigen.EventType_EVENT_TYPE_CREATE}
-		} else {
-			return nil, err
-		}
-		if err := q.InsertAssetEvent(ctx, &event); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.AssetMutation(&event)), nil
-	}))
-	return &event
-}
-
-func deleteAssetForTest(s *Service, assetID int32) {
-	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		prev, err := q.GetLatestAssetEvent(ctx, int64(assetID))
-		if err != nil {
-			return nil, err
-		}
-		event := prev
-		event.EventID, event.Seq, event.EventTime, event.EventType = 0, seq, time.Now().UnixMilli(), apigen.EventType_EVENT_TYPE_DELETE
-		event.Version++
-		event.Value.Fs = &apigen.AssetFs{Key: prev.Value.Fs.Key, DirectoryID: prev.Value.Fs.DirectoryID}
-		if err := q.InsertAssetEvent(ctx, &event); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.AssetMutation(&event)), nil
-	}))
-}
-
-func createAssetDirectoryForTest(s *Service, spaceID, parentID int32, key string, author int32) apigen.AssetDirectory {
-	ctx := context.Background()
-	var d apigen.AssetDirectory
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		id, err := q.NextAssetDirectoryID(ctx)
-		if err != nil {
-			return nil, err
-		}
-		now := time.Now().UnixMilli()
-		var m pq.Mutation
-		d, m, err = q.InsertAssetDirectoryEvent(ctx, pq.AssetDirectoryEventParams{EventMeta: pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, DirectoryID: id, SpaceID: int64(spaceID), Key: key, ParentID: int64(parentID), CreatedAt: now})
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(m), nil
-	}))
-	return d
-}
-
-func deleteAssetDirectoryForTest(s *Service, id int32) {
-	ctx := context.Background()
-	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		d, err := q.GetAssetDirectoryByID(ctx, int64(id))
-		if err != nil {
-			return nil, err
-		}
-		_, m, err := q.InsertAssetDirectoryEvent(ctx, pq.AssetDirectoryEvent(d, pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_DELETE}))
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(m), nil
-	}))
 }

@@ -34,20 +34,19 @@ func TestNetworkPolicyMapInputsIncludeActivePolicies(t *testing.T) {
 	}
 }
 
-func createNetworkPolicyForTest(s *state.Service, policy *apigen.NetworkPolicy, author int32) *apigen.NetworkPolicyEvent {
+func createNetworkPolicyForTest(s *state.Service, policy *apigen.NetworkPolicy, author int32) *pq.NetworkPolicyEvent {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
-	var event *apigen.NetworkPolicyEvent
+	var event *pq.NetworkPolicyEvent
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		id, err := q.NextNetworkPolicyID(ctx)
+		id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)
 		if err != nil {
 			return nil, err
 		}
-		event = &apigen.NetworkPolicyEvent{Seq: seq, EventTime: now, CreatedTime: now, Author: author, NetworkPolicyID: int32(id), Version: 1, Value: *policy, EventType: apigen.EventType_EVENT_TYPE_CREATE}
-		if err := q.InsertNetworkPolicyEvent(ctx, event); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.NetworkPolicyMutation(event)), nil
+		value := *policy
+		event = &pq.NetworkPolicyEvent{Seq: seq, EventTime: now, CreatedTime: now, Author: author, NetworkPolicyID: int32(id), Value: value}
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
+		return pq.NewUpdate(pq.NetworkPolicyMutation(meta, id, value)), nil
 	}))
 	return event
 }

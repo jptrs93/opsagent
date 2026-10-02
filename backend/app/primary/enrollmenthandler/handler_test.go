@@ -157,7 +157,7 @@ func TestHelloRejectsEnrolledIdentifier(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Event.Version != before.Event.Version || after.Status.IsConnected {
+	if after.Event.Seq != before.Event.Seq || after.Status.IsConnected {
 		t.Fatalf("rejected hello changed the member row: %+v", after)
 	}
 	if h.enrollmentSession(after.Event.NodeID) != nil {

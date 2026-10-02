@@ -120,11 +120,12 @@ message NodeReported {
 }
 ```
 
-`NodeEvent.value.reported.host_addresses` is a network-plan input and lives in
-`node_event_log`. A changed report appends one authored event and advances the
-global sequence; failed enumeration preserves the old inventory, while a known
-empty result clears it. Connection metadata belongs to the separate observed
-`NodeStatus` log.
+`Node.reported.host_addresses` is a network-plan input and lives on
+the node row (`nodes.host_addresses`, since 2026-10-01; `node_event_log`
+before). A changed report is one authored write that advances the global
+sequence; failed enumeration preserves the old inventory, while a known empty
+result clears it. Connection metadata belongs to the separate observed
+`NodeStatus` row.
 
 Eligible addresses are global unicast addresses on interfaces the agent does not
 create. Excluded: loopback, link-local, the WireGuard underlay interface, the
@@ -225,7 +226,7 @@ save-time answer and the distributed publish set cannot diverge.
 Inputs:
 
 - Deployments with virtual networking: id, node, ingress routes with `listen`.
-- Nodes: id, host addresses from `NodeEvent.value.reported`.
+- Nodes: id, host addresses from `Node.reported`.
 - Reservations: the Web UI `https_web.listen` when HTTPS Web is enabled,
   resolved to (primary node, address or wildcard, port).
 - Reachability: the set of nodes that can dial a route's backends. Today this is
@@ -327,9 +328,9 @@ Each phase is independently mergeable and leaves the cluster working.
   30-second poll observes a changed set.
 - Primary: `clusterhandler/session.go handleClusterHello` calls `Service.ReportNode`
   with the complete reported bundle. The primary reports its own inventory on
-  startup and on the same poll. Both paths append changed facts to `node_event_log`.
+  startup and on the same poll. Both paths write changed facts to the node row.
 - The global state stream migration already moves the old `node_statuses`
-  inventory into the authored log; connection observations use `node_status_log`.
+  inventory into the authored node; connection observations use `node_status`.
 - `NetworkMapInputs` and `LiveState` expose host addresses per node.
 - Cluster page: show host addresses per machine beside the underlay address.
 

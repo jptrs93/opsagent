@@ -69,10 +69,6 @@ func requestUserID(ctx apigen.Context) int32 {
 	return ctx.AttributionUserID()
 }
 
-func (h *Handler) PostV1AssetsList(ctx apigen.Context) (*apigen.AssetEventList, error) {
-	return &apigen.AssetEventList{Items: h.filterAssets(ctx, assets.ListAssets(h.Store.Queries()))}, nil
-}
-
 func (h *Handler) requireAssetAccess(ctx apigen.Context, verb apigen.AuthzVerb, assetID int32) error {
 	asset, ok := assets.GetAsset(h.Store.Queries(), assetID)
 	if !ok {
@@ -118,11 +114,15 @@ func (h *Handler) PostV1AssetsUpload(ctx apigen.Context, request *http.Request, 
 	if err != nil {
 		return err
 	}
-	apigen.Respond(ctx, request, writer, asset, nil)
+	verb := apigen.AuthzVerb_AUTHZ_VERB_UPDATE
+	if request.URL.Query().Get("asset_id") == "" {
+		verb = apigen.AuthzVerb_AUTHZ_VERB_CREATE
+	}
+	apigen.Respond(ctx, request, writer, h.written(ctx, asset.Mutation(verb)), nil)
 	return nil
 }
 
-func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*apigen.AssetEvent, error) {
+func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*pq.AssetEvent, error) {
 	query := request.URL.Query()
 	if request.ContentLength < 0 {
 		return nil, apigen.NewApiErr("Asset upload requires a Content-Length header", "asset_upload_content_length_required", http.StatusBadRequest)
@@ -182,7 +182,7 @@ func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*apige
 	return asset, nil
 }
 
-func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.AssetEvent, error) {
+func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
 	}
@@ -197,7 +197,7 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 	if err != nil {
 		return nil, mapAssetStoreErr(err)
 	}
-	return meta, nil
+	return h.written(ctx, meta.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
 // PostV1AssetsMove relocates an asset within its space's folder tree, or —
@@ -205,7 +205,7 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 // pinned mount and reference are untouched either way. A cross-space move is
 // allowed only while no deployment outside the destination space references
 // the asset.
-func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.AssetEvent, error) {
+func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.AssetID <= 0 {
 		return nil, AssetIDRequiredErr
 	}
@@ -249,7 +249,7 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 		return nil, AssetNotFoundErr
 	}
 
-	return asset, nil
+	return h.written(ctx, asset.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {

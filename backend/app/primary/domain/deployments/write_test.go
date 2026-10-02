@@ -93,9 +93,9 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	if restarted.Value.Scheduling.Generation != running.Value.Scheduling.Generation+1 {
 		t.Fatalf("generation = %d, want %d", restarted.Value.Scheduling.Generation, running.Value.Scheduling.Generation+1)
 	}
-	if restarted.SpecVersion != running.SpecVersion || restarted.SpaceVersion != running.SpaceVersion || restarted.NameVersion != running.NameVersion {
-		t.Fatalf("facets moved: spec %d->%d space %d->%d name %d->%d",
-			running.SpecVersion, restarted.SpecVersion, running.SpaceVersion, restarted.SpaceVersion, running.NameVersion, restarted.NameVersion)
+	if restarted.SpecVersion != running.SpecVersion || restarted.Value.SpaceID != running.Value.SpaceID || restarted.Value.Name != running.Value.Name {
+		t.Fatalf("facets moved: spec %d->%d space %d->%d name %q->%q",
+			running.SpecVersion, restarted.SpecVersion, running.Value.SpaceID, restarted.Value.SpaceID, running.Value.Name, restarted.Value.Name)
 	}
 	if !pq.DeploymentSpecsEqual(&restarted.Value.Spec, &running.Value.Spec) ||
 		restarted.Value.Name != running.Value.Name || restarted.Value.SpaceID != running.Value.SpaceID || restarted.Value.PlacementNodeID() != running.Value.PlacementNodeID() {

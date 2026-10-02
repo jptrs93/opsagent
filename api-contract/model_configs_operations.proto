@@ -7,10 +7,6 @@ import "api-contract/model/deployments.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message ConfigEventList {
-  repeated ConfigEvent items = 1;
-}
-
 message ConfigCreateRequest {
   string name = 1;
   string value = 2;

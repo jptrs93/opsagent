@@ -3,336 +3,108 @@ package pq
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// Hand-written secret/config reads and writes. Each entity's state lives
-// entirely in its event log: every facet (name, directory, space, value
-// payload) is denormalised onto every row, the highest-version row is the
-// current state (event_type is the deletion truth), and a value_changed row
-// is a pinnable value version. Pinned value reads deliberately do not filter
-// deleted identities; current-state reads do.
-
-// SecretEvent is the row written by the handwritten secret queries.
-type SecretEvent struct {
-	ID               int64
-	GlobalSeq        int64
-	EventTime        int64
-	CreatedTime      int64
-	Author           int64
-	SecretID         int64
-	Version          int64
-	ValueVersion     int64
-	ValueChanged     int64
-	Name             string
-	ValueDirectoryID int64
-	SpaceID          int64
-	SmkVersion       int64
-	Ciphertext       []byte
-	Nonce            []byte
-	EventType        int64
-}
-
-// SecretRow is a live secret identity with its current facets.
+// SecretRow is a live secret identity: its placement, name, newest value
+// version, and the envelope of its last write.
 type SecretRow struct {
-	ID               int64
-	Name             string
-	SpaceID          int64
-	ValueDirectoryID int64
-	CreatedAt        int64
+	ID           int64
+	SpaceID      int64
+	DirectoryID  int64
+	Name         string
+	ValueVersion int64
+	Seq          int64
+	EventTime    int64
+	Author       int64
+	CreatedTime  int64
 }
 
-// ConfigRow carries a config's current identity facets.
+// SecretVersionRow is one sealed value of a live secret with the envelope of
+// the write that produced it.
+type SecretVersionRow struct {
+	SecretID     int64
+	ValueVersion int64
+	Seq          int64
+	EventTime    int64
+	Author       int64
+	SmkVersion   int64
+	Ciphertext   []byte
+	Nonce        []byte
+}
+
 type ConfigRow struct {
-	ID               int64
-	Name             string
-	SpaceID          int64
-	ValueDirectoryID int64
-	CreatedAt        int64
+	ID           int64
+	SpaceID      int64
+	DirectoryID  int64
+	Name         string
+	ValueVersion int64
+	Seq          int64
+	EventTime    int64
+	Author       int64
+	CreatedTime  int64
 }
 
-const secretEventColumns = `e.id,e.global_seq,e.event_time,e.created_time,e.author,e.secret_id,e.version,e.value_version,e.name,e.value_directory_id,e.space_id,e.event_type`
-
-func scanSecretEvent(scan func(...any) error) (*apigen.SecretEvent, error) {
-	e := &apigen.SecretEvent{Value: apigen.Secret{Fs: &apigen.SecretFs{}}}
-	if err := scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.SecretID, &e.Version, &e.ValueVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.EventType); err != nil {
-		return nil, err
-	}
-	e.Value.ValueVersion, e.Value.CreatedTime = e.ValueVersion, e.CreatedTime
-	return e, nil
+type ConfigVersionRow struct {
+	ConfigID     int64
+	ValueVersion int64
+	Seq          int64
+	EventTime    int64
+	Author       int64
+	Value        string
 }
 
-// scanSealedSecretEvent reads a row selected with secretEventColumns followed
-// by smk_version, ciphertext, and nonce. The sealed bytes stay out of the
-// SecretEvent so no list endpoint can hand them to a browser.
-func scanSealedSecretEvent(row scanner) (*apigen.SecretEvent, SealedValue, error) {
-	e := &apigen.SecretEvent{Value: apigen.Secret{Fs: &apigen.SecretFs{}}}
-	var sealed SealedValue
-	if err := row.Scan(&e.EventID, &e.Seq, &e.EventTime, &e.CreatedTime, &e.Author, &e.SecretID, &e.Version, &e.ValueVersion, &e.Value.Fs.Name, &e.Value.Fs.DirectoryID, &e.Value.SpaceID, &e.EventType,
-		&sealed.SmkVersion, &sealed.Ciphertext, &sealed.Nonce); err != nil {
-		return nil, SealedValue{}, err
-	}
-	e.Value.ValueVersion, e.Value.CreatedTime = e.ValueVersion, e.CreatedTime
-	return e, sealed, nil
+// ValueName is one entry of the values namespace: the path component of a
+// directory, secret, or config under its parent.
+type ValueName struct {
+	SpaceID  int64
+	ParentID int64
+	Name     string
+	Kind     apigen.CoreEntityType
+	ID       int64
 }
 
-const secretLatestJoin = `JOIN (SELECT secret_id, MAX(version) AS version
-	      FROM secret_event_log GROUP BY secret_id) latest
-	  ON latest.secret_id = e.secret_id AND latest.version = e.version`
+const secretColumns = `id, space_id, directory_id, name, value_version, seq, event_time, author, created_time`
+const secretVersionColumns = `secret_id, value_version, seq, event_time, author, smk_version, ciphertext, nonce`
+const configColumns = `id, space_id, directory_id, name, value_version, seq, event_time, author, created_time`
+const configVersionColumns = `config_id, value_version, seq, event_time, author, value`
 
-const configLatestJoin = `JOIN (SELECT config_id, MAX(version) AS version
-	      FROM config_event_log GROUP BY config_id) latest
-	  ON latest.config_id = e.config_id AND latest.version = e.version`
-
-const secretRowSelect = `SELECT e.secret_id, e.name, e.space_id, e.value_directory_id, e.created_time
-	FROM secret_event_log e
-	` + secretLatestJoin + `
-	WHERE e.event_type != 3`
-
-const configRowSelect = `SELECT e.config_id, e.name, e.space_id, e.value_directory_id, e.created_time
-	FROM config_event_log e
-	` + configLatestJoin + `
-	WHERE e.event_type != 3`
-
-func (q *Queries) GetLatestSecretEvent(ctx context.Context, secretID int64) (*apigen.SecretEvent, error) {
-	return scanSecretEvent(q.db.QueryRowContext(ctx, `
-		SELECT `+secretEventColumns+`
-		FROM secret_event_log e
-		WHERE e.secret_id = ?
-		ORDER BY e.version DESC LIMIT 1`, secretID).Scan)
+func scanSecretRow(row scanner) (SecretRow, error) {
+	var r SecretRow
+	err := row.Scan(&r.ID, &r.SpaceID, &r.DirectoryID, &r.Name, &r.ValueVersion, &r.Seq, &r.EventTime, &r.Author, &r.CreatedTime)
+	return r, err
 }
 
-func (q *Queries) InsertConfigEvent(ctx context.Context, e *apigen.ConfigEvent) error {
-	row := q.db.QueryRowContext(ctx, `WITH previous AS (
-  SELECT value_version FROM config_event_log
-  WHERE config_id = ? ORDER BY version DESC LIMIT 1
-)
- INSERT INTO config_event_log (
-  id, global_seq, event_time, created_time, author,
-  config_id,version,value_version,
-  name,value_directory_id,space_id,value,event_type, value_changed
-) VALUES (NULLIF(?, 0),?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
- ? > COALESCE((SELECT value_version FROM previous),0))
-RETURNING id, global_seq, event_time, created_time, author,
-  config_id,version,value_version,
-  name,value_directory_id,space_id,value,event_type`,
-		e.ConfigID, e.EventID, e.Seq, e.EventTime, e.CreatedTime, e.Author, e.ConfigID, e.Version, e.ValueVersion, e.Value.Fs.Name, e.Value.Fs.DirectoryID, e.Value.SpaceID, e.Value.Value, e.EventType, e.ValueVersion)
-	written, err := scanConfigEvent(row)
-	if err != nil {
-		return err
-	}
-	*e = *written
-	return nil
+func scanSecretVersionRow(row scanner) (SecretVersionRow, error) {
+	var r SecretVersionRow
+	err := row.Scan(&r.SecretID, &r.ValueVersion, &r.Seq, &r.EventTime, &r.Author, &r.SmkVersion, &r.Ciphertext, &r.Nonce)
+	return r, err
 }
 
-func (q *Queries) InsertSecretEvent(ctx context.Context, e SecretEvent) (*apigen.SecretEvent, error) {
-	row := q.db.QueryRowContext(ctx, `
-		INSERT INTO secret_event_log (
-			global_seq, event_time, created_time, author, secret_id, version,
-			value_version, value_changed,
-			name, value_directory_id, space_id,
-			smk_version, ciphertext, nonce, event_type
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type`,
-		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
-		e.ValueVersion, e.ValueChanged,
-		e.Name, e.ValueDirectoryID, e.SpaceID,
-		e.SmkVersion, e.Ciphertext, e.Nonce, e.EventType)
-	return scanSecretEvent(row.Scan)
+func scanConfigRow(row scanner) (ConfigRow, error) {
+	var r ConfigRow
+	err := row.Scan(&r.ID, &r.SpaceID, &r.DirectoryID, &r.Name, &r.ValueVersion, &r.Seq, &r.EventTime, &r.Author, &r.CreatedTime)
+	return r, err
 }
 
-// InsertSecretCarryEvent appends a secret event that does not write a value:
-// the sealed payload (smk_version, ciphertext, nonce) is copied forward from
-// the previous row in SQL so the ciphertext never passes through Go. The
-// payload fields of e are ignored and value_changed is always 0.
-func (q *Queries) InsertSecretCarryEvent(ctx context.Context, e SecretEvent) (*apigen.SecretEvent, SealedValue, error) {
-	row := q.db.QueryRowContext(ctx, `
-		INSERT INTO secret_event_log (
-			global_seq, event_time, created_time, author, secret_id, version,
-			value_version, value_changed,
-			name, value_directory_id, space_id,
-			smk_version, ciphertext, nonce, event_type
-		)
-		SELECT ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?,
-		       p.smk_version, p.ciphertext, p.nonce, ?
-		FROM secret_event_log p
-		WHERE p.secret_id = ?
-		ORDER BY p.version DESC LIMIT 1
-		RETURNING id,global_seq,event_time,created_time,author,secret_id,version,value_version,name,value_directory_id,space_id,event_type,smk_version,ciphertext,nonce`,
-		e.GlobalSeq, e.EventTime, e.CreatedTime, e.Author, e.SecretID, e.Version,
-		e.ValueVersion,
-		e.Name, e.ValueDirectoryID, e.SpaceID, e.EventType,
-		e.SecretID)
-	return scanSealedSecretEvent(row)
+func scanConfigVersionRow(row scanner) (ConfigVersionRow, error) {
+	var r ConfigVersionRow
+	err := row.Scan(&r.ConfigID, &r.ValueVersion, &r.Seq, &r.EventTime, &r.Author, &r.Value)
+	return r, err
 }
 
-func (q *Queries) listSecretEvents(ctx context.Context, query string, args ...any) ([]*apigen.SecretEvent, error) {
+func listRows[T any](ctx context.Context, q *Queries, scan func(scanner) (T, error), query string, args ...any) ([]T, error) {
 	rows, err := q.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []*apigen.SecretEvent{}
+	out := []T{}
 	for rows.Next() {
-		e, err := scanSecretEvent(rows.Scan)
+		r, err := scan(rows)
 		if err != nil {
-			return nil, err
-		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
-}
-
-func (q *Queries) GetSecretEventByID(ctx context.Context, eventID int64) (*apigen.SecretEvent, error) {
-	return scanSecretEvent(q.db.QueryRowContext(ctx, `SELECT `+secretEventColumns+` FROM secret_event_log e WHERE e.id = ?`, eventID).Scan)
-}
-
-func (q *Queries) ListLatestLiveSecretEvents(ctx context.Context) ([]*apigen.SecretEvent, error) {
-	return q.listSecretEvents(ctx, `SELECT `+secretEventColumns+` FROM secret_event_log e
- WHERE e.version=(SELECT MAX(version) FROM secret_event_log WHERE secret_id=e.secret_id) AND e.event_type != 3 ORDER BY e.name,e.secret_id`)
-}
-
-func (q *Queries) ListAllSecretEvents(ctx context.Context) ([]*apigen.SecretEvent, error) {
-	return q.listSecretEvents(ctx, `
-		SELECT `+secretEventColumns+`
-		FROM secret_event_log e
- WHERE e.secret_id IN (SELECT secret_id FROM secret_event_log current WHERE current.version=(SELECT MAX(version) FROM secret_event_log WHERE secret_id=current.secret_id) AND current.event_type!=3)
-		ORDER BY e.secret_id, e.version`)
-}
-
-func (q *Queries) GetSecretRowByID(ctx context.Context, id int64) (SecretRow, error) {
-	var r SecretRow
-	err := q.db.QueryRowContext(ctx, secretRowSelect+` AND e.secret_id = ?`, id).
-		Scan(&r.ID, &r.Name, &r.SpaceID, &r.ValueDirectoryID, &r.CreatedAt)
-	return r, err
-}
-
-type GetSecretInDirectoryByNameParams struct {
-	SpaceID          int64
-	ValueDirectoryID int64
-	Name             string
-}
-
-func (q *Queries) GetSecretInDirectoryByName(ctx context.Context, arg GetSecretInDirectoryByNameParams) (SecretRow, error) {
-	var r SecretRow
-	err := q.db.QueryRowContext(ctx, secretRowSelect+
-		` AND e.value_directory_id = ? AND e.name = ? AND e.space_id = ?`,
-		arg.ValueDirectoryID, arg.Name, arg.SpaceID).
-		Scan(&r.ID, &r.Name, &r.SpaceID, &r.ValueDirectoryID, &r.CreatedAt)
-	return r, err
-}
-
-type CountSecretSiblingsWithNameParams struct {
-	SpaceID          int64
-	ValueDirectoryID int64
-	Name             string
-	ID               int64
-}
-
-func (q *Queries) CountSecretSiblingsWithName(ctx context.Context, arg CountSecretSiblingsWithNameParams) (int64, error) {
-	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+secretRowSelect+
-		` AND e.value_directory_id = ? AND e.name = ? AND e.secret_id != ? AND e.space_id = ?)`,
-		arg.ValueDirectoryID, arg.Name, arg.ID, arg.SpaceID).Scan(&n)
-	return n, err
-}
-
-func (q *Queries) CountSecretsInDirectory(ctx context.Context, directoryID int64) (int64, error) {
-	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+secretRowSelect+
-		` AND e.value_directory_id = ?)`, directoryID).Scan(&n)
-	return n, err
-}
-
-type CountConfigSiblingsWithNameParams struct {
-	SpaceID          int64
-	ValueDirectoryID int64
-	Name             string
-	ID               int64
-}
-
-func (q *Queries) CountConfigSiblingsWithName(ctx context.Context, arg CountConfigSiblingsWithNameParams) (int64, error) {
-	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+configRowSelect+
-		` AND e.value_directory_id = ? AND e.name = ? AND e.config_id != ? AND e.space_id = ?)`,
-		arg.ValueDirectoryID, arg.Name, arg.ID, arg.SpaceID).Scan(&n)
-	return n, err
-}
-
-func (q *Queries) CountConfigsInDirectory(ctx context.Context, directoryID int64) (int64, error) {
-	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+configRowSelect+
-		` AND e.value_directory_id = ?)`, directoryID).Scan(&n)
-	return n, err
-}
-
-// ConfigVersionJoinedRow is one pinned value version row overlaid with the
-// identity's current name and space. Pinned version reads stay resolvable for
-// soft-deleted configs.
-type ConfigVersionJoinedRow struct {
-	ID        int64
-	ConfigID  int64
-	Version   int64
-	Value     string
-	CreatedAt int64
-	Author    int64
-	Name      string
-	SpaceID   int64
-}
-
-const configVersionJoinedSelect = `
-SELECT v.id, v.config_id, v.value_version, v.value, v.event_time, v.author, c.name, c.space_id
-FROM config_event_log v
-JOIN config_event_log c
-  ON c.config_id = v.config_id
- AND c.version = (SELECT MAX(version) FROM config_event_log WHERE config_id = v.config_id)
-`
-
-func scanConfigVersionJoined(row *sql.Row) (ConfigVersionJoinedRow, error) {
-	var r ConfigVersionJoinedRow
-	err := row.Scan(&r.ID, &r.ConfigID, &r.Version, &r.Value, &r.CreatedAt, &r.Author, &r.Name, &r.SpaceID)
-	return r, err
-}
-
-func (q *Queries) GetConfigVersionByRef(ctx context.Context, ref apigen.ValueRef) (ConfigVersionJoinedRow, error) {
-	return scanConfigVersionJoined(q.db.QueryRowContext(ctx, configVersionJoinedSelect+`WHERE v.config_id = ? AND v.value_version = ? AND v.value_changed != 0`, ref.ID, ref.Version))
-}
-
-// SecretVersionRecordRow is one sealed value version overlaid with the
-// identity's current name and space. Soft-deleted secrets are excluded —
-// deletion drops them from the Manager cache, and the startup load must not
-// resurrect them.
-type SecretVersionRecordRow struct {
-	ID         int64
-	SecretID   int64
-	Version    int64
-	SmkVersion int64
-	Ciphertext []byte
-	Nonce      []byte
-	CreatedAt  int64
-	Author     int64
-	Name       string
-	SpaceID    int64
-}
-
-func (q *Queries) ListSecretVersionRecords(ctx context.Context) ([]SecretVersionRecordRow, error) {
-	rows, err := q.db.QueryContext(ctx, `
-SELECT v.id, v.secret_id, v.value_version, v.smk_version, v.ciphertext, v.nonce, v.event_time, v.author,
-       l.name, l.space_id
-FROM secret_event_log v
-JOIN (`+secretRowSelect+`) l ON l.secret_id = v.secret_id
-WHERE v.value_changed != 0
-ORDER BY v.secret_id, v.value_version`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []SecretVersionRecordRow{}
-	for rows.Next() {
-		var r SecretVersionRecordRow
-		if err := rows.Scan(&r.ID, &r.SecretID, &r.Version, &r.SmkVersion, &r.Ciphertext, &r.Nonce,
-			&r.CreatedAt, &r.Author, &r.Name, &r.SpaceID); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -340,7 +112,190 @@ ORDER BY v.secret_id, v.value_version`)
 	return out, rows.Err()
 }
 
-// GetSecretValueEventByRef resolves a pinned value event without loading sealed bytes.
-func (q *Queries) GetSecretValueEventByRef(ctx context.Context, ref apigen.ValueRef) (*apigen.SecretEvent, error) {
-	return scanSecretEvent(q.db.QueryRowContext(ctx, `SELECT `+secretEventColumns+` FROM secret_event_log e WHERE e.secret_id=? AND e.value_version=? AND e.value_changed != 0`, ref.ID, ref.Version).Scan)
+func (q *Queries) GetSecretRowByID(ctx context.Context, id int64) (SecretRow, error) {
+	return scanSecretRow(q.db.QueryRowContext(ctx, `SELECT `+secretColumns+` FROM secrets WHERE id = ?`, id))
+}
+
+func (q *Queries) ListSecretRows(ctx context.Context) ([]SecretRow, error) {
+	return listRows(ctx, q, scanSecretRow, `SELECT `+secretColumns+` FROM secrets ORDER BY name, id`)
+}
+
+func (q *Queries) GetSecretVersion(ctx context.Context, ref apigen.ValueRef) (SecretVersionRow, error) {
+	return scanSecretVersionRow(q.db.QueryRowContext(ctx, `SELECT `+secretVersionColumns+` FROM secret_versions WHERE secret_id = ? AND value_version = ?`, ref.ID, ref.Version))
+}
+
+func (q *Queries) ListSecretVersions(ctx context.Context) ([]SecretVersionRow, error) {
+	return listRows(ctx, q, scanSecretVersionRow, `SELECT `+secretVersionColumns+` FROM secret_versions ORDER BY secret_id, value_version`)
+}
+
+// SecretVersionJoined is one sealed value with its owning identity.
+type SecretVersionJoined struct {
+	Secret  SecretRow
+	Version SecretVersionRow
+}
+
+func (q *Queries) GetSecretVersionJoined(ctx context.Context, ref apigen.ValueRef) (SecretVersionJoined, error) {
+	var j SecretVersionJoined
+	var err error
+	if j.Version, err = q.GetSecretVersion(ctx, ref); err != nil {
+		return j, err
+	}
+	j.Secret, err = q.GetSecretRowByID(ctx, int64(ref.ID))
+	return j, err
+}
+
+// ListSecretVersionJoined returns every sealed value of every live secret
+// with its identity, ordered by secret then version.
+func (q *Queries) ListSecretVersionJoined(ctx context.Context) ([]SecretVersionJoined, error) {
+	secrets, err := q.ListSecretRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byID := make(map[int64]SecretRow, len(secrets))
+	for _, s := range secrets {
+		byID[s.ID] = s
+	}
+	versions, err := q.ListSecretVersions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SecretVersionJoined, 0, len(versions))
+	for _, v := range versions {
+		out = append(out, SecretVersionJoined{Secret: byID[v.SecretID], Version: v})
+	}
+	return out, nil
+}
+
+func (q *Queries) GetConfigRowByID(ctx context.Context, id int64) (ConfigRow, error) {
+	return scanConfigRow(q.db.QueryRowContext(ctx, `SELECT `+configColumns+` FROM configs WHERE id = ?`, id))
+}
+
+func (q *Queries) ListConfigRows(ctx context.Context) ([]ConfigRow, error) {
+	return listRows(ctx, q, scanConfigRow, `SELECT `+configColumns+` FROM configs ORDER BY name, id`)
+}
+
+func (q *Queries) GetConfigVersion(ctx context.Context, ref apigen.ValueRef) (ConfigVersionRow, error) {
+	return scanConfigVersionRow(q.db.QueryRowContext(ctx, `SELECT `+configVersionColumns+` FROM config_versions WHERE config_id = ? AND value_version = ?`, ref.ID, ref.Version))
+}
+
+func (q *Queries) ListConfigVersions(ctx context.Context) ([]ConfigVersionRow, error) {
+	return listRows(ctx, q, scanConfigVersionRow, `SELECT `+configVersionColumns+` FROM config_versions ORDER BY config_id, value_version`)
+}
+
+type ConfigVersionJoined struct {
+	Config  ConfigRow
+	Version ConfigVersionRow
+}
+
+func (q *Queries) GetConfigVersionJoined(ctx context.Context, ref apigen.ValueRef) (ConfigVersionJoined, error) {
+	var j ConfigVersionJoined
+	var err error
+	if j.Version, err = q.GetConfigVersion(ctx, ref); err != nil {
+		return j, err
+	}
+	j.Config, err = q.GetConfigRowByID(ctx, int64(ref.ID))
+	return j, err
+}
+
+// LookupValueName resolves one path component under a directory to the
+// entity that holds it, or sql.ErrNoRows when the name is free.
+func (q *Queries) LookupValueName(ctx context.Context, spaceID, parentID int64, name string) (ValueName, error) {
+	n := ValueName{SpaceID: spaceID, ParentID: parentID, Name: name}
+	var kind int64
+	err := q.db.QueryRowContext(ctx, `SELECT kind, id FROM value_names WHERE space_id = ? AND parent_id = ? AND name = ?`, spaceID, parentID, name).Scan(&kind, &n.ID)
+	n.Kind = apigen.CoreEntityType(kind)
+	return n, err
+}
+
+// ValueNameTaken reports whether a name under a directory belongs to an
+// entity other than the one given.
+func (q *Queries) ValueNameTaken(ctx context.Context, spaceID, parentID int64, name string, self apigen.CoreEntityType, selfID int64) (bool, error) {
+	n, err := q.LookupValueName(ctx, spaceID, parentID, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return n.Kind != self || n.ID != selfID, nil
+}
+
+func (q *Queries) CountValueNamesUnder(ctx context.Context, directoryID int64) (int64, error) {
+	var n int64
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM value_names WHERE parent_id = ?`, directoryID).Scan(&n)
+	return n, err
+}
+
+// SecretEntity is the stream payload of one secret version under its
+// current identity, sealed bytes included.
+func SecretEntity(s SecretRow, v SecretVersionRow) apigen.Secret {
+	return apigen.Secret{
+		ID: int32(s.ID), Fs: &apigen.SecretFs{Name: s.Name, DirectoryID: int32(s.DirectoryID)}, SpaceID: int32(s.SpaceID),
+		SmkVersion: v.SmkVersion, Ciphertext: v.Ciphertext, Nonce: v.Nonce,
+	}
+}
+
+// SecretEventOf is the API view of a live secret: the identity's envelope and
+// newest value version, never the sealed bytes.
+func SecretEventOf(s SecretRow) *SecretEvent {
+	return &SecretEvent{
+		SecretID: int32(s.ID), Seq: s.Seq, Author: int32(s.Author), CreatedTime: s.CreatedTime, EventTime: s.EventTime, ValueVersion: int32(s.ValueVersion),
+		Value: apigen.Secret{Fs: &apigen.SecretFs{Name: s.Name, DirectoryID: int32(s.DirectoryID)}, SpaceID: int32(s.SpaceID)},
+	}
+}
+
+// SecretVersionEventOf is the API view of one value version: the version's
+// envelope under the identity's current name, directory, and space.
+func SecretVersionEventOf(j SecretVersionJoined) *SecretEvent {
+	e := SecretEventOf(j.Secret)
+	e.Seq, e.Author, e.EventTime, e.ValueVersion = j.Version.Seq, int32(j.Version.Author), j.Version.EventTime, int32(j.Version.ValueVersion)
+	return e
+}
+
+func ConfigEntity(c ConfigRow, v ConfigVersionRow) apigen.Config {
+	return apigen.Config{
+		ID: int32(c.ID), Fs: &apigen.ConfigFs{Name: c.Name, DirectoryID: int32(c.DirectoryID)}, SpaceID: int32(c.SpaceID),
+		Value: v.Value,
+	}
+}
+
+func ConfigEventOf(j ConfigVersionJoined) *ConfigEvent {
+	c, v := j.Config, j.Version
+	seq, author, eventTime := c.Seq, c.Author, c.EventTime
+	if v.ValueVersion != c.ValueVersion {
+		seq, author, eventTime = v.Seq, v.Author, v.EventTime
+	}
+	return &ConfigEvent{
+		ConfigID: int32(c.ID), Seq: seq, Author: int32(author), CreatedTime: c.CreatedTime, EventTime: eventTime, ValueVersion: int32(v.ValueVersion),
+		Value: ConfigEntity(c, v),
+	}
+}
+
+// GetConfigEvent is the API view of a live config at its newest version.
+func (q *Queries) GetConfigEvent(ctx context.Context, id int64) (*ConfigEvent, error) {
+	c, err := q.GetConfigRowByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	v, err := q.GetConfigVersion(ctx, apigen.ValueRef{ID: int32(c.ID), Version: int32(c.ValueVersion)})
+	if err != nil {
+		return nil, err
+	}
+	return ConfigEventOf(ConfigVersionJoined{Config: c, Version: v}), nil
+}
+
+func (q *Queries) ListConfigEvents(ctx context.Context) ([]*ConfigEvent, error) {
+	configs, err := q.ListConfigRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ConfigEvent, 0, len(configs))
+	for _, c := range configs {
+		v, err := q.GetConfigVersion(ctx, apigen.ValueRef{ID: int32(c.ID), Version: int32(c.ValueVersion)})
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ConfigEventOf(ConfigVersionJoined{Config: c, Version: v}))
+	}
+	return out, nil
 }

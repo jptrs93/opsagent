@@ -20,6 +20,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 var InvalidRequestBodyErr = apigen.NewApiErr("Invalid request body", "invalid_request_body", http.StatusBadRequest)
@@ -36,7 +37,7 @@ func (h *Handler) deploymentService() *deployments.Service {
 
 const githubReleaseVersionsDisplayErr = "Releases could not be loaded from GitHub. Please try again."
 
-func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentEvent, error) {
+func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.SpaceID == internaldeploy.SpaceID {
 		return nil, deployments.SystemSpaceErr()
 	}
@@ -47,10 +48,14 @@ func (h *Handler) PostV1DeploymentsCreate(ctx apigen.Context, req *apigen.Deploy
 	if err := h.requireDeploymentHostAccess(ctx, nil, &req.Spec, int64(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-	return h.deploymentService().Create(ctx, &newDep.Value)
+	event, err := h.deploymentService().Create(ctx, &newDep.Value)
+	if err != nil {
+		return nil, err
+	}
+	return h.written(ctx, pq.DeploymentMutation(event)), nil
 }
 
-func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequestV2) (*apigen.DeploymentEvent, error) {
+func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequestV2) (*apigen.CoreWriteUpdate, error) {
 	if err := req.Validate(); err != nil {
 		return nil, err
 	}
@@ -82,7 +87,11 @@ func (h *Handler) PostV2DeploymentsUpdate(ctx apigen.Context, req *apigen.Deploy
 		}
 	}
 
-	return h.deploymentService().Update(ctx, cfg, req)
+	event, err := h.deploymentService().Update(ctx, cfg, req)
+	if err != nil {
+		return nil, err
+	}
+	return h.written(ctx, pq.DeploymentMutation(event)), nil
 }
 
 // Host access is derived from the spec, and is additional to ordinary
@@ -143,9 +152,9 @@ func (h *Handler) PostV1DeploymentsRecentlyDeleted(ctx apigen.Context, req *apig
 		return !internaldeploy.IsInternalConfig(&cfg) &&
 			h.canAccess(ctx, vView, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID))
 	}, limit)
-	items := make([]*apigen.DeploymentEvent, 0, len(configs))
+	items := make([]*apigen.DeploymentRecord, 0, len(configs))
 	for i := range configs {
-		items = append(items, &configs[i])
+		items = append(items, pq.DeploymentRecord(&configs[i]))
 	}
 	return &apigen.RecentlyDeletedDeployments{Items: items}, nil
 }
@@ -425,12 +434,12 @@ func waitForPrepareOutputFile(ctx context.Context, path string) (*os.File, error
 // systemDeploymentForNode finds the live opendeploy system deployment of a
 // node, or nil when the node has none yet.
 func (h *Handler) systemDeploymentForNode(nodeID int32) *apigen.DeploymentEvent {
-	events, err := h.Queries.ListLatestDeploymentEvents(context.Background())
+	events, err := h.Queries.ListActiveDeployments(context.Background())
 	if err != nil {
 		return nil
 	}
 	for _, cfg := range events {
-		if !cfg.Deleted() && internaldeploy.IsSelfConfig(cfg) && cfg.Value.PlacementNodeID() == nodeID {
+		if internaldeploy.IsSelfConfig(cfg) && cfg.Value.PlacementNodeID() == nodeID {
 			return cfg
 		}
 	}

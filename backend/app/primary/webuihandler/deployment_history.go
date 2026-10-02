@@ -1,11 +1,12 @@
 package webuihandler
 
 import (
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"sort"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.DeploymentHistoryRequest) (*apigen.DeploymentHistory, error) {
@@ -31,7 +32,7 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 
 	entries := make([]*apigen.DeploymentHistoryEntry, 0, len(configs)+len(statuses))
 	for _, c := range configs {
-		entries = append(entries, &apigen.DeploymentHistoryEntry{Config: c})
+		entries = append(entries, &apigen.DeploymentHistoryEntry{Deployment: pq.DeploymentRecord(c)})
 	}
 	for _, s := range statuses {
 		entries = append(entries, &apigen.DeploymentHistoryEntry{Status: s})
@@ -40,7 +41,7 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 	sort.SliceStable(entries, func(i, j int) bool {
 		ti, tj := entryTime(entries[i]), entryTime(entries[j])
 		if ti.Equal(tj) {
-			return entries[i].Config != nil && entries[j].Config == nil
+			return entries[i].Deployment != nil && entries[j].Deployment == nil
 		}
 		return ti.After(tj)
 	})
@@ -49,8 +50,8 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 }
 
 func entryTime(e *apigen.DeploymentHistoryEntry) time.Time {
-	if e.Config != nil {
-		return e.Config.EventTime
+	if e.Deployment != nil {
+		return time.UnixMilli(e.Deployment.Meta.UpdatedTime)
 	}
 	return e.Status.UpdatedAt
 }

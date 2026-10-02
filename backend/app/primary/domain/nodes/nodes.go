@@ -27,11 +27,8 @@ const (
 var ErrDuplicateNodeName = errors.New("node name already exists")
 
 type Node struct {
-	Version               int32
 	Seq                   int64
-	EventID               int64
 	Author                int32
-	EventType             apigen.EventType
 	EventTime             int64
 	EnrollmentRequestedAt int64
 	ID                    int32
@@ -78,20 +75,15 @@ func EnsurePrimaryNode(store *state.Service, name, identifier string) *Node {
 		err = store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 			now := time.Now().UnixMilli()
 			var txErr error
-			row, txErr = q.InsertNodeRow(ctx, pq.InsertNodeParams{
-				CreatedAt:     now,
-				EnrolledAt:    now,
-				Name:          name,
-				Identifier:    identifier,
-				Status:        int64(apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL),
-				RolesJSON:     nodeRolesJSON([]int32{NodeRolePrimary}),
-				AddressesJSON: nodeAddressesJSON([]string{}),
-				GlobalSeq:     seq,
+			row, txErr = q.NewNode(ctx, seq, now, apigen.Node{
+				Status:   apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL,
+				Operator: apigen.NodeOperator{Name: name, EnrolledTime: now, Roles: []int32{NodeRolePrimary}},
+				Reported: apigen.NodeReported{Identifier: identifier, HostAddresses: []string{}},
 			})
 			if txErr != nil {
 				return nil, txErr
 			}
-			return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
+			return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, &row.Event)), nil
 		})
 	}
 	if err != nil {
@@ -127,29 +119,47 @@ func nodeEventSpecOf(row pq.CurrentNode) nodeEventSpec {
 		AllowedSpacesJSON:     allowedSpacesJSON(row.Event.Value.Operator.AllowedSpaces),
 	}
 }
-func appendNodeVersion(ctx context.Context, q *pq.Queries, seq, now int64, current pq.CurrentNode, author int32, mutate func(*nodeEventSpec)) (pq.CurrentNode, bool, error) {
+
+func parseStringList(s string) []string {
+	var out []string
+	_ = json.Unmarshal([]byte(s), &out)
+	if out == nil {
+		out = []string{}
+	}
+	return out
+}
+
+func parseRoles(s string) []int32 {
+	var out []int32
+	_ = json.Unmarshal([]byte(s), &out)
+	if out == nil {
+		out = []int32{}
+	}
+	return out
+}
+
+// appendNodeVersion is the node after mutate under the commit's envelope.
+// Nothing is written: the caller returns the node's mutation from Commit,
+// and reads inside the same commit keep seeing the row as it was.
+func appendNodeVersion(seq, now int64, current pq.CurrentNode, author int32, mutate func(*nodeEventSpec)) (pq.CurrentNode, bool) {
 	spec := nodeEventSpecOf(current)
 	mutate(&spec)
 	if spec == nodeEventSpecOf(current) {
-		return current, false, nil
+		return current, false
 	}
-	row, err := q.AppendNodeEvent(ctx, pq.AppendNodeEventParams{
-		HostAddressesJSON:     spec.HostAddressesJSON,
-		EnrollmentRequestedAt: spec.EnrollmentRequestedAt,
-		NodeID:                int64(current.Event.NodeID),
-		EventTime:             now,
-		Author:                int64(author),
-		Name:                  spec.Name,
-		Identifier:            current.Event.Value.Reported.Identifier,
-		EnrolledTime:          spec.EnrolledTime,
-		Status:                int64(spec.Status),
-		RolesJSON:             spec.RolesJSON,
-		AddressesJSON:         spec.AddressesJSON,
-		WgPublicKey:           spec.WGPublicKey,
-		AllowedSpacesJSON:     spec.AllowedSpacesJSON,
-		GlobalSeq:             seq,
-	})
-	return row, err == nil, err
+	next := current
+	e := &next.Event
+	e.Seq, e.EventTime, e.Author = seq, now, author
+	e.Value.EnrollmentRequestedAt = spec.EnrollmentRequestedAt
+	e.Value.Status = spec.Status
+	e.Value.Operator = apigen.NodeOperator{Name: spec.Name, EnrolledTime: spec.EnrolledTime, Roles: parseRoles(spec.RolesJSON), AllowedSpaces: parseAllowedSpaces(spec.AllowedSpacesJSON)}
+	addresses := parseStringList(spec.AddressesJSON)
+	underlay := ""
+	if len(addresses) > 0 {
+		underlay = addresses[0]
+	}
+	e.Value.Reported = apigen.NodeReported{Identifier: current.Event.Value.Reported.Identifier, UnderlayAddress: underlay, WgPublicKey: spec.WGPublicKey, HostAddresses: parseStringList(spec.HostAddressesJSON)}
+	return next, true
 }
 func mustAppendNodeVersion(store *state.Service, id int32, what string, mutate func(*nodeEventSpec)) *Node {
 	ctx := context.Background()
@@ -160,11 +170,11 @@ func mustAppendNodeVersion(store *state.Service, id int32, what string, mutate f
 			return nil, err
 		}
 		var applied bool
-		row, applied, err = appendNodeVersion(ctx, q, seq, time.Now().UnixMilli(), current, 0, mutate)
-		if err != nil || !applied {
-			return nil, err
+		row, applied = appendNodeVersion(seq, time.Now().UnixMilli(), current, 0, mutate)
+		if !applied {
+			return nil, nil
 		}
-		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
+		return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event)), nil
 	})
 	if err != nil {
 		panic(fmt.Sprintf("%s: %v", what, err))
@@ -224,7 +234,7 @@ func ListNodes(q *pq.Queries) []*Node {
 type NetworkMapInputs struct {
 	Nodes            []*Node
 	Instances        []apigen.ScheduledInstanceState
-	Policies         []*apigen.NetworkPolicyEvent
+	Policies         []*pq.NetworkPolicyEvent
 	Deployments      []*apigen.DeploymentEvent
 	DeploymentSpaces map[int32]int32
 	Seq              int64
@@ -245,27 +255,18 @@ func FetchNetworkMapInputs(store *state.Service) NetworkMapInputs {
 	return NetworkMapInputs{
 		Nodes:            ListNodes(store.Queries()),
 		Instances:        store.FetchScheduledSnapshot(nil),
-		Policies:         erru.Must(q.ListLatestLiveNetworkPolicyEvents(ctx)),
+		Policies:         erru.Must(q.ListNetworkPolicies(ctx)),
 		Deployments:      deployments,
 		DeploymentSpaces: spaces,
 		Seq:              seq,
 	}
 }
 
-func ListClusterNodes(q *pq.Queries) []*apigen.NodeEvent {
-	rows := erru.Must(q.ListNodeRows(context.Background(), pq.MemberNodeStatuses))
-	out := make([]*apigen.NodeEvent, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, &row.Event)
-	}
-	return out
-}
-
 func SetNodeStatusByIdentifier(store *state.Service, identifier string, connected bool, connectedAt time.Time) {
 	ctx := context.Background()
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		now := time.Now().UnixMilli()
-		status, err := q.SetNodeConnectionStatus(ctx, seq, now, identifier, connected, time.UnixMilli(connectedAt.UnixMilli()))
+		status, err := q.NodeConnectionStatus(ctx, identifier, connected, time.UnixMilli(connectedAt.UnixMilli()))
 		if err != nil {
 			return nil, err
 		}
@@ -308,7 +309,7 @@ func PrimaryNodeID(q *pq.Queries) (int32, error) {
 	return int32(nodeID), err
 }
 
-func RenameNode(store *state.Service, identifier, name string) (*apigen.NodeEvent, error) {
+func RenameNode(store *state.Service, identifier, name string) (*pq.NodeEvent, error) {
 	ctx := context.Background()
 	var row pq.CurrentNode
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
@@ -324,18 +325,18 @@ func RenameNode(store *state.Service, identifier, name string) (*apigen.NodeEven
 			return nil, ErrDuplicateNodeName
 		}
 		var applied bool
-		row, applied, err = appendNodeVersion(ctx, q, seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) { spec.Name = name })
-		if err != nil || !applied {
-			return nil, err
+		row, applied = appendNodeVersion(seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) { spec.Name = name })
+		if !applied {
+			return nil, nil
 		}
-		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
+		return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event)), nil
 	})
 	if err != nil {
 		return nil, err
 	}
 	return &row.Event, nil
 }
-func SetNodeAllowedSpaces(store *state.Service, identifier string, spaces []int32) (*apigen.NodeEvent, error) {
+func SetNodeAllowedSpaces(store *state.Service, identifier string, spaces []int32) (*pq.NodeEvent, error) {
 	ctx := context.Background()
 	allowed := allowedSpacesJSON(spaces)
 	var row pq.CurrentNode
@@ -345,11 +346,11 @@ func SetNodeAllowedSpaces(store *state.Service, identifier string, spaces []int3
 			return nil, err
 		}
 		var applied bool
-		row, applied, err = appendNodeVersion(ctx, q, seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) { spec.AllowedSpacesJSON = allowed })
-		if err != nil || !applied {
-			return nil, err
+		row, applied = appendNodeVersion(seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) { spec.AllowedSpacesJSON = allowed })
+		if !applied {
+			return nil, nil
 		}
-		return pq.NewUpdate(pq.NodeMutation(&row.Event)), nil
+		return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event)), nil
 	})
 	if err != nil {
 		return nil, err
@@ -367,14 +368,11 @@ func updateAllNodeAllowedSpaces(ctx context.Context, q *pq.Queries, seq, now int
 		if current.Event.Value.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
 			continue
 		}
-		row, changed, err := appendNodeVersion(ctx, q, seq, now, current, 0, func(spec *nodeEventSpec) {
+		row, changed := appendNodeVersion(seq, now, current, 0, func(spec *nodeEventSpec) {
 			spec.AllowedSpacesJSON = allowedSpacesJSON(fn(parseAllowedSpaces(allowedSpacesJSON(current.Event.Value.Operator.AllowedSpaces))))
 		})
-		if err != nil {
-			return nil, err
-		}
 		if changed {
-			events = append(events, pq.NodeMutation(&row.Event))
+			events = append(events, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event))
 		}
 	}
 	return events, nil
@@ -406,11 +404,7 @@ func UpdateNodeObservedMeta(store *state.Service, identifier, remoteAddress, ope
 			return nil, nil
 		}
 		status.BumpUpdatedAt()
-		now := time.Now().UnixMilli()
-		if err := q.InsertNodeStatus(ctx, seq, now, &status); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.NodeStatusMutation(seq, now, &status)), nil
+		return pq.NewUpdate(pq.NodeStatusMutation(seq, time.Now().UnixMilli(), &status)), nil
 	}); err != nil {
 		panic(err)
 	}
@@ -423,7 +417,7 @@ func nodeRowToNode(r pq.CurrentNode) *Node {
 		addresses = []string{e.Value.Reported.UnderlayAddress}
 	}
 	return &Node{
-		Version: e.Version, Seq: e.Seq, EventID: e.EventID, Author: e.Author, EventType: e.EventType, EventTime: e.EventTime,
+		Seq: e.Seq, Author: e.Author, EventTime: e.EventTime,
 		EnrollmentRequestedAt: e.Value.EnrollmentRequestedAt, ID: e.NodeID, Name: e.Value.Operator.Name, Identifier: e.Value.Reported.Identifier,
 		Status: e.Value.Status, Roles: e.Value.Operator.Roles, Addresses: addresses, WGPublicKey: e.Value.Reported.WgPublicKey,
 		CreatedAt: time.UnixMilli(e.CreatedTime), EnrolledAt: millisToTime(e.Value.Operator.EnrolledTime), AllowedSpaces: e.Value.Operator.AllowedSpaces,

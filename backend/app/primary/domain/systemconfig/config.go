@@ -134,7 +134,7 @@ func NewService(store *state.Service) (*Service, error) {
 	if _, err := network.ParsePrefix(cfg.NetworkUlaPrefix); err != nil {
 		return nil, fmt.Errorf("stored network ULA prefix is invalid: %w", err)
 	}
-	s.versionID = row.ID
+	s.versionID = row.Seq
 	s.Subs.Notify(cfg)
 	return s, nil
 }

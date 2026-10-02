@@ -2,6 +2,7 @@ package secrets
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -117,15 +118,19 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	if got := statetest.DeploymentEnvRef(t, latestDeploymentEvent(t, store, live.DeploymentID), "POSTGRES_PASSWORD", true); got != second.ref() {
 		t.Fatalf("live deployment secret ref = %v, want %v", got, second.ref())
 	}
-	tombstone := latestDeploymentEvent(t, store, original.DeploymentID)
-	if tombstone == nil || !tombstone.Deleted() {
-		t.Fatal("deleted deployment still live")
+	if _, err := store.Queries().GetLatestDeploymentEvent(context.Background(), int64(original.DeploymentID)); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("deleted deployment still live: %v", err)
 	}
+	tombstones := erru.Must(store.Queries().ListDeletedDeploymentEvents(context.Background()))
+	if len(tombstones) != 1 || tombstones[0].DeploymentID != original.DeploymentID || !tombstones[0].Deleted() {
+		t.Fatalf("deleted listing = %+v", tombstones)
+	}
+	tombstone := tombstones[0]
 	if got := statetest.DeploymentEnvRef(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ref() {
 		t.Fatalf("tombstone secret ref = %v, want it left at %v", got, first.ref())
 	}
-	if tombstone.SpecVersion != original.SpecVersion || tombstone.Version != original.Version+1 {
-		t.Fatalf("tombstone = v%d specV%d, want v%d specV%d", tombstone.Version, tombstone.SpecVersion, original.Version+1, original.SpecVersion)
+	if tombstone.SpecVersion != original.SpecVersion || tombstone.Version != original.Version {
+		t.Fatalf("tombstone = v%d specV%d, want v%d specV%d", tombstone.Version, tombstone.SpecVersion, original.Version, original.SpecVersion)
 	}
 }
 
@@ -152,12 +157,12 @@ func TestRotationChecksExpectedSeqsBeforeSealingAndPreservesRenames(t *testing.T
 	expected := expectedSeqs(first, second)
 	ctx := context.Background()
 	seqBefore := erru.Must(store.Queries().GetGlobalSeq(ctx))
-	before := statetest.Bootstrap(t, store.Queries())
+	before := statetest.Snapshot(t, store.Queries())
 	_, _, err = appendVersionWithDeploymentUpdates(store, secret.SecretID, 1, seal, true, expected, nil)
 	if !errors.Is(err, values.ErrReferencingDeploymentsChanged) || sealed {
 		t.Fatalf("stale rotation: err=%v, sealed=%v", err, sealed)
 	}
-	if erru.Must(store.Queries().GetGlobalSeq(ctx)) != seqBefore || !reflect.DeepEqual(before, statetest.Bootstrap(t, store.Queries())) || len(ListVersionRecords(store.Queries())) != 1 {
+	if erru.Must(store.Queries().GetGlobalSeq(ctx)) != seqBefore || !reflect.DeepEqual(before, statetest.Snapshot(t, store.Queries())) || len(ListVersionRecords(store.Queries())) != 1 {
 		t.Fatal("stale rotation changed state, sequence or sealed rows")
 	}
 	select {
@@ -204,7 +209,7 @@ func TestTransactionUpdateIncludesRotationAndAllDeploymentEvents(t *testing.T) {
 	if len(secretMutations[0].Entity().Secret.Ciphertext) == 0 || secretMutations[0].Entity().Secret.SmkVersion == 0 {
 		t.Fatalf("secret mutation = %+v, want the sealed value on the payload", secretMutations[0].Entity().Secret)
 	}
-	pin := apigen.ValueRef{ID: int32(secretMutations[0].EntityID()), Version: secretMutations[0].Entity().Secret.ValueVersion}
+	pin := apigen.ValueRef{ID: int32(secretMutations[0].EntityID()), Version: secretMutations[0].Meta().ValueVersion}
 	if pin != (apigen.ValueRef{ID: secret.SecretID, Version: 2}) {
 		t.Fatalf("published pin = %v, want version 2 of secret %d", pin, secret.SecretID)
 	}

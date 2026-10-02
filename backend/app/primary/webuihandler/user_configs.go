@@ -34,11 +34,7 @@ func mapConfigStoreErr(err error) error {
 	return err
 }
 
-func (h *Handler) PostV1ConfigsList(ctx apigen.Context) (*apigen.ConfigEventList, error) {
-	return &apigen.ConfigEventList{Items: h.filterConfigs(ctx, values.ListConfigs(h.Store.Queries()))}, nil
-}
-
-func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.ConfigEvent, error) {
+func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.CoreWriteUpdate, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, UserConfigNameRequiredErr
@@ -51,10 +47,10 @@ func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCrea
 		return nil, mapConfigStoreErr(err)
 	}
 
-	return meta, nil
+	return h.written(ctx, meta.Mutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE)), nil
 }
 
-func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.ConfigEvent, error) {
+func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
@@ -81,10 +77,10 @@ func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequ
 		return nil, versionedValueSetError(err)
 	}
 
-	return meta, nil
+	return h.written(ctx, meta.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
-func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.ConfigEvent, error) {
+func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRenameRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
@@ -101,7 +97,7 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 		return nil, mapConfigStoreErr(err)
 	}
 
-	return meta, nil
+	return h.written(ctx, meta.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
 // PostV1ConfigsMove relocates a config within its space's folder tree, or —
@@ -110,7 +106,7 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 // only while nothing outside the destination space references the config:
 // deployments must be able to keep their pins within their own space, and a
 // settings reference pins the value to the global space.
-func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.ConfigEvent, error) {
+func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
@@ -163,7 +159,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 		return nil, UserConfigNotFoundErr
 	}
 
-	return meta, nil
+	return h.written(ctx, meta.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
 func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDeleteRequest) error {

@@ -23,7 +23,7 @@ const spaceAdminTemplate = {
     id: 2,
     name: "space_admin",
     builtin: true,
-    template: {
+    spec: {
         arguments: [{id: 1, name: "spaces"}],
         rules: [
             {permissions: wildcard(), spaces: argument(1), entityTypes: wildcard(), entityRefs: wildcard(), delegationAllowed: false},
@@ -109,7 +109,7 @@ test("describeSelector reads naturally", () => {
 });
 
 test("templateArguments derives position kinds from selector references", () => {
-    assert.deepEqual(templateArguments(spaceAdminTemplate.template), [
+    assert.deepEqual(templateArguments(spaceAdminTemplate.spec), [
         {id: 1, name: "spaces", kind: "spaces"},
     ]);
     assert.deepEqual(templateArguments({arguments: [{id: 1, name: "unused"}], rules: []}), []);
@@ -122,7 +122,7 @@ test("describeGrant fills template arguments with bound values", () => {
         id: 10,
         userId: 7,
         templateId: 2,
-        grant: {args: [{argumentId: 1, values: [2, 3]}], rule: null},
+        spec: {args: [{argumentId: 1, values: [2, 3]}], rule: null},
     }, templates, SPACES);
     assert.equal(chip.template, true);
     assert.equal(chip.label, "space_admin");
@@ -136,7 +136,7 @@ test("describeGrant renders a direct rule naturally", () => {
         id: 11,
         userId: 7,
         templateId: 0,
-        grant: {
+        spec: {
             args: [],
             rule: {
                 permissions: include(4),
@@ -155,13 +155,13 @@ test("describeGrant renders a direct rule naturally", () => {
 });
 
 test("describeGrant survives a missing template", () => {
-    const chip = describeGrant({id: 12, userId: 7, templateId: 99, grant: {args: [], rule: null}}, new Map(), SPACES);
+    const chip = describeGrant({id: 12, userId: 7, templateId: 99, spec: {args: [], rule: null}}, new Map(), SPACES);
     assert.equal(chip.label, "role 99");
 });
 
-const clusterAdminTemplate = {id: 1, name: "cluster_admin", builtin: true, template: {rules: []}};
+const clusterAdminTemplate = {id: 1, name: "cluster_admin", builtin: true, spec: {rules: []}};
 const TEMPLATES = new Map([[1, clusterAdminTemplate], [2, spaceAdminTemplate]]);
-const adminGrant = (id, userId) => ({id, userId, templateId: 1, grant: {args: [], rule: null}});
+const adminGrant = (id, userId) => ({id, userId, templateId: 1, spec: {args: [], rule: null}});
 
 test("isClusterAdminGrant identifies the builtin role, id-only when unresolved", () => {
     assert.equal(isClusterAdminGrant(adminGrant(1, 7), TEMPLATES), true);
@@ -180,7 +180,7 @@ test("grantRevokeBlock protects your own and the last cluster_admin", () => {
     assert.equal(grantRevokeBlock(grants[1], opts), null);
     assert.match(grantRevokeBlock(grants[1], {...opts, grants: [grants[1]]}), /last cluster_admin/);
     // Other roles are never blocked, even as the only grant a user holds.
-    const other = {id: 3, userId: 8, templateId: 2, grant: {args: [], rule: null}};
+    const other = {id: 3, userId: 8, templateId: 2, spec: {args: [], rule: null}};
     assert.equal(grantRevokeBlock(other, {grants: [other], templatesById: TEMPLATES, selfUserId: 8}), null);
 });
 

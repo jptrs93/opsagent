@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 func isRefOutsideSpaceErr(err error, want apigen.ApiErr) bool {
@@ -65,7 +66,7 @@ func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	}
 
 	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
-		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
 			Spec:       configEnvSpec("nginx", ref),
@@ -100,7 +101,7 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	}
 
 	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
-		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
 			Spec:       assetMountSpec("nginx", ref),
@@ -134,7 +135,7 @@ func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	prodTarget := createTestDeployment(h.Store, "primary", prod.ID, "prod-api", &prodSpec)
 
 	create := func(name string, spaceID int32, target *apigen.DeploymentEvent) (*apigen.DeploymentEvent, error) {
-		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
 			Spec:       addressEnvSpec("nginx", target.DeploymentID, target.Value.SpaceID),
@@ -168,7 +169,7 @@ func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 	prodSource := createTestDeployment(h.Store, "primary", prod.ID, "prod-db", &prodSpec)
 
 	create := func(name string, spaceID, sourceID int32) (*apigen.DeploymentEvent, error) {
-		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
 			Spec:       crossMountSpec("nginx", sourceID),
@@ -200,7 +201,7 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating prod config: %v", err)
 	}
-	referrer, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	referrer, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "web",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       configEnvSpec("nginx", statetest.ValueVersions(h.Store, prodConfig)[0].Ref),
@@ -208,7 +209,7 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)
 	}
-	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID: referrer.DeploymentID, ExpectedSeq: referrer.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
 	}); !isRefOutsideSpaceErr(err, deployments.ConfigRefOutsideSpaceErr) {
@@ -219,13 +220,13 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	source := createTestDeployment(h.Store, "primary", prod.ID, "db", &sourceSpec)
 	mounterSpec := crossMountSpec("nginx", source.DeploymentID)
 	createTestDeployment(h.Store, "primary", prod.ID, "mounter", &mounterSpec)
-	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID: source.DeploymentID, ExpectedSeq: source.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("mounted source move to staging err = %v, want %v", err, deployments.MoveReferencesOutsideSpaceErr)
 	}
-	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID: source.DeploymentID, ExpectedSeq: source.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: nodes.DefaultSpaceID},
 	}); err != nil {
@@ -233,6 +234,6 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	}
 }
 
-func assetEventRef(e *apigen.AssetEvent) apigen.ValueRef {
+func assetEventRef(e *pq.AssetEvent) apigen.ValueRef {
 	return apigen.ValueRef{ID: e.AssetID, Version: e.ValueVersion}
 }

@@ -148,10 +148,10 @@ and asset. Group by `entity_id`. The pinnable values are the distinct
 A rename or space move is an update that preserves `value_version`, so it is
 not a new value pin. The latest mutation provides current `fs` and
 `space_id`. Secret entities contain metadata only. Create, set, generate,
-rename, move, and upload return the exact event appended as a `SecretEvent`,
+rename, move, and upload return the current state as a `SecretEvent`,
 `ConfigEvent`, `AssetEvent`, or `DeploymentEvent` envelope (`seq`, `author`,
-`event_type`, times, and the entity in `value`); read history from the events
-when you need earlier versions.
+times, and the entity in `value`); read history from the events when you
+need earlier versions.
 
 To re-read later, send the `seq` of the last message you folded as
 `after_seq`. You get either the commits since then (`reset` false), or, when
@@ -435,8 +435,7 @@ curl -sS -X POST '{{.BaseURL}}/v1/secrets/generate' \
 The response is a `SecretEvent`, containing only metadata:
 
 ```json
-{"secret_id": 30, "version": 1, "seq": 42, "event_id": 12,
- "event_type": 1, "value_version": 1,
+{"secret_id": 30, "seq": 42, "value_version": 1,
  "value": {"fs": {"name": "postgres-password", "directory_id": 0}, "space_id": 2}}
 ```
 

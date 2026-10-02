@@ -69,22 +69,13 @@ func (h *Handler) resolveOrCreateUser(username string) (*apigen.InternalUser, er
 	if !errors.Is(err, users.ErrNotFound) {
 		return nil, err
 	}
-	id := users.NextID(h.Store.Queries())
 	webAuthNID, err := authu.GenerateWebAuthnID(32)
 	if err != nil {
 		return nil, err
 	}
-	user = &apigen.InternalUser{
-		ID:         id,
-		WebAuthNID: webAuthNID,
-		Name:       username,
-	}
+	user = &apigen.InternalUser{WebAuthNID: webAuthNID, Name: username}
 	users.Write(h.Store, user)
-	if _, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{
-		UserID:     int64(user.ID),
-		TemplateID: authz.ClusterAdminTemplateID,
-		Grant:      &apigen.AuthzGrant{},
-	}); err != nil {
+	if _, err := h.Authz.CreateGrant(&apigen.AuthzGrant{UserID: int64(user.ID), TemplateID: authz.ClusterAdminTemplateID, Spec: &apigen.AuthzGrantSpec{}}, 0); err != nil {
 		return nil, err
 	}
 	return user, nil

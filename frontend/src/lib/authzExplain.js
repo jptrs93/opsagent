@@ -144,19 +144,19 @@ export function grantSubject(record, {templatesById, spaceNames, spaces}) {
     if (templateId) {
         const template = templatesById?.get?.(templateId);
         if (!template) return {...base, subtitle: "This role no longer exists.", rules: []};
-        const args = templateArguments(template.template);
-        const bindings = new Map((record?.grant?.args || []).map((b) => [Number(b.argumentId), (b.values || []).map(Number)]));
+        const args = templateArguments(template.spec);
+        const bindings = new Map((record?.spec?.args || []).map((b) => [Number(b.argumentId), (b.values || []).map(Number)]));
         const argNames = new Map(args.map((a) => [a.id, a.name]));
         const bound = args.map((a) => `\${${a.name}} = ${(bindings.get(a.id) || []).map((v) => positionValueName(a.kind, v, spaceNames)).join(", ") || "nothing"}`);
         return {
             ...base,
             subtitle: bound.length ? `Role ${template.name} with ${bound.join("; ")}` : `Role ${template.name}`,
-            rules: template.template?.rules || [],
+            rules: template.spec?.rules || [],
             bindings,
             argNames,
         };
     }
-    const rule = record?.grant?.rule;
+    const rule = record?.spec?.rule;
     return {
         ...base,
         subtitle: "A single rule granted directly, not through a role.",

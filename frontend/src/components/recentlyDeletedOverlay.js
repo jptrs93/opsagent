@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {deploymentFromRecord} from "../state/tree.js";
 import {machinesS, spacesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {resolveUserDisplayName} from "../lib/users.js";
@@ -37,7 +38,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
     const load = async () => {
         try {
             const decoded = await capi.postV1DeploymentsRecentlyDeleted({});
-            items.val = decoded?.items || [];
+            items.val = (decoded?.items || []).map(deploymentFromRecord).filter(Boolean);
         } catch (e) {
             error.val = e?.message || 'Loading deleted deployments failed.';
             items.val = [];

@@ -150,7 +150,7 @@ func (q *Queries) ListAssetStoreRows(ctx context.Context) ([]AssetStore, error) 
 
 const listUnreferencedAssetStoreRows = `SELECT s.id, s.sha256, s.size_bytes, s.local_status, s.remote_status, s.created_at
 FROM asset_store s
-WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_event_log v WHERE v.storage_key = s.id AND v.value_changed != 0)
+WHERE s.created_at < ? AND NOT EXISTS (SELECT 1 FROM asset_versions v WHERE v.storage_key = s.id)
 `
 
 func (q *Queries) ListUnreferencedAssetStoreRows(ctx context.Context, createdAt int64) ([]AssetStore, error) {

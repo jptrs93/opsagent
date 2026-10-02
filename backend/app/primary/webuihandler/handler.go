@@ -193,14 +193,3 @@ func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
 	}
 	return h, nil
 }
-
-func respond(w http.ResponseWriter, msg interface{ Encode() []byte }) {
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.Write(msg.Encode())
-}
-
-func respondErr(w http.ResponseWriter, err apigen.ApiErr) {
-	w.Header().Set("Content-Type", "application/x-protobuf")
-	w.WriteHeader(int(err.Code))
-	w.Write(err.Encode())
-}

@@ -41,13 +41,13 @@ func grantDeploymentAccess(t *testing.T, h *Handler, userID int64, spaceID, depl
 	if deploymentID != 0 {
 		refs = &apigen.AuthzSelector{Include: []int64{int64(deploymentID)}}
 	}
-	_, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{UserID: userID, Grant: &apigen.AuthzGrant{Rule: &apigen.AuthzRule{
+	_, err := h.Authz.CreateGrant(&apigen.AuthzGrant{UserID: userID, Spec: &apigen.AuthzGrantSpec{Rule: &apigen.AuthzRule{
 		Permissions:       permissions,
 		Spaces:            &apigen.AuthzSelector{Include: []int64{int64(spaceID)}},
 		EntityTypes:       &apigen.AuthzSelector{Include: []int64{int64(eDeployment)}},
 		EntityRefs:        refs,
 		DelegationAllowed: delegated,
-	}}})
+	}}}, 0)
 	if err != nil {
 		t.Fatalf("grant deployment access: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestDeploymentCreateHostAccessDefaults(t *testing.T) {
 	} {
 		for features := 0; features < 4; features++ {
 			t.Run(fmt.Sprintf("%s/%d", caller.name, features), func(t *testing.T) {
-				created, err := h.PostV1DeploymentsCreate(enforceCtx(caller.id, caller.delegated), &apigen.DeploymentCreateRequest{
+				created, err := h.deploymentsCreate(enforceCtx(caller.id, caller.delegated), &apigen.DeploymentCreateRequest{
 					Name: fmt.Sprintf("%s_%d", caller.name, features), SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID),
 					Spec: hostAccessSpec(features&1 != 0, features&2 != 0),
 				})
@@ -104,7 +104,7 @@ func TestDeploymentHostPermissionsAreIndependentAndAdditional(t *testing.T) {
 				grantDeploymentAccess(t, h, 2, nodes.DefaultSpaceID, 0, false, hostNetworkPermission)
 			}
 			for features := 0; features < 4; features++ {
-				_, err := h.PostV1DeploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
+				_, err := h.deploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
 					Name: fmt.Sprintf("web_%d", features), SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID),
 					Spec: hostAccessSpec(features&1 != 0, features&2 != 0),
 				})
@@ -125,14 +125,14 @@ func TestDeploymentHostPermissionsAreIndependentAndAdditional(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
 	grantDeploymentAccess(t, h, 3, nodes.DefaultSpaceID, 0, false, vView, hostMountPermission, hostNetworkPermission)
 	request := &apigen.DeploymentCreateRequest{Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: hostAccessSpec(true, true)}
-	if _, err := h.PostV1DeploymentsCreate(enforceCtx(3, false), request); !errors.Is(err, AccessDeniedErr) {
+	if _, err := h.deploymentsCreate(enforceCtx(3, false), request); !errors.Is(err, AccessDeniedErr) {
 		t.Fatalf("host permissions without create: %v", err)
 	}
-	created, err := h.PostV1DeploymentsCreate(enforceCtx(1, false), request)
+	created, err := h.deploymentsCreate(enforceCtx(1, false), request)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.PostV2DeploymentsUpdate(enforceCtx(3, false), &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.deploymentsUpdate(enforceCtx(3, false), &apigen.DeploymentUpdateRequestV2{
 		DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"},
 	}); !errors.Is(err, AccessDeniedErr) {
@@ -153,7 +153,7 @@ func TestDeploymentHostAccessChecksEveryUpdateKind(t *testing.T) {
 				node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
 				spec := hostAccessSpec(feature.mounts, feature.network)
 				running := kind == "stop"
-				created, err := h.PostV1DeploymentsCreate(enforceCtx(1, false), &apigen.DeploymentCreateRequest{
+				created, err := h.deploymentsCreate(enforceCtx(1, false), &apigen.DeploymentCreateRequest{
 					Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(running, node.ID), Spec: spec,
 				})
 				if err != nil {
@@ -178,13 +178,13 @@ func TestDeploymentHostAccessChecksEveryUpdateKind(t *testing.T) {
 					req.AssignedSpaceUpdate = &apigen.AssignedSpaceUpdate{SpaceID: staging.ID}
 				}
 				for _, ctx := range []apigen.Context{enforceCtx(2, false), enforceCtx(1, true), enforceCtx(2, true)} {
-					_, err := h.PostV2DeploymentsUpdate(ctx, req)
+					_, err := h.deploymentsUpdate(ctx, req)
 					requireHostAccessDenied(t, err, feature.name)
 				}
 				if got := h.deploymentByID(created.DeploymentID); got.Version != created.Version {
 					t.Fatal("denied updates changed the deployment")
 				}
-				if _, err := h.PostV2DeploymentsUpdate(enforceCtx(1, false), req); err != nil {
+				if _, err := h.deploymentsUpdate(enforceCtx(1, false), req); err != nil {
 					t.Fatalf("cluster admin update: %v", err)
 				}
 			})
@@ -195,7 +195,7 @@ func TestDeploymentHostAccessChecksEveryUpdateKind(t *testing.T) {
 func TestDeploymentHostAccessChecksProposedSpecAndScope(t *testing.T) {
 	h, staging := newEnforcementTestHandler(t)
 	node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
-	created, err := h.PostV1DeploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
+	created, err := h.deploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
 		Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: hostAccessSpec(false, false),
 	})
 	if err != nil {
@@ -203,27 +203,27 @@ func TestDeploymentHostAccessChecksProposedSpecAndScope(t *testing.T) {
 	}
 	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq,
 		SpecUpdate: &apigen.SpecUpdate{Spec: hostAccessSpec(true, true)}}
-	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), req)
+	_, err = h.deploymentsUpdate(enforceCtx(2, false), req)
 	requireHostAccessDenied(t, err, "use_host_mounts")
 	// A grant for another space or deployment cannot authorize this update.
 	grantDeploymentAccess(t, h, 2, staging.ID, 0, false, hostMountPermission, hostNetworkPermission)
 	grantDeploymentAccess(t, h, 2, nodes.DefaultSpaceID, created.DeploymentID+1, false, hostMountPermission, hostNetworkPermission)
-	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), req)
+	_, err = h.deploymentsUpdate(enforceCtx(2, false), req)
 	requireHostAccessDenied(t, err, "use_host_mounts")
 	grantDeploymentAccess(t, h, 2, nodes.DefaultSpaceID, created.DeploymentID, false, hostMountPermission)
-	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), req)
+	_, err = h.deploymentsUpdate(enforceCtx(2, false), req)
 	requireHostAccessDenied(t, err, "use_host_network")
 	grantDeploymentAccess(t, h, 2, nodes.DefaultSpaceID, created.DeploymentID, false, hostNetworkPermission)
-	updated, err := h.PostV2DeploymentsUpdate(enforceCtx(2, false), req)
+	updated, err := h.deploymentsUpdate(enforceCtx(2, false), req)
 	if err != nil {
 		t.Fatalf("explicit deployment grants: %v", err)
 	}
 	req = &apigen.DeploymentUpdateRequestV2{DeploymentID: updated.DeploymentID, ExpectedSeq: updated.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"}}
-	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, true), req)
+	_, err = h.deploymentsUpdate(enforceCtx(2, true), req)
 	requireHostAccessDenied(t, err, "use_host_mounts")
 	grantDeploymentAccess(t, h, 2, nodes.DefaultSpaceID, created.DeploymentID, true, hostMountPermission, hostNetworkPermission)
-	if _, err := h.PostV2DeploymentsUpdate(enforceCtx(2, true), req); err != nil {
+	if _, err := h.deploymentsUpdate(enforceCtx(2, true), req); err != nil {
 		t.Fatalf("explicitly delegated host access: %v", err)
 	}
 }
@@ -233,7 +233,7 @@ func TestDeploymentHostAccessRequiredInDestinationSpace(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
 	grantDeploymentAccess(t, h, 2, nodes.DefaultSpaceID, 0, false, hostMountPermission, hostNetworkPermission)
 	grantDeploymentAccess(t, h, 2, staging.ID, 0, false, vCreate)
-	created, err := h.PostV1DeploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
+	created, err := h.deploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
 		Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: hostAccessSpec(true, true),
 	})
 	if err != nil {
@@ -241,13 +241,13 @@ func TestDeploymentHostAccessRequiredInDestinationSpace(t *testing.T) {
 	}
 	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq,
 		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID}}
-	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), req)
+	_, err = h.deploymentsUpdate(enforceCtx(2, false), req)
 	requireHostAccessDenied(t, err, "use_host_mounts")
 	grantDeploymentAccess(t, h, 2, staging.ID, created.DeploymentID, false, hostMountPermission)
-	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), req)
+	_, err = h.deploymentsUpdate(enforceCtx(2, false), req)
 	requireHostAccessDenied(t, err, "use_host_network")
 	grantDeploymentAccess(t, h, 2, staging.ID, created.DeploymentID, false, hostNetworkPermission)
-	if _, err := h.PostV2DeploymentsUpdate(enforceCtx(2, false), req); err != nil {
+	if _, err := h.deploymentsUpdate(enforceCtx(2, false), req); err != nil {
 		t.Fatalf("move with both destination permissions: %v", err)
 	}
 }
@@ -255,7 +255,7 @@ func TestDeploymentHostAccessRequiredInDestinationSpace(t *testing.T) {
 func TestDeploymentHostAccessGlobalDenyAndVisibility(t *testing.T) {
 	h, staging := newEnforcementTestHandler(t)
 	node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
-	created, err := h.PostV1DeploymentsCreate(enforceCtx(1, false), &apigen.DeploymentCreateRequest{
+	created, err := h.deploymentsCreate(enforceCtx(1, false), &apigen.DeploymentCreateRequest{
 		Name: "web", SpaceID: staging.ID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: hostAccessSpec(true, false),
 	})
 	if err != nil {
@@ -263,10 +263,10 @@ func TestDeploymentHostAccessGlobalDenyAndVisibility(t *testing.T) {
 	}
 	req := &apigen.DeploymentUpdateRequestV2{DeploymentID: created.DeploymentID, ExpectedSeq: created.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"}}
-	if _, err := h.PostV2DeploymentsUpdate(enforceCtx(2, false), req); !errors.Is(err, deployments.NotFoundErr) {
+	if _, err := h.deploymentsUpdate(enforceCtx(2, false), req); !errors.Is(err, deployments.NotFoundErr) {
 		t.Fatalf("hidden deployment: %v", err)
 	}
-	_, err = h.Authz.CreateGlobalRule("deny_host_mounts", &apigen.AuthzGlobalRule{
+	_, err = h.Authz.CreateGlobalRule("deny_host_mounts", &apigen.AuthzGlobalRuleSpec{
 		Deny: true, Permissions: &apigen.AuthzSelector{Include: []int64{int64(hostMountPermission)}},
 		Spaces:      &apigen.AuthzSelector{Wildcard: true},
 		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(eDeployment)}},
@@ -275,7 +275,7 @@ func TestDeploymentHostAccessGlobalDenyAndVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = h.PostV2DeploymentsUpdate(enforceCtx(1, false), req)
+	_, err = h.deploymentsUpdate(enforceCtx(1, false), req)
 	requireHostAccessDenied(t, err, "use_host_mounts")
 }
 
@@ -284,7 +284,7 @@ func TestDeploymentHostAccessDefaultsAndManagedVolumes(t *testing.T) {
 	node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
 	spec := hostAccessSpec(false, false)
 	spec.Networking = apigen.NetworkingConfig{}
-	source, err := h.PostV1DeploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
+	source, err := h.deploymentsCreate(enforceCtx(2, false), &apigen.DeploymentCreateRequest{
 		Name: "source", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec,
 	})
 	if err != nil {
@@ -296,13 +296,13 @@ func TestDeploymentHostAccessDefaultsAndManagedVolumes(t *testing.T) {
 	spec.Container1Spec.Runtime.CrossDeploymentMounts = []*apigen.CrossDeploymentMount{{
 		DeploymentID: source.DeploymentID, ContainerPath: "/data", Permission: apigen.FilePermission_READ_WRITE,
 	}}
-	consumer, err := h.PostV1DeploymentsCreate(enforceCtx(2, true), &apigen.DeploymentCreateRequest{
+	consumer, err := h.deploymentsCreate(enforceCtx(2, true), &apigen.DeploymentCreateRequest{
 		Name: "consumer", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec,
 	})
 	if err != nil {
 		t.Fatalf("managed volumes without host permissions: %v", err)
 	}
-	if _, err := h.PostV2DeploymentsUpdate(enforceCtx(2, true), &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.deploymentsUpdate(enforceCtx(2, true), &apigen.DeploymentUpdateRequestV2{
 		DeploymentID: consumer.DeploymentID, ExpectedSeq: consumer.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"},
 	}); err != nil {
@@ -312,7 +312,7 @@ func TestDeploymentHostAccessDefaultsAndManagedVolumes(t *testing.T) {
 	// validator. The runner uses the host network when a saved mode is unset.
 	legacy := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{})
 	old := statetest.MustCreateDeploymentForNode(h.Store, enforceCtx(1, false), nodes.DefaultSpaceID, "legacy", node.ID, &legacy)
-	_, err = h.PostV2DeploymentsUpdate(enforceCtx(2, false), &apigen.DeploymentUpdateRequestV2{
+	_, err = h.deploymentsUpdate(enforceCtx(2, false), &apigen.DeploymentUpdateRequestV2{
 		DeploymentID: old.DeploymentID, ExpectedSeq: old.Seq,
 		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"},
 	})

@@ -4,7 +4,7 @@ export const CREATE = 1;
 export const UPDATE = 2;
 export const DELETE = 3;
 
-const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SECRET = 4, CONFIG = 5, ASSET = 6, NETWORK_POLICY = 7, SPACE = 8, USER = 9,
+export const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SECRET = 4, CONFIG = 5, ASSET = 6, NETWORK_POLICY = 7, SPACE = 8, USER = 9,
     VALUE_DIRECTORY = 10, ASSET_DIRECTORY = 11, AUTHZ_RULE_TEMPLATE = 12, AUTHZ_GRANT = 13, AUTHZ_GLOBAL_RULE = 14, SYSTEM_CONFIG = 15,
     SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, AGENT_SESSION = 18, USER_SESSION = 19;
 
@@ -64,46 +64,61 @@ export const latestDeployment = versions => {
     return latest;
 };
 
+const deploymentEntry = (id, op, entity, env, meta) => ({
+    deploymentId: id, version: Number(meta.version || 0), specVersion: Number(meta.specVersion || 0), createdTime: new Date(Number(meta.createdTime || 0)),
+    eventType: op, seq: env.seq, eventTime: new Date(env.time), author: env.actor, value: entity,
+});
+
+// deploymentFromRecord turns a DeploymentRecord of the get, history, and
+// recently-deleted responses into the entry shape the tree keeps, so the
+// deployment helpers read both alike.
+export const deploymentFromRecord = record => {
+    if (!record?.deployment) return null;
+    const meta = record.meta || {};
+    const op = meta.deleted ? DELETE : (Number(meta.version || 0) === 1 ? CREATE : UPDATE);
+    return deploymentEntry(Number(record.deployment.id || 0), op, record.deployment, {seq: Number(meta.updatedSeq || 0), time: Number(meta.updatedTime || 0), actor: Number(meta.updatedActor || 0)}, meta);
+};
+
+// A reducer takes the commit envelope (seq, time, actor) and, for a create
+// or update, the entity's meta as the server's rows hold it: creation time,
+// last write, and the version counters of its type.
 const reducers = {
-    [DEPLOYMENT](tree, op, id, entity, meta) {
+    [DEPLOYMENT](tree, op, id, entity, env, meta) {
         const versions = tree.deployments.get(id) || new Map();
         let event;
         if (op === DELETE) {
             const prev = latestDeployment(versions);
             if (!prev) return undefined;
-            event = {...prev, version: prev.version + 1, eventType: DELETE, seq: meta.seq, eventTime: new Date(meta.time), author: meta.actor};
+            event = {...prev, version: prev.version + 1, eventType: DELETE, seq: env.seq, eventTime: new Date(env.time), author: env.actor};
         } else {
-            event = {
-                deploymentId: id, version: entity.version, specVersion: entity.specVersion, createdTime: entity.createdTime,
-                eventType: op, seq: meta.seq, eventTime: new Date(meta.time), author: meta.actor, value: entity,
-            };
+            event = deploymentEntry(id, op, entity, env, meta);
         }
         versions.set(event.version, event);
         tree.deployments.set(id, versions);
         return 'deployments';
     },
-    [SCHEDULED_INSTANCE](tree, op, id, entity, meta) {
+    [SCHEDULED_INSTANCE](tree, op, id, entity, env) {
         if (op === DELETE) tree.scheduledInstances.delete(id);
-        else tree.scheduledInstances.set(id, {scheduledInstanceId: id, seq: meta.seq, value: entity});
+        else tree.scheduledInstances.set(id, {scheduledInstanceId: id, seq: env.seq, value: entity});
         return 'scheduledInstances';
     },
-    [NODE](tree, op, id, entity, meta) {
+    [NODE](tree, op, id, entity, env, meta) {
         if (op === DELETE) tree.nodes.delete(id);
-        else tree.nodes.set(id, {nodeId: id, seq: meta.seq, eventTime: meta.time, createdTime: entity.createdTime, value: entity});
+        else tree.nodes.set(id, {nodeId: id, seq: env.seq, eventTime: env.time, createdTime: Number(meta.createdTime || 0), value: entity});
         return 'nodes';
     },
-    [NETWORK_POLICY](tree, op, id, entity, meta) {
+    [NETWORK_POLICY](tree, op, id, entity, env) {
         if (op === DELETE) tree.networkPolicies.delete(id);
-        else tree.networkPolicies.set(id, {networkPolicyId: id, seq: meta.seq, eventTime: meta.time, author: meta.actor, value: entity});
+        else tree.networkPolicies.set(id, {networkPolicyId: id, seq: env.seq, eventTime: env.time, author: env.actor, value: entity});
         return 'networkPolicies';
     },
-    [AUTHZ_GRANT](tree, op, id, entity, meta) {
+    [AUTHZ_GRANT](tree, op, id, entity, env, meta) {
         if (op === DELETE) tree.authzGrants.delete(id);
-        else tree.authzGrants.set(id, {authzGrantId: id, seq: meta.seq, author: entity.author, createdTime: entity.createdTime, value: entity});
+        else tree.authzGrants.set(id, {authzGrantId: id, seq: env.seq, author: env.actor, createdTime: Number(meta.createdTime || 0), value: entity});
         return 'authzGrants';
     },
-    [SYSTEM_CONFIG](tree, op, id, entity, meta) {
-        tree.systemConfig = op === DELETE ? undefined : {seq: meta.seq, ...entity};
+    [SYSTEM_CONFIG](tree, op, id, entity, env) {
+        tree.systemConfig = op === DELETE ? undefined : {seq: env.seq, ...entity};
         return 'systemConfig';
     },
     [SCHEDULED_INSTANCE_STATUS](tree, op, id, entity) {
@@ -124,19 +139,19 @@ const reducers = {
     },
 };
 for (const [type, [name, idField]] of Object.entries(histories)) {
-    reducers[type] = (tree, op, id, entity, meta) => {
+    reducers[type] = (tree, op, id, entity, env, meta) => {
         if (op === DELETE) tree[name].delete(id);
         else {
-            const entry = {[idField]: id, seq: meta.seq, eventTime: meta.time, author: meta.actor, eventType: op, valueVersion: entity.valueVersion, value: entity};
+            const entry = {[idField]: id, seq: env.seq, eventTime: env.time, author: env.actor, eventType: op, valueVersion: Number(meta.valueVersion || 0), value: entity};
             tree[name].set(id, [...(tree[name].get(id) || []), entry]);
         }
         return name;
     };
 }
 for (const [type, name] of Object.entries(documents)) {
-    reducers[type] = (tree, op, id, entity) => {
+    reducers[type] = (tree, op, id, entity, env, meta) => {
         if (op === DELETE) tree[name].delete(id);
-        else tree[name].set(id, entity);
+        else tree[name].set(id, {...entity, createdAt: new Date(Number(meta.createdTime || 0)), author: Number(meta.updatedActor || 0)});
         return name;
     };
 }
@@ -182,7 +197,7 @@ const sweepOrphans = tree => {
 const applyEvent = (tree, event, changed) => {
     const seq = Number(event.seq || 0);
     if (seq && seq <= tree.seq) return;
-    const meta = {seq, time: Number(event.time || 0), actor: Number(event.actor || 0)};
+    const env = {seq, time: Number(event.time || 0), actor: Number(event.actor || 0)};
     for (const mutation of event.mutations || []) {
         const op = mutation.create ? CREATE : mutation.update ? UPDATE : mutation.delete ? DELETE : 0;
         if (!op) continue;
@@ -190,9 +205,29 @@ const applyEvent = (tree, event, changed) => {
         const type = Number(body.entityType || 0);
         const entity = op === DELETE ? undefined : body.entity?.[fields[type]];
         if (op !== DELETE && !entity) continue;
-        const name = reducers[type]?.(tree, op, Number(body.entityId), entity, meta);
+        const name = reducers[type]?.(tree, op, Number(body.entityId), entity, env, body.meta || {});
         if (name) changed.add(name);
     }
+    if (seq > tree.seq) tree.seq = seq;
+};
+
+// A snapshot replaces the tree. Every entry opens its entity with a create
+// under the envelope of its last write; a retained version of a deleted
+// deployment is followed by its tombstone under the envelope of the delete.
+const applySnapshot = (tree, snapshot, changed) => {
+    for (const name of resetTree(tree)) changed.add(name);
+    for (const entry of snapshot.entities || []) {
+        const type = Number(entry.entityType || 0);
+        const entity = entry.entity?.[fields[type]];
+        if (!entity) continue;
+        const meta = entry.meta || {};
+        const env = {seq: Number(meta.updatedSeq || 0), time: Number(meta.updatedTime || 0), actor: Number(meta.updatedActor || 0)};
+        const id = Number(entry.entityId);
+        const name = reducers[type]?.(tree, CREATE, id, entity, env, meta);
+        if (name) changed.add(name);
+        if (meta.deleted && type === DEPLOYMENT) reducers[type](tree, DELETE, id, undefined, env, meta);
+    }
+    const seq = Number(snapshot.seq || 0);
     if (seq > tree.seq) tree.seq = seq;
 };
 
@@ -203,7 +238,8 @@ export function resetTree(tree, {preserveSidecars = true} = {}) {
 }
 
 export function applyMessage(tree, message) {
-    const changed = message.reset ? resetTree(tree) : new Set();
+    const changed = new Set();
+    if (message.snapshot) applySnapshot(tree, message.snapshot, changed);
     for (const event of message.events || []) applyEvent(tree, event, changed);
     if (changed.has('deployments') || changed.has('scheduledInstances')) pruneVersions(tree);
     for (const name of sweepOrphans(tree)) changed.add(name);
@@ -215,4 +251,16 @@ export function applyMessage(tree, message) {
     const seq = Number(message.seq || 0);
     if (seq > tree.seq) tree.seq = seq;
     return changed;
+}
+
+export function written(update, type) {
+    for (const mutation of update?.mutations || []) {
+        const body = mutation.create || mutation.update;
+        if (!body || Number(body.entityType || 0) !== type) continue;
+        return {
+            id: Number(body.entityId), seq: Number(update.seq || 0), time: Number(update.time || 0), actor: Number(update.actor || 0),
+            created: Boolean(mutation.create), entity: body.entity?.[fields[type]], meta: body.meta,
+        };
+    }
+    return undefined;
 }

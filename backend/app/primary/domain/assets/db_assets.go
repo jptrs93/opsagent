@@ -5,15 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"strings"
 	"time"
 
 	"github.com/jptrs93/goutil/erru"
-	"github.com/jptrs93/goutil/ptru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var (
@@ -30,38 +29,38 @@ func ValidAssetKey(key string) bool {
 	return !strings.ContainsAny(key, "/\\\x00")
 }
 
-func ListAssets(q *pq.Queries) []*apigen.AssetEvent {
-	rows := erru.Must(q.ListLatestLiveAssetEvents(context.Background()))
-	out := make([]*apigen.AssetEvent, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, ptru.To(row))
-	}
-	return out
+const assetType = apigen.CoreEntityType_CORE_ENTITY_ASSET
+
+func ListAssets(q *pq.Queries) []*pq.AssetEvent {
+	return erru.Must(q.ListAssetEvents(context.Background()))
 }
-func GetAsset(q *pq.Queries, assetID int32) (*apigen.AssetEvent, bool) {
-	row, err := q.GetLatestAssetEvent(context.Background(), int64(assetID))
+
+func GetAsset(q *pq.Queries, assetID int32) (*pq.AssetEvent, bool) {
+	row, err := q.GetAssetEvent(context.Background(), int64(assetID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false
 	}
 	if err != nil {
 		panic(err)
 	}
-	if row.EventType == apigen.EventType_EVENT_TYPE_DELETE {
-		return nil, false
-	}
-	return ptru.To(row), true
+	return row, true
 }
+
 func GetAssetInDirectory(q *pq.Queries, spaceID, directoryID int32, key string) (pq.AssetRow, bool) {
-	r, err := q.GetAssetInDirectoryByKey(context.Background(), pq.GetAssetInDirectoryByKeyParams{
-		SpaceID:          int64(nodes.NormalizedUserSpaceID(spaceID)),
-		AssetDirectoryID: int64(directoryID),
-		Key:              key,
-	})
-	if err == sql.ErrNoRows {
+	ctx := context.Background()
+	k, err := q.LookupAssetKey(ctx, int64(nodes.NormalizedUserSpaceID(spaceID)), int64(directoryID), key)
+	if errors.Is(err, sql.ErrNoRows) {
 		return pq.AssetRow{}, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetAssetInDirectoryByKey: %v", err))
+		panic(fmt.Sprintf("LookupAssetKey: %v", err))
+	}
+	if k.Kind != assetType {
+		return pq.AssetRow{}, false
+	}
+	r, err := q.GetAssetRowByID(ctx, k.ID)
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetRowByID: %v", err))
 	}
 	return r, true
 }
@@ -82,32 +81,18 @@ func GetAssetVersionRef(q *pq.Queries, ref apigen.ValueRef) (AssetVersionRef, bo
 
 // GetAssetValueJoined resolves a pinned asset value reference.
 func GetAssetValueJoined(q *pq.Queries, ref apigen.ValueRef) (pq.AssetVersionJoined, bool) {
-	r, err := q.GetAssetVersionJoinedByRef(context.Background(), ref)
-	if err == sql.ErrNoRows {
+	r, err := q.GetAssetVersionJoined(context.Background(), ref)
+	if errors.Is(err, sql.ErrNoRows) {
 		return pq.AssetVersionJoined{}, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("GetAssetVersionJoinedByRef: %v", err))
+		panic(fmt.Sprintf("GetAssetVersionJoined: %v", err))
 	}
 	return r, true
 }
-func assetSiblingKeyTaken(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, key string, excludeAssetID, excludeDirectoryID int64) bool {
-	assets := erru.Must(q.CountAssetSiblingsWithKey(ctx, pq.CountAssetSiblingsWithKeyParams{
-		SpaceID:          spaceID,
-		AssetDirectoryID: directoryID,
-		Key:              key,
-		ID:               excludeAssetID,
-	}))
-	if assets > 0 {
-		return true
-	}
-	dirs := erru.Must(q.CountDirectorySiblingsWithKey(ctx, pq.CountDirectorySiblingsWithKeyParams{
-		SpaceID:  spaceID,
-		ParentID: directoryID,
-		Key:      key,
-		ID:       excludeDirectoryID,
-	}))
-	return dirs > 0
+
+func assetSiblingKeyTaken(ctx context.Context, q *pq.Queries, spaceID, directoryID int64, key string, self apigen.CoreEntityType, selfID int64) bool {
+	return erru.Must(q.AssetKeyTaken(ctx, spaceID, directoryID, key, self, selfID))
 }
 
 // requireStoredContent checks that storageKey names a completed content row
@@ -129,23 +114,42 @@ func requireStoredContent(ctx context.Context, q *pq.Queries, sha256, storageKey
 	return nil
 }
 
-func nextAssetEvent(prev apigen.AssetEvent, now int64, author int32, eventType apigen.EventType) apigen.AssetEvent {
-	event := prev
-	event.EventID, event.Seq = 0, 0
-	event.EventTime = now
-	event.Author, event.EventType = author, eventType
-	event.Version++
-	event.Value.Fs = ptru.To(*prev.Value.Fs)
-	return event
+type currentAsset struct {
+	Asset   pq.AssetRow
+	Version pq.AssetVersionRow
 }
 
-// commitAssetEvent writes the event build returns under one commit; build
-// receives the commit time in unix milliseconds and returns nil to write
-// nothing.
-func commitAssetEvent(store *state.Service, ctx context.Context, inlockValidate func(*pq.Queries) error, build func(q *pq.Queries, now int64) (*apigen.AssetEvent, error)) error {
+func (c currentAsset) entity() apigen.Asset { return pq.AssetEntity(c.Asset, c.Version) }
+
+func latestAsset(ctx context.Context, q *pq.Queries, assetID int32) (currentAsset, bool) {
+	a, err := q.GetAssetRowByID(ctx, int64(assetID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return currentAsset{}, false
+	}
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetRowByID: %v", err))
+	}
+	v, err := q.GetAssetVersion(ctx, apigen.ValueRef{ID: int32(a.ID), Version: int32(a.ValueVersion)})
+	if err != nil {
+		panic(fmt.Sprintf("GetAssetVersion: %v", err))
+	}
+	return currentAsset{Asset: a, Version: v}, true
+}
+
+type assetWrite struct {
+	verb   apigen.AuthzVerb
+	author int32
+	id     int64
+	asset  apigen.Asset
+}
+
+// commitAssetWrite commits the mutation build returns; build receives the
+// commit time in unix milliseconds and returns nil to write nothing.
+func commitAssetWrite(store *state.Service, ctx context.Context, inlockValidate func(*pq.Queries) error, build func(q *pq.Queries, now int64) (*assetWrite, error)) error {
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		event, err := build(q, time.Now().UnixMilli())
-		if err != nil || event == nil {
+		now := time.Now().UnixMilli()
+		w, err := build(q, now)
+		if err != nil || w == nil {
 			return nil, err
 		}
 		if inlockValidate != nil {
@@ -153,33 +157,22 @@ func commitAssetEvent(store *state.Service, ctx context.Context, inlockValidate 
 				return nil, err
 			}
 		}
-		event.Seq = seq
-		if err := q.InsertAssetEvent(ctx, event); err != nil {
-			return nil, err
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(w.author), EventType: w.verb}
+		if w.verb == apigen.AuthzVerb_AUTHZ_VERB_DELETE {
+			return pq.NewUpdate(pq.DeleteMutation(meta, assetType, w.id)), nil
 		}
-		return pq.NewUpdate(pq.AssetMutation(event)), nil
+		return pq.NewUpdate(pq.AssetMutation(meta, w.id, w.asset)), nil
 	})
 }
 
-func latestAssetEvent(ctx context.Context, q *pq.Queries, assetID int32) (apigen.AssetEvent, bool) {
-	e, err := q.GetLatestAssetEvent(ctx, int64(assetID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return apigen.AssetEvent{}, false
-	}
-	if err != nil {
-		panic(fmt.Sprintf("GetLatestAssetEvent: %v", err))
-	}
-	return e, e.EventType != apigen.EventType_EVENT_TYPE_DELETE
-}
-
-func CreateAssetWithVersion(store *state.Service, key string, spaceID, directoryID, author int32, sha256, storageKey string, sizeBytes int64) (*apigen.AssetEvent, error) {
+func CreateAssetWithVersion(store *state.Service, key string, spaceID, directoryID, author int32, sha256, storageKey string, sizeBytes int64) (*pq.AssetEvent, error) {
 	if !ValidAssetKey(key) {
 		return nil, ErrAssetKeyInvalid
 	}
 	ctx := context.Background()
 	space := int64(nodes.NormalizedUserSpaceID(spaceID))
 	var assetID int64
-	err := commitAssetEvent(store, ctx, nil, func(q *pq.Queries, now int64) (*apigen.AssetEvent, error) {
+	err := commitAssetWrite(store, ctx, nil, func(q *pq.Queries, now int64) (*assetWrite, error) {
 		if err := requireStoredContent(ctx, q, sha256, storageKey); err != nil {
 			return nil, err
 		}
@@ -190,20 +183,13 @@ func CreateAssetWithVersion(store *state.Service, key string, spaceID, directory
 		if assetSiblingKeyTaken(ctx, q, space, dirID, key, 0, 0) {
 			return nil, ErrAssetAlreadyExists
 		}
-		assetID, err = q.NextAssetID(ctx)
+		assetID, err = q.NextEntityID(ctx, assetType)
 		if err != nil {
 			return nil, err
 		}
-		return &apigen.AssetEvent{
-			EventTime:    now,
-			CreatedTime:  now,
-			Author:       author,
-			AssetID:      int32(assetID),
-			Version:      1,
-			ValueVersion: 1,
-			Value:        apigen.Asset{Fs: &apigen.AssetFs{Key: key, DirectoryID: int32(dirID)}, SpaceID: int32(space), SizeBytes: sizeBytes, Sha256: sha256, StorageKey: storageKey},
-			EventType:    apigen.EventType_EVENT_TYPE_CREATE,
-		}, nil
+		return &assetWrite{verb: apigen.AuthzVerb_AUTHZ_VERB_CREATE, author: author, id: assetID, asset: apigen.Asset{
+			Fs: &apigen.AssetFs{Key: key, DirectoryID: int32(dirID)}, SpaceID: int32(space), SizeBytes: sizeBytes, Sha256: sha256, StorageKey: storageKey,
+		}}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -215,25 +201,22 @@ func CreateAssetWithVersion(store *state.Service, key string, spaceID, directory
 	return asset, nil
 }
 
-func AppendAssetVersion(store *state.Service, assetID, author int32, sha256, storageKey string, sizeBytes int64) (*apigen.AssetEvent, error) {
+func AppendAssetVersion(store *state.Service, assetID, author int32, sha256, storageKey string, sizeBytes int64) (*pq.AssetEvent, error) {
 	ctx := context.Background()
-	err := commitAssetEvent(store, ctx, nil, func(q *pq.Queries, now int64) (*apigen.AssetEvent, error) {
+	err := commitAssetWrite(store, ctx, nil, func(q *pq.Queries, now int64) (*assetWrite, error) {
 		if err := requireStoredContent(ctx, q, sha256, storageKey); err != nil {
 			return nil, err
 		}
-		prev, ok := latestAssetEvent(ctx, q, assetID)
+		prev, ok := latestAsset(ctx, q, assetID)
 		if !ok {
 			return nil, ErrAssetNotFound
 		}
-		if prev.Value.Sha256 == sha256 && prev.Value.StorageKey == storageKey {
+		if prev.Version.Sha256 == sha256 && prev.Version.StorageKey == storageKey {
 			return nil, nil
 		}
-		event := nextAssetEvent(prev, now, author, apigen.EventType_EVENT_TYPE_UPDATE)
-		event.ValueVersion = prev.ValueVersion + 1
-		event.Value.SizeBytes = sizeBytes
-		event.Value.Sha256 = sha256
-		event.Value.StorageKey = storageKey
-		return &event, nil
+		next := prev.entity()
+		next.SizeBytes, next.Sha256, next.StorageKey = sizeBytes, sha256, storageKey
+		return &assetWrite{verb: apigen.AuthzVerb_AUTHZ_VERB_UPDATE, author: author, id: prev.Asset.ID, asset: next}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -245,25 +228,25 @@ func AppendAssetVersion(store *state.Service, assetID, author int32, sha256, sto
 	return asset, nil
 }
 
-func RenameAssetKey(store *state.Service, assetID int32, newKey string) (*apigen.AssetEvent, error) {
+func RenameAssetKey(store *state.Service, assetID int32, newKey string) (*pq.AssetEvent, error) {
 	if !ValidAssetKey(newKey) {
 		return nil, ErrAssetKeyInvalid
 	}
 	ctx := context.Background()
-	err := commitAssetEvent(store, ctx, nil, func(q *pq.Queries, now int64) (*apigen.AssetEvent, error) {
-		prev, ok := latestAssetEvent(ctx, q, assetID)
+	err := commitAssetWrite(store, ctx, nil, func(q *pq.Queries, now int64) (*assetWrite, error) {
+		prev, ok := latestAsset(ctx, q, assetID)
 		if !ok {
 			return nil, ErrAssetNotFound
 		}
-		if prev.Value.Fs.Key == newKey {
+		if prev.Asset.Key == newKey {
 			return nil, nil
 		}
-		if assetSiblingKeyTaken(ctx, q, int64(prev.Value.SpaceID), int64(prev.Value.Fs.DirectoryID), newKey, int64(prev.AssetID), 0) {
+		if assetSiblingKeyTaken(ctx, q, prev.Asset.SpaceID, prev.Asset.DirectoryID, newKey, assetType, prev.Asset.ID) {
 			return nil, ErrAssetAlreadyExists
 		}
-		event := nextAssetEvent(prev, now, 0, apigen.EventType_EVENT_TYPE_UPDATE)
-		event.Value.Fs.Key = newKey
-		return &event, nil
+		next := prev.entity()
+		next.Fs.Key = newKey
+		return &assetWrite{verb: apigen.AuthzVerb_AUTHZ_VERB_UPDATE, id: prev.Asset.ID, asset: next}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -278,32 +261,29 @@ func RenameAssetKey(store *state.Service, assetID int32, newKey string) (*apigen
 func MoveAssetDirectory(store *state.Service, assetID, newDirectoryID int32) error {
 	ctx := context.Background()
 	dirID := int64(newDirectoryID)
-	return commitAssetEvent(store, ctx, nil, func(q *pq.Queries, now int64) (*apigen.AssetEvent, error) {
-		prev, ok := latestAssetEvent(ctx, q, assetID)
+	return commitAssetWrite(store, ctx, nil, func(q *pq.Queries, now int64) (*assetWrite, error) {
+		prev, ok := latestAsset(ctx, q, assetID)
 		if !ok {
 			return nil, ErrAssetNotFound
 		}
-		if int64(prev.Value.Fs.DirectoryID) == dirID {
+		if prev.Asset.DirectoryID == dirID {
 			return nil, nil
 		}
 		if dirID != 0 {
-			dir, err := q.GetAssetDirectoryByID(ctx, dirID)
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, ErrDirectoryNotFound
-			}
+			dir, err := getAssetDirectory(ctx, q, dirID)
 			if err != nil {
 				return nil, err
 			}
-			if dir.SpaceID != prev.Value.SpaceID {
+			if int64(dir.SpaceID) != prev.Asset.SpaceID {
 				return nil, ErrSpaceMoveUnsupported
 			}
 		}
-		if assetSiblingKeyTaken(ctx, q, int64(prev.Value.SpaceID), dirID, prev.Value.Fs.Key, int64(prev.AssetID), 0) {
+		if assetSiblingKeyTaken(ctx, q, prev.Asset.SpaceID, dirID, prev.Asset.Key, assetType, prev.Asset.ID) {
 			return nil, ErrAssetAlreadyExists
 		}
-		event := nextAssetEvent(prev, now, 0, apigen.EventType_EVENT_TYPE_UPDATE)
-		event.Value.Fs.DirectoryID = int32(dirID)
-		return &event, nil
+		next := prev.entity()
+		next.Fs.DirectoryID = int32(dirID)
+		return &assetWrite{verb: apigen.AuthzVerb_AUTHZ_VERB_UPDATE, id: prev.Asset.ID, asset: next}, nil
 	})
 }
 
@@ -311,19 +291,16 @@ func MoveAssetSpace(store *state.Service, assetID, newSpaceID, newDirectoryID, a
 	ctx := context.Background()
 	spaceID := int64(nodes.NormalizedUserSpaceID(newSpaceID))
 	dirID := int64(newDirectoryID)
-	return commitAssetEvent(store, ctx, inlockValidate, func(q *pq.Queries, now int64) (*apigen.AssetEvent, error) {
-		prev, ok := latestAssetEvent(ctx, q, assetID)
+	return commitAssetWrite(store, ctx, inlockValidate, func(q *pq.Queries, now int64) (*assetWrite, error) {
+		prev, ok := latestAsset(ctx, q, assetID)
 		if !ok {
 			return nil, ErrAssetNotFound
 		}
-		if spaceID == int64(prev.Value.SpaceID) && dirID == int64(prev.Value.Fs.DirectoryID) {
+		if spaceID == prev.Asset.SpaceID && dirID == prev.Asset.DirectoryID {
 			return nil, nil
 		}
 		if dirID != 0 {
-			dir, err := q.GetAssetDirectoryByID(ctx, dirID)
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil, ErrDirectoryNotFound
-			}
+			dir, err := getAssetDirectory(ctx, q, dirID)
 			if err != nil {
 				return nil, err
 			}
@@ -331,24 +308,22 @@ func MoveAssetSpace(store *state.Service, assetID, newSpaceID, newDirectoryID, a
 				return nil, ErrDirectoryNotFound
 			}
 		}
-		if assetSiblingKeyTaken(ctx, q, spaceID, dirID, prev.Value.Fs.Key, int64(prev.AssetID), 0) {
+		if assetSiblingKeyTaken(ctx, q, spaceID, dirID, prev.Asset.Key, assetType, prev.Asset.ID) {
 			return nil, ErrAssetAlreadyExists
 		}
-		event := nextAssetEvent(prev, now, author, apigen.EventType_EVENT_TYPE_UPDATE)
-		event.Value.Fs.DirectoryID = int32(dirID)
-		event.Value.SpaceID = int32(spaceID)
-		return &event, nil
+		next := prev.entity()
+		next.Fs.DirectoryID, next.SpaceID = int32(dirID), int32(spaceID)
+		return &assetWrite{verb: apigen.AuthzVerb_AUTHZ_VERB_UPDATE, author: author, id: prev.Asset.ID, asset: next}, nil
 	})
 }
 
 func DeleteAsset(store *state.Service, assetID int32, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
-	return commitAssetEvent(store, ctx, inlockValidate, func(q *pq.Queries, now int64) (*apigen.AssetEvent, error) {
-		prev, ok := latestAssetEvent(ctx, q, assetID)
+	return commitAssetWrite(store, ctx, inlockValidate, func(q *pq.Queries, now int64) (*assetWrite, error) {
+		prev, ok := latestAsset(ctx, q, assetID)
 		if !ok {
 			return nil, nil
 		}
-		event := nextAssetEvent(prev, now, 0, apigen.EventType_EVENT_TYPE_DELETE)
-		return &event, nil
+		return &assetWrite{verb: apigen.AuthzVerb_AUTHZ_VERB_DELETE, id: prev.Asset.ID}, nil
 	})
 }

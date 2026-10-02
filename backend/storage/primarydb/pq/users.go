@@ -2,36 +2,49 @@ package pq
 
 import (
 	"context"
-	"database/sql"
+	"fmt"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
+// UserRow is one live account: the facts of the User payload with the
+// encoded InternalUser as DataBlob, and the envelope of the last write.
 type UserRow struct {
-	EventMeta
-	ID        int64
-	UserID    int64
-	Name      string
-	DataBlob  []byte
-	CreatedAt int64
+	ID          int64
+	Name        string
+	DataBlob    []byte
+	CreatedTime int64
+	Seq         int64
+	EventTime   int64
+	Author      int64
 }
 
 func (r UserRow) Public() apigen.User {
-	return apigen.User{ID: int32(r.UserID), Name: r.Name, CreatedAt: r.CreatedAt}
+	return apigen.User{ID: int32(r.ID), Name: r.Name}
 }
 
-const userColumns = `id, global_seq, event_time, author, user_id, event_type, name, data_blob, created_at`
+// UserEntity is the row as the event stream carries it.
+func UserEntity(r UserRow) apigen.User {
+	u := r.Public()
+	u.Credentials = r.DataBlob
+	return u
+}
+
+const userColumns = `id, name, data_blob, created_time, seq, event_time, author`
 
 func scanUserRow(row scanner) (UserRow, error) {
 	var r UserRow
-	err := row.Scan(&r.ID, &r.GlobalSeq, &r.EventTime, &r.Author, &r.UserID, &r.EventType, &r.Name, &r.DataBlob, &r.CreatedAt)
+	err := row.Scan(&r.ID, &r.Name, &r.DataBlob, &r.CreatedTime, &r.Seq, &r.EventTime, &r.Author)
 	return r, err
 }
 
-const liveUsers = `FROM user_event_log WHERE id IN (SELECT MAX(id) FROM user_event_log GROUP BY user_id) AND event_type != 3`
+// GetUserRow returns the live account, or sql.ErrNoRows.
+func (q *Queries) GetUserRow(ctx context.Context, userID int64) (UserRow, error) {
+	return scanUserRow(q.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE id = ?`, userID))
+}
 
-func (q *Queries) listUserRows(ctx context.Context, where string, args ...any) ([]UserRow, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT `+userColumns+` `+where, args...)
+func (q *Queries) ListUserRows(ctx context.Context) ([]UserRow, error) {
+	rows, err := q.db.QueryContext(ctx, `SELECT `+userColumns+` FROM users ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -47,26 +60,13 @@ func (q *Queries) listUserRows(ctx context.Context, where string, args ...any) (
 	return out, rows.Err()
 }
 
-// GetUserRow returns the newest row for the user, deleted or not.
-func (q *Queries) GetUserRow(ctx context.Context, userID int64) (UserRow, error) {
-	return scanUserRow(q.db.QueryRowContext(ctx, `SELECT `+userColumns+` FROM user_event_log WHERE user_id = ? ORDER BY id DESC LIMIT 1`, userID))
-}
-
-func (q *Queries) getLiveUserRow(ctx context.Context, userID int64) (UserRow, error) {
-	r, err := q.GetUserRow(ctx, userID)
-	if err == nil && r.deleted() {
-		return UserRow{}, sql.ErrNoRows
-	}
-	return r, err
-}
-
 func (q *Queries) GetUser(ctx context.Context, userID int64) (apigen.User, error) {
-	r, err := q.getLiveUserRow(ctx, userID)
+	r, err := q.GetUserRow(ctx, userID)
 	return r.Public(), err
 }
 
 func (q *Queries) ListUsers(ctx context.Context) ([]apigen.User, error) {
-	rows, err := q.listUserRows(ctx, liveUsers+` ORDER BY user_id`)
+	rows, err := q.ListUserRows(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (q *Queries) ListUsers(ctx context.Context) ([]apigen.User, error) {
 }
 
 func (q *Queries) GetInternalUser(ctx context.Context, userID int64) (*apigen.InternalUser, error) {
-	r, err := q.getLiveUserRow(ctx, userID)
+	r, err := q.GetUserRow(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (q *Queries) GetInternalUser(ctx context.Context, userID int64) (*apigen.In
 }
 
 func (q *Queries) ListInternalUsers(ctx context.Context) ([]*apigen.InternalUser, error) {
-	rows, err := q.listUserRows(ctx, liveUsers+` ORDER BY user_id`)
+	rows, err := q.ListUserRows(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -102,20 +102,17 @@ func (q *Queries) ListInternalUsers(ctx context.Context) ([]*apigen.InternalUser
 	return out, nil
 }
 
-func (q *Queries) NextUserID(ctx context.Context) (int64, error) {
-	return q.nextEntityID(ctx, "user_event_log", "user_id")
+func (q *Queries) reduceUser(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, u *apigen.User) error {
+	if u == nil {
+		return fmt.Errorf("payload has no user")
+	}
+	return q.upsert(ctx, meta, `INSERT INTO users (id, name, data_blob, created_time, seq, event_time, author) VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET name = excluded.name, data_blob = excluded.data_blob, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
+RETURNING created_time`,
+		id, u.Name, notNullBlob(u.Credentials), env.EventTime, env.Seq, env.EventTime, env.Author)
 }
 
-type UserEventParams struct {
-	EventMeta
-	UserID    int64
-	Name      string
-	DataBlob  []byte
-	CreatedAt int64
-}
-
-func (q *Queries) InsertUserEvent(ctx context.Context, arg UserEventParams) error {
-	_, err := q.db.ExecContext(ctx, `INSERT INTO user_event_log (global_seq, event_time, author, user_id, event_type, name, data_blob, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, arg.GlobalSeq, arg.EventTime, arg.Author, arg.UserID, arg.EventType, arg.Name, arg.DataBlob, arg.CreatedAt)
+func (q *Queries) deleteUserRow(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, id)
 	return err
 }

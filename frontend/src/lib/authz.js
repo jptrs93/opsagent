@@ -126,13 +126,13 @@ export function describeGrant(record, templatesById, spaceNames) {
         if (!template) {
             return {template: true, label: `role ${templateId}`, detail: "", title: "", delegable: false};
         }
-        const args = templateArguments(template.template);
-        const bindings = new Map((record?.grant?.args || []).map((b) => [Number(b.argumentId), b.values || []]));
+        const args = templateArguments(template.spec);
+        const bindings = new Map((record?.spec?.args || []).map((b) => [Number(b.argumentId), b.values || []]));
         const detail = args
             .map((a) => (bindings.get(a.id) || []).map((v) => positionValueName(a.kind, v, spaceNames)).join(", "))
             .join("; ");
         const argNames = new Map(args.map((a) => [a.id, a.name]));
-        const rules = template.template?.rules || [];
+        const rules = template.spec?.rules || [];
         return {
             template: true,
             label: template.name,
@@ -141,7 +141,7 @@ export function describeGrant(record, templatesById, spaceNames) {
             delegable: rules.some((r) => r?.delegationAllowed),
         };
     }
-    const rule = record?.grant?.rule;
+    const rule = record?.spec?.rule;
     return {
         template: false,
         label: describeSelector(rule?.permissions, "permissions", spaceNames),

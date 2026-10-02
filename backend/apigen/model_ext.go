@@ -293,25 +293,6 @@ func (s AccessPolicyType) String() string {
 	}
 }
 
-func (v *SecretEvent) SpaceID() int32 {
-	if v == nil {
-		return 0
-	}
-	return v.Value.SpaceID
-}
-func (v *ConfigEvent) SpaceID() int32 {
-	if v == nil {
-		return 0
-	}
-	return v.Value.SpaceID
-}
-func (v *AssetEvent) SpaceID() int32 {
-	if v == nil {
-		return 0
-	}
-	return v.Value.SpaceID
-}
-
 // ReportedValue accepts the previous release's flat hello during worker rollout.
 func (h *EnrollmentHello) ReportedValue() NodeReported {
 	if h.Reported == nil {
@@ -398,6 +379,30 @@ func (m *CoreMutation) Entity() *CoreEntity {
 		return m.Update.Entity
 	}
 	return nil
+}
+
+// Meta returns what the log says about the entity after a create or update,
+// and nil for a delete.
+func (m *CoreMutation) Meta() *EntityMeta {
+	switch {
+	case m == nil:
+		return nil
+	case m.Create != nil:
+		return m.Create.Meta
+	case m.Update != nil:
+		return m.Update.Meta
+	}
+	return nil
+}
+
+func (m *CoreMutation) SetMeta(meta *EntityMeta) {
+	switch {
+	case m == nil:
+	case m.Create != nil:
+		m.Create.Meta = meta
+	case m.Update != nil:
+		m.Update.Meta = meta
+	}
 }
 
 // Has reports whether the update carries a mutation of the given type.

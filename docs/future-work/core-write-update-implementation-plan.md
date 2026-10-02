@@ -460,7 +460,7 @@ message CoreEntity {                 // exactly one set; field numbers equal Cor
   ValueDirectory value_directory = 10;
   AssetDirectory asset_directory = 11;
   AuthzRuleTemplate authz_rule_template = 12;
-  AuthzGrantValue authz_grant = 13;
+  AuthzGrant authz_grant = 13;
   AuthzGlobalRule authz_global_rule = 14;
   SystemConfig system_config = 15;
   ScheduledInstanceStatus scheduled_instance_status = 16;
@@ -502,7 +502,8 @@ messages (`DeploymentEvent`, `NodeEvent`, `ScheduledInstanceEvent`,
 `AssetEvent`), `CoreUpdate`, `Snapshot`, and `StateStreamMsg` leave the
 public API at step 6. `DeploymentEvent` stays defined because
 `ScheduledInstanceState.config` carries it to the worker over the cluster
-protocol.
+protocol (since 2026-10-02 that is its only wire use: the three REST
+responses that still carried it return `DeploymentRecord`, see the status).
 
 Concurrency fields:
 
@@ -787,39 +788,98 @@ the batch decides for all of its rows).
 Deviations from the sections above:
 
 - **`EventStreamMsg.seq` on every message.** Heartbeats and live messages
-  carry the seq the client is now at, so a client that saw only invisible
-  commits still resumes from the right place; `after_seq` is that value.
+  carry the seq the client is now at, which is the `expected_seq` upper
+  bound a client may send; since the snapshot opening it is no longer a
+  resume token.
 - **Message order on connect.** The sidecar message comes first, then the
-  opening message with `synced` set; `reset` marks a bootstrap. The plan had
+  opening message with `synced` set and the snapshot. The plan had
   the sidecars after the opening events.
 - **`POST /v1/global/events`.** The one-shot agent variant is a POST with the
-  same `EventStreamRequest`, returning the opening events and sidecars in one
+  same `EventStreamRequest`, returning the snapshot and sidecars in one
   message.
-- **Payload ids kept.** `ScheduledInstance.id`, `Space.id`, `User.id`, the
-  directory ids, and the session string ids stay on the entities; the
-  `entity_id` on the mutation is authoritative and the two agree. Session and
-  Nix store reset entity ids are the row id of the entity's first event.
-- **Envelope messages retained for REST.** `DeploymentEvent`, `SecretEvent`,
-  `ConfigEvent`, `AssetEvent`, `NodeEvent`, and the list wrappers still shape
-  the request/response endpoints; only the stream moved to entities. The
-  envelopes carry the entity's facts twice (`version`, `spec_version`,
-  `value_version`, `created_time` on both the envelope and `value`).
+- **Ids live on the payload (2026-10-02).** Every identity payload carries
+  its own `id`; `Deployment`, `Node`, `Secret`, `Config`, `Asset`,
+  `NetworkPolicy`, and `AuthzGrant` gained the field on this date, the
+  others always had it. The `entity_id` on the mutation is a denormalised
+  copy kept for routing and for deletes, stamped from the row id when a
+  mutation is built or replayed (`pq.StampEntityID`), so pre-upgrade log rows
+  replay with the id filled in. Stored blobs (`deployment_versions.value`,
+  `network_policies.data_blob`) keep the id zeroed with the other row facts.
+  Session and Nix store reset entity ids are the row id of the entity's
+  first event.
+- **Authz entities carry the id, the envelope carries the author
+  (2026-10-02).** The record and body split is gone: `AuthzRuleTemplate`,
+  `AuthzGrant`, and `AuthzGlobalRule` are the identified entities (`id`,
+  name or subject facts) and nest the rule content as `spec`
+  (`AuthzRuleTemplateSpec`, `AuthzGrantSpec`, `AuthzGlobalRuleSpec`), the
+  shapes the create and update requests take under `spec`. The payload
+  `author` fields are reserved; the actor is the mutation envelope's, which
+  the authz writers now pass through `pq.EventMeta` on creates, updates, and
+  deletes alike. The plan's "existing record messages without `id`" shape
+  above is superseded. The `authz.Service` caches the entity messages
+  directly, with `authz.GrantRecord` removed.
+- **Envelope messages retired from REST (2026-10-02).** Every write endpoint
+  that returned an entity returns a `CoreWriteUpdate` carrying the written
+  entity's mutation under the seq of the commit that last wrote it (a no-op
+  returns the current row under its last seq); the six per-entity list
+  endpoints and `/v1/access/grants/list` are gone; `NodeEvent`,
+  `SecretEvent`, `ConfigEvent`, `AssetEvent`, `NetworkPolicyEvent`,
+  `ScheduledInstanceEvent`, `AuthzGrantRecord`, and the list wrappers are no
+  longer messages, kept backend-side as `pq` row views;
+  `DeploymentGetResponse.scheduled_instances` carries
+  `ScheduledInstance` payloads (tag 2 reserved). The receipt's mutation
+  carries `version`, `spec_version`, `value_version`, and `created_time` as
+  meta, stamped from the row. Later the same day `DeploymentGetResponse`,
+  `DeploymentHistoryEntry`, and `RecentlyDeletedDeployments` dropped
+  `DeploymentEvent` for `DeploymentRecord{deployment, meta}` (old tags
+  reserved), so the envelope message is left only on the cluster wire as
+  `ScheduledInstanceState.config` and as the backend's `pq` row view;
+  moving that to a plain `Deployment` needs a cluster protocol bump and is
+  the next slice.
 - **Delete forwarding.** A viewer receives a delete only for an entity it was
-  sent, tracked per connection, with a `pq.LatestMutation` lookup for entities
-  first seen after a reconnect; a delete of a grant it never saw is a reset.
+  sent, tracked per connection; a delete of a grant it never saw sends a
+  fresh snapshot.
 - **The write log (2026-09-30).** `Commit` appends the update it publishes
   to `write_events` and `write_event_mutations` in the same transaction as
-  the entity rows, and `pq.Open` backfills any sequences the log lacks from
-  the entity tables. The entity tables are from here on materialised views
+  the entity rows; v0.0.614 backfilled the log from the entity tables at
+  startup, and since 2026-10-01 `pq.Open` instead refuses a database whose
+  log stops short of `global_seq`. The entity tables are materialised views
   of that log, each retaining whatever its readers need; `asset_store`
   (node-local placement reconciled from disk and S3) and `global_seq` stay
-  outside it. The log grows unbounded with no compaction planned. The stream
-  and bootstrap still read the entity tables.
-- **Opening visibility is per entity.** In a bootstrap or replay the newest
-  payload of an entity decides for every one of its rows, so a value carries
+  outside it. The log grows unbounded with no compaction planned. The history
+  endpoints, the rebuild, and `LatestMutation` read the log; the snapshot
+  reads the tables. Secrets, configs, assets, and both directory kinds are
+  reduced types whose tables `pq.Reduce` maintains from the mutations
+  (`docs/future-work/materialised-tables-implementation-plan.md`).
+- **Opening visibility is per entity.** In a snapshot the newest
+  entry of an entity decides for every one of its entries, so a value carries
   its whole history into a space (including versions written elsewhere) and
   leaves none behind when it moves out; a live commit still decides each
   mutation by its own payload.
+- **Snapshot opening and entity meta (2026-10-02).** Decision 6 and the
+  compacted bootstrap are superseded. A stream opens with a `CoreSnapshot`
+  (`seq`, one `MaterialisedEntity{entity_type, entity_id, entity, meta}` per
+  live entity, per retained version of a deployment or value in version
+  order, and per pinned version of a deleted deployment with `meta.deleted`)
+  read from the materialised tables by `pq.Snapshot`; `after_seq`, `reset`,
+  the replay window, `pq.BootstrapMutations`, `pq.MutationsInRange`,
+  `pq.LatestPayload`, `pq.LatestSeqOf`, and `pq.VisibilityChangesSince` are
+  gone, and a
+  visibility change on an open connection resends a snapshot. The derived
+  facts left the payloads: `version` and `spec_version` on `Deployment`,
+  `value_version` on the values, and `created_time` and `author` everywhere
+  are reserved tags, and `EntityMeta{created_time, updated_time,
+  updated_seq, updated_actor, version, spec_version, value_version,
+  deleted}` rides beside the payload on every live create and update
+  mutation and every snapshot entry, stamped by the reducer from the rows
+  (`pq.rowMeta`, `StampMeta` for write receipts) and never written to the
+  log. The reducer derives the deployment counters itself
+  (`deploymentVersionFacts` with `DeploymentSpecsEqual`), six tables gained
+  `created_time` (filled by the legacy migration's rebuild), and the
+  fold oracle compares the live snapshot with the snapshot of a rebuild from
+  the log, meta included. `PostV1UserSessionsList` items no longer carry
+  `created_at`; the browser tree reads every derived fact from meta and
+  folds a snapshot into an empty tree.
 - **Nix store resets** are on the stream for cluster viewers; keyslots are
   dropped for the browser class as planned.
 - **Status tables** gained `event_time` (v0.0.615 migration, backfilled from

@@ -28,14 +28,14 @@ func mustOpen(t *testing.T, dir string, store *state.Service) *Manager {
 	return mgr
 }
 
-func recordByID(t *testing.T, store *state.Service, id int32) Record {
+func recordByRef(t *testing.T, store *state.Service, ref apigen.ValueRef) Record {
 	t.Helper()
 	for _, r := range ListVersionRecords(store.Queries()) {
-		if r.ID == id {
+		if r.ref() == ref {
 			return r
 		}
 	}
-	t.Fatalf("secret version %d not found", id)
+	t.Fatalf("secret version %s not found", ref)
 	return Record{}
 }
 
@@ -54,7 +54,7 @@ func TestCreateResolveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if meta.SecretID == 0 || meta.ID == 0 || meta.Version != 1 || meta.Author != 7 {
+	if meta.SecretID == 0 || meta.Version != 1 || meta.Author != 7 {
 		t.Fatalf("meta = %+v", meta)
 	}
 	got, ok := mgr.Resolve(meta.Ref())
@@ -97,7 +97,7 @@ func TestCiphertextAtRestNotPlaintext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if string(recordByID(t, store, meta.ID).Ciphertext) == "super-secret-value" {
+	if string(recordByRef(t, store, meta.Ref()).Ciphertext) == "super-secret-value" {
 		t.Fatal("value stored in plaintext")
 	}
 }
@@ -113,7 +113,7 @@ func TestAADBindingPreventsSwap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create b: %v", err)
 	}
-	recA := recordByID(t, store, metaA.ID)
+	recA := recordByRef(t, store, metaA.Ref())
 	if _, err := aeadOpen(mgr.smk, recA.Ciphertext, recA.Nonce, secretAAD(metaB.SecretID)); err == nil {
 		t.Fatal("ciphertext of one secret opened under another secret's identity")
 	}
@@ -134,11 +134,11 @@ func TestRenameIsMetadataOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Set second: %v", err)
 	}
-	beforeCiphertext := string(recordByID(t, store, first.ID).Ciphertext)
+	beforeCiphertext := string(recordByRef(t, store, first.Ref()).Ciphertext)
 	if err := mgr.Rename(first.SecretID, "prod.db.password"); err != nil {
 		t.Fatalf("Rename: %v", err)
 	}
-	if got := string(recordByID(t, store, first.ID).Ciphertext); got != beforeCiphertext {
+	if got := string(recordByRef(t, store, first.Ref()).Ciphertext); got != beforeCiphertext {
 		t.Fatal("rename re-encrypted a version; the id-bound AAD makes that unnecessary")
 	}
 	if got, ok := mgr.Resolve(first.Ref()); !ok || got != "one" {
@@ -151,7 +151,7 @@ func TestRenameIsMetadataOnly(t *testing.T) {
 	if got, ok := mgr2.Resolve(first.Ref()); !ok || got != "one" {
 		t.Fatalf("Resolve first after reopen = %q, %v; want one, true", got, ok)
 	}
-	if m, ok := mgr2.MetaByRef(second.Ref()); !ok || m.Name != "prod.db.password" || m.ID != second.ID {
+	if m, ok := mgr2.MetaByRef(second.Ref()); !ok || m.Name != "prod.db.password" || m.Ref() != second.Ref() {
 		t.Fatalf("MetaByRef after reopen = %+v, %v", m, ok)
 	}
 }
@@ -322,15 +322,24 @@ func TestKeyslotsAreNodeKeyedEvents(t *testing.T) {
 	}
 	raw := sqlitedb.MustOpen(filepath.Join(dir, "primary.db"))
 	defer raw.Close()
+	recoverySlot := pq.SecretKeyslotEntityID(pq.SecretKeyslot{Kind: slotRecovery})
 	var rows int
-	if err := raw.QueryRow(`SELECT COUNT(*) FROM secret_keyslot_event_log WHERE kind = 2 AND node_id = 0 AND author = 7 AND global_seq > 0`).Scan(&rows); err != nil || rows != 2 {
-		t.Fatalf("recovery slot events authored by user 7 = %d, %v; want 2 (create then update)", rows, err)
+	if err := raw.QueryRow(`SELECT COUNT(*) FROM write_event_mutations m JOIN write_events e ON e.seq = m.seq WHERE m.entity_type = ? AND m.entity_id = ? AND e.actor = 7`,
+		int64(apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT), recoverySlot).Scan(&rows); err != nil || rows != 2 {
+		t.Fatalf("recovery slot writes authored by user 7 = %d, %v; want 2 (create then update)", rows, err)
 	}
 	var types string
-	if err := raw.QueryRow(`SELECT group_concat(event_type, ',') FROM (SELECT event_type FROM secret_keyslot_event_log WHERE kind = 2 ORDER BY id)`).Scan(&types); err != nil || types != "1,2" {
-		t.Fatalf("recovery slot event types = %q, %v; want 1,2", types, err)
+	if err := raw.QueryRow(`SELECT group_concat(op, ',') FROM (SELECT op FROM write_event_mutations WHERE entity_type = ? AND entity_id = ? ORDER BY seq)`,
+		int64(apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT), recoverySlot).Scan(&types); err != nil || types != "1,2" {
+		t.Fatalf("recovery slot write kinds = %q, %v; want 1,2", types, err)
 	}
-	if _, err := store.Queries().DeleteNodeSecretKeyslots(t.Context(), pq.EventMeta{GlobalSeq: 99, EventTime: 1}, int64(primary.ID)); err != nil {
+	if err := store.Commit(t.Context(), nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
+		deletes, err := q.NodeSecretKeyslotDeletes(t.Context(), pq.EventMeta{GlobalSeq: seq, EventTime: 1}, int64(primary.ID))
+		if err != nil {
+			return nil, err
+		}
+		return pq.NewUpdate(deletes...), nil
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := findSlot(listKeyslots(store.Queries()), slotMachine, primary.ID); ok {

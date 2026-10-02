@@ -57,7 +57,7 @@ creation; its space can be changed through the same endpoint's
 `running_only_update` (see Config versioning).
 
 `scheduling.dedicatedNodes.nodes` is the required canonical placement and
-references `NodeEvent.nodeId`; validation accepts exactly one positive node id
+references the node's entity id; validation accepts exactly one positive node id
 until multi-node deployments land. Deployment history entries carry the
 deployment's current identity and node placement as display metadata.
 
@@ -157,23 +157,22 @@ creates a new placement, so the version together with node, instance and
 run names one container lifetime even though run numbers restart at 1 for
 every placement. `specVersion` remains the "code changed" facet for history
 and the run report.
-Storage is a single append-only event log, `deployment_event_log`: every
-mutation appends one row carrying a full `Deployment` snapshot (`value`)
-plus queryable version columns (`version`, `spec_version`,
-`space_assignment_version`, `name_version`, `scheduling_version`), unique on
-`(deployment_id, version)` — which is also the CAS backstop every guarded
-operation transitively rests on. The current desired state is the deployment's
-highest-version event; the UI reconstructs the sequence of changes from the
-per-deployment event range.
+Storage is the write log plus two materialised tables: `deployments`
+holds the current row of every live deployment (`version`, `spec_version`,
+`space_id`, `name`, `created_time`) and `deployment_versions` holds each
+retained version with its full `Deployment` snapshot (`value`), keyed by
+`(deployment_id, version)`. A version is retained while it is current or a
+retained scheduled instance pins it. Every change is one logged mutation
+carrying the whole document, and the UI reconstructs the sequence of
+changes from the deployment's logged history.
 
 Deleting is its own event, `POST /v1/deployments/delete`, guarded by the
-top-level version (the request's `version` must equal the current one + 1).
-It bumps only the top-level version — the spec and other sub-parts are left
-untouched, so `specVersion` remains strictly "times the spec changed" — and
-the delete row carries the full config as the tombstone (`eventType` marks
-it). Delete is terminal: the deployment leaves the live cache, so tombstones
-are read back from the event log (scheduler teardown, the recently-deleted
-view) and any further write attempt has no predecessor event to follow.
+`expected_seq` the caller observed. It changes no version: the delete is a
+delete mutation in the log, and the history and the recently-deleted view
+render it as the last document under `eventType` delete. Delete is
+terminal: the current row goes, the versions a live instance still pins
+stay until that instance is finalized, and any further write attempt finds
+no current row.
 
 A space move is its own update kind, `assigned_space_update` in
 `POST /v2/deployments/update`, guarded like every update kind by the
@@ -183,7 +182,7 @@ deployment back. The space
 feeds the workload's derived inbound address, DNS name, and issued TLS
 identity, so a live placement is never mutated by a move: each scheduled
 instance snapshots the deployment's space at scheduling time
-(`scheduled_instance_event_log.space_id`) and keeps deriving for that space, while the
+(`scheduled_instances.space_id`) and keeps deriving for that space, while the
 scheduler compares resolved space values and treats a pin/config mismatch
 exactly like a superseded spec version, replacing the placement through the
 normal rollover (or recreate) path (comparing values rather than rows means
@@ -395,7 +394,7 @@ counter is reset.
 
 ## Deployment history
 
-The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, moved, restarted, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is stored in `deployment_event_log` (`UNIQUE (deployment_id, version)`, one full-snapshot event per change — spec updates, space moves, and the delete) and `scheduled_instance_status` (PK `scheduled_instance_id, updated_at`), the append-only status log covering every scheduled instance of the deployment; `idx_scheduled_instance_status_deployment` covers the `deployment_id`-leading lookup.
+The history sidebar shows a chronological log of all deployment config and status changes. Config entries show the version number and what changed (version deployed, running toggled, moved, restarted, deleted). Status entries show preparer and runner state transitions (diff-rendered against the previous entry so unchanged sections aren't repeated). All entries are fetched via `POST /v1/deployments/history` with the integer deployment ID. History is read from the write log: the deployment's own mutations (one full-snapshot document per change — spec updates, space moves, and the delete) and the status mutations of every scheduled instance the deployment ever had, found through the instances' logged creates.
 
 ## Empty state
 

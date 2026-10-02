@@ -477,7 +477,7 @@ export function logsPage(selectedDeploymentId) {
         try {
             const resp = await capi.postV1DeploymentsHistory({deploymentId: id});
             if (versionsForDeployment !== id) return;
-            const versions = new Set((resp.entries || []).map(e => Number(e.config?.version || 0)));
+            const versions = new Set((resp.entries || []).map(e => Number(e.deployment?.meta?.version || 0)));
             if (current) versions.add(current);
             workloadVersionsS.val = [...versions].filter(v => v > 0).sort((a, b) => b - a);
         } catch {

@@ -5,19 +5,19 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/networkpolicies"
 )
 
-func (h *Handler) PostV1NetworkPoliciesList(ctx apigen.Context) (*apigen.NetworkPolicyEventList, error) {
-	return &apigen.NetworkPolicyEventList{Items: h.visibleNetworkPolicies(ctx)}, nil
-}
-
-func (h *Handler) PostV1NetworkPoliciesCreate(ctx apigen.Context, req *apigen.NetworkPolicyCreateRequest) (*apigen.NetworkPolicyEvent, error) {
+func (h *Handler) PostV1NetworkPoliciesCreate(ctx apigen.Context, req *apigen.NetworkPolicyCreateRequest) (*apigen.CoreWriteUpdate, error) {
 	policy := &apigen.NetworkPolicy{Action: req.Action, Source: req.Source, Destination: req.Destination, Ports: req.Ports}
 	if err := h.validateNetworkPolicyContent(ctx, policy); err != nil {
 		return nil, err
 	}
-	return networkpolicies.Create(h.Store, int32(authorID(ctx)), policy)
+	event, err := networkpolicies.Create(h.Store, int32(authorID(ctx)), policy)
+	if err != nil {
+		return nil, err
+	}
+	return h.written(ctx, event.Mutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE)), nil
 }
 
-func (h *Handler) PostV1NetworkPoliciesUpdate(ctx apigen.Context, req *apigen.NetworkPolicyUpdateRequest) (*apigen.NetworkPolicyEvent, error) {
+func (h *Handler) PostV1NetworkPoliciesUpdate(ctx apigen.Context, req *apigen.NetworkPolicyUpdateRequest) (*apigen.CoreWriteUpdate, error) {
 	current := networkpolicies.ByID(h.Queries, req.ID)
 	if current == nil || !h.networkPolicyVisible(ctx, &current.Value) {
 		return nil, networkpolicies.NotFoundErr
@@ -29,7 +29,11 @@ func (h *Handler) PostV1NetworkPoliciesUpdate(ctx apigen.Context, req *apigen.Ne
 	if err := h.validateNetworkPolicyContent(ctx, policy); err != nil {
 		return nil, err
 	}
-	return networkpolicies.Update(h.Store, req.ID, req.ExpectedSeq, int32(authorID(ctx)), policy)
+	event, err := networkpolicies.Update(h.Store, req.ID, req.ExpectedSeq, int32(authorID(ctx)), policy)
+	if err != nil {
+		return nil, err
+	}
+	return h.written(ctx, event.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
 func (h *Handler) PostV1NetworkPoliciesDelete(ctx apigen.Context, req *apigen.NetworkPolicyDeleteRequest) error {
@@ -80,17 +84,6 @@ func (h *Handler) requireNetworkPolicyWriteAccess(ctx apigen.Context, policy *ap
 		return h.requireAccess(ctx, vUpdate, eCluster, 0, 0)
 	}
 	return h.requireEntityAccess(ctx, vUpdate, eSpace, int64(destinationSpace), int64(destinationSpace), networkpolicies.NotFoundErr)
-}
-
-func (h *Handler) visibleNetworkPolicies(ctx apigen.Context) []*apigen.NetworkPolicyEvent {
-	policies := networkpolicies.List(h.Queries)
-	out := make([]*apigen.NetworkPolicyEvent, 0, len(policies))
-	for _, policy := range policies {
-		if h.networkPolicyVisible(ctx, &policy.Value) {
-			out = append(out, policy)
-		}
-	}
-	return out
 }
 
 func (h *Handler) networkPolicyVisible(ctx apigen.Context, policy *apigen.NetworkPolicy) bool {

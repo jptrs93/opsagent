@@ -12,9 +12,11 @@ import (
 )
 
 func LatestRevision(q *pq.Queries) (pq.SystemConfigRevision, error) {
-	return q.GetLatestConfig(context.Background())
+	return q.GetSystemConfig(context.Background())
 }
 
+// AppendRevision writes the settings document and returns the seq of the
+// write, which is the revision's version.
 func AppendRevision(store *state.Service, author int32, blob []byte, inlockValidate func(*pq.Queries) error) (int64, error) {
 	ctx := context.Background()
 	var id int64
@@ -25,7 +27,7 @@ func AppendRevision(store *state.Service, author int32, blob []byte, inlockValid
 			}
 		}
 		eventType := apigen.AuthzVerb_AUTHZ_VERB_UPDATE
-		if _, err := q.GetLatestConfig(ctx); errors.Is(err, sql.ErrNoRows) {
+		if _, err := q.GetSystemConfig(ctx); errors.Is(err, sql.ErrNoRows) {
 			eventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
 		} else if err != nil {
 			return nil, err
@@ -35,10 +37,7 @@ func AppendRevision(store *state.Service, author int32, blob []byte, inlockValid
 			return nil, err
 		}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType}
-		id, err = q.InsertSystemConfigRevision(ctx, pq.SystemConfigRevisionParams{EventMeta: meta, ConfigBlob: blob})
-		if err != nil {
-			return nil, err
-		}
+		id = seq
 		return pq.NewUpdate(pq.SystemConfigMutation(meta, cfg)), nil
 	})
 	return id, err

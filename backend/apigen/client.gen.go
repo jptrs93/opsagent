@@ -520,7 +520,7 @@ func (c *ApiServerCapi) PostV1AccessRuleTemplatesList(ctx context.Context) (*Aut
 	return DecodeAuthzRuleTemplateList(body)
 }
 
-func (c *ApiServerCapi) PostV1AccessRuleTemplatesCreate(ctx context.Context, req *AuthzRuleTemplateCreateRequest) (*AuthzRuleTemplateRecord, error) {
+func (c *ApiServerCapi) PostV1AccessRuleTemplatesCreate(ctx context.Context, req *AuthzRuleTemplateCreateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AccessRuleTemplatesCreate request is nil")
 	}
@@ -536,10 +536,10 @@ func (c *ApiServerCapi) PostV1AccessRuleTemplatesCreate(ctx context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAuthzRuleTemplateRecord(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1AccessRuleTemplatesUpdate(ctx context.Context, req *AuthzRuleTemplateUpdateRequest) (*AuthzRuleTemplateRecord, error) {
+func (c *ApiServerCapi) PostV1AccessRuleTemplatesUpdate(ctx context.Context, req *AuthzRuleTemplateUpdateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AccessRuleTemplatesUpdate request is nil")
 	}
@@ -555,7 +555,7 @@ func (c *ApiServerCapi) PostV1AccessRuleTemplatesUpdate(ctx context.Context, req
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAuthzRuleTemplateRecord(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1AccessRuleTemplatesDelete(ctx context.Context, req *AuthzRuleTemplateDeleteRequest) error {
@@ -573,23 +573,7 @@ func (c *ApiServerCapi) PostV1AccessRuleTemplatesDelete(ctx context.Context, req
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1AccessGrantsList(ctx context.Context) (*AuthzGrantList, error) {
-	resp, err := c.do(ctx, "POST", "/v1/access/grants/list", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeAuthzGrantList(body)
-}
-
-func (c *ApiServerCapi) PostV1AccessGrantsCreate(ctx context.Context, req *AuthzGrantCreateRequest) (*AuthzGrantRecord, error) {
+func (c *ApiServerCapi) PostV1AccessGrantsCreate(ctx context.Context, req *AuthzGrantCreateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AccessGrantsCreate request is nil")
 	}
@@ -605,7 +589,7 @@ func (c *ApiServerCapi) PostV1AccessGrantsCreate(ctx context.Context, req *Authz
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAuthzGrantRecord(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1AccessGrantsDelete(ctx context.Context, req *AuthzGrantDeleteRequest) error {
@@ -639,7 +623,7 @@ func (c *ApiServerCapi) PostV1AccessGlobalRulesList(ctx context.Context) (*Authz
 	return DecodeAuthzGlobalRuleList(body)
 }
 
-func (c *ApiServerCapi) PostV1AccessGlobalRulesCreate(ctx context.Context, req *AuthzGlobalRuleCreateRequest) (*AuthzGlobalRuleRecord, error) {
+func (c *ApiServerCapi) PostV1AccessGlobalRulesCreate(ctx context.Context, req *AuthzGlobalRuleCreateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AccessGlobalRulesCreate request is nil")
 	}
@@ -655,7 +639,7 @@ func (c *ApiServerCapi) PostV1AccessGlobalRulesCreate(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAuthzGlobalRuleRecord(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1AccessGlobalRulesDelete(ctx context.Context, req *AuthzGlobalRuleDeleteRequest) error {
@@ -765,7 +749,7 @@ func (c *ApiServerCapi) PostV1DeploymentsGet(ctx context.Context, req *Deploymen
 	return DecodeDeploymentGetResponse(body)
 }
 
-func (c *ApiServerCapi) PostV1DeploymentsCreate(ctx context.Context, req *DeploymentCreateRequest) (*DeploymentEvent, error) {
+func (c *ApiServerCapi) PostV1DeploymentsCreate(ctx context.Context, req *DeploymentCreateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1DeploymentsCreate request is nil")
 	}
@@ -781,10 +765,10 @@ func (c *ApiServerCapi) PostV1DeploymentsCreate(ctx context.Context, req *Deploy
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDeploymentEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV2DeploymentsUpdate(ctx context.Context, req *DeploymentUpdateRequestV2) (*DeploymentEvent, error) {
+func (c *ApiServerCapi) PostV2DeploymentsUpdate(ctx context.Context, req *DeploymentUpdateRequestV2) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV2DeploymentsUpdate request is nil")
 	}
@@ -800,7 +784,7 @@ func (c *ApiServerCapi) PostV2DeploymentsUpdate(ctx context.Context, req *Deploy
 	if err != nil {
 		return nil, err
 	}
-	return DecodeDeploymentEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1DeploymentsDelete(ctx context.Context, req *DeploymentDeleteRequest) error {
@@ -1008,23 +992,7 @@ func (c *ApiServerCapi) PostV1ReposValidate(ctx context.Context, req *RepoValida
 	return DecodeRepoValidateResponse(body)
 }
 
-func (c *ApiServerCapi) PostV1NodesList(ctx context.Context) (*NodeEventList, error) {
-	resp, err := c.do(ctx, "POST", "/v1/nodes/list", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeNodeEventList(body)
-}
-
-func (c *ApiServerCapi) PostV1NodesRename(ctx context.Context, req *NodeRenameRequest) (*NodeEvent, error) {
+func (c *ApiServerCapi) PostV1NodesRename(ctx context.Context, req *NodeRenameRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NodesRename request is nil")
 	}
@@ -1040,10 +1008,10 @@ func (c *ApiServerCapi) PostV1NodesRename(ctx context.Context, req *NodeRenameRe
 	if err != nil {
 		return nil, err
 	}
-	return DecodeNodeEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1NodesAllowedSpaces(ctx context.Context, req *NodeAllowedSpacesRequest) (*NodeEvent, error) {
+func (c *ApiServerCapi) PostV1NodesAllowedSpaces(ctx context.Context, req *NodeAllowedSpacesRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NodesAllowedSpaces request is nil")
 	}
@@ -1059,10 +1027,10 @@ func (c *ApiServerCapi) PostV1NodesAllowedSpaces(ctx context.Context, req *NodeA
 	if err != nil {
 		return nil, err
 	}
-	return DecodeNodeEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1NodesDrain(ctx context.Context, req *NodeDrainRequest) (*NodeEvent, error) {
+func (c *ApiServerCapi) PostV1NodesDrain(ctx context.Context, req *NodeDrainRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NodesDrain request is nil")
 	}
@@ -1078,10 +1046,10 @@ func (c *ApiServerCapi) PostV1NodesDrain(ctx context.Context, req *NodeDrainRequ
 	if err != nil {
 		return nil, err
 	}
-	return DecodeNodeEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1NodesEvict(ctx context.Context, req *NodeEvictRequest) (*NodeEvent, error) {
+func (c *ApiServerCapi) PostV1NodesEvict(ctx context.Context, req *NodeEvictRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NodesEvict request is nil")
 	}
@@ -1097,7 +1065,7 @@ func (c *ApiServerCapi) PostV1NodesEvict(ctx context.Context, req *NodeEvictRequ
 	if err != nil {
 		return nil, err
 	}
-	return DecodeNodeEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1NodesExposure(ctx context.Context, req *NodeExposureRequest) (*NodeExposure, error) {
@@ -1223,23 +1191,7 @@ func (c *ApiServerCapi) PostV1SpacesDelete(ctx context.Context, req *SpaceDelete
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1NetworkPoliciesList(ctx context.Context) (*NetworkPolicyEventList, error) {
-	resp, err := c.do(ctx, "POST", "/v1/network-policies/list", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeNetworkPolicyEventList(body)
-}
-
-func (c *ApiServerCapi) PostV1NetworkPoliciesCreate(ctx context.Context, req *NetworkPolicyCreateRequest) (*NetworkPolicyEvent, error) {
+func (c *ApiServerCapi) PostV1NetworkPoliciesCreate(ctx context.Context, req *NetworkPolicyCreateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NetworkPoliciesCreate request is nil")
 	}
@@ -1255,10 +1207,10 @@ func (c *ApiServerCapi) PostV1NetworkPoliciesCreate(ctx context.Context, req *Ne
 	if err != nil {
 		return nil, err
 	}
-	return DecodeNetworkPolicyEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1NetworkPoliciesUpdate(ctx context.Context, req *NetworkPolicyUpdateRequest) (*NetworkPolicyEvent, error) {
+func (c *ApiServerCapi) PostV1NetworkPoliciesUpdate(ctx context.Context, req *NetworkPolicyUpdateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NetworkPoliciesUpdate request is nil")
 	}
@@ -1274,7 +1226,7 @@ func (c *ApiServerCapi) PostV1NetworkPoliciesUpdate(ctx context.Context, req *Ne
 	if err != nil {
 		return nil, err
 	}
-	return DecodeNetworkPolicyEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1NetworkPoliciesDelete(ctx context.Context, req *NetworkPolicyDeleteRequest) error {
@@ -1292,23 +1244,7 @@ func (c *ApiServerCapi) PostV1NetworkPoliciesDelete(ctx context.Context, req *Ne
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1SecretsList(ctx context.Context) (*SecretEventList, error) {
-	resp, err := c.do(ctx, "POST", "/v1/secrets/list", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeSecretEventList(body)
-}
-
-func (c *ApiServerCapi) PostV1SecretsCreate(ctx context.Context, req *SecretCreateRequest) (*SecretEvent, error) {
+func (c *ApiServerCapi) PostV1SecretsCreate(ctx context.Context, req *SecretCreateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsCreate request is nil")
 	}
@@ -1324,10 +1260,10 @@ func (c *ApiServerCapi) PostV1SecretsCreate(ctx context.Context, req *SecretCrea
 	if err != nil {
 		return nil, err
 	}
-	return DecodeSecretEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1SecretsSet(ctx context.Context, req *SecretSetRequest) (*SecretEvent, error) {
+func (c *ApiServerCapi) PostV1SecretsSet(ctx context.Context, req *SecretSetRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsSet request is nil")
 	}
@@ -1343,10 +1279,10 @@ func (c *ApiServerCapi) PostV1SecretsSet(ctx context.Context, req *SecretSetRequ
 	if err != nil {
 		return nil, err
 	}
-	return DecodeSecretEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1SecretsGenerate(ctx context.Context, req *SecretGenerateRequest) (*SecretEvent, error) {
+func (c *ApiServerCapi) PostV1SecretsGenerate(ctx context.Context, req *SecretGenerateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsGenerate request is nil")
 	}
@@ -1362,10 +1298,10 @@ func (c *ApiServerCapi) PostV1SecretsGenerate(ctx context.Context, req *SecretGe
 	if err != nil {
 		return nil, err
 	}
-	return DecodeSecretEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1SecretsRename(ctx context.Context, req *SecretRenameRequest) (*SecretEvent, error) {
+func (c *ApiServerCapi) PostV1SecretsRename(ctx context.Context, req *SecretRenameRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsRename request is nil")
 	}
@@ -1381,10 +1317,10 @@ func (c *ApiServerCapi) PostV1SecretsRename(ctx context.Context, req *SecretRena
 	if err != nil {
 		return nil, err
 	}
-	return DecodeSecretEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1SecretsMove(ctx context.Context, req *SecretMoveRequest) (*SecretEvent, error) {
+func (c *ApiServerCapi) PostV1SecretsMove(ctx context.Context, req *SecretMoveRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsMove request is nil")
 	}
@@ -1400,7 +1336,7 @@ func (c *ApiServerCapi) PostV1SecretsMove(ctx context.Context, req *SecretMoveRe
 	if err != nil {
 		return nil, err
 	}
-	return DecodeSecretEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1SecretsReveal(ctx context.Context, req *SecretRevealRequest) (*SecretRevealResponse, error) {
@@ -1488,23 +1424,7 @@ func (c *ApiServerCapi) PostV1SecretsUnlock(ctx context.Context, req *SecretUnlo
 	return DecodeSecretsStatusResponse(body)
 }
 
-func (c *ApiServerCapi) PostV1ConfigsList(ctx context.Context) (*ConfigEventList, error) {
-	resp, err := c.do(ctx, "POST", "/v1/configs/list", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeConfigEventList(body)
-}
-
-func (c *ApiServerCapi) PostV1ConfigsCreate(ctx context.Context, req *ConfigCreateRequest) (*ConfigEvent, error) {
+func (c *ApiServerCapi) PostV1ConfigsCreate(ctx context.Context, req *ConfigCreateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1ConfigsCreate request is nil")
 	}
@@ -1520,10 +1440,10 @@ func (c *ApiServerCapi) PostV1ConfigsCreate(ctx context.Context, req *ConfigCrea
 	if err != nil {
 		return nil, err
 	}
-	return DecodeConfigEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1ConfigsSet(ctx context.Context, req *ConfigSetRequest) (*ConfigEvent, error) {
+func (c *ApiServerCapi) PostV1ConfigsSet(ctx context.Context, req *ConfigSetRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1ConfigsSet request is nil")
 	}
@@ -1539,10 +1459,10 @@ func (c *ApiServerCapi) PostV1ConfigsSet(ctx context.Context, req *ConfigSetRequ
 	if err != nil {
 		return nil, err
 	}
-	return DecodeConfigEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1ConfigsRename(ctx context.Context, req *ConfigRenameRequest) (*ConfigEvent, error) {
+func (c *ApiServerCapi) PostV1ConfigsRename(ctx context.Context, req *ConfigRenameRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1ConfigsRename request is nil")
 	}
@@ -1558,7 +1478,7 @@ func (c *ApiServerCapi) PostV1ConfigsRename(ctx context.Context, req *ConfigRena
 	if err != nil {
 		return nil, err
 	}
-	return DecodeConfigEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1ConfigsDelete(ctx context.Context, req *ConfigDeleteRequest) error {
@@ -1576,7 +1496,7 @@ func (c *ApiServerCapi) PostV1ConfigsDelete(ctx context.Context, req *ConfigDele
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1ConfigsMove(ctx context.Context, req *ConfigMoveRequest) (*ConfigEvent, error) {
+func (c *ApiServerCapi) PostV1ConfigsMove(ctx context.Context, req *ConfigMoveRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1ConfigsMove request is nil")
 	}
@@ -1592,7 +1512,7 @@ func (c *ApiServerCapi) PostV1ConfigsMove(ctx context.Context, req *ConfigMoveRe
 	if err != nil {
 		return nil, err
 	}
-	return DecodeConfigEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1ValueDirectoriesList(ctx context.Context) (*ValueDirectoryList, error) {
@@ -1683,22 +1603,6 @@ func (c *ApiServerCapi) PostV1ValueDirectoriesDelete(ctx context.Context, req *V
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1AssetsList(ctx context.Context) (*AssetEventList, error) {
-	resp, err := c.do(ctx, "POST", "/v1/assets/list", nil, "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeAssetEventList(body)
-}
-
 func (c *ApiServerCapi) GetV1AssetsContent(ctx context.Context) error {
 	resp, err := c.do(ctx, "GET", "/v1/assets/content", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
@@ -1711,7 +1615,7 @@ func (c *ApiServerCapi) GetV1AssetsContent(ctx context.Context) error {
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1AssetsUpload(ctx context.Context) (*AssetEvent, error) {
+func (c *ApiServerCapi) PostV1AssetsUpload(ctx context.Context) (*CoreWriteUpdate, error) {
 	resp, err := c.do(ctx, "POST", "/v1/assets/upload", nil, "application/protobuf", "application/protobuf")
 	if err != nil {
 		return nil, err
@@ -1724,10 +1628,10 @@ func (c *ApiServerCapi) PostV1AssetsUpload(ctx context.Context) (*AssetEvent, er
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAssetEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1AssetsRename(ctx context.Context, req *AssetRenameRequest) (*AssetEvent, error) {
+func (c *ApiServerCapi) PostV1AssetsRename(ctx context.Context, req *AssetRenameRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsRename request is nil")
 	}
@@ -1743,7 +1647,7 @@ func (c *ApiServerCapi) PostV1AssetsRename(ctx context.Context, req *AssetRename
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAssetEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1AssetsDelete(ctx context.Context, req *AssetDeleteRequest) error {
@@ -1761,7 +1665,7 @@ func (c *ApiServerCapi) PostV1AssetsDelete(ctx context.Context, req *AssetDelete
 	return nil
 }
 
-func (c *ApiServerCapi) PostV1AssetsMove(ctx context.Context, req *AssetMoveRequest) (*AssetEvent, error) {
+func (c *ApiServerCapi) PostV1AssetsMove(ctx context.Context, req *AssetMoveRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1AssetsMove request is nil")
 	}
@@ -1777,7 +1681,7 @@ func (c *ApiServerCapi) PostV1AssetsMove(ctx context.Context, req *AssetMoveRequ
 	if err != nil {
 		return nil, err
 	}
-	return DecodeAssetEvent(body)
+	return DecodeCoreWriteUpdate(body)
 }
 
 func (c *ApiServerCapi) PostV1AssetDirectoriesList(ctx context.Context) (*AssetDirectoryList, error) {

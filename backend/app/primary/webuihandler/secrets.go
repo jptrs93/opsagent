@@ -62,11 +62,7 @@ func (h *Handler) secretsStatus() apigen.SecretsStatusResponse {
 	}
 }
 
-func (h *Handler) PostV1SecretsList(ctx apigen.Context) (*apigen.SecretEventList, error) {
-	return &apigen.SecretEventList{Items: h.filterSecrets(ctx, secrets.List(h.Store.Queries()))}, nil
-}
-
-func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCreateRequest) (*apigen.SecretEvent, error) {
+func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCreateRequest) (*apigen.CoreWriteUpdate, error) {
 	if strings.TrimSpace(req.Name) == "" {
 		return nil, SecretNameRequiredErr
 	}
@@ -83,14 +79,14 @@ func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCrea
 		return nil, mapSecretErr(err)
 	}
 
-	proto, ok := secrets.GetEvent(h.Store.Queries(), meta.SecretID, int64(meta.ID))
+	proto, ok := secrets.GetVersion(h.Store.Queries(), meta.Ref())
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	return proto, nil
+	return h.written(ctx, proto.Mutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE)), nil
 }
 
-func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequest) (*apigen.SecretEvent, error) {
+func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.SecretID == 0 {
 		return nil, SecretIDRequiredErr
 	}
@@ -118,11 +114,11 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 		}
 		return nil, versionedValueSetError(err)
 	}
-	proto, ok := secrets.GetEvent(h.Store.Queries(), meta.SecretID, int64(meta.ID))
+	proto, ok := secrets.GetVersion(h.Store.Queries(), meta.Ref())
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	return proto, nil
+	return h.written(ctx, proto.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
 // PostV1SecretsGenerate creates a secret the caller never sees: the value is
@@ -130,7 +126,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 // is what makes secret:create a safe verb to delegate — an agent holding it can
 // mint a credential and reference it from deployment env without ever being
 // able to read one back.
-func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGenerateRequest) (*apigen.SecretEvent, error) {
+func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGenerateRequest) (*apigen.CoreWriteUpdate, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
 		return nil, SecretNameRequiredErr
@@ -157,11 +153,11 @@ func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGe
 		return nil, mapSecretErr(err)
 	}
 
-	proto, ok := secrets.GetEvent(h.Store.Queries(), meta.SecretID, int64(meta.ID))
+	proto, ok := secrets.GetVersion(h.Store.Queries(), meta.Ref())
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	return proto, nil
+	return h.written(ctx, proto.Mutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE)), nil
 }
 
 // generateSecretValue dispatches on which specification the request carries.
@@ -184,7 +180,7 @@ func generateSecretValue(req *apigen.SecretGenerateRequest) ([]byte, error) {
 	}
 }
 
-func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRenameRequest) (*apigen.SecretEvent, error) {
+func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRenameRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.SecretID == 0 {
 		return nil, SecretIDRequiredErr
 	}
@@ -204,7 +200,7 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 		return nil, SecretNotFoundErr
 	}
 
-	return proto, nil
+	return h.written(ctx, proto.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
 // PostV1SecretsMove relocates a secret within its space's folder tree, or —
@@ -216,7 +212,7 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 // settings reference pins the value to the global space. Reserved opendeploy
 // secrets stay put: install/restore flows find them by name in the space
 // root, so moving one would strand it.
-func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRequest) (*apigen.SecretEvent, error) {
+func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRequest) (*apigen.CoreWriteUpdate, error) {
 	if req.SecretID == 0 {
 		return nil, SecretIDRequiredErr
 	}
@@ -272,7 +268,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 		return nil, SecretNotFoundErr
 	}
 
-	return proto, nil
+	return h.written(ctx, proto.Mutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 }
 
 func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretRevealRequest) (*apigen.SecretRevealResponse, error) {

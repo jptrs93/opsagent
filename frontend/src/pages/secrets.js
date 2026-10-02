@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {written, SECRET, CONFIG} from "../state/tree.js";
 import {capi} from "../capi/index.js";
 import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
@@ -342,7 +343,7 @@ export function secretsPage() {
             persistView();
         }
         expandTo(spaceId, directoryId);
-        selectedKey.val = `${type}:${type === "secret" ? meta.secretId : meta.configId}`;
+        selectedKey.val = `${type}:${written(meta, type === "secret" ? SECRET : CONFIG)?.id}`;
     };
 
     const openNewFolder = () => {

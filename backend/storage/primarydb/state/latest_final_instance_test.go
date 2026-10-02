@@ -4,12 +4,12 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jptrs93/goutil/erru"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 func instanceIDs(states []apigen.ScheduledInstanceState) []int32 {
@@ -175,28 +175,25 @@ func TestDisplaySnapshotAppliesPredicate(t *testing.T) {
 }
 
 func snapshotInstances(store *Service, predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
-	events := pq.Events(erru.Must(store.q.BootstrapMutations(context.Background())))
+	entries := erru.Must(store.q.Snapshot(context.Background()))
 	type pin struct{ deployment, version int32 }
 	deployments := map[pin]*apigen.DeploymentEvent{}
 	instances := map[int64]*apigen.ScheduledInstance{}
 	statuses := map[int64]*apigen.ScheduledInstanceStatus{}
 	var order []int64
-	for _, e := range events {
-		for _, m := range e.Mutations {
-			entity := m.Entity()
-			switch {
-			case entity == nil:
-			case entity.Deployment != nil:
-				d := entity.Deployment
-				deployments[pin{int32(m.EntityID()), d.Version}] = &apigen.DeploymentEvent{DeploymentID: int32(m.EntityID()), Version: d.Version, SpecVersion: d.SpecVersion, CreatedTime: d.CreatedTime, Value: *d}
-			case entity.ScheduledInstance != nil:
-				if _, seen := instances[m.EntityID()]; !seen {
-					order = append(order, m.EntityID())
-				}
-				instances[m.EntityID()] = entity.ScheduledInstance
-			case entity.ScheduledInstanceStatus != nil:
-				statuses[m.EntityID()] = entity.ScheduledInstanceStatus
+	for _, e := range entries {
+		entity, meta := e.Entity, e.Meta
+		switch {
+		case entity == nil:
+		case entity.Deployment != nil:
+			deployments[pin{int32(e.EntityID), meta.Version}] = &apigen.DeploymentEvent{DeploymentID: int32(e.EntityID), Version: meta.Version, SpecVersion: meta.SpecVersion, CreatedTime: time.UnixMilli(meta.CreatedTime), Value: *entity.Deployment}
+		case entity.ScheduledInstance != nil:
+			if _, seen := instances[e.EntityID]; !seen {
+				order = append(order, e.EntityID)
 			}
+			instances[e.EntityID] = entity.ScheduledInstance
+		case entity.ScheduledInstanceStatus != nil:
+			statuses[e.EntityID] = entity.ScheduledInstanceStatus
 		}
 	}
 	out := []apigen.ScheduledInstanceState{}

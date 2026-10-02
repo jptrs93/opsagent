@@ -37,11 +37,6 @@ func objectKey(prefix, storeID string) string {
 	return prefix + "/" + storeID
 }
 
-func hashBlob(blob []byte) string {
-	sum := sha256.Sum256(blob)
-	return hex.EncodeToString(sum[:])
-}
-
 func hashFile(path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {

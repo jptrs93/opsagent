@@ -3,28 +3,28 @@
 ## Overview
 
 A secret is a **stable identity** — `secret_id`, with a name, space, and
-directory — whose state lives in the append-only `secret_event_log`, one row
-per event. Every facet — identity and the sealed payload alike — is
-denormalised onto every row (non-value events carry the previous payload
-forward), so the highest-version row is the complete current state; a
-`value_changed` row is an immutable numbered **value version**, unique per
-`(secret_id, value_version)` by a partial unique index. Setting a secret appends the next value version
-(`v1`, `v2`, ...) as a new event row; the value version is a projection the
-server derives from the rows and ships as metadata, and the ciphertext itself
-never leaves the primary. The identity id survives renames, moves, and
+directory — held as one `secrets` row (placement, the newest
+`value_version`, the envelope of the last write, `created_time`) plus one
+`secret_versions` row per immutable numbered **value version**, keyed by
+`(secret_id, value_version)` and holding the sealed payload (`smk_version`,
+`ciphertext`, `nonce`) with the envelope of the write that created it.
+Setting a secret appends the next value version (`v1`, `v2`, ...); a rename
+or move rewrites the identity row only. Both tables are materialised from
+the write log by `pq.Reduce` (see `api.md`, The write log), and the
+ciphertext itself never leaves the primary. The identity id survives renames, moves, and
 rotations and is what the write API targets. Deployment
 environment variables and settings pin exact versions by the pair
 `ValueRef{id, version}` (stable secret id plus value version) in
 `EnvVarValue.secret` / `SecretRef.ref`; plain user configs use the same identity +
-versions model (`config_event_log`) with `EnvVarValue.config` / `ConfigRef.ref`.
-The event log row id stays a storage join key inside `pq` and is never a
-reference.
+versions model (`configs`, `config_versions`) with `EnvVarValue.config` /
+`ConfigRef.ref`. There is no per-row id besides the pair.
 
 Secrets and configs share **one file system per space**: a name must be unique
 among sibling secrets, configs, and `value_directories` under the same parent
-directory (0 = the implicit root). That law spans both event logs and the
-directory table, so it is enforced in Go behind the storage mutex
-(`valueSiblingNameTakenLocked`), never by a SQL constraint. Assets have their
+directory (0 = the implicit root). The `value_names` table (primary key
+`(space_id, parent_id, name)`, unique `(kind, id)`) holds that law as a
+constraint, and the writers check it first (`values.NameTaken`) to return
+the user-facing error. Assets have their
 own independent per-space file system.
 
 The directory tree is exposed over `/v1/value-directories/*` (list, create,
@@ -54,10 +54,9 @@ facet (with the acting user as `author`) and carries the new
 `value_directory_id` (the destination directory must belong to the
 destination space, and sibling-name uniqueness holds there); the latest event
 row is the current space, and the log preserves the full assignment history.
-Deletion is a terminal delete event (`event_type` 3): the value version rows
-stay in the log but every current-state read excludes the identity — the
-Manager's startup record load included, so a deleted secret cannot resurface
-in the cache — and the name is immediately reusable.
+Deletion removes the identity row, its version rows, and its name; the
+write log keeps the history. The Manager drops the secret's cached records,
+and the name is immediately reusable.
 Secret space moves go through `Manager.MoveSpace`, which also fixes the
 denormalized `SpaceID` on cached version records — reveal/edit authz reads
 it. On the state stream a delete-tombstone precedes the update so clients
@@ -74,14 +73,13 @@ Values are decrypted during deployment preparation, cached on the node that
 runs the deployment — in memory, and additionally encrypted at rest on a
 secondary — and expanded at process spawn time. They never appear in stored
 deployment config, the UI state stream, the cluster replication feed, or logs.
-List APIs return the latest live `SecretEvent` / `ConfigEvent`; the event
-stream's bootstrap carries every row of each live entity as `SECRET` and
-`CONFIG` mutations, oldest first, with `value_version` and `created_time` on
-the entity. Config plaintext is `Config.value`; the browser's `Secret` is
+The event stream's opening snapshot carries every version of each live
+entity as `SECRET` and `CONFIG` entries, oldest first, with `value_version`
+and `created_time` in the entry's `meta` rather than on the entity. Config plaintext is `Config.value`; the browser's `Secret` is
 metadata only: the sealed `smk_version`, `ciphertext`, and `nonce` are on the
 row and the unstripped event, and `browserEntity` clears them for the browser
 class. Version pickers pin `{id, value_version}` from the entries whose
-`value_version` changes. Rename and move events preserve that facet.
+`meta.value_version` changes. Rename and move events preserve that facet.
 
 A signed-in operator can also decrypt a single value on demand via the explicit
 `PostV1SecretsReveal` endpoint (surfaced as the per-row "Reveal" button in the
@@ -127,8 +125,9 @@ silently widened length would go unnoticed. `/v1/secrets/generate` carries its
 own rate limit in `run.go`, because a retry loop here writes rows nothing ever
 collects and produces no visible error.
 
-The **store** is primary-only: the `secret_event_log` and the wrapped SMK
-copies in `secret_keyslot_event_log` live in `primary.db`, and the cluster feed never
+The **store** is primary-only: `secrets`, `secret_versions`, the write log
+they are built from, and the wrapped SMK copies in `secret_keyslots`
+live in `primary.db`, and the cluster feed never
 ships them to a worker. A secondary receives only the plaintext values its own
 deployments reference, and keeps them under a machine key of its own — see
 "Local runtime input persistence" below.
@@ -136,14 +135,12 @@ deployments reference, and keeps them under a machine key of its own — see
 Key files:
 - `backend/app/primary/domain/secrets/secrets.go` — `Manager`, the key hierarchy, AEAD,
   and the machine-key boundary.
-- `backend/app/primary/domain/secrets/store.go` — the primary's secret rows
-  (`secret_keyslot_event_log` and `secret_event_log`) written through
-  `state.Service.Commit`. Sealing happens through a `secrets.SealFunc`
+- `backend/app/primary/domain/secrets/store.go` — the primary's secret
+  writes (keyslot rows, and secret mutations the reducer materialises)
+  through `state.Service.Commit`. Sealing happens through a `secrets.SealFunc`
   callback inside the write transaction, because the AAD needs the identity
-  id before the ciphertext can exist.
-- `backend/app/primary/domain/secrets/migrate_seals.go` — the one-time
-  v0.0.614 re-seal from the earlier bindings, run after every unlock until
-  the legacy artifacts are gone.
+  id before the ciphertext can exist. The Manager's cache is keyed by
+  `ValueRef` (secret id, value version).
 - `backend/app/primary/domain/secrets/generate.go` — the server-side value generators
   used by `PostV1SecretsGenerate`.
 - `backend/app/primary/domain/values/` — the shared secrets/configs namespace law:
@@ -237,14 +234,15 @@ machine KEK (provider-supplied) ────────────────
   one from before 2026-08 through a release that carried the name-bound
   sweep as well.
 - The SMK is never stored in the clear. It is stored wrapped, once per
-  **keyslot**, in the append-only `secret_keyslot_event_log` event table keyed by
-  `(kind, node_id)` (`SecretKeyslotKind`, an enum on the wire model though
-  no keyslot ever reaches a client):
+  **keyslot**, in the `secret_keyslots` table materialised from the write
+  log and keyed by `(kind, node_id)`, entity id `node_id * 256 + kind`
+  (`SecretKeyslotKind`, an enum on the wire model though no keyslot ever
+  reaches a client):
   - **machine slot** (kind 1, one per node) — `AEAD(SMK, machineKEK)` under
     that node's machine key, for unattended boot. Today only the primary has
     one; a replica that can take over will need its own row, which is why
     the slot is a per-node fact in the replicated log rather than a
-    node-local file. Node eviction appends a delete for the evicted node's
+    node-local file. Node eviction emits a delete for the evicted node's
     slot in the same commit.
   - **recovery slot** (kind 2, node 0) — `AEAD(SMK, Argon2id(recoveryCode,
     salt))`, the break-glass path. The recovery code is shown once and never
@@ -255,8 +253,8 @@ machine KEK (provider-supplied) ────────────────
   creates or updates the recovery slot as the calling user, and `Unlock`
   rewrites the caller's machine slot as that user. The associated data is
   the kind name, `opendeploy-keyslot:machine` or `opendeploy-keyslot:recovery`,
-  unchanged from before the table became an event log, so the wrapped bytes
-  survive the upgrade untouched. It is deliberately not bound to the node:
+  unchanged since before the table was logged, so the wrapped bytes
+  survive every upgrade untouched. It is deliberately not bound to the node:
   every slot is wrapped under a different KEK, so no slot opens under
   another's key whatever the associated data says, and a per-node binding
   would only have added a rewrite that the recovery slot could never be
@@ -322,7 +320,7 @@ The operator injects that same `RuntimeInputs` instance into every container
 runner. At process spawn time (`backend/lib/engine/runner/secrets.go`),
 `EnvVarValue` entries with `secret` or `config` are expanded from its
 prepared in-memory caches. Plain config values are not encrypted at rest in
-the primary's own `config_event_log` (a secondary's local copies are, because it
+the primary's own `config_versions` (a secondary's local copies are, because it
 seals every runtime input the same way). Unknown references, locked secrets,
 missing primary connectivity during prepare with no local copy, or no prepared
 value on the node are **fail-closed** errors.

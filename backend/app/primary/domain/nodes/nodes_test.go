@@ -9,9 +9,9 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
-	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
 func testNode(store *state.Service, identifier string) *Node {
@@ -43,20 +43,23 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
 	defer store.Close()
-	seedDB := sqlitedb.MustOpen(dbPath)
-	for i, seed := range []struct{ name, roles string }{
-		{"coflip-prod", "[1]"},
-		{"primary", "[0]"},
+	for _, seed := range []struct {
+		name  string
+		roles []int32
+	}{
+		{"coflip-prod", []int32{1}},
+		{"primary", []int32{0}},
 	} {
-		if _, err := seedDB.Exec(`
-			INSERT INTO node_event_log (global_seq, event_time, created_time, author, node_id, version,
-				name, identifier, enrolled_time, status, roles, addresses, wg_public_key, allowed_spaces, event_type)
-			VALUES (0, 0, 0, 0, ?1, 1, ?2, ?2, 0, 4, ?3, '[]', '', '[0]', 1)`, i+1, seed.name, seed.roles); err != nil {
+		if err := store.Commit(context.Background(), nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
+			row, err := q.NewNode(context.Background(), seq, 0, apigen.Node{Status: apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL,
+				Operator: apigen.NodeOperator{Name: seed.name, Roles: seed.roles}, Reported: apigen.NodeReported{Identifier: seed.name}})
+			if err != nil {
+				return nil, err
+			}
+			return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, &row.Event)), nil
+		}); err != nil {
 			t.Fatalf("seed node %s: %v", seed.name, err)
 		}
-	}
-	if err := seedDB.Close(); err != nil {
-		t.Fatal(err)
 	}
 
 	node := EnsurePrimaryNode(store, "primary", "primary")

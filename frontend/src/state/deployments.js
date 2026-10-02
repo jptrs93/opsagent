@@ -102,7 +102,7 @@ async function startDeploymentsStream(generation = sessionGeneration) {
 
     let connected = false;
     try {
-        const stream = capi.postV1GlobalEventStream({afterSeq: tree.seq}, { signal: streamAbortController.signal });
+        const stream = capi.postV1GlobalEventStream({}, { signal: streamAbortController.signal });
         for await (const message of stream) {
             if (!connected) {
                 connected = true;
@@ -141,8 +141,8 @@ van.derive(() => {
     activeToken = token;
     sessionGeneration += 1;
     stopDeploymentsStream();
-    // A new session bootstraps from scratch: the retained tree belongs to
-    // whichever session filled it, and after_seq 0 makes the server replace it.
+    // A new session opens from scratch: the retained tree belongs to whichever
+    // session filled it, and the server's opening snapshot replaces it.
     resetTree(tree);
     void startDeploymentsStream(sessionGeneration);
 });

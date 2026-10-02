@@ -44,15 +44,15 @@ func recvMsg(t *testing.T, msgs <-chan *apigen.EventStreamMsg) *apigen.EventStre
 	}
 }
 
-// The first message on a stream is the sidecar statuses, not the opening events.
-func openTestEventStream(t *testing.T, h *Handler, userID int32, afterSeq int64) (<-chan *apigen.EventStreamMsg, *apigen.EventStreamMsg) {
+// The first message on a stream is the sidecar statuses, not the opening snapshot.
+func openTestEventStream(t *testing.T, h *Handler, userID int32) (<-chan *apigen.EventStreamMsg, *apigen.EventStreamMsg) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	out := make(chan *apigen.EventStreamMsg, 4096)
 	go func() {
 		defer close(out)
-		for msg, err := range h.PostV1GlobalEventStream(apigen.Context{Ctx: ctx, User: &apigen.InternalUser{ID: userID}}, &apigen.EventStreamRequest{AfterSeq: afterSeq}) {
+		for msg, err := range h.PostV1GlobalEventStream(apigen.Context{Ctx: ctx, User: &apigen.InternalUser{ID: userID}}, &apigen.EventStreamRequest{}) {
 			if err != nil {
 				return
 			}
@@ -64,23 +64,29 @@ func openTestEventStream(t *testing.T, h *Handler, userID int32, afterSeq int64)
 		}
 	}()
 	side := recvMsg(t, out)
-	if side.SecretsStatus == nil || side.BackupStatus == nil || side.IngressDiagnostics == nil || len(side.Events) != 0 || side.Synced {
+	if side.SecretsStatus == nil || side.BackupStatus == nil || side.IngressDiagnostics == nil || len(side.Events) != 0 || side.Snapshot != nil || side.Synced {
 		t.Fatalf("first message is not the sidecar statuses: %+v", side)
 	}
 	opening := recvMsg(t, out)
-	if !opening.Synced {
-		t.Fatalf("second message is not the opening events: %+v", opening)
+	if !opening.Synced || opening.Snapshot == nil || opening.Snapshot.Seq != opening.Seq || len(opening.Events) != 0 {
+		t.Fatalf("second message is not the opening snapshot: %+v", opening)
 	}
 	return out, opening
 }
 
 func startTestEventStream(t *testing.T, h *Handler, userID int32) <-chan *apigen.EventStreamMsg {
 	t.Helper()
-	out, opening := openTestEventStream(t, h, userID, 0)
-	if !opening.Reset {
-		t.Fatalf("a fresh subscriber must bootstrap with reset: %+v", opening)
-	}
+	out, _ := openTestEventStream(t, h, userID)
 	return out
+}
+
+// foldOpening is the state a browser holds after a message: the snapshot
+// when the message carries one, otherwise its events folded.
+func foldOpening(msg *apigen.EventStreamMsg) map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity {
+	if msg.Snapshot != nil {
+		return statetest.FoldSnapshot(msg.Snapshot.Entities)
+	}
+	return statetest.Fold(msg.Events)
 }
 
 func mutationsOf(msg *apigen.EventStreamMsg, typ apigen.CoreEntityType) []*apigen.CoreMutation {
@@ -96,7 +102,7 @@ func mutationsOf(msg *apigen.EventStreamMsg, typ apigen.CoreEntityType) []*apige
 }
 
 func foldMsg(msg *apigen.EventStreamMsg, typ apigen.CoreEntityType) map[int64]*apigen.CoreEntity {
-	return statetest.Fold(msg.Events)[typ]
+	return foldOpening(msg)[typ]
 }
 
 func TestBackupStatusIsIndependentOfCoreSequenceAndMutex(t *testing.T) {
@@ -219,12 +225,12 @@ func TestGrantResetTargetsAffectedUserAndDebounces(t *testing.T) {
 	h, _ := newEnforcementTestHandler(t)
 	a, b := startTestEventStream(t, h, 2), startTestEventStream(t, h, 3)
 	for range 2 {
-		if _, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{UserID: 2, TemplateID: authz.ClusterAdminTemplateID, Grant: &apigen.AuthzGrant{}}); err != nil {
+		if _, err := h.Authz.CreateGrant(&apigen.AuthzGrant{UserID: 2, TemplateID: authz.ClusterAdminTemplateID, Spec: &apigen.AuthzGrantSpec{}}, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if msg := recvMsg(t, a); !msg.Reset {
-		t.Fatalf("user A did not reset: %+v", msg)
+	if msg := recvMsg(t, a); msg.Snapshot == nil {
+		t.Fatalf("user A did not get a fresh snapshot: %+v", msg)
 	}
 	// A visible marker proves B's stream has processed the grant transactions.
 	created, err := values.CreateConfig(h.Store, "marker", 1, 0, 1, "ready")
@@ -233,7 +239,7 @@ func TestGrantResetTargetsAffectedUserAndDebounces(t *testing.T) {
 	}
 	for {
 		msg := recvMsg(t, b)
-		if msg.Reset {
+		if msg.Snapshot != nil {
 			t.Fatal("grant for A reset B")
 		}
 		if configs := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) > 0 && configs[0].EntityID() == int64(created.ConfigID) {
@@ -242,7 +248,7 @@ func TestGrantResetTargetsAffectedUserAndDebounces(t *testing.T) {
 	}
 	select {
 	case msg := <-a:
-		if msg.Reset {
+		if msg.Snapshot != nil {
 			t.Fatal("burst produced duplicate reset")
 		}
 	case <-time.After(300 * time.Millisecond):
@@ -276,7 +282,7 @@ func TestSubscriberOverflowEndsStreamAndReconnectBootstraps(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("closed subscriber did not end stream")
 	}
-	// A fresh connection always repairs the gap with the compacted history.
+	// A fresh connection always repairs the gap with a snapshot.
 	startTestEventStream(t, h, 1)
 }
 
@@ -286,8 +292,7 @@ func TestHiddenTransactionIsNotSent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	update := pq.NewUpdate(pq.ConfigMutation(event))
-	update.Seq = event.Seq
+	update := pq.NewUpdate(pq.ConfigMutation(pq.EventMeta{GlobalSeq: event.Seq, EventTime: event.EventTime, Author: int64(event.Author), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, int64(event.ConfigID), event.Value))
 	if got := h.visibleUpdate(enforceCtx(3, false), update); got != nil {
 		t.Fatalf("hidden transaction was sent: %+v", got)
 	}
@@ -301,14 +306,14 @@ func TestPolicyScopeChangeResetsOnlyAffectedVisibility(t *testing.T) {
 	created := writeNetworkPolicyForTest(t, h.Store, 0, policy(1))
 	limited, admin := startTestEventStream(t, h, 2), startTestEventStream(t, h, 1)
 	changed := writeNetworkPolicyForTest(t, h.Store, created.NetworkPolicyID, policy(hidden.ID))
-	if msg := recvMsg(t, limited); !msg.Reset || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 0 {
+	if msg := recvMsg(t, limited); msg.Snapshot == nil || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 0 {
 		t.Fatalf("hidden policy was not removed by reset: %+v", msg)
 	}
-	if msg := recvMsg(t, admin); msg.Reset || len(mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 1 {
+	if msg := recvMsg(t, admin); msg.Snapshot != nil || len(mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 1 {
 		t.Fatalf("unchanged admin visibility reset: %+v", msg)
 	}
 	writeNetworkPolicyForTest(t, h.Store, changed.NetworkPolicyID, policy(1))
-	if msg := recvMsg(t, limited); !msg.Reset || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 1 {
+	if msg := recvMsg(t, limited); msg.Snapshot == nil || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 1 {
 		t.Fatalf("newly visible policy absent after reset: %+v", msg)
 	}
 }
@@ -319,7 +324,7 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := h.Authz.CreateGrant(&apigen.AuthzGrantRecord{UserID: 2, TemplateID: authz.ClusterAdminTemplateID, Grant: &apigen.AuthzGrant{}})
+	grant, err := h.Authz.CreateGrant(&apigen.AuthzGrant{UserID: 2, TemplateID: authz.ClusterAdminTemplateID, Spec: &apigen.AuthzGrantSpec{}}, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +336,7 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 		t.Fatal("grant did not reveal the staging config")
 	}
 	admin, affected, other := startTestEventStream(t, h, 1), startTestEventStream(t, h, 2), startTestEventStream(t, h, 3)
-	if err := h.Authz.DeleteGrant(2, grant.ID); err != nil {
+	if err := h.Authz.DeleteGrant(2, grant.ID, 0); err != nil {
 		t.Fatal(err)
 	}
 	msg := recvMsg(t, admin)
@@ -343,7 +348,7 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 		t.Fatalf("invalid grant tombstone: %+v", grants[0])
 	}
 	msg = recvMsg(t, affected)
-	if !msg.Reset || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG)) != 0 {
+	if msg.Snapshot == nil || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG)) != 0 {
 		t.Fatal("revocation did not reset and remove the formerly visible config")
 	}
 	for id, e := range foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT) {
@@ -357,7 +362,7 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 	}
 	for {
 		msg := recvMsg(t, other)
-		if msg.Reset || len(mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT)) != 0 {
+		if msg.Snapshot != nil || len(mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT)) != 0 {
 			t.Fatal("grant revocation reset another user or exposed the grant")
 		}
 		if configs := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) > 0 && configs[0].EntityID() == int64(marker.ConfigID) {
@@ -366,30 +371,31 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 	}
 }
 
-func writeNetworkPolicyForTest(t *testing.T, s *state.Service, id int32, policy *apigen.NetworkPolicy) *apigen.NetworkPolicyEvent {
+func writeNetworkPolicyForTest(t *testing.T, s *state.Service, id int32, policy *apigen.NetworkPolicy) *pq.NetworkPolicyEvent {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
-	var event *apigen.NetworkPolicyEvent
+	var event *pq.NetworkPolicyEvent
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		event = &apigen.NetworkPolicyEvent{Seq: seq, EventTime: now, CreatedTime: now, Author: 1, Version: 1, Value: *policy, EventType: apigen.EventType_EVENT_TYPE_CREATE}
+		value := *policy
+		event = &pq.NetworkPolicyEvent{Seq: seq, EventTime: now, CreatedTime: now, Author: 1}
+		verb := apigen.AuthzVerb_AUTHZ_VERB_CREATE
 		if id == 0 {
-			next, err := q.NextNetworkPolicyID(ctx)
+			next, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)
 			if err != nil {
 				return nil, err
 			}
 			event.NetworkPolicyID = int32(next)
 		} else {
-			prev, err := q.GetLatestNetworkPolicyEvent(ctx, int64(id))
+			prev, err := q.GetNetworkPolicy(ctx, int64(id))
 			if err != nil {
 				return nil, err
 			}
-			event.NetworkPolicyID, event.CreatedTime, event.Version, event.EventType = id, prev.CreatedTime, prev.Version+1, apigen.EventType_EVENT_TYPE_UPDATE
+			event.NetworkPolicyID, event.CreatedTime, verb = id, prev.CreatedTime, apigen.AuthzVerb_AUTHZ_VERB_UPDATE
 		}
-		if err := q.InsertNetworkPolicyEvent(ctx, event); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.NetworkPolicyMutation(event)), nil
+		event.Value = value
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: 1, EventType: verb}
+		return pq.NewUpdate(pq.NetworkPolicyMutation(meta, int64(event.NetworkPolicyID), value)), nil
 	}); err != nil {
 		t.Fatal(err)
 	}

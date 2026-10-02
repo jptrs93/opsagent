@@ -94,7 +94,6 @@ type Keyslot struct {
 // Record is an encrypted secret version row as persisted in secret_versions,
 // joined with its owning identity's name and space for metadata.
 type Record struct {
-	ID         int32 // version row id
 	SecretID   int32 // stable identity id
 	Name       string
 	Version    int32
@@ -108,7 +107,6 @@ type Record struct {
 
 // Meta describes a secret version WITHOUT its value.
 type Meta struct {
-	ID        int32 // version row id
 	SecretID  int32
 	Name      string
 	Version   int32
@@ -150,8 +148,7 @@ type Manager struct {
 	mu      sync.RWMutex
 	smk     []byte // nil => locked
 	version int32
-	cache   map[int32]Record          // version row id -> immutable version row (ciphertext)
-	refs    map[apigen.ValueRef]int32 // (secret id, value version) -> version row id
+	cache   map[apigen.ValueRef]Record // (secret id, value version) -> immutable version row (ciphertext)
 }
 
 // Initialize creates the secrets master key and local machine key for a new
@@ -208,29 +205,19 @@ func newManager(dataDir string, store *state.Service) *Manager {
 		q:          store.Queries(),
 		nodeID:     nodeID,
 		machineKey: &machinekey.File{Path: filepath.Join(dataDir, machinekey.FileName)},
-		cache:      make(map[int32]Record),
-		refs:       make(map[apigen.ValueRef]int32),
+		cache:      make(map[apigen.ValueRef]Record),
 	}
 }
 
 func (m *Manager) cacheLocked(rec Record) {
-	m.cache[rec.ID] = rec
-	m.refs[rec.ref()] = rec.ID
+	m.cache[rec.ref()] = rec
 }
 
 // recordByRefLocked and userRecordLocked resolve rows for user-facing and
 // workload paths. Space 0 rows are OpenDeploy's own material and are only
 // reachable through RevealInternal, whatever the caller's grants say.
 func (m *Manager) recordByRefLocked(ref apigen.ValueRef) (Record, bool) {
-	id, ok := m.refs[ref]
-	if !ok {
-		return Record{}, false
-	}
-	return m.userRecordLocked(id)
-}
-
-func (m *Manager) userRecordLocked(id int32) (Record, bool) {
-	rec, ok := m.cache[id]
+	rec, ok := m.cache[ref]
 	if !ok || rec.SpaceID == systemSpaceID {
 		return Record{}, false
 	}
@@ -479,10 +466,10 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 	if err := renameSecret(m.store, secretID, newName); err != nil {
 		return err
 	}
-	for id, rec := range m.cache {
+	for ref, rec := range m.cache {
 		if rec.SecretID == secretID {
 			rec.Name = newName
-			m.cache[id] = rec
+			m.cache[ref] = rec
 		}
 	}
 	slog.InfoContext(m.ctx, fmt.Sprintf("renamed secret %d to %s", secretID, newName))
@@ -503,10 +490,10 @@ func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID, author int32, inl
 	if err := moveSpace(m.store, secretID, newSpaceID, directoryID, author, inlockValidate); err != nil {
 		return err
 	}
-	for id, rec := range m.cache {
+	for ref, rec := range m.cache {
 		if rec.SecretID == secretID {
 			rec.SpaceID = newSpaceID
-			m.cache[id] = rec
+			m.cache[ref] = rec
 		}
 	}
 	slog.InfoContext(m.ctx, fmt.Sprintf("moved secret %d to space %d", secretID, newSpaceID))
@@ -540,10 +527,9 @@ func (m *Manager) Delete(secretID int32, inlockValidate func(*pq.Queries) error)
 	if err := deleteSecret(m.store, secretID, inlockValidate); err != nil {
 		return err
 	}
-	for id, rec := range m.cache {
+	for ref, rec := range m.cache {
 		if rec.SecretID == secretID {
-			delete(m.cache, id)
-			delete(m.refs, rec.ref())
+			delete(m.cache, ref)
 		}
 	}
 	return nil
@@ -745,7 +731,6 @@ func (m Meta) Ref() apigen.ValueRef {
 
 func (r Record) meta() Meta {
 	return Meta{
-		ID:        r.ID,
 		SecretID:  r.SecretID,
 		Name:      r.Name,
 		Version:   r.Version,

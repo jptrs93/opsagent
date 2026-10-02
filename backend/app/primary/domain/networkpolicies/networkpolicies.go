@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -22,20 +21,13 @@ var PeerNotFoundErr = apigen.NewApiErr("Network policy peer not found", "network
 var NotFoundErr = apigen.NewApiErr("Network policy not found", "network_policy_not_found", http.StatusNotFound)
 var VersionConflictErr = apigen.NewApiErr("Network policy was modified concurrently", "network_policy_version_conflict", http.StatusConflict)
 
-func List(q *pq.Queries) []*apigen.NetworkPolicyEvent {
-	return erru.Must(q.ListLatestLiveNetworkPolicyEvents(context.Background()))
-}
-
-func ByID(q *pq.Queries, id int32) *apigen.NetworkPolicyEvent {
-	row, err := q.GetLatestNetworkPolicyEvent(context.Background(), int64(id))
+func ByID(q *pq.Queries, id int32) *pq.NetworkPolicyEvent {
+	row, err := q.GetNetworkPolicy(context.Background(), int64(id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		panic(err)
-	}
-	if row.EventType == apigen.EventType_EVENT_TYPE_DELETE {
-		return nil
 	}
 	return row
 }
@@ -100,41 +92,38 @@ func PeerSpace(q *pq.Queries, ref *apigen.NetworkPolicyPeerRef) (int32, bool) {
 	return 0, false
 }
 
-func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*apigen.NetworkPolicyEvent, error) {
+func view(seq, now, createdTime int64, author, id int32, policy apigen.NetworkPolicy) *pq.NetworkPolicyEvent {
+	return &pq.NetworkPolicyEvent{NetworkPolicyID: id, Seq: seq, Author: author, CreatedTime: createdTime, EventTime: now, Value: policy}
+}
+
+func mutation(e *pq.NetworkPolicyEvent, verb apigen.AuthzVerb) pq.Mutation {
+	meta := pq.EventMeta{GlobalSeq: e.Seq, EventTime: e.EventTime, Author: int64(e.Author), EventType: verb}
+	return pq.NetworkPolicyMutation(meta, int64(e.NetworkPolicyID), e.Value)
+}
+
+func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*pq.NetworkPolicyEvent, error) {
 	ctx := context.Background()
-	now := time.Now().UnixMilli()
-	var event *apigen.NetworkPolicyEvent
+	var created *pq.NetworkPolicyEvent
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		id, err := q.NextNetworkPolicyID(ctx)
+		id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)
 		if err != nil {
 			return nil, err
 		}
-		event = &apigen.NetworkPolicyEvent{
-			Seq:             seq,
-			EventTime:       now,
-			CreatedTime:     now,
-			Author:          author,
-			NetworkPolicyID: int32(id),
-			Version:         1,
-			Value:           *policy,
-			EventType:       apigen.EventType_EVENT_TYPE_CREATE,
-		}
-		if err := q.InsertNetworkPolicyEvent(ctx, event); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.NetworkPolicyMutation(event)), nil
+		now := time.Now().UnixMilli()
+		created = view(seq, now, now, author, int32(id), *policy)
+		return pq.NewUpdate(mutation(created, apigen.AuthzVerb_AUTHZ_VERB_CREATE)), nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return erru.Must(store.Queries().GetLatestNetworkPolicyEvent(ctx, int64(event.NetworkPolicyID))), nil
+	return created, nil
 }
 
-// Update replaces the policy as long as it has no event newer than
+// Update replaces the policy as long as it has no write newer than
 // expectedSeq; zero skips the check.
-func Update(store *state.Service, id int32, expectedSeq int64, author int32, policy *apigen.NetworkPolicy) (*apigen.NetworkPolicyEvent, error) {
+func Update(store *state.Service, id int32, expectedSeq int64, author int32, policy *apigen.NetworkPolicy) (*pq.NetworkPolicyEvent, error) {
 	ctx := context.Background()
-	var updated *apigen.NetworkPolicyEvent
+	var updated *pq.NetworkPolicyEvent
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		prev, err := livePrevious(ctx, q, id)
 		if err != nil {
@@ -143,11 +132,8 @@ func Update(store *state.Service, id int32, expectedSeq int64, author int32, pol
 		if expectedSeq != 0 && prev.Seq > expectedSeq {
 			return nil, VersionConflictErr
 		}
-		updated = &apigen.NetworkPolicyEvent{Seq: seq, EventTime: time.Now().UnixMilli(), CreatedTime: prev.CreatedTime, Author: author, NetworkPolicyID: id, Version: prev.Version + 1, Value: *policy, EventType: apigen.EventType_EVENT_TYPE_UPDATE}
-		if err := q.InsertNetworkPolicyEvent(ctx, updated); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.NetworkPolicyMutation(updated)), nil
+		updated = view(seq, time.Now().UnixMilli(), prev.CreatedTime, author, id, *policy)
+		return pq.NewUpdate(mutation(updated, apigen.AuthzVerb_AUTHZ_VERB_UPDATE)), nil
 	})
 	if err != nil {
 		return nil, err
@@ -158,21 +144,17 @@ func Update(store *state.Service, id int32, expectedSeq int64, author int32, pol
 func Delete(store *state.Service, id, author int32) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		prev, err := livePrevious(ctx, q, id)
-		if err != nil {
+		if _, err := livePrevious(ctx, q, id); err != nil {
 			return nil, err
 		}
-		event := &apigen.NetworkPolicyEvent{Seq: seq, EventTime: time.Now().UnixMilli(), CreatedTime: prev.CreatedTime, Author: author, NetworkPolicyID: id, Version: prev.Version + 1, Value: prev.Value, EventType: apigen.EventType_EVENT_TYPE_DELETE}
-		if err := q.InsertNetworkPolicyEvent(ctx, event); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(pq.NetworkPolicyMutation(event)), nil
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author)}
+		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, int64(id))), nil
 	})
 }
 
-func livePrevious(ctx context.Context, q *pq.Queries, id int32) (*apigen.NetworkPolicyEvent, error) {
-	prev, err := q.GetLatestNetworkPolicyEvent(ctx, int64(id))
-	if errors.Is(err, sql.ErrNoRows) || err == nil && prev.EventType == apigen.EventType_EVENT_TYPE_DELETE {
+func livePrevious(ctx context.Context, q *pq.Queries, id int32) (*pq.NetworkPolicyEvent, error) {
+	prev, err := q.GetNetworkPolicy(ctx, int64(id))
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, NotFoundErr
 	}
 	if err != nil {

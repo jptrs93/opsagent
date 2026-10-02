@@ -53,7 +53,7 @@ var positions = []position{
 	{"permissions", validVerb, func(r *apigen.AuthzRule) *apigen.AuthzSelector { return r.Permissions }},
 }
 
-func validateTemplate(name string, t *apigen.AuthzRuleTemplate) error {
+func validateTemplate(name string, t *apigen.AuthzRuleTemplateSpec) error {
 	if err := validateTemplateName(name); err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func validateTemplate(name string, t *apigen.AuthzRuleTemplate) error {
 	return nil
 }
 
-func templateSignature(t *apigen.AuthzRuleTemplate) map[int64]func(int64) bool {
+func templateSignature(t *apigen.AuthzRuleTemplateSpec) map[int64]func(int64) bool {
 	sig := make(map[int64]func(int64) bool)
 	if t == nil {
 		return sig
@@ -168,7 +168,7 @@ func validateSelector(sel *apigen.AuthzSelector, valid func(int64) bool, allowAr
 	return nil
 }
 
-func validateGlobalRule(name string, r *apigen.AuthzGlobalRule) error {
+func validateGlobalRule(name string, r *apigen.AuthzGlobalRuleSpec) error {
 	if r == nil {
 		return invalidf("authz: global rule is empty")
 	}
@@ -208,8 +208,8 @@ func validateGlobalRule(name string, r *apigen.AuthzGlobalRule) error {
 	return nil
 }
 
-func validateArgs(t *apigen.AuthzRuleTemplateRecord, bindings []*apigen.AuthzArgumentBinding) error {
-	sig := templateSignature(t.Template)
+func validateArgs(t *apigen.AuthzRuleTemplate, bindings []*apigen.AuthzArgumentBinding) error {
+	sig := templateSignature(t.Spec)
 	if len(sig) == 0 {
 		if len(bindings) != 0 {
 			return invalidf("authz: rule template %s takes no arguments", t.Name)

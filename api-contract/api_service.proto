@@ -156,12 +156,12 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AccessRuleTemplatesCreate(AuthzRuleTemplateCreateRequest) returns (AuthzRuleTemplateRecord) {
+  rpc PostV1AccessRuleTemplatesCreate(AuthzRuleTemplateCreateRequest) returns (CoreWriteUpdate) {
     option (cp.url) = "/v1/access/rule-templates/create";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AccessRuleTemplatesUpdate(AuthzRuleTemplateUpdateRequest) returns (AuthzRuleTemplateRecord) {
+  rpc PostV1AccessRuleTemplatesUpdate(AuthzRuleTemplateUpdateRequest) returns (CoreWriteUpdate) {
     option (cp.url) = "/v1/access/rule-templates/update";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
@@ -171,12 +171,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AccessGrantsList(cp.Empty) returns (AuthzGrantList) {
-    option (cp.url) = "/v1/access/grants/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
-  }
-
-  rpc PostV1AccessGrantsCreate(AuthzGrantCreateRequest) returns (AuthzGrantRecord) {
+  rpc PostV1AccessGrantsCreate(AuthzGrantCreateRequest) returns (CoreWriteUpdate) {
     option (cp.url) = "/v1/access/grants/create";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
@@ -191,7 +186,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AccessGlobalRulesCreate(AuthzGlobalRuleCreateRequest) returns (AuthzGlobalRuleRecord) {
+  rpc PostV1AccessGlobalRulesCreate(AuthzGlobalRuleCreateRequest) returns (CoreWriteUpdate) {
     option (cp.url) = "/v1/access/global-rules/create";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
@@ -220,11 +215,11 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1DeploymentsCreate(DeploymentCreateRequest) returns (DeploymentEvent) {
+  rpc PostV1DeploymentsCreate(DeploymentCreateRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV2DeploymentsUpdate(DeploymentUpdateRequestV2) returns (DeploymentEvent) {
+  rpc PostV2DeploymentsUpdate(DeploymentUpdateRequestV2) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
@@ -274,24 +269,20 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1NodesList(cp.Empty) returns (NodeEventList) {
+  rpc PostV1NodesRename(NodeRenameRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1NodesRename(NodeRenameRequest) returns (NodeEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
-  }
-
-  rpc PostV1NodesAllowedSpaces(NodeAllowedSpacesRequest) returns (NodeEvent) {
+  rpc PostV1NodesAllowedSpaces(NodeAllowedSpacesRequest) returns (CoreWriteUpdate) {
     option (cp.url) = "/v1/nodes/allowed-spaces";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1NodesDrain(NodeDrainRequest) returns (NodeEvent) {
+  rpc PostV1NodesDrain(NodeDrainRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1NodesEvict(NodeEvictRequest) returns (NodeEvent) {
+  rpc PostV1NodesEvict(NodeEvictRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
@@ -323,17 +314,12 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1NetworkPoliciesList(cp.Empty) returns (NetworkPolicyEventList) {
-    option (cp.url) = "/v1/network-policies/list";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
-  }
-
-  rpc PostV1NetworkPoliciesCreate(NetworkPolicyCreateRequest) returns (NetworkPolicyEvent) {
+  rpc PostV1NetworkPoliciesCreate(NetworkPolicyCreateRequest) returns (CoreWriteUpdate) {
     option (cp.url) = "/v1/network-policies/create";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1NetworkPoliciesUpdate(NetworkPolicyUpdateRequest) returns (NetworkPolicyEvent) {
+  rpc PostV1NetworkPoliciesUpdate(NetworkPolicyUpdateRequest) returns (CoreWriteUpdate) {
     option (cp.url) = "/v1/network-policies/update";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
@@ -343,27 +329,23 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1SecretsList(cp.Empty) returns (SecretEventList) {
+  rpc PostV1SecretsCreate(SecretCreateRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1SecretsCreate(SecretCreateRequest) returns (SecretEvent) {
+  rpc PostV1SecretsSet(SecretSetRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1SecretsSet(SecretSetRequest) returns (SecretEvent) {
+  rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1SecretsGenerate(SecretGenerateRequest) returns (SecretEvent) {
+  rpc PostV1SecretsRename(SecretRenameRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1SecretsRename(SecretRenameRequest) returns (SecretEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
-  }
-
-  rpc PostV1SecretsMove(SecretMoveRequest) returns (SecretEvent) {
+  rpc PostV1SecretsMove(SecretMoveRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
@@ -388,19 +370,15 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1ConfigsList(cp.Empty) returns (ConfigEventList) {
+  rpc PostV1ConfigsCreate(ConfigCreateRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1ConfigsCreate(ConfigCreateRequest) returns (ConfigEvent) {
+  rpc PostV1ConfigsSet(ConfigSetRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1ConfigsSet(ConfigSetRequest) returns (ConfigEvent) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
-  }
-
-  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (ConfigEvent) {
+  rpc PostV1ConfigsRename(ConfigRenameRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
@@ -408,7 +386,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1ConfigsMove(ConfigMoveRequest) returns (ConfigEvent) {
+  rpc PostV1ConfigsMove(ConfigMoveRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
@@ -437,10 +415,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AssetsList(cp.Empty) returns (AssetEventList) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
-  }
-
   // Streams raw content bytes for one content version (?content_version_id=N).
   rpc GetV1AssetsContent(cp.Empty) returns (cp.Empty) {
     option (cp.url) = "/v1/assets/content";
@@ -449,13 +423,13 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AssetsUpload(cp.Empty) returns (AssetEvent) {
+  rpc PostV1AssetsUpload(cp.Empty) returns (CoreWriteUpdate) {
     option (cp.url) = "/v1/assets/upload";
     option (cp.go_custom) = true;
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AssetsRename(AssetRenameRequest) returns (AssetEvent) {
+  rpc PostV1AssetsRename(AssetRenameRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
@@ -463,7 +437,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AssetsMove(AssetMoveRequest) returns (AssetEvent) {
+  rpc PostV1AssetsMove(AssetMoveRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 

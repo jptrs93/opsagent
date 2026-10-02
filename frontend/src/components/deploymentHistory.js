@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {deploymentFromRecord} from "../state/tree.js";
 import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {deploymentDeleted, deploymentRestartEvent, deploymentWorkload, desiredRunning} from "../lib/deployment.js";
@@ -129,7 +130,7 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
     const load = async () => {
         try {
             const decoded = await capi.postV1DeploymentsHistory({ deploymentId });
-            entries.val = decoded?.entries || [];
+            entries.val = (decoded?.entries || []).map(e => ({config: deploymentFromRecord(e.deployment), status: e.status}));
         } catch (e) {
             console.error('Failed to load deployment history:', e);
             error.val = 'Connection error';

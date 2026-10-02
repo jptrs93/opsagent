@@ -15,13 +15,14 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 const generatorSymbols = "!@#$%^&*()-_=+[]{}"
 
-func generateSecret(t *testing.T, h *Handler, user *apigen.InternalUser, req *apigen.SecretGenerateRequest) (*apigen.SecretEvent, error) {
+func generateSecret(t *testing.T, h *Handler, user *apigen.InternalUser, req *apigen.SecretGenerateRequest) (*pq.SecretEvent, error) {
 	t.Helper()
-	return h.PostV1SecretsGenerate(apigen.Context{Ctx: context.Background(), User: user}, req)
+	return h.secretsGenerate(apigen.Context{Ctx: context.Background(), User: user}, req)
 }
 
 func TestGenerateSecretStoresAValueTheCallerNeverSees(t *testing.T) {
@@ -93,7 +94,7 @@ func TestGenerateSecretIsCreateOnly(t *testing.T) {
 
 	// The same secret set explicitly still rotates, so the guard is on this
 	// route and not on the store.
-	if _, err := h.PostV1SecretsSet(apigen.Context{Ctx: context.Background(), User: user},
+	if _, err := h.secretsSet(apigen.Context{Ctx: context.Background(), User: user},
 		&apigen.SecretSetRequest{SecretID: generated.SecretID, Value: []byte("manual")}); err != nil {
 		t.Fatalf("PostV1SecretsSet over a generated secret: %v", err)
 	}
@@ -166,18 +167,26 @@ func TestGenerateSecretNeverEchoesTheValue(t *testing.T) {
 	if status != http.StatusOK {
 		t.Fatalf("generate: status %d, want 200", status)
 	}
-	id, _ := generated["secret_id"].(float64)
+	mutations, _ := generated["mutations"].([]any)
+	if len(mutations) != 1 {
+		t.Fatalf("generate returned %d mutations, want the secret alone: %#v", len(mutations), generated)
+	}
+	create, _ := mutations[0].(map[string]any)["create"].(map[string]any)
+	id, _ := create["entity_id"].(float64)
 	if id == 0 {
 		t.Fatalf("generate returned no id: %#v", generated)
 	}
-	valueEnvelope, ok := generated["value"].(map[string]any)
+	secret, ok := create["entity"].(map[string]any)["secret"].(map[string]any)
 	if !ok {
-		t.Fatal("missing secret metadata value")
+		t.Fatal("missing secret entity")
 	}
-	if _, ok := valueEnvelope["value"]; ok {
-		t.Fatalf("generate exposed secret bytes: %#v", generated)
+	for _, key := range []string{"ciphertext", "nonce", "value"} {
+		if v, ok := secret[key]; ok && v != nil && v != "" {
+			t.Fatalf("generate exposed secret bytes under %s: %#v", key, generated)
+		}
 	}
-	valueVersion, _ := generated["value_version"].(float64)
+	meta, _ := create["meta"].(map[string]any)
+	valueVersion, _ := meta["value_version"].(float64)
 	if valueVersion == 0 {
 		t.Fatalf("generate returned no value version: %#v", generated)
 	}

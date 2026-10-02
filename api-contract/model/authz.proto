@@ -54,19 +54,18 @@ message AuthzTemplateArgument {
   string name = 2;
 }
 
-message AuthzRuleTemplate {
+message AuthzRuleTemplateSpec {
   repeated AuthzTemplateArgument arguments = 1;
   repeated AuthzRule rules = 2;
 }
 
-message AuthzRuleTemplateRecord {
+message AuthzRuleTemplate {
   int64 id = 1;
   string name = 2;
   bool builtin = 3;
   reserved 4; // deleted: a delete mutation on the event stream
-  int64 author = 5;
-  int64 created_at = 6;
-  AuthzRuleTemplate template = 7;
+  reserved 5, 6; // author, created_time: EntityMeta on the mutation
+  AuthzRuleTemplateSpec spec = 7;
 }
 
 message AuthzArgumentBinding {
@@ -74,21 +73,20 @@ message AuthzArgumentBinding {
   repeated int64 values = 2;
 }
 
-message AuthzGrant {
+message AuthzGrantSpec {
   repeated AuthzArgumentBinding args = 1;
   AuthzRule rule = 2;
 }
 
-message AuthzGrantRecord {
-  int64 id = 1;
-  int64 user_id = 2;
-  int64 template_id = 3;
-  int64 author = 4;
-  int64 created_at = 5;
-  AuthzGrant grant = 6;
+message AuthzGrant {
+  int64 user_id = 1;
+  int64 template_id = 2;
+  AuthzGrantSpec spec = 3;
+  reserved 4, 5; // author, created_time: EntityMeta on the mutation
+  int64 id = 6;
 }
 
-message AuthzGlobalRule {
+message AuthzGlobalRuleSpec {
   AuthzSelector permissions = 1;
   AuthzSelector spaces = 2;
   AuthzSelector entity_types = 3;
@@ -104,32 +102,9 @@ message AuthzGlobalRule {
   bool deny = 8;
 }
 
-message AuthzGlobalRuleRecord {
+message AuthzGlobalRule {
   int64 id = 1;
   string name = 2;
-  int64 author = 3;
-  int64 created_at = 4;
-  AuthzGlobalRule rule = 5;
-}
-
-// Grant identity lives in the mutation envelope. The value carries the
-// subject, the bindings, and the creation facts.
-message AuthzGrantValue {
-  int64 user_id = 1;
-  int64 template_id = 2;
-  AuthzGrant grant = 3;
-  int64 author = 4;
-  int64 created_time = 5;
-}
-
-message AuthzGrantEvent {
-  int64 authz_grant_id = 1;
-  int32 version = 2;
-  int64 seq = 3;
-  int64 event_id = 4;
-  int64 author = 5;
-  EventType event_type = 6;
-  int64 created_time = 7;
-  int64 event_time = 8;
-  AuthzGrantValue value = 9 [(cp.go_value) = true];
+  reserved 3, 4; // author, created_time: EntityMeta on the mutation
+  AuthzGlobalRuleSpec spec = 5;
 }

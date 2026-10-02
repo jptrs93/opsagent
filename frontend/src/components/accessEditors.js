@@ -291,7 +291,7 @@ const nameField = (name, placeholder) => div({class: "flex items-center gap-3"},
 export function ruleTemplateOverlay({record, spaces, spaceNames, onClose}) {
     const editing = Boolean(record);
     const name = van.state(record?.name || "");
-    const ruleStates = van.state((record?.template?.rules || [null]).map(newRuleState));
+    const ruleStates = van.state((record?.spec?.rules || [null]).map(newRuleState));
     const error = van.state(null);
     const saving = van.state(false);
     const openMenu = van.state(null);
@@ -315,7 +315,7 @@ export function ruleTemplateOverlay({record, spaces, spaceNames, onClose}) {
         try {
             saving.val = true;
             error.val = null;
-            const payload = {name: name.val.trim(), template: buildTemplate()};
+            const payload = {name: name.val.trim(), spec: buildTemplate()};
             if (editing) {
                 await capi.postV1AccessRuleTemplatesUpdate({id: record.id, ...payload});
             } else {
@@ -423,18 +423,18 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
         try {
             saving.val = true;
             error.val = null;
-            const request = {userId: Number(user.id), templateId: 0, grant: {args: [], rule: null}};
+            const request = {userId: Number(user.id), templateId: 0, spec: {args: [], rule: null}};
             if (mode.val === "template") {
                 const template = selectedTemplate();
                 if (!template) throw new Error("Choose a role");
                 request.templateId = Number(template.id);
-                request.grant.args = templateArguments(template.template).map((arg) => {
+                request.spec.args = templateArguments(template.spec).map((arg) => {
                     const st = bindingState(arg);
                     const values = arg.kind === "entityRefs" ? parseRefs(st.refsText.val) : [...st.values.val];
                     return {argumentId: arg.id, values};
                 });
             } else {
-                request.grant.rule = ruleFromState(directRule);
+                request.spec.rule = ruleFromState(directRule);
             }
             await capi.postV1AccessGrantsCreate(request);
             onClose();
@@ -455,8 +455,8 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
     // The rules of the chosen role, so a grant is never made blind: bound
     // arguments still read as ${name} here since the binding applies per user.
     const templateRules = (template) => {
-        const argNames = new Map(templateArguments(template.template).map((a) => [a.id, a.name]));
-        const rules = template.template?.rules || [];
+        const argNames = new Map(templateArguments(template.spec).map((a) => [a.id, a.name]));
+        const rules = template.spec?.rules || [];
         if (!rules.length) return "";
         return previewPanel("Rules",
             ...rules.map((rule) => ruleDisplay(rule, {spaceNames: spaceNames(), argNames})));
@@ -477,7 +477,7 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
                     () => {
                         const template = selectedTemplate();
                         if (!template) return p({class: "text-sm text-gray-400"}, "No roles available.");
-                        const args = templateArguments(template.template);
+                        const args = templateArguments(template.spec);
                         return div({class: "flex flex-col gap-3"},
                             args.length
                                 ? div({class: "flex flex-col gap-2"},
@@ -534,7 +534,7 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
         try {
             saving.val = true;
             error.val = null;
-            await capi.postV1AccessGlobalRulesCreate({name: name.val.trim(), rule: buildRule()});
+            await capi.postV1AccessGlobalRulesCreate({name: name.val.trim(), spec: buildRule()});
             onClose();
         } catch (e) {
             error.val = e.message;

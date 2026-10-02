@@ -106,10 +106,6 @@ func ValidateSpec(q *pq.Queries, secretStore *secrets.Manager, spec *apigen.Depl
 	return ValidateSpecWithResolvers(spec, resolver, secretStore, resolver)
 }
 
-func ValidateSpecWithAssets(spec *apigen.DeploymentSpec, assets AssetResolver) (*apigen.DeploymentSpec, error) {
-	return ValidateSpecWithResolvers(spec, assets, nil, nil)
-}
-
 func ValidateSpecWithResolvers(spec *apigen.DeploymentSpec, assets AssetResolver, secretStore SecretResolver, configs ConfigResolver) (*apigen.DeploymentSpec, error) {
 	if spec == nil {
 		return nil, InvalidConfigErrf("spec is required")

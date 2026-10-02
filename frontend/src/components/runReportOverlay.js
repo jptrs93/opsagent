@@ -1,5 +1,6 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
+import {deploymentFromRecord} from "../state/tree.js";
 import {deploymentsS, machinesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {resolveUserDisplayName} from "../lib/users.js";
@@ -46,8 +47,8 @@ export function runReportOverlay(target, onClose) {
         }
         try {
             const resp = await capi.postV1DeploymentsHistory({deploymentId});
-            const entry = (resp.entries || []).find((e) => e.config?.specVersion === version);
-            if (entry) versionMeta.val = {at: entry.config.eventTime, by: entry.config.author || 0};
+            const entry = (resp.entries || []).map(e => deploymentFromRecord(e.deployment)).find((c) => c?.specVersion === version);
+            if (entry) versionMeta.val = {at: entry.eventTime, by: entry.author || 0};
         } catch {}
     };
     void resolveVersionMeta();

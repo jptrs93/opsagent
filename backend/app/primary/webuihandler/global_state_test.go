@@ -46,10 +46,10 @@ func TestPostV1GlobalEventsReturnsEachSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	if res.Seq == 0 || !res.Reset || !res.Synced || len(res.Events) == 0 {
-		t.Fatalf("expected a synced bootstrap with events, got %+v", res)
+	if res.Seq == 0 || res.Snapshot == nil || !res.Synced || len(res.Snapshot.Entities) == 0 || res.Snapshot.Seq != res.Seq {
+		t.Fatalf("expected a synced snapshot with entries, got %+v", res)
 	}
-	fold := statetest.Fold(res.Events)
+	fold := foldOpening(res)
 	if len(fold[apigen.CoreEntityType_CORE_ENTITY_SPACE]) == 0 {
 		t.Error("expected at least the created space")
 	}
@@ -76,7 +76,7 @@ func TestPostV1GlobalEventsExcludesDeletedDeployments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	if statetest.Fold(res.Events)[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][int64(cfg.DeploymentID)] != nil {
+	if foldOpening(res)[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][int64(cfg.DeploymentID)] != nil {
 		t.Fatalf("deleted deployment %d must not appear", cfg.DeploymentID)
 	}
 }
@@ -90,15 +90,18 @@ func TestPostV1DeploymentsGetReturnsConfigAndInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1DeploymentsGet: %v", err)
 	}
-	if res.DeploymentEvent == nil || res.DeploymentEvent.DeploymentID != cfg.DeploymentID {
-		t.Fatalf("config = %+v, want id %d", res.DeploymentEvent, cfg.DeploymentID)
+	if res.Deployment == nil || res.Deployment.Deployment == nil || res.Deployment.Deployment.ID != cfg.DeploymentID {
+		t.Fatalf("deployment = %+v, want id %d", res.Deployment, cfg.DeploymentID)
 	}
-	if res.ScheduledInstanceEvents == nil || len(res.ScheduledInstanceEvents) == 0 {
-		t.Fatalf("expected at least one instance, got %+v", res.ScheduledInstanceEvents)
+	if meta := res.Deployment.Meta; meta == nil || meta.Version != cfg.Version || meta.SpecVersion != cfg.SpecVersion || meta.UpdatedSeq != cfg.Seq || meta.CreatedTime != cfg.CreatedTime.UnixMilli() || meta.Deleted {
+		t.Fatalf("deployment meta = %+v, want version %d spec %d seq %d", res.Deployment.Meta, cfg.Version, cfg.SpecVersion, cfg.Seq)
 	}
-	for _, inst := range res.ScheduledInstanceEvents {
-		if inst.Value.DeploymentID != cfg.DeploymentID {
-			t.Errorf("instance belongs to deployment %d, want %d", inst.Value.DeploymentID, cfg.DeploymentID)
+	if res.ScheduledInstances == nil || len(res.ScheduledInstances) == 0 {
+		t.Fatalf("expected at least one instance, got %+v", res.ScheduledInstances)
+	}
+	for _, inst := range res.ScheduledInstances {
+		if inst.DeploymentID != cfg.DeploymentID {
+			t.Errorf("instance belongs to deployment %d, want %d", inst.DeploymentID, cfg.DeploymentID)
 		}
 	}
 }
@@ -114,8 +117,8 @@ func TestPostV1DeploymentsGetOnlyReturnsRequestedDeployment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1DeploymentsGet: %v", err)
 	}
-	for _, inst := range res.ScheduledInstanceEvents {
-		if inst.Value.DeploymentID == other.DeploymentID {
+	for _, inst := range res.ScheduledInstances {
+		if inst.DeploymentID == other.DeploymentID {
 			t.Fatalf("leaked instance from deployment %d", other.DeploymentID)
 		}
 	}
@@ -163,7 +166,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatalf("body is not JSON: %v (%s)", err, w.Body.String())
 		}
-		for _, key := range []string{"events", "seq", "synced", "reset"} {
+		for _, key := range []string{"snapshot", "seq", "synced"} {
 			if _, ok := body[key]; !ok {
 				t.Errorf("missing %q in JSON body, got keys %v", key, keysOf(body))
 			}
@@ -183,12 +186,14 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
 			t.Fatalf("body is not JSON: %v (%s)", err, w.Body.String())
 		}
-		config, ok := body["deployment_event"].(map[string]any)
+		record, ok := body["deployment"].(map[string]any)
 		if !ok {
-			t.Fatalf("missing config object, got keys %v", keysOf(body))
+			t.Fatalf("missing deployment record, got keys %v", keysOf(body))
 		}
-		if int32(config["deployment_id"].(float64)) != cfg.DeploymentID {
-			t.Errorf("config.id = %v, want %d", config["deployment_id"], cfg.DeploymentID)
+		deployment, _ := record["deployment"].(map[string]any)
+		meta, _ := record["meta"].(map[string]any)
+		if deployment == nil || meta == nil || int32(deployment["id"].(float64)) != cfg.DeploymentID || int32(meta["version"].(float64)) != cfg.Version {
+			t.Errorf("record = %v, want deployment %d at version %d with meta", record, cfg.DeploymentID, cfg.Version)
 		}
 	})
 

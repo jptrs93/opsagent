@@ -3,7 +3,6 @@ package nodes
 import (
 	"context"
 
-	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
@@ -12,10 +11,6 @@ type LiveState struct {
 	Scheduled   map[int32]*apigen.ScheduledInstanceState
 	Deployments map[int32]*apigen.DeploymentEvent
 	Nodes       map[int32]*Node
-}
-
-func MustReadLiveState(q *pq.Queries) LiveState {
-	return erru.Must(ReadLiveState(context.Background(), q))
 }
 
 func ReadLiveState(ctx context.Context, q *pq.Queries) (LiveState, error) {

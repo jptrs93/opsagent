@@ -25,7 +25,7 @@ func TestAppendRevisionRunsValidationInsideTheCommit(t *testing.T) {
 		t.Fatalf("append with failing validation error = %v, want %v", err, rejected)
 	}
 	latest, err := LatestRevision(store.Queries())
-	if err != nil || latest.ID != oldID {
+	if err != nil || latest.Seq != oldID {
 		t.Fatalf("latest config after rejected append = %+v, err=%v", latest, err)
 	}
 }

@@ -7,8 +7,8 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 message User {
   int32 id = 1;
   string name = 2;
-  int64 created_at = 3; // Unix millis;
-  reserved 4; // last_login_at: the newest UserSession.created_at is the source.
+  reserved 3; // created_at: EntityMeta on the mutation
+  reserved 4; // last_login_at: the newest user session's creation is the source.
   bytes credentials = 5; // encoded InternalUser; replica class only, never sent to a browser
 }
 

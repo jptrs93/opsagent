@@ -7,42 +7,43 @@ import (
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 type ValueVersion struct {
-	Ref                          apigen.ValueRef
-	ID, Version, SpaceID, Author int32
-	GlobalSeq                    int64
-	CreatedAt                    time.Time
-	Value, Sha256                string
-	SizeBytes                    int64
+	Ref                      apigen.ValueRef
+	Version, SpaceID, Author int32
+	GlobalSeq                int64
+	CreatedAt                time.Time
+	Value, Sha256            string
+	SizeBytes                int64
 }
 
 type valueEvent struct {
-	id, version, valueVersion, author, spaceID int32
-	eventID, seq, eventTime                    int64
-	value, sha                                 string
-	size                                       int64
+	id, valueVersion, author, spaceID int32
+	seq, eventTime                    int64
+	value, sha                        string
+	size                              int64
 }
 
 func projectValue(value any) valueEvent {
 	switch e := value.(type) {
-	case *apigen.SecretEvent:
-		return valueEvent{id: e.SecretID, version: e.Version, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime}
-	case *apigen.ConfigEvent:
-		return valueEvent{id: e.ConfigID, version: e.Version, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime, value: e.Value.Value}
-	case *apigen.AssetEvent:
+	case *pq.SecretEvent:
+		return valueEvent{id: e.SecretID, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, seq: e.Seq, eventTime: e.EventTime}
+	case *pq.ConfigEvent:
+		return valueEvent{id: e.ConfigID, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, seq: e.Seq, eventTime: e.EventTime, value: e.Value.Value}
+	case *pq.AssetEvent:
 		return projectValue(*e)
-	case apigen.AssetEvent:
-		return valueEvent{id: e.AssetID, version: e.Version, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, eventID: e.EventID, seq: e.Seq, eventTime: e.EventTime, sha: e.Value.Sha256, size: e.Value.SizeBytes}
+	case pq.AssetEvent:
+		return valueEvent{id: e.AssetID, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, seq: e.Seq, eventTime: e.EventTime, sha: e.Value.Sha256, size: e.Value.SizeBytes}
 	default:
 		panic("not a value event")
 	}
 }
 
-// valueHistory lists every row of the value up to the version of the given
-// event, oldest first, straight from the event log.
+// valueHistory lists every version row of the value up to the value version
+// of the given event, oldest first, straight from the version tables.
 func valueHistory(s *state.Service, value any) []valueEvent {
 	target := projectValue(value)
 	if s == nil {
@@ -51,45 +52,39 @@ func valueHistory(s *state.Service, value any) []valueEvent {
 	ctx := context.Background()
 	q := s.Queries()
 	var events []valueEvent
-	add := func(row any) {
-		e := projectValue(row)
-		if e.id == target.id && e.version <= target.version {
+	add := func(e valueEvent) {
+		if e.id == target.id && e.valueVersion <= target.valueVersion {
 			events = append(events, e)
 		}
 	}
 	switch value.(type) {
-	case *apigen.SecretEvent:
-		for _, e := range erru.Must(q.ListAllSecretEvents(ctx)) {
-			add(e)
+	case *pq.SecretEvent:
+		for _, v := range erru.Must(q.ListSecretVersions(ctx)) {
+			add(valueEvent{id: int32(v.SecretID), valueVersion: int32(v.ValueVersion), author: int32(v.Author), spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime})
 		}
-	case *apigen.ConfigEvent:
-		for _, e := range erru.Must(q.ListAllConfigEvents(ctx)) {
-			add(e)
+	case *pq.ConfigEvent:
+		for _, v := range erru.Must(q.ListConfigVersions(ctx)) {
+			add(valueEvent{id: int32(v.ConfigID), valueVersion: int32(v.ValueVersion), author: int32(v.Author), spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime, value: v.Value})
 		}
 	default:
-		for _, e := range erru.Must(q.ListAllAssetEvents(ctx)) {
-			add(e)
+		for _, v := range erru.Must(q.ListAssetVersions(ctx)) {
+			add(valueEvent{id: int32(v.AssetID), valueVersion: int32(v.ValueVersion), author: int32(v.Author), spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime, sha: v.Sha256, size: v.SizeBytes})
 		}
 	}
 	if len(events) == 0 {
 		events = append(events, target)
 	}
-	sort.Slice(events, func(i, j int) bool { return events[i].version < events[j].version })
+	sort.Slice(events, func(i, j int) bool { return events[i].valueVersion < events[j].valueVersion })
 	return events
 }
 
 // ValueVersions returns the value versions of a secret, config, or asset as
-// of the given event, newest first. ID is the row id of the event that wrote
-// the value version; Ref is the (entity id, value version) pair.
+// of the given event, newest first. Ref is the (entity id, value version)
+// pair; SpaceID is the entity's current space.
 func ValueVersions(s *state.Service, value any) []*ValueVersion {
-	seen := map[int32]bool{}
 	var out []*ValueVersion
 	for _, e := range valueHistory(s, value) {
-		if seen[e.valueVersion] {
-			continue
-		}
-		seen[e.valueVersion] = true
-		out = append(out, &ValueVersion{Ref: apigen.ValueRef{ID: e.id, Version: e.valueVersion}, ID: int32(e.eventID), Version: e.valueVersion, SpaceID: e.spaceID, Author: e.author, GlobalSeq: e.seq, CreatedAt: time.UnixMilli(e.eventTime), Value: e.value, Sha256: e.sha, SizeBytes: e.size})
+		out = append(out, &ValueVersion{Ref: apigen.ValueRef{ID: e.id, Version: e.valueVersion}, Version: e.valueVersion, SpaceID: e.spaceID, Author: e.author, GlobalSeq: e.seq, CreatedAt: time.UnixMilli(e.eventTime), Value: e.value, Sha256: e.sha, SizeBytes: e.size})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Version > out[j].Version })
 	return out

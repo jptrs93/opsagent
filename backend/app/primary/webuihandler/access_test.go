@@ -19,11 +19,11 @@ func newAccessTestHandler(t *testing.T) (*Handler, apigen.Context) {
 	if err != nil {
 		t.Fatalf("authz.Open: %v", err)
 	}
-	if _, err := authzService.CreateGrant(&apigen.AuthzGrantRecord{
+	if _, err := authzService.CreateGrant(&apigen.AuthzGrant{
 		UserID:     1,
 		TemplateID: authz.ClusterAdminTemplateID,
-		Grant:      &apigen.AuthzGrant{},
-	}); err != nil {
+		Spec:       &apigen.AuthzGrantSpec{},
+	}, 0); err != nil {
 		t.Fatalf("seed admin grant: %v", err)
 	}
 	h := &Handler{Store: store, Queries: store.Queries(), Authz: authzService}
@@ -46,9 +46,9 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 		t.Fatalf("expected the 2 builtins, got %d", len(listed.Items))
 	}
 
-	created, err := h.PostV1AccessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
+	created, err := h.accessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
 		Name: "viewer",
-		Template: &apigen.AuthzRuleTemplate{Rules: []*apigen.AuthzRule{{
+		Spec: &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{{
 			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
 			Spaces:      wildcardSelector(),
 			EntityTypes: wildcardSelector(),
@@ -58,13 +58,13 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if created.ID <= authz.SpaceAdminTemplateID || created.Author != 1 {
+	if created.ID <= authz.SpaceAdminTemplateID {
 		t.Fatalf("unexpected created template: %+v", created)
 	}
 
-	if _, err := h.PostV1AccessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
+	if _, err := h.accessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
 		Name: "viewer",
-		Template: &apigen.AuthzRuleTemplate{Rules: []*apigen.AuthzRule{{
+		Spec: &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{{
 			Permissions: wildcardSelector(),
 			Spaces:      wildcardSelector(),
 			EntityTypes: wildcardSelector(),
@@ -74,19 +74,19 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 		t.Fatalf("duplicate name should map to AccessNameTakenErr, got %v", err)
 	}
 
-	if _, err := h.PostV1AccessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
-		Name:     "empty",
-		Template: &apigen.AuthzRuleTemplate{},
+	if _, err := h.accessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
+		Name: "empty",
+		Spec: &apigen.AuthzRuleTemplateSpec{},
 	}); err == nil {
 		t.Fatal("template without rules should be rejected")
 	} else if apiErr, ok := err.(apigen.ApiErr); !ok || apiErr.Code != 400 {
 		t.Fatalf("validation failure should map to a 400 ApiErr, got %v", err)
 	}
 
-	updated, err := h.PostV1AccessRuleTemplatesUpdate(ctx, &apigen.AuthzRuleTemplateUpdateRequest{
+	updated, err := h.accessRuleTemplatesUpdate(ctx, &apigen.AuthzRuleTemplateUpdateRequest{
 		ID:   created.ID,
 		Name: "viewer_plus",
-		Template: &apigen.AuthzRuleTemplate{Rules: []*apigen.AuthzRule{{
+		Spec: &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{{
 			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW), int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS)}},
 			Spaces:      wildcardSelector(),
 			EntityTypes: wildcardSelector(),
@@ -100,10 +100,10 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 		t.Fatalf("update did not apply: %+v", updated)
 	}
 
-	if _, err := h.PostV1AccessRuleTemplatesUpdate(ctx, &apigen.AuthzRuleTemplateUpdateRequest{
+	if _, err := h.accessRuleTemplatesUpdate(ctx, &apigen.AuthzRuleTemplateUpdateRequest{
 		ID:   authz.ClusterAdminTemplateID,
 		Name: "cluster_admin",
-		Template: &apigen.AuthzRuleTemplate{Rules: []*apigen.AuthzRule{{
+		Spec: &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{{
 			Permissions: wildcardSelector(),
 			Spaces:      wildcardSelector(),
 			EntityTypes: wildcardSelector(),
@@ -127,19 +127,19 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 func TestAccessGrantCRUD(t *testing.T) {
 	h, ctx := newAccessTestHandler(t)
 
-	grant, err := h.PostV1AccessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
+	grant, err := h.accessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
 		UserID:     7,
 		TemplateID: authz.SpaceAdminTemplateID,
-		Grant:      &apigen.AuthzGrant{Args: []*apigen.AuthzArgumentBinding{{ArgumentID: 1, Values: []int64{2}}}},
+		Spec:       &apigen.AuthzGrantSpec{Args: []*apigen.AuthzArgumentBinding{{ArgumentID: 1, Values: []int64{2}}}},
 	})
 	if err != nil {
 		t.Fatalf("create template grant: %v", err)
 	}
-	if grant.Author != 1 || grant.CreatedAt == 0 {
-		t.Fatalf("grant metadata not stamped: %+v", grant)
+	if grant.ID == 0 || grant.UserID != 7 {
+		t.Fatalf("grant = %+v", grant)
 	}
 
-	if _, err := h.PostV1AccessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
+	if _, err := h.accessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
 		UserID:     7,
 		TemplateID: authz.SpaceAdminTemplateID,
 	}); err == nil {
@@ -148,9 +148,9 @@ func TestAccessGrantCRUD(t *testing.T) {
 		t.Fatalf("missing bindings should map to a 400 ApiErr, got %v", err)
 	}
 
-	direct, err := h.PostV1AccessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
+	direct, err := h.accessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
 		UserID: 7,
-		Grant: &apigen.AuthzGrant{Rule: &apigen.AuthzRule{
+		Spec: &apigen.AuthzGrantSpec{Rule: &apigen.AuthzRule{
 			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
 			Spaces:      &apigen.AuthzSelector{Include: []int64{3}},
 			EntityTypes: wildcardSelector(),
@@ -161,12 +161,8 @@ func TestAccessGrantCRUD(t *testing.T) {
 		t.Fatalf("create direct grant: %v", err)
 	}
 
-	listed, err := h.PostV1AccessGrantsList(ctx)
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(listed.Items) != 3 {
-		t.Fatalf("expected the seeded admin grant plus 2 created, got %d", len(listed.Items))
+	if listed := h.Authz.Grants(); len(listed) != 3 {
+		t.Fatalf("expected the seeded admin grant plus 2 created, got %d", len(listed))
 	}
 
 	if err := h.PostV1AccessGrantsDelete(ctx, &apigen.AuthzGrantDeleteRequest{UserID: 8, ID: direct.ID}); !errors.Is(err, AccessNotFoundErr) {
@@ -180,9 +176,9 @@ func TestAccessGrantCRUD(t *testing.T) {
 func TestAccessGlobalRuleCRUD(t *testing.T) {
 	h, ctx := newAccessTestHandler(t)
 
-	rule, err := h.PostV1AccessGlobalRulesCreate(ctx, &apigen.AuthzGlobalRuleCreateRequest{
+	rule, err := h.accessGlobalRulesCreate(ctx, &apigen.AuthzGlobalRuleCreateRequest{
 		Name: "no_reveal",
-		Rule: &apigen.AuthzGlobalRule{
+		Spec: &apigen.AuthzGlobalRuleSpec{
 			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
 			Spaces:      wildcardSelector(),
 			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
@@ -193,13 +189,10 @@ func TestAccessGlobalRuleCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if rule.Author != 1 || rule.CreatedAt == 0 {
-		t.Fatalf("rule metadata not stamped: %+v", rule)
-	}
 
-	if _, err := h.PostV1AccessGlobalRulesCreate(ctx, &apigen.AuthzGlobalRuleCreateRequest{
+	if _, err := h.accessGlobalRulesCreate(ctx, &apigen.AuthzGlobalRuleCreateRequest{
 		Name: "targets_access",
-		Rule: &apigen.AuthzGlobalRule{
+		Spec: &apigen.AuthzGlobalRuleSpec{
 			Permissions: wildcardSelector(),
 			Spaces:      wildcardSelector(),
 			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS)}},
@@ -234,7 +227,7 @@ func TestAccessChangeSubscription(t *testing.T) {
 	sub, unsub := h.Store.SubscribeUpdates()
 	defer unsub()
 
-	if _, err := h.PostV1AccessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
+	if _, err := h.accessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
 		UserID:     3,
 		TemplateID: authz.ClusterAdminTemplateID,
 	}); err != nil {

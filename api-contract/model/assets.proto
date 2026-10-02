@@ -7,28 +7,14 @@ import "api-contract/options.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message AssetEvent {
-  int32 asset_id = 1;
-  int32 version = 2;
-  int64 seq = 3;
-  int64 event_id = 4;
-  int32 author = 5;
-  EventType event_type = 6;
-  int64 created_time = 7;
-  int64 event_time = 8;
-  int32 value_version = 9;
-  reserved 10;
-  Asset value = 11 [(cp.go_value) = true];
-}
-
 message Asset {
   AssetFs fs = 1;
   int32 space_id = 2;
   string sha256 = 3;
   int64 size_bytes = 4;
   string storage_key = 5;  // physical name of the content: LargeAssetsDir/<key> locally, <s3-path>/<key> in S3
-  int32 value_version = 6;
-  int64 created_time = 7;
+  reserved 6, 7;           // value_version, created_time: EntityMeta on the mutation
+  int32 id = 8;
 }
 
 message AssetFs {
@@ -41,7 +27,6 @@ message AssetDirectory {
   int32 space_id = 2;
   string key = 3;
   int32 parent_id = 4;     // 0 = the implicit root
-  int64 created_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int32 author = 6;        // user id that created the directory; 0 = unknown/system, negative = agent of user -author
+  reserved 5, 6;           // created_at, author: EntityMeta on the mutation
   reserved 7;              // deleted: a delete mutation on the event stream
 }

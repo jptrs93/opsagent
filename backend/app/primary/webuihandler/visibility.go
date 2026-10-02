@@ -2,9 +2,11 @@ package webuihandler
 
 import (
 	"context"
+	"fmt"
 	"slices"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
@@ -18,30 +20,6 @@ func filterVisible[T any](items []T, keep func(T) bool) []T {
 	return out
 }
 
-func (h *Handler) filterSpaces(ctx apigen.Context, items []*apigen.Space) []*apigen.Space {
-	return filterVisible(items, func(s *apigen.Space) bool {
-		return h.spaceVisible(ctx, int64(s.ID))
-	})
-}
-
-func (h *Handler) filterSecrets(ctx apigen.Context, items []*apigen.SecretEvent) []*apigen.SecretEvent {
-	return filterVisible(items, func(m *apigen.SecretEvent) bool {
-		return h.canAccess(ctx, vView, eSecret, int64(m.SpaceID()), int64(m.SecretID))
-	})
-}
-
-func (h *Handler) filterConfigs(ctx apigen.Context, items []*apigen.ConfigEvent) []*apigen.ConfigEvent {
-	return filterVisible(items, func(m *apigen.ConfigEvent) bool {
-		return h.canAccess(ctx, vView, eConfig, int64(m.SpaceID()), int64(m.ConfigID))
-	})
-}
-
-func (h *Handler) filterAssets(ctx apigen.Context, items []*apigen.AssetEvent) []*apigen.AssetEvent {
-	return filterVisible(items, func(a *apigen.AssetEvent) bool {
-		return h.canAccess(ctx, vView, eAsset, int64(a.SpaceID()), int64(a.AssetID))
-	})
-}
-
 func (h *Handler) filterValueDirectories(ctx apigen.Context, items []*apigen.ValueDirectory) []*apigen.ValueDirectory {
 	return filterVisible(items, func(d *apigen.ValueDirectory) bool {
 		return h.canAccessAny(ctx, vView, eValues, int64(d.SpaceID), 0)
@@ -51,34 +29,6 @@ func (h *Handler) filterValueDirectories(ctx apigen.Context, items []*apigen.Val
 func (h *Handler) filterAssetDirectories(ctx apigen.Context, items []*apigen.AssetDirectory) []*apigen.AssetDirectory {
 	return filterVisible(items, func(d *apigen.AssetDirectory) bool {
 		return h.canAccess(ctx, vView, eAsset, int64(d.SpaceID), 0)
-	})
-}
-
-func (h *Handler) filterDeployments(ctx apigen.Context, items []*apigen.DeploymentEvent) []*apigen.DeploymentEvent {
-	return filterVisible(items, func(cfg *apigen.DeploymentEvent) bool {
-		return h.canAccess(ctx, vView, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID))
-	})
-}
-
-func (h *Handler) filterNodes(ctx apigen.Context, items []*apigen.NodeEvent) []*apigen.NodeEvent {
-	return filterVisible(items, func(n *apigen.NodeEvent) bool {
-		return h.nodeVisible(ctx, int64(n.NodeID), n.Value.Operator.AllowedSpaces)
-	})
-}
-
-func (h *Handler) filterNodeStatuses(ctx apigen.Context, items []*apigen.NodeStatus) []*apigen.NodeStatus {
-	allowed := h.nodeAllowedSpaces()
-	return filterVisible(items, func(n *apigen.NodeStatus) bool {
-		return h.nodeVisible(ctx, int64(n.NodeID), allowed[n.NodeID])
-	})
-}
-
-func (h *Handler) filterUsers(ctx apigen.Context, items []*apigen.User) []*apigen.User {
-	return filterVisible(items, func(u *apigen.User) bool {
-		if ctx.User != nil && u.ID == ctx.User.ID {
-			return true
-		}
-		return h.canAccess(ctx, vView, eUser, 0, int64(u.ID))
 	})
 }
 
@@ -247,15 +197,13 @@ func (v *streamVisibility) needsReset(u *state.WriteUpdate) bool {
 	return false
 }
 
-// observe records the identities a mutation carries whether or not the
+// observe records the identities a payload carries whether or not the
 // viewer may see it, so later statuses and deletes resolve without a lookup.
-func (v *streamVisibility) observe(m *apigen.CoreMutation) {
-	e := m.Entity()
-	id := m.EntityID()
+func (v *streamVisibility) observe(t apigen.CoreEntityType, id int64, e *apigen.CoreEntity) {
 	if e == nil {
 		return
 	}
-	switch m.Type() {
+	switch t {
 	case apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT:
 		if e.Deployment != nil {
 			v.deployments[int32(id)] = e.Deployment.SpaceID
@@ -355,12 +303,11 @@ func (v *streamVisibility) entityVisible(t apigen.CoreEntityType, id int64, e *a
 	return false
 }
 
-// visible decides one mutation and updates the forwarded set. The current
-// payload decides a create or update: the mutation's own in a live commit,
-// the entity's newest in an opening. A delete is forwarded when this
-// connection forwarded the entity; when it never did (a replay after a
-// reconnect), the entity's final row decides.
-func (v *streamVisibility) visible(m *apigen.CoreMutation, current *apigen.CoreEntity) bool {
+// visible decides one live mutation and updates the forwarded set. The
+// mutation's own payload decides a create or update. A delete is forwarded
+// exactly when this connection forwarded the entity, in the snapshot or in a
+// later commit.
+func (v *streamVisibility) visible(m *apigen.CoreMutation) bool {
 	key := entityKey{m.Type(), m.EntityID()}
 	if m.Delete != nil {
 		defer v.forget(m)
@@ -368,10 +315,9 @@ func (v *streamVisibility) visible(m *apigen.CoreMutation, current *apigen.CoreE
 			delete(v.sent, key)
 			return true
 		}
-		last, err := v.h.Queries.LatestMutation(context.Background(), key.t, key.id)
-		return err == nil && v.entityVisible(key.t, key.id, &last.Entity)
+		return false
 	}
-	ok := v.entityVisible(key.t, key.id, current)
+	ok := v.entityVisible(key.t, key.id, m.Entity())
 	if ok {
 		v.sent[key] = true
 	} else {
@@ -387,15 +333,11 @@ func (v *streamVisibility) visibleUpdate(u *state.WriteUpdate) *state.WriteUpdat
 		return nil
 	}
 	for _, m := range u.Mutations {
-		v.observe(m)
+		v.observe(m.Type(), m.EntityID(), m.Entity())
 	}
-	return v.filterUpdate(u, (*apigen.CoreMutation).Entity)
-}
-
-func (v *streamVisibility) filterUpdate(u *state.WriteUpdate, current func(*apigen.CoreMutation) *apigen.CoreEntity) *state.WriteUpdate {
 	out := &state.WriteUpdate{Seq: u.Seq, Time: u.Time, Actor: u.Actor}
 	for _, m := range u.Mutations {
-		if !v.visible(m, current(m)) {
+		if !v.visible(m) {
 			continue
 		}
 		out.Mutations = append(out.Mutations, browserMutation(m))
@@ -406,27 +348,31 @@ func (v *streamVisibility) filterUpdate(u *state.WriteUpdate, current func(*apig
 	return out
 }
 
-// visibleEvents filters an opening. An entity's rows stand or fall together:
-// its newest payload in the batch decides, so a value moved out of the
-// viewer's space ships none of its history and one moved in ships all of
-// it. Every identity is observed first, so a child never resolves against a
-// parent row the batch has not reached yet.
-func (v *streamVisibility) visibleEvents(events []*apigen.CoreWriteUpdate) []*apigen.CoreWriteUpdate {
-	current := map[entityKey]*apigen.CoreEntity{}
-	for _, e := range events {
-		for _, m := range e.Mutations {
-			v.observe(m)
-			if m.Delete == nil {
-				current[entityKey{m.Type(), m.EntityID()}] = m.Entity()
-			}
-		}
+// visibleSnapshot filters an opening. An entity's entries stand or fall
+// together: its newest entry decides, so a value moved out of the viewer's
+// space ships none of its versions and one moved in ships all of them. Every
+// identity is observed first, so a child never resolves against a parent
+// entry the snapshot has not reached yet. The retained versions of a deleted
+// deployment ship when their newest version would, but are not counted as
+// forwarded since no later delete can follow them.
+func (v *streamVisibility) visibleSnapshot(entries []*apigen.MaterialisedEntity) []*apigen.MaterialisedEntity {
+	newest := map[entityKey]*apigen.CoreEntity{}
+	for _, e := range entries {
+		v.observe(e.EntityType, e.EntityID, e.Entity)
+		newest[entityKey{e.EntityType, e.EntityID}] = e.Entity
 	}
-	newest := func(m *apigen.CoreMutation) *apigen.CoreEntity { return current[entityKey{m.Type(), m.EntityID()}] }
-	out := make([]*apigen.CoreWriteUpdate, 0, len(events))
-	for _, e := range events {
-		if visible := v.filterUpdate(e, newest); visible != nil {
-			out = append(out, visible)
+	out := make([]*apigen.MaterialisedEntity, 0, len(entries))
+	for _, e := range entries {
+		key := entityKey{e.EntityType, e.EntityID}
+		if !v.entityVisible(key.t, key.id, newest[key]) {
+			continue
 		}
+		if e.Meta == nil || !e.Meta.Deleted {
+			v.sent[key] = true
+		}
+		copied := *e
+		copied.Entity = browserEntity(e.Entity)
+		out = append(out, &copied)
 	}
 	return out
 }
@@ -485,4 +431,17 @@ func browserEntity(e *apigen.CoreEntity) *apigen.CoreEntity {
 	}
 	out.SecretKeyslot = nil
 	return &out
+}
+
+// written builds the receipt of a committed write: the update stamped with
+// the meta the rows now hold, filtered to what the writer may see.
+func (h *Handler) written(ctx apigen.Context, m pq.Mutation) *apigen.CoreWriteUpdate {
+	u := pq.Written(m)
+	if err := h.Queries.StampMeta(ctx, u); err != nil {
+		panic(fmt.Sprintf("stamp receipt meta: %v", err))
+	}
+	if visible := h.visibleUpdate(ctx, u); visible != nil {
+		return visible
+	}
+	return &apigen.CoreWriteUpdate{Seq: u.Seq, Time: u.Time, Actor: u.Actor}
 }

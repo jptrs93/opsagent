@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import {written, ASSET} from "../state/tree.js";
 import {caretRightIcon, chevronDownIcon, editIcon, eyeOpenIcon, refreshIcon, xIcon} from "../lib/icons.js";
 import {groupEnvRows, isBooleanRow, isTruthyEnvValue} from "../lib/envVarGrouping.js";
 import {nodeAllowsSpace} from "../lib/nodeSpaces.js";
@@ -1392,8 +1393,9 @@ export function assetMountEditorOverlay(form, target, opts = {}) {
     const close = () => { if (typeof opts.onClose === 'function') opts.onClose(); };
     const onSaved = async (saved) => {
         if (opts.onSaved) await opts.onSaved(saved);
+        const asset = written(saved, ASSET);
         form.assetMounts.val = (form.assetMounts.val || []).map(m => m.id === target.mountID
-            ? {...m, assetId: Number(saved.assetId || 0), version: Number(saved.valueVersion || 0)}
+            ? {...m, assetId: Number(asset?.id || 0), version: Number(asset?.meta?.valueVersion || 0)}
             : m);
         close();
     };

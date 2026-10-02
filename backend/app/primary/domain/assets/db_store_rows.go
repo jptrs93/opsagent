@@ -117,12 +117,3 @@ func CountAssetVersionsBySha(q *pq.Queries, sha256 string) int64 {
 	count := erru.Must(q.CountAssetVersionsBySha(context.Background(), sha256))
 	return count
 }
-
-func ListAssetIDsBySha(q *pq.Queries, sha256 string) []int32 {
-	rows := erru.Must(q.ListAssetIDsBySha(context.Background(), sha256))
-	out := make([]int32, 0, len(rows))
-	for _, id := range rows {
-		out = append(out, int32(id))
-	}
-	return out
-}

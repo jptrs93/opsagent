@@ -95,21 +95,20 @@ type ApiServerHandler interface {
 	PostV1UserSessionsList(Context) (*UserSessionList, error)
 	PostV1UserSessionsRevoke(Context, *UserSessionRevokeRequest) error
 	PostV1AccessRuleTemplatesList(Context) (*AuthzRuleTemplateList, error)
-	PostV1AccessRuleTemplatesCreate(Context, *AuthzRuleTemplateCreateRequest) (*AuthzRuleTemplateRecord, error)
-	PostV1AccessRuleTemplatesUpdate(Context, *AuthzRuleTemplateUpdateRequest) (*AuthzRuleTemplateRecord, error)
+	PostV1AccessRuleTemplatesCreate(Context, *AuthzRuleTemplateCreateRequest) (*CoreWriteUpdate, error)
+	PostV1AccessRuleTemplatesUpdate(Context, *AuthzRuleTemplateUpdateRequest) (*CoreWriteUpdate, error)
 	PostV1AccessRuleTemplatesDelete(Context, *AuthzRuleTemplateDeleteRequest) error
-	PostV1AccessGrantsList(Context) (*AuthzGrantList, error)
-	PostV1AccessGrantsCreate(Context, *AuthzGrantCreateRequest) (*AuthzGrantRecord, error)
+	PostV1AccessGrantsCreate(Context, *AuthzGrantCreateRequest) (*CoreWriteUpdate, error)
 	PostV1AccessGrantsDelete(Context, *AuthzGrantDeleteRequest) error
 	PostV1AccessGlobalRulesList(Context) (*AuthzGlobalRuleList, error)
-	PostV1AccessGlobalRulesCreate(Context, *AuthzGlobalRuleCreateRequest) (*AuthzGlobalRuleRecord, error)
+	PostV1AccessGlobalRulesCreate(Context, *AuthzGlobalRuleCreateRequest) (*CoreWriteUpdate, error)
 	PostV1AccessGlobalRulesDelete(Context, *AuthzGlobalRuleDeleteRequest) error
 	PostV1GlobalEvents(Context, *EventStreamRequest) (*EventStreamMsg, error)
 	PostV1GlobalEventStream(Context, *EventStreamRequest) iter.Seq2[*EventStreamMsg, error]
 	PostV1GlobalExportedConfig(Context) (*ExportedConfigBlob, error)
 	PostV1DeploymentsGet(Context, *DeploymentGetRequest) (*DeploymentGetResponse, error)
-	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*DeploymentEvent, error)
-	PostV2DeploymentsUpdate(Context, *DeploymentUpdateRequestV2) (*DeploymentEvent, error)
+	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*CoreWriteUpdate, error)
+	PostV2DeploymentsUpdate(Context, *DeploymentUpdateRequestV2) (*CoreWriteUpdate, error)
 	PostV1DeploymentsDelete(Context, *DeploymentDeleteRequest) error
 	PostV1DeploymentsRecentlyDeleted(Context, *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error)
 	PostV1DeploymentsHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
@@ -120,11 +119,10 @@ type ApiServerHandler interface {
 	PostV1MetricsLatest(Context, *MetricsLatestRequest) (*MetricsLatestResponse, error)
 	PostV1DeploymentsPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	PostV1ReposValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
-	PostV1NodesList(Context) (*NodeEventList, error)
-	PostV1NodesRename(Context, *NodeRenameRequest) (*NodeEvent, error)
-	PostV1NodesAllowedSpaces(Context, *NodeAllowedSpacesRequest) (*NodeEvent, error)
-	PostV1NodesDrain(Context, *NodeDrainRequest) (*NodeEvent, error)
-	PostV1NodesEvict(Context, *NodeEvictRequest) (*NodeEvent, error)
+	PostV1NodesRename(Context, *NodeRenameRequest) (*CoreWriteUpdate, error)
+	PostV1NodesAllowedSpaces(Context, *NodeAllowedSpacesRequest) (*CoreWriteUpdate, error)
+	PostV1NodesDrain(Context, *NodeDrainRequest) (*CoreWriteUpdate, error)
+	PostV1NodesEvict(Context, *NodeEvictRequest) (*CoreWriteUpdate, error)
 	PostV1NodesExposure(Context, *NodeExposureRequest) (*NodeExposure, error)
 	GetV1NodesEnrollmentsInfo(Context) (*NodeEnrollmentInfo, error)
 	PostV1NodesEnrollmentsList(Context) (*EnrollmentRequestList, error)
@@ -132,38 +130,34 @@ type ApiServerHandler interface {
 	PostV1SpacesCreate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesUpdate(Context, *SpaceSetRequest) (*Space, error)
 	PostV1SpacesDelete(Context, *SpaceDeleteRequest) error
-	PostV1NetworkPoliciesList(Context) (*NetworkPolicyEventList, error)
-	PostV1NetworkPoliciesCreate(Context, *NetworkPolicyCreateRequest) (*NetworkPolicyEvent, error)
-	PostV1NetworkPoliciesUpdate(Context, *NetworkPolicyUpdateRequest) (*NetworkPolicyEvent, error)
+	PostV1NetworkPoliciesCreate(Context, *NetworkPolicyCreateRequest) (*CoreWriteUpdate, error)
+	PostV1NetworkPoliciesUpdate(Context, *NetworkPolicyUpdateRequest) (*CoreWriteUpdate, error)
 	PostV1NetworkPoliciesDelete(Context, *NetworkPolicyDeleteRequest) error
-	PostV1SecretsList(Context) (*SecretEventList, error)
-	PostV1SecretsCreate(Context, *SecretCreateRequest) (*SecretEvent, error)
-	PostV1SecretsSet(Context, *SecretSetRequest) (*SecretEvent, error)
-	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*SecretEvent, error)
-	PostV1SecretsRename(Context, *SecretRenameRequest) (*SecretEvent, error)
-	PostV1SecretsMove(Context, *SecretMoveRequest) (*SecretEvent, error)
+	PostV1SecretsCreate(Context, *SecretCreateRequest) (*CoreWriteUpdate, error)
+	PostV1SecretsSet(Context, *SecretSetRequest) (*CoreWriteUpdate, error)
+	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*CoreWriteUpdate, error)
+	PostV1SecretsRename(Context, *SecretRenameRequest) (*CoreWriteUpdate, error)
+	PostV1SecretsMove(Context, *SecretMoveRequest) (*CoreWriteUpdate, error)
 	PostV1SecretsReveal(Context, *SecretRevealRequest) (*SecretRevealResponse, error)
 	PostV1SecretsDelete(Context, *SecretDeleteRequest) error
 	PostV1SecretsStatus(Context) (*SecretsStatusResponse, error)
 	PostV1SecretsRotateRecoveryCode(Context) (*SecretRecoveryCodeResponse, error)
 	PostV1SecretsUnlock(Context, *SecretUnlockRequest) (*SecretsStatusResponse, error)
-	PostV1ConfigsList(Context) (*ConfigEventList, error)
-	PostV1ConfigsCreate(Context, *ConfigCreateRequest) (*ConfigEvent, error)
-	PostV1ConfigsSet(Context, *ConfigSetRequest) (*ConfigEvent, error)
-	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*ConfigEvent, error)
+	PostV1ConfigsCreate(Context, *ConfigCreateRequest) (*CoreWriteUpdate, error)
+	PostV1ConfigsSet(Context, *ConfigSetRequest) (*CoreWriteUpdate, error)
+	PostV1ConfigsRename(Context, *ConfigRenameRequest) (*CoreWriteUpdate, error)
 	PostV1ConfigsDelete(Context, *ConfigDeleteRequest) error
-	PostV1ConfigsMove(Context, *ConfigMoveRequest) (*ConfigEvent, error)
+	PostV1ConfigsMove(Context, *ConfigMoveRequest) (*CoreWriteUpdate, error)
 	PostV1ValueDirectoriesList(Context) (*ValueDirectoryList, error)
 	PostV1ValueDirectoriesCreate(Context, *ValueDirectoryCreateRequest) (*ValueDirectory, error)
 	PostV1ValueDirectoriesMove(Context, *ValueDirectoryMoveRequest) (*ValueDirectory, error)
 	PostV1ValueDirectoriesRename(Context, *ValueDirectoryRenameRequest) (*ValueDirectory, error)
 	PostV1ValueDirectoriesDelete(Context, *ValueDirectoryDeleteRequest) error
-	PostV1AssetsList(Context) (*AssetEventList, error)
 	GetV1AssetsContent(Context, *http.Request, http.ResponseWriter) error
 	PostV1AssetsUpload(Context, *http.Request, http.ResponseWriter) error
-	PostV1AssetsRename(Context, *AssetRenameRequest) (*AssetEvent, error)
+	PostV1AssetsRename(Context, *AssetRenameRequest) (*CoreWriteUpdate, error)
 	PostV1AssetsDelete(Context, *AssetDeleteRequest) error
-	PostV1AssetsMove(Context, *AssetMoveRequest) (*AssetEvent, error)
+	PostV1AssetsMove(Context, *AssetMoveRequest) (*CoreWriteUpdate, error)
 	PostV1AssetDirectoriesList(Context) (*AssetDirectoryList, error)
 	PostV1AssetDirectoriesCreate(Context, *AssetDirectoryCreateRequest) (*AssetDirectory, error)
 	PostV1AssetDirectoriesMove(Context, *AssetDirectoryMoveRequest) (*AssetDirectory, error)
@@ -473,12 +467,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/access/rule-templates/delete", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesDeleteAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesDelete, compressionModeAuto, false))
-	postV1AccessGrantsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1AccessGrantsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.PostV1AccessGrantsList(authCtx)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/access/grants/list", buildHandlerFunc(config, verifyAuth, postV1AccessGrantsListAccessPolicy, postAuthHandlerPostV1AccessGrantsList, compressionModeAuto, false))
 	postV1AccessGrantsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1AccessGrantsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGrantCreateRequest)
@@ -736,12 +724,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/repos/validate", buildHandlerFunc(config, verifyAuth, postV1ReposValidateAccessPolicy, postAuthHandlerPostV1ReposValidate, compressionModeAuto, false))
-	postV1NodesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1NodesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.PostV1NodesList(authCtx)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/nodes/list", buildHandlerFunc(config, verifyAuth, postV1NodesListAccessPolicy, postAuthHandlerPostV1NodesList, compressionModeAuto, false))
 	postV1NodesRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1NodesRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeRenameRequest)
@@ -857,12 +839,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/spaces/delete", buildHandlerFunc(config, verifyAuth, postV1SpacesDeleteAccessPolicy, postAuthHandlerPostV1SpacesDelete, compressionModeAuto, false))
-	postV1NetworkPoliciesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1NetworkPoliciesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.PostV1NetworkPoliciesList(authCtx)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/network-policies/list", buildHandlerFunc(config, verifyAuth, postV1NetworkPoliciesListAccessPolicy, postAuthHandlerPostV1NetworkPoliciesList, compressionModeAuto, false))
 	postV1NetworkPoliciesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1NetworkPoliciesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNetworkPolicyCreateRequest)
@@ -900,12 +876,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/network-policies/delete", buildHandlerFunc(config, verifyAuth, postV1NetworkPoliciesDeleteAccessPolicy, postAuthHandlerPostV1NetworkPoliciesDelete, compressionModeAuto, false))
-	postV1SecretsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1SecretsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.PostV1SecretsList(authCtx)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/secrets/list", buildHandlerFunc(config, verifyAuth, postV1SecretsListAccessPolicy, postAuthHandlerPostV1SecretsList, compressionModeAuto, false))
 	postV1SecretsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1SecretsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretCreateRequest)
@@ -1010,12 +980,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/secrets/unlock", buildHandlerFunc(config, verifyAuth, postV1SecretsUnlockAccessPolicy, postAuthHandlerPostV1SecretsUnlock, compressionModeAuto, false))
-	postV1ConfigsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1ConfigsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.PostV1ConfigsList(authCtx)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/configs/list", buildHandlerFunc(config, verifyAuth, postV1ConfigsListAccessPolicy, postAuthHandlerPostV1ConfigsList, compressionModeAuto, false))
 	postV1ConfigsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1ConfigsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigCreateRequest)
@@ -1129,12 +1093,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/value-directories/delete", buildHandlerFunc(config, verifyAuth, postV1ValueDirectoriesDeleteAccessPolicy, postAuthHandlerPostV1ValueDirectoriesDelete, compressionModeAuto, false))
-	postV1AssetsListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1AssetsList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.PostV1AssetsList(authCtx)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/assets/list", buildHandlerFunc(config, verifyAuth, postV1AssetsListAccessPolicy, postAuthHandlerPostV1AssetsList, compressionModeAuto, false))
 	getV1AssetsContentAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerGetV1AssetsContent := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		err := h.GetV1AssetsContent(authCtx, r, w)

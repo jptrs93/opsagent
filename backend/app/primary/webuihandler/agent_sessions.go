@@ -130,7 +130,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 		if now.Sub(rec.CreatedAt) < agentSessionPendingTTL {
 			return nil, AgentSessionRequestPendingErr
 		}
-		if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, time.Time{}, now, 0); err != nil {
+		if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, time.Time{}, 0); err != nil {
 			return nil, fmt.Errorf("closing stale agent session request: %w", err)
 		}
 		slog.InfoContext(ctx, "closed stale agent session request", "session", rec.ID)
@@ -205,7 +205,7 @@ func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.
 }
 
 func (h *Handler) closeAgentSession(ctx apigen.Context, rec agentsessions.Record, now time.Time, msg string) (*apigen.AgentSessionPickup, error) {
-	if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, rec.ApprovedAt, now, 0); err != nil {
+	if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, rec.ApprovedAt, 0); err != nil {
 		return nil, fmt.Errorf("closing agent session: %w", err)
 	}
 	slog.InfoContext(ctx, msg, "session", rec.ID)
@@ -303,7 +303,7 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 	if rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_PENDING {
 		status = apigen.AgentSessionStatus_AGENT_SESSION_REJECTED
 	}
-	if err := h.agentSessions().RevokeAgentSession(req.ID, ctx.User.ID, status, time.Now(), ctx.AttributionUserID()); err != nil {
+	if err := h.agentSessions().RevokeAgentSession(req.ID, ctx.User.ID, status, ctx.AttributionUserID()); err != nil {
 		return fmt.Errorf("revoking agent session: %w", err)
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("stopped agent session status=%v", status), "session", req.ID)

@@ -1,15 +1,12 @@
--- Operator requests to reseed one repository's Nix build store on every node.
--- Append-only: one row per request, live state is the newest row per repo.
-CREATE TABLE IF NOT EXISTS nix_store_reset_event_log (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    global_seq   INTEGER NOT NULL,
+-- Operator requests to reseed one repository's Nix build store on every node:
+-- a materialised view of the write log with one row per repository, the
+-- newest request, maintained by the reducer in pq/materialise.go.
+CREATE TABLE IF NOT EXISTS nix_store_resets (
+    id           INTEGER PRIMARY KEY,
+    repo         TEXT    NOT NULL UNIQUE,
+    requested_at INTEGER NOT NULL,  -- epoch ms
+    seq          INTEGER NOT NULL,
     event_time   INTEGER NOT NULL,  -- epoch ms
     author       INTEGER NOT NULL,
-    repo         TEXT    NOT NULL,
-    event_type   INTEGER NOT NULL,  -- AuthzVerb value: 1 create / 2 update
-    requested_at INTEGER NOT NULL   -- epoch ms
+    created_time INTEGER NOT NULL   -- epoch ms of the first row
 );
-
-CREATE INDEX IF NOT EXISTS idx_nix_store_reset_event_log_repo ON nix_store_reset_event_log (repo, id);
-
-CREATE INDEX IF NOT EXISTS idx_nix_store_reset_event_log_seq ON nix_store_reset_event_log (global_seq, id);

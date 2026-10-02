@@ -5,21 +5,18 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
-	"time"
 
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
+const directoryType = apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY
+
 func ListDirectories(q *pq.Queries) []*apigen.ValueDirectory {
-	rows := erru.Must(q.ListValueDirectories(context.Background()))
-	if rows == nil {
-		rows = []*apigen.ValueDirectory{}
-	}
-	return rows
+	return erru.Must(q.ListValueDirectories(context.Background()))
 }
 
 func DirectoryMeta(q *pq.Queries, directoryID int32) (*apigen.ValueDirectory, bool) {
@@ -33,8 +30,8 @@ func DirectoryMeta(q *pq.Queries, directoryID int32) (*apigen.ValueDirectory, bo
 	return row, true
 }
 
-func directoryMeta(seq int64, author int32, eventType apigen.AuthzVerb) pq.EventMeta {
-	return pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType}
+func directoryUpdate(seq int64, author int32, verb apigen.AuthzVerb, d *apigen.ValueDirectory) *state.WriteUpdate {
+	return pq.NewUpdate(pq.ValueDirectoryMutation(WriteMeta(seq, nowMillis(), author, verb), d))
 }
 
 func CreateDirectory(store *state.Service, spaceID, parentID int32, name string, author int32) (*apigen.ValueDirectory, error) {
@@ -55,23 +52,15 @@ func CreateDirectory(store *state.Service, spaceID, parentID int32, name string,
 				return nil, ErrDirectoryNotFound
 			}
 		}
-		if err := requireNameFree(ctx, q, space, parent, name, 0, 0, 0); err != nil {
+		if err := requireNameFree(ctx, q, space, parent, name, 0, 0); err != nil {
 			return nil, err
 		}
-		id, err := q.NextValueDirectoryID(ctx)
+		id, err := q.NextEntityID(ctx, directoryType)
 		if err != nil {
 			return nil, err
 		}
-		meta := directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE)
-		var m pq.Mutation
-		d, m, err = q.InsertValueDirectoryEvent(ctx, pq.ValueDirectoryEventParams{
-			EventMeta:   meta,
-			DirectoryID: id, SpaceID: space, Name: name, ParentID: parent, CreatedAt: meta.EventTime,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(m), nil
+		d = &apigen.ValueDirectory{ID: int32(id), SpaceID: int32(space), Name: name, ParentID: int32(parent)}
+		return directoryUpdate(seq, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE, d), nil
 	})
 	if err != nil {
 		return nil, err
@@ -94,16 +83,11 @@ func RenameDirectory(store *state.Service, directoryID int32, newName string, au
 		if d.Name == newName {
 			return nil, nil
 		}
-		if err := requireNameFree(ctx, q, int64(d.SpaceID), int64(d.ParentID), newName, 0, 0, int64(d.ID)); err != nil {
+		if err := requireNameFree(ctx, q, int64(d.SpaceID), int64(d.ParentID), newName, directoryType, int64(d.ID)); err != nil {
 			return nil, err
 		}
-		event := pq.ValueDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE))
-		event.Name = newName
-		var m pq.Mutation
-		if d, m, err = q.InsertValueDirectoryEvent(ctx, event); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(m), nil
+		d.Name = newName
+		return directoryUpdate(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, d), nil
 	})
 	if err != nil {
 		return nil, err
@@ -148,16 +132,11 @@ func MoveDirectory(store *state.Service, directoryID, newParentID int32, author 
 			}
 			cur = int64(p.ParentID)
 		}
-		if err := requireNameFree(ctx, q, int64(d.SpaceID), parent, d.Name, 0, 0, int64(d.ID)); err != nil {
+		if err := requireNameFree(ctx, q, int64(d.SpaceID), parent, d.Name, directoryType, int64(d.ID)); err != nil {
 			return nil, err
 		}
-		event := pq.ValueDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE))
-		event.ParentID = parent
-		var m pq.Mutation
-		if d, m, err = q.InsertValueDirectoryEvent(ctx, event); err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(m), nil
+		d.ParentID = int32(parent)
+		return directoryUpdate(seq, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, d), nil
 	})
 	if err != nil {
 		return nil, err
@@ -172,25 +151,13 @@ func DeleteDirectory(store *state.Service, directoryID int32, author int32) erro
 		if err != nil {
 			return nil, err
 		}
-		secretCount, err := q.CountSecretsInDirectory(ctx, int64(d.ID))
+		children, err := q.CountValueNamesUnder(ctx, int64(d.ID))
 		if err != nil {
 			return nil, err
 		}
-		configCount, err := q.CountConfigsInDirectory(ctx, int64(d.ID))
-		if err != nil {
-			return nil, err
-		}
-		children, err := q.CountChildValueDirectories(ctx, int64(d.ID))
-		if err != nil {
-			return nil, err
-		}
-		if secretCount > 0 || configCount > 0 || children > 0 {
+		if children > 0 {
 			return nil, ErrDirectoryNotEmpty
 		}
-		_, m, err := q.InsertValueDirectoryEvent(ctx, pq.ValueDirectoryEvent(d, directoryMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_DELETE)))
-		if err != nil {
-			return nil, err
-		}
-		return pq.NewUpdate(m), nil
+		return pq.NewUpdate(pq.DeleteMutation(WriteMeta(seq, nowMillis(), author, apigen.AuthzVerb_AUTHZ_VERB_DELETE), directoryType, int64(d.ID))), nil
 	})
 }

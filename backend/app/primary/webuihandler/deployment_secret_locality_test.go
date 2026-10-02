@@ -62,7 +62,7 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	}
 
 	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
-		return h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
 			Spec:       secretEnvSpec("nginx", ref),
@@ -82,7 +82,7 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("staging deployment with prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
 
-	clean, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	clean, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: staging.ID, Name: "clean",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       remoteDeploymentSpec("nginx", hostNetworking()),
@@ -90,14 +90,14 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating clean deployment: %v", err)
 	}
-	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID: clean.DeploymentID,
 		ExpectedSeq:  clean.Seq,
 		SpecUpdate:   &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", prodSecret.Ref())},
 	}); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("update adding prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
-	if _, err := h.PostV2DeploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
 		DeploymentID: clean.DeploymentID,
 		ExpectedSeq:  clean.Seq,
 		SpecUpdate:   &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", globalSecret.Ref())},
@@ -135,14 +135,14 @@ func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 		})
 	}
 
-	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	if _, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: nodes.DefaultSpaceID, Name: "web-global",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       httpsSpec(),
 	}); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("global deployment with prod cert secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
-	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	if _, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "web-prod",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       httpsSpec(),
@@ -165,7 +165,7 @@ func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating secret: %v", err)
 	}
-	if _, err := h.PostV1DeploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
+	if _, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: prod.ID, Name: "db",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
 		Spec:       secretEnvSpec("postgres", secret.Ref()),
@@ -175,17 +175,17 @@ func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 
 	// The referencing deployment lives in prod: a move to the global space is
 	// reference-safe, a move to any other space is not.
-	if _, err := h.PostV1SecretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
+	if _, err := h.secretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
 		SecretID: secret.SecretID, SpaceID: nodes.DefaultSpaceID,
 	}); err != nil {
 		t.Fatalf("move to global with outside refs: %v", err)
 	}
-	if _, err := h.PostV1SecretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
+	if _, err := h.secretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
 		SecretID: secret.SecretID, SpaceID: staging.ID,
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("move out of global to staging err = %v, want %v", err, deployments.MoveReferencesOutsideSpaceErr)
 	}
-	if _, err := h.PostV1SecretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
+	if _, err := h.secretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
 		SecretID: secret.SecretID, SpaceID: prod.ID,
 	}); err != nil {
 		t.Fatalf("move back to the referencing space: %v", err)

@@ -1,20 +1,20 @@
 package authz
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 	"reflect"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 // The builtins shipped before host permissions existed. Keep this independent
 // of builtinTemplates so the test exercises upgrading a persisted old policy.
-func builtinBeforeHostPermissions(operatorSpaces, agentSpaces *apigen.AuthzSelector) *apigen.AuthzRuleTemplate {
-	return &apigen.AuthzRuleTemplate{Rules: []*apigen.AuthzRule{
+func builtinBeforeHostPermissions(operatorSpaces, agentSpaces *apigen.AuthzSelector) *apigen.AuthzRuleTemplateSpec {
+	return &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{
 		{Permissions: all(), Spaces: operatorSpaces, EntityTypes: all(), EntityRefs: all()},
 		{
 			Permissions: &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{5}},
@@ -40,7 +40,7 @@ func TestBuiltinHostAccessUpgrade(t *testing.T) {
 	for _, old := range []struct {
 		id       int64
 		name     string
-		template *apigen.AuthzRuleTemplate
+		template *apigen.AuthzRuleTemplateSpec
 	}{
 		{ClusterAdminTemplateID, "cluster_admin", cluster}, {SpaceAdminTemplateID, "space_admin", space},
 	} {
@@ -49,14 +49,22 @@ func TestBuiltinHostAccessUpgrade(t *testing.T) {
 		}
 	}
 	for _, old := range []GrantRow{
-		{UserID: 1, TemplateID: ClusterAdminTemplateID, Blob: (&apigen.AuthzGrant{}).Encode()},
-		{UserID: 2, TemplateID: SpaceAdminTemplateID, Blob: (&apigen.AuthzGrant{Args: []*apigen.AuthzArgumentBinding{{ArgumentID: 1, Values: []int64{2}}}}).Encode()},
+		{UserID: 1, TemplateID: ClusterAdminTemplateID, Blob: (&apigen.AuthzGrantSpec{}).Encode()},
+		{UserID: 2, TemplateID: SpaceAdminTemplateID, Blob: (&apigen.AuthzGrantSpec{Args: []*apigen.AuthzArgumentBinding{{ArgumentID: 1, Values: []int64{2}}}}).Encode()},
 	} {
 		if _, err := insertGrant(store, old); err != nil {
 			t.Fatal(err)
 		}
 	}
 	grantsBefore, err := listGrants(store.Queries())
+	if err != nil {
+		t.Fatal(err)
+	}
+	templatesBefore, err := store.Queries().ListAuthzRuleTemplates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seqBefore, err := store.Queries().GetGlobalSeq(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,16 +82,20 @@ func TestBuiltinHostAccessUpgrade(t *testing.T) {
 	if !reflect.DeepEqual(grantsBefore, grantsAfter) {
 		t.Fatal("upgrade rewrote existing grants")
 	}
-	updated, err := store.Queries().ListLatestAuthzRuleTemplateEvents(context.Background())
+	updated, err := store.Queries().ListAuthzRuleTemplates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(updated) != 2 {
+	if len(updated) != 2 || len(templatesBefore) != 2 {
 		t.Fatalf("templates = %d, want 2", len(updated))
 	}
-	for _, event := range updated {
-		if event.Version != 2 || event.EventType != pq.EventUpdate {
-			t.Fatalf("template %d: version %d type %v, want one update", event.TemplateID, event.Version, event.EventType)
+	for i, row := range updated {
+		before := templatesBefore[i]
+		if row.ID != before.ID || row.Seq <= seqBefore || row.CreatedTime != before.CreatedTime || !row.Builtin || bytes.Equal(row.DataBlob, before.DataBlob) {
+			t.Fatalf("template %d: %+v after %+v, want one update keeping the creation time", row.ID, row, before)
+		}
+		if m, err := store.Queries().LatestMutation(context.Background(), apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, row.ID); err != nil || m.Kind() != apigen.AuthzVerb_AUTHZ_VERB_UPDATE {
+			t.Fatalf("template %d: newest logged mutation %v %v, want an update", row.ID, m, err)
 		}
 	}
 	if err := store.Close(); err != nil {
@@ -94,12 +106,12 @@ func TestBuiltinHostAccessUpgrade(t *testing.T) {
 	defer store.Close()
 	svc = mustOpen(t, store)
 	assertHostAccessDefaults(t, svc)
-	again, err := store.Queries().ListLatestAuthzRuleTemplateEvents(context.Background())
+	again, err := store.Queries().ListAuthzRuleTemplates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(updated, again) {
-		t.Fatal("second startup wrote additional template events")
+		t.Fatal("second startup wrote the templates again")
 	}
 }
 
