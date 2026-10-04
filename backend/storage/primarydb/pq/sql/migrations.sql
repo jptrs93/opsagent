@@ -55,8 +55,10 @@
 -- store resets, keyslots, the system config, nodes, node statuses,
 -- deployments, scheduled instances, and instance statuses) to the
 -- materialised tables rebuilt from the write log, which drops the
--- twenty-one old tables. Remove it after every active cluster has rolled
--- forward past v0.0.615.
+-- twenty-one old tables, with the repair of what the v0.0.614 backfill had
+-- logged out of order (repairLegacyLog) and the logged deployment counters
+-- the reducer keeps during a rebuild (loggedDeploymentCounters). Remove it
+-- after every active cluster has rolled forward past v0.0.615.
 -- Upgrading a database from before then requires stepping through a release
 -- that still carried them. Databases migrated through v0.0.541 keep a dead
 -- NULL-only nodes.enrollment_id column: its UNIQUE constraint blocks

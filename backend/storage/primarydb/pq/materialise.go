@@ -19,6 +19,7 @@ type rowEnvelope struct {
 	EventTime   int64
 	Author      int64
 	CreatedTime int64
+	Logged      *loggedDeploymentFacts
 }
 
 // reducedTypes are the entity types whose tables the reducer owns. Writers
@@ -146,6 +147,9 @@ func (q *Queries) affectedDeployment(ctx context.Context, m *apigen.CoreMutation
 // the rows.
 func (q *Queries) Reduce(ctx context.Context, seq, eventTime int64, actor int32, m *apigen.CoreMutation) error {
 	env := rowEnvelope{Seq: seq, EventTime: eventTime, Author: int64(actor)}
+	if facts, ok := q.logged[m]; ok {
+		env.Logged = &facts
+	}
 	id := m.EntityID()
 	e := m.Entity()
 	if e == nil && m.Delete == nil {
@@ -286,6 +290,8 @@ func (q *Queries) RebuildFromLog(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	q.logged = map[*apigen.CoreMutation]loggedDeploymentFacts{}
+	defer func() { q.logged = nil }()
 	for after := int64(-1); after < seq; {
 		upTo := min(after+rebuildPageSeqs, seq)
 		events, err := q.WriteEventsInRange(ctx, after, upTo)
@@ -297,6 +303,7 @@ func (q *Queries) RebuildFromLog(ctx context.Context) error {
 				return err
 			}
 		}
+		clear(q.logged)
 		after = upTo
 	}
 	return nil

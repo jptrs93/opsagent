@@ -466,6 +466,50 @@ refactor left without callers were deleted (the REST list filters in
 `pq.Events`, `pq.IsReducedType`), with the enforcement tests that used the
 filters now asserting on the opening snapshot of the caller's event stream.
 
+### Rollout check against the flippingcopilot copies (2026-10-04)
+
+Before tagging v0.0.615, sqlite backups of the cluster's `primary.db`
+(v0.0.612, seq 3117) and `secondary.db` were taken and stepped through
+both releases locally: v0.0.614's `pq.Open` with its startup migrations
+(the write log backfill, the inline asset move, the duplicate credential
+collapse, the settings service), reaching seq 3119 with the log level, then
+v0.0.615's open. The secret reseal and the `system_secrets` fold were
+skipped, since they need the machine key, and nothing decoded a secret.
+A direct v0.0.612 start on v0.0.615 was refused with the message naming
+v0.0.614 and left the file untouched. The secondary opened on both.
+
+The v0.0.615 open refused the real data three times, each a row the old
+write paths had stamped with `global_seq` 0 after the entity's seq had
+moved on, which the v0.0.614 backfill therefore placed in the genesis event
+ahead of the mutations it followed:
+
+- Four asset deletes (assets 76 to 79) replayed before their creates and
+  revived the assets, so `assets` rebuilt 14 rows against 10 live.
+- Every status row of scheduled instance 861 carried seq 0 while the
+  instance was created at seq 1524, so the replay orphan-deleted the status
+  before its parent existed.
+- The deployment spec counters rebuilt lower than the legacy tables held for
+  seven deployments (deployment 7 at 23 against 48, deployment 1 at 233
+  against 234): specs that differed only in fields dropped before the
+  backfill decode equal now. Instances pin versions and workers report spec
+  versions by the legacy numbers, so the reducer takes `version` and
+  `spec_version` from the reserved `Deployment` tags 15 and 16 the backfill
+  wrote, during a rebuild from the log only (`loggedDeploymentCounters`).
+
+The first two are fixed by `repairLegacyLog`, which runs after the first
+rebuild inside the materialisation transaction and appends one write event
+(actor 0) with a delete for every entity whose newest legacy row is a
+delete but whose newest logged mutation is not, and the newest logged
+status of every retained instance or node without a status row. The event
+is reduced before the verification and a later start finds nothing to
+repair. On the copy it is seq 3120 with five mutations. After it, every
+verification check passed, the fold oracle held across the 196 snapshot
+entries, and a second start was a no-op.
+
+Residue: write events 2192 and 2193, the builtin authz template updates,
+carry time 0 from their legacy rows, so those two entities show
+`updated_time` 0 until their next write.
+
 ## Open questions
 
 - Whether `deployment_versions` keeps a per-version `scheduling` snapshot or

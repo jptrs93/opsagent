@@ -27,6 +27,9 @@ type Queries struct {
 	// applied counts, per update, the mutations a transaction has already
 	// materialised, so an update grown by a trigger is reduced once.
 	applied map[*apigen.CoreWriteUpdate]int
+	// logged holds, during a rebuild from the log only, the counters the
+	// v0.0.614 backfill left in deployment payloads.
+	logged map[*apigen.CoreMutation]loggedDeploymentFacts
 }
 
 type conn struct {

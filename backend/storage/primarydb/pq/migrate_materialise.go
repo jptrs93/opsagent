@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"slices"
+	"time"
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -96,6 +98,9 @@ func materialiseLegacyTables(db *sql.DB, backup string) {
 		if err := tx.RebuildFromLog(ctx); err != nil {
 			return err
 		}
+		if err := tx.repairLegacyLog(ctx, present); err != nil {
+			return err
+		}
 		if err := tx.verifyMaterialisedAgainstLegacy(ctx, present); err != nil {
 			return err
 		}
@@ -110,6 +115,134 @@ func materialiseLegacyTables(db *sql.DB, backup string) {
 	if err != nil {
 		panic(fmt.Errorf("materialising the legacy tables: %w, the database as it was before the move is kept at %s", err, backup))
 	}
+}
+
+var legacyDeleteKeys = []struct {
+	table, key string
+	typ        apigen.CoreEntityType
+}{
+	{"secret_event_log", "secret_id", apigen.CoreEntityType_CORE_ENTITY_SECRET},
+	{"config_event_log", "config_id", apigen.CoreEntityType_CORE_ENTITY_CONFIG},
+	{"asset_event_log", "asset_id", apigen.CoreEntityType_CORE_ENTITY_ASSET},
+	{"value_directory_event_log", "directory_id", apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY},
+	{"asset_directory_event_log", "directory_id", apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY},
+	{"space_event_log", "space_id", apigen.CoreEntityType_CORE_ENTITY_SPACE},
+	{"user_event_log", "user_id", apigen.CoreEntityType_CORE_ENTITY_USER},
+	{"network_policy_event_log", "policy_id", apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY},
+	{"authz_rule_template_event_log", "template_id", apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE},
+	{"authz_grant_event_log", "grant_id", apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT},
+	{"global_access_rule_event_log", "rule_id", apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE},
+	{"deployment_event_log", "deployment_id", apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT},
+	{"node_event_log", "node_id", apigen.CoreEntityType_CORE_ENTITY_NODE},
+}
+
+var statusParents = []struct {
+	status, parent           apigen.CoreEntityType
+	parentTable, statusTable string
+	statusColumn             string
+}{
+	{apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS, apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE, "scheduled_instances", "scheduled_instance_status", "scheduled_instance_id"},
+	{apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS, apigen.CoreEntityType_CORE_ENTITY_NODE, "nodes", "node_status", "node_id"},
+}
+
+// repairLegacyLog runs after the first rebuild from the log and appends, as
+// one more write event, what the v0.0.614 backfill placed too early. Rows
+// the old write paths stamped with global_seq 0 after the entity's seq had
+// moved on, asset deletes and status reports among them, went into the
+// genesis event ahead of the mutations they followed, so a replay revives a
+// deleted asset and orphans a status before its parent exists. Every entity
+// whose newest legacy row is a delete but whose newest logged mutation is
+// not gets a delete, and the newest logged status of every retained parent
+// without a status row is logged again. The event is reduced here too, so
+// the verification that follows sees the tables as a later start will.
+func (q *Queries) repairLegacyLog(ctx context.Context, present []string) error {
+	var repairs []*apigen.CoreMutation
+	for _, p := range statusParents {
+		rows, err := q.db.QueryContext(ctx, `SELECT id FROM `+p.parentTable+` WHERE id NOT IN (SELECT `+p.statusColumn+` FROM `+p.statusTable+`) ORDER BY id`)
+		if err != nil {
+			return err
+		}
+		var ids []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			latest, err := q.LatestMutation(ctx, p.status, id)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if latest.Delete == nil {
+				repairs = append(repairs, latest)
+			}
+		}
+	}
+	for _, k := range legacyDeleteKeys {
+		if !slices.Contains(present, k.table) {
+			continue
+		}
+		rows, err := q.db.QueryContext(ctx, `SELECT e.`+k.key+` FROM `+k.table+` e WHERE e.event_type = 3 AND e.id = (SELECT MAX(x.id) FROM `+k.table+` x WHERE x.`+k.key+` = e.`+k.key+`) ORDER BY e.`+k.key)
+		if err != nil {
+			return err
+		}
+		var ids []int64
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			ids = append(ids, id)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			latest, err := q.LatestMutation(ctx, k.typ, id)
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if latest.Delete != nil {
+				continue
+			}
+			repairs = append(repairs, &apigen.CoreMutation{Delete: &apigen.DeleteMutation{EntityType: k.typ, EntityID: id}})
+		}
+	}
+	if len(repairs) == 0 {
+		return nil
+	}
+	seq, err := q.GetGlobalSeq(ctx)
+	if err != nil {
+		return err
+	}
+	seq++
+	update := &apigen.CoreWriteUpdate{Seq: seq, Time: time.Now().UnixMilli(), Mutations: repairs}
+	if err := q.InsertWriteEvent(ctx, update); err != nil {
+		return err
+	}
+	if err := q.SetGlobalSeq(ctx, seq); err != nil {
+		return err
+	}
+	if err := q.ReduceUpdate(ctx, update); err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, fmt.Sprintf("appended seq %d with %d mutations the v0.0.614 backfill had logged out of order", seq, len(repairs)))
+	return nil
 }
 
 func (q *Queries) existingTables(ctx context.Context, names []string) ([]string, error) {

@@ -3,6 +3,7 @@ package pq
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
 	"slices"
 	"strings"
@@ -79,6 +80,11 @@ ORDER BY e.seq, m.idx`, args...)
 		m, err := decodeWriteEventMutation(apigen.CoreEntityType(entityType), entityID, apigen.AuthzVerb(op), payload)
 		if err != nil {
 			return nil, fmt.Errorf("write event %d: %w", seq, err)
+		}
+		if q.logged != nil && apigen.CoreEntityType(entityType) == apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT {
+			if facts, ok := loggedDeploymentCounters(payload); ok {
+				q.logged[m] = facts
+			}
 		}
 		out[len(out)-1].Mutations = append(out[len(out)-1].Mutations, m)
 	}
@@ -169,4 +175,73 @@ func seedWriteLogGenesis(db *sql.DB) {
 	if err != nil {
 		panic(fmt.Errorf("write log genesis: %w", err))
 	}
+}
+
+type loggedDeploymentFacts struct {
+	version, specVersion int64
+}
+
+// loggedDeploymentCounters reads the version and spec_version the v0.0.614
+// backfill wrote into every deployment payload at Deployment tags 15 and 16,
+// reserved since. The spec counter cannot be re-derived from the payloads:
+// specs that differed only in fields dropped before the backfill decode
+// equal now, so a rebuild takes the logged numbers where they exist.
+func loggedDeploymentCounters(payload []byte) (loggedDeploymentFacts, bool) {
+	deployment, ok := protoField(payload, uint64(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT))
+	if !ok {
+		return loggedDeploymentFacts{}, false
+	}
+	version, okVersion := protoField(deployment.bytes, 15)
+	spec, okSpec := protoField(deployment.bytes, 16)
+	if !okVersion || !okSpec || version.varint == 0 || spec.varint == 0 {
+		return loggedDeploymentFacts{}, false
+	}
+	return loggedDeploymentFacts{version: int64(version.varint), specVersion: int64(spec.varint)}, true
+}
+
+type protoValue struct {
+	varint uint64
+	bytes  []byte
+}
+
+func protoField(buf []byte, want uint64) (protoValue, bool) {
+	for len(buf) > 0 {
+		key, n := binary.Uvarint(buf)
+		if n <= 0 {
+			return protoValue{}, false
+		}
+		buf = buf[n:]
+		tag, wire := key>>3, key&7
+		var v protoValue
+		switch wire {
+		case 0:
+			x, n := binary.Uvarint(buf)
+			if n <= 0 {
+				return protoValue{}, false
+			}
+			v.varint, buf = x, buf[n:]
+		case 1:
+			if len(buf) < 8 {
+				return protoValue{}, false
+			}
+			v.bytes, buf = buf[:8], buf[8:]
+		case 2:
+			l, n := binary.Uvarint(buf)
+			if n <= 0 || uint64(len(buf)-n) < l {
+				return protoValue{}, false
+			}
+			v.bytes, buf = buf[n:n+int(l)], buf[n+int(l):]
+		case 5:
+			if len(buf) < 4 {
+				return protoValue{}, false
+			}
+			v.bytes, buf = buf[:4], buf[4:]
+		default:
+			return protoValue{}, false
+		}
+		if tag == want {
+			return v, true
+		}
+	}
+	return protoValue{}, false
 }

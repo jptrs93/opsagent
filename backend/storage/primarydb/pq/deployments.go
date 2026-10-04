@@ -321,6 +321,9 @@ func (q *Queries) reduceDeployment(ctx context.Context, env rowEnvelope, meta *a
 			specVersion++
 		}
 	}
+	if env.Logged != nil {
+		version, specVersion = env.Logged.version, env.Logged.specVersion
+	}
 	if _, err := q.db.ExecContext(ctx, `INSERT INTO deployment_versions (deployment_id, version, spec_version, created_time, value, seq, event_time, author)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (deployment_id, version) DO NOTHING`,
 		id, version, specVersion, created, value.Encode(), env.Seq, env.EventTime, env.Author); err != nil {
