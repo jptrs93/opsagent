@@ -21,19 +21,24 @@ const deploymentVersionColumns = `v.deployment_id, v.version, v.spec_version, v.
 
 const liveDeploymentVersionsFrom = `FROM deployments d JOIN deployment_versions v ON v.deployment_id = d.id AND v.version = d.version`
 
-func scanDeploymentEvent(row scanner) (*apigen.DeploymentEvent, error) {
-	var event apigen.DeploymentEvent
-	var eventTime, createdTime, author int64
-	var value []byte
-	if err := row.Scan(&event.DeploymentID, &event.Version, &event.SpecVersion, &createdTime, &value, &event.Seq, &eventTime, &author); err != nil {
-		return nil, err
-	}
-	def, err := apigen.DecodeDeployment(value)
+type deploymentVersionRow struct {
+	event                          apigen.DeploymentEvent
+	eventTime, createdTime, author int64
+	value                          []byte
+}
+
+func (r *deploymentVersionRow) fields() []any {
+	return []any{&r.event.DeploymentID, &r.event.Version, &r.event.SpecVersion, &r.createdTime, &r.value, &r.event.Seq, &r.eventTime, &r.author}
+}
+
+func (r *deploymentVersionRow) toEvent() (*apigen.DeploymentEvent, error) {
+	def, err := apigen.DecodeDeployment(r.value)
 	if err != nil {
 		return nil, err
 	}
-	event.Author = int32(author)
-	event.EventTime, event.CreatedTime = time.UnixMilli(eventTime), time.UnixMilli(createdTime)
+	event := r.event
+	event.Author = int32(r.author)
+	event.EventTime, event.CreatedTime = time.UnixMilli(r.eventTime), time.UnixMilli(r.createdTime)
 	event.EventType = apigen.EventType_EVENT_TYPE_UPDATE
 	if event.Version == 1 {
 		event.EventType = apigen.EventType_EVENT_TYPE_CREATE
@@ -41,6 +46,14 @@ func scanDeploymentEvent(row scanner) (*apigen.DeploymentEvent, error) {
 	event.Value = *def
 	event.Value.ID = event.DeploymentID
 	return &event, nil
+}
+
+func scanDeploymentEvent(row scanner) (*apigen.DeploymentEvent, error) {
+	var r deploymentVersionRow
+	if err := row.Scan(r.fields()...); err != nil {
+		return nil, err
+	}
+	return r.toEvent()
 }
 
 func (q *Queries) NextDeploymentID(ctx context.Context) (int64, error) {

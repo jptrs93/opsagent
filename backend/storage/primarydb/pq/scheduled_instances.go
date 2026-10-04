@@ -99,13 +99,16 @@ func (q *Queries) ListDrainingDeploymentIDs(ctx context.Context) ([]int32, error
 	return ids, rows.Err()
 }
 
-func (q *Queries) scanScheduledInstanceState(ctx context.Context, row scanner) (*apigen.ScheduledInstanceState, error) {
+const pinnedDeploymentVersionJoin = ` JOIN deployment_versions v ON v.deployment_id = e.deployment_id AND v.version = e.deployment_version`
+
+func scanScheduledInstanceState(row scanner) (*apigen.ScheduledInstanceState, error) {
 	var event ScheduledInstanceEvent
 	var status scheduledInstanceStatusRow
-	if err := scanScheduledInstanceEventInto(&event, status.fields(), row); err != nil {
+	var version deploymentVersionRow
+	if err := scanScheduledInstanceEventInto(&event, append(status.fields(), version.fields()...), row); err != nil {
 		return nil, err
 	}
-	cfg, err := q.GetDeploymentEventByVersion(ctx, GetDeploymentEventByVersionParams{DeploymentID: int64(event.Value.DeploymentID), Version: int64(event.Value.DeploymentVersion)})
+	cfg, err := version.toEvent()
 	if err != nil {
 		return nil, err
 	}
@@ -117,15 +120,15 @@ func (q *Queries) scanScheduledInstanceState(ctx context.Context, row scanner) (
 }
 
 func (q *Queries) queryScheduledInstanceStates(ctx context.Context, where string, args ...any) ([]apigen.ScheduledInstanceState, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT `+scheduledInstanceColumns+`, `+scheduledInstanceStatusColumnsS+` FROM scheduled_instances e`+
-		latestScheduledInstanceStatusJoin+` `+where+` ORDER BY e.id`, args...)
+	rows, err := q.db.QueryContext(ctx, `SELECT `+scheduledInstanceColumns+`, `+scheduledInstanceStatusColumnsS+`, `+deploymentVersionColumns+` FROM scheduled_instances e`+
+		pinnedDeploymentVersionJoin+latestScheduledInstanceStatusJoin+` `+where+` ORDER BY e.id`, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var states []apigen.ScheduledInstanceState
 	for rows.Next() {
-		state, err := q.scanScheduledInstanceState(ctx, rows)
+		state, err := scanScheduledInstanceState(rows)
 		if err != nil {
 			return nil, err
 		}
