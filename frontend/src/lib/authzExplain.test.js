@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {ENTITY_TYPES, VERBS} from "./authz.js";
+import {
+    ENTITY_TYPES,
+    VERBS,
+    allExcludingSelector,
+    allowEffect,
+    argumentBinding,
+    argumentSelector,
+    denyEffect,
+    entityRef,
+    exactSelector,
+    ruleGrantSource,
+    templateGrantSource,
+    templateSelector,
+} from "./authz.js";
 import {
     APPLICABLE,
     PAIR_GLOSS,
@@ -17,12 +30,22 @@ import {
 const V = Object.fromEntries(VERBS.map((v) => [v.name, v.id]));
 const E = Object.fromEntries(ENTITY_TYPES.map((e) => [e.name, e.id]));
 
-const all = () => ({wildcard: true, argumentId: 0, include: [], exclude: []});
-const allExcept = (...ids) => ({wildcard: true, argumentId: 0, include: [], exclude: ids});
-const list = (...ids) => ({wildcard: false, argumentId: 0, include: ids, exclude: []});
-const arg = (id) => ({wildcard: false, argumentId: id, include: [], exclude: []});
-const rule = (permissions, spaces, entityTypes, entityRefs, extra = {}) =>
-    ({permissions, spaces, entityTypes, entityRefs, delegationAllowed: false, ...extra});
+// Position builders take the position kind when the rule is assembled, so a
+// test reads in grammar order without repeating the kind.
+const all = () => (kind) => allExcludingSelector(kind);
+const allExcept = (...ids) => (kind) => allExcludingSelector(kind, ids);
+const list = (...ids) => (kind) => exactSelector(kind, ids);
+const arg = (id) => () => argumentSelector(id);
+const rule = (permissions, spaces, entityTypes, entityRefs, extra = {}) => ({
+    effect: extra.deny ? denyEffect(extra.delegatedOnly) : allowEffect(extra.delegationAllowed),
+    selector: {
+        permissions: permissions("permissions"),
+        spaces: spaces("spaces"),
+        entityTypes: entityTypes("entityTypes"),
+        entityRefs: entityRefs("entityRefs"),
+    },
+});
+const ref = (id) => entityRef("deployment", id);
 
 const SPACES = [{id: 0, name: "_system"}, {id: 1, name: "global"}, {id: 2, name: "prod"}, {id: 3, name: "staging"}];
 const spaceNames = new Map(SPACES.map((s) => [s.id, s.name]));
@@ -57,24 +80,25 @@ test("node logs are carried by the system deployments, not the node", () => {
 test("resolveSelector reads each mode and marks the universe tokens", () => {
     const names = (v) => VERBS.find((x) => x.id === Number(v))?.name;
     const universe = VERBS;
-    assert.equal(resolveSelector(all(), "permissions", {names, universe}).mode, "all");
-    assert.ok(resolveSelector(all(), "permissions", {names, universe}).tokens.every((t) => t.state === "on"));
+    const P = (build) => build("permissions");
+    assert.equal(resolveSelector(P(all()), "permissions", {names, universe}).mode, "all");
+    assert.ok(resolveSelector(P(all()), "permissions", {names, universe}).tokens.every((t) => t.state === "on"));
 
-    const except = resolveSelector(allExcept(V.reveal), "permissions", {names, universe});
+    const except = resolveSelector(P(allExcept(V.reveal)), "permissions", {names, universe});
     assert.equal(except.mode, "allExcept");
     assert.equal(except.tokens.find((t) => t.name === "reveal").state, "excluded");
     assert.equal(except.tokens.find((t) => t.name === "view").state, "on");
 
-    const listed = resolveSelector(list(V.view), "permissions", {names, universe});
+    const listed = resolveSelector(P(list(V.view)), "permissions", {names, universe});
     assert.equal(listed.mode, "list");
     assert.equal(listed.tokens.find((t) => t.name === "view").state, "on");
     assert.equal(listed.tokens.find((t) => t.name === "create").state, "off");
 
-    const open = resolveSelector(arg(4), "permissions", {names, universe, argNames: new Map([[4, "actions"]])});
+    const open = resolveSelector(P(arg(4)), "permissions", {names, universe, argNames: new Map([[4, "actions"]])});
     assert.equal(open.mode, "arg");
     assert.equal(open.arg.name, "actions");
 
-    const bound = resolveSelector(arg(4), "permissions", {names, universe, bindings: new Map([[4, [V.view]]])});
+    const bound = resolveSelector(P(arg(4)), "permissions", {names, universe, bindings: new Map([[4, [V.view]]])});
     assert.equal(bound.mode, "list");
     assert.ok(bound.bound);
     assert.deepEqual(bound.include.map((i) => i.name), ["view"]);
@@ -113,7 +137,7 @@ test("a rule over every space gets a System tab first and one Any space tab", ()
 });
 
 test("a delegable rule reaches both sessions and a scoped one leaves the rest out", () => {
-    const m = explainMatrix([rule(list(V.view, V.update), list(2), list(E.deployment), list(12, 14), {delegationAllowed: true})], opts);
+    const m = explainMatrix([rule(list(V.view, V.update), list(2), list(E.deployment), list(ref(12), ref(14)), {delegationAllowed: true})], opts);
     assert.deepEqual(tabKeys(m), ["2"]);
     assert.equal(tab(m, "2").label, "prod");
     const cells = cellsOf(tab(m, "2"));
@@ -121,7 +145,7 @@ test("a delegable rule reaches both sessions and a scoped one leaves the rest ou
     assert.equal(cells["deployment:delete"].state, "none");
     assert.equal(cells["secret:view"].state, "none");
     assert.deepEqual(cells["deployment:view"].markers, [1]);
-    assert.deepEqual(tab(m, "2").grid.legend, [{marker: 1, text: "only #12, #14"}]);
+    assert.deepEqual(tab(m, "2").grid.legend, [{marker: 1, text: "only deployment#12, deployment#14"}]);
 });
 
 test("an open spaces argument gets its own tab and a System tab led by the argument", () => {
@@ -180,21 +204,25 @@ test("a role's rules fold into one table per space", () => {
 });
 
 test("grantSubject binds a role grant and names a direct rule", () => {
+    const wrap = (r) => ({
+        effect: r.effect,
+        selector: Object.fromEntries(Object.entries(r.selector).map(([key, sel]) => [key, sel.value ? sel : templateSelector(sel)])),
+    });
     const template = {
         id: 2, name: "space_admin",
-        spec: {arguments: [{id: 1, name: "spaces", kind: "spaces"}], rules: [rule(all(), arg(1), all(), all())]},
+        spec: {arguments: [{id: 1, name: "spaces", kind: 2}], rules: [wrap(rule(all(), arg(1), all(), all()))]},
     };
     const templatesById = new Map([[2, template]]);
-    const bound = grantSubject({templateId: 2, spec: {args: [{argumentId: 1, values: [2]}]}}, {templatesById, spaceNames, spaces: SPACES});
+    const bound = grantSubject({grant: templateGrantSource(2, [argumentBinding(1, "spaces", [2])])}, {templatesById, spaceNames, spaces: SPACES});
     assert.equal(bound.subtitle, "Role space_admin with ${spaces} = prod");
     assert.deepEqual([...bound.bindings.entries()], [[1, [2]]]);
     assert.equal(bound.argNames.get(1), "spaces");
     assert.equal(bound.rules.length, 1);
 
-    const direct = grantSubject({templateId: 0, spec: {rule: rule(list(V.view), all(), all(), all())}}, {templatesById, spaceNames, spaces: SPACES});
+    const direct = grantSubject({grant: ruleGrantSource(rule(list(V.view), all(), all(), all()))}, {templatesById, spaceNames, spaces: SPACES});
     assert.equal(direct.subtitle, "A single rule granted directly, not through a role.");
     assert.equal(direct.rules.length, 1);
 
-    const gone = grantSubject({templateId: 9, spec: {}}, {templatesById, spaceNames, spaces: SPACES});
+    const gone = grantSubject({grant: templateGrantSource(9, [])}, {templatesById, spaceNames, spaces: SPACES});
     assert.equal(gone.rules.length, 0);
 });

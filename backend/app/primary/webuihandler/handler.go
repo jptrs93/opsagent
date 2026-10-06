@@ -44,7 +44,7 @@ type Handler struct {
 	BackupStatus   *backup.StatusPublisher
 	secretsUpdates pubsubu.PubSub[apigen.SecretsStatusResponse]
 	staticFS       fs.FS
-	PasskeyService *authu.PasskeyService[*apigen.InternalUser]
+	PasskeyService *authu.PasskeyService[*apigen.User]
 	AgentSessions  *agentsessions.Service
 
 	agentSessionsOnce sync.Once
@@ -66,7 +66,7 @@ type Handler struct {
 
 	// NodeID identifies this node when deciding whether a log request is local
 	// or must be proxied to a remote secondary.
-	NodeID int32
+	NodeID uint64
 
 	// Cluster is used to inspect secondary connections and proxy remote logs.
 	Cluster *clusterhandler.Handler
@@ -157,7 +157,7 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 }
 
 // New constructs the Web UI handler without starting application services.
-func New(staticFS fs.FS, nodeID int32, deps Dependencies) (*Handler, error) {
+func New(staticFS fs.FS, nodeID uint64, deps Dependencies) (*Handler, error) {
 	snapshot := deps.SystemConfig.Snapshot()
 	authzService, err := authz.Open(deps.Store)
 	if err != nil {

@@ -18,24 +18,11 @@ import (
 )
 
 var materialisedTablesForTest = []string{
-	"entity_ids", "value_names", "secrets", "secret_versions", "configs", "config_versions", "value_directories",
+	"entity_ids", "value_keys", "secrets", "secret_versions", "configs", "config_versions", "value_directories",
 	"asset_keys", "assets", "asset_versions", "asset_directories",
-	"spaces", "users", "network_policies", "authz_rule_templates", "authz_grants", "authz_global_rules",
+	"spaces", "users", "network_policies", "authz_grant_templates", "authz_grants", "authz_global_rules",
 	"agent_sessions", "user_sessions", "nix_store_resets", "secret_keyslots", "system_config",
 	"deployments", "deployment_versions", "scheduled_instances", "scheduled_instance_status", "nodes", "node_status",
-}
-
-func truncateWriteLogAfter(t *testing.T, dbPath string, seq int64) {
-	t.Helper()
-	db := sqlitedb.MustOpen(dbPath)
-	for _, stmt := range []string{`DELETE FROM write_event_mutations WHERE seq > ?`, `DELETE FROM write_events WHERE seq > ?`} {
-		if _, err := db.Exec(stmt, seq); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
 }
 
 // dumpTables reads every row of the given tables through a second
@@ -87,22 +74,22 @@ func seedValueHistory(t *testing.T, s *Service) {
 	createUserForTest(s, "alice")
 	deleteNetworkPolicyForTest(s, createNetworkPolicyForTest(s, 1))
 	createNetworkPolicyForTest(s, 1)
-	insertRuleTemplateForTest(t, s, "ops", 1)
+	insertGrantTemplateForTest(t, s, "ops", 1)
 	deleteGrantForTest(t, s, insertGrantForTest(t, s, 1, 1, 10))
 	insertGrantForTest(t, s, 1, 1, 11)
 	insertGlobalRuleForTest(t, s, "lockdown", 1)
 	seedLatestOnlyHistory(t, s)
 	dep := mustCreateDeploymentForNode(s, ctx, space.ID, "web", node.ID, testSpecWithVersion("v1"))
-	pinned := createScheduledInstanceForTest(s, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	pinned := createScheduledInstanceForTest(s, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeInstanceStatusForTest(s, pinned.ID, func(st *apigen.ScheduledInstanceStatus) {
 		st.BumpUpdatedAt()
-		st.Runner = apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING, RunningPid: 7}
+		st.Runner = runnerStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, 7)
 	})
 	kept := mustCreateDeploymentForNode(s, ctx, space.ID, "kept", node.ID, testSpecWithVersion("v1"))
-	retired := createScheduledInstanceForTest(s, kept.DeploymentID, kept.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	retired := createScheduledInstanceForTest(s, kept.Deployment.ID, kept.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	setScheduledInstanceState(s, retired.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	updateDeploymentSpec(s, ctx, kept.DeploymentID, testSpecWithVersion("v2"))
-	createScheduledInstanceForTest(s, kept.DeploymentID, kept.Version+1, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	updateDeploymentSpec(s, ctx, kept.Deployment.ID, testSpecWithVersion("v2"))
+	createScheduledInstanceForTest(s, kept.Deployment.ID, kept.Meta.Version+1, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	setNodeStatusForTest(s, "node-a", true, time.Now())
 	asset := setAssetByKeyForTest(s, "bundle", []byte("x"))
 	setAssetByKeyForTest(s, "bundle", []byte("xy"))
@@ -119,8 +106,8 @@ func seedValueHistory(t *testing.T, s *Service) {
 	writeConfigForTest(s, createConfigForTest(s, "stale", "one"), apigen.AuthzVerb_AUTHZ_VERB_DELETE, "")
 	folder := createValueDirectoryForTest(s, 1, 0, "folder", 1)
 	deleteValueDirectoryForTest(s, createValueDirectoryForTest(s, 1, folder.ID, "nested", 1).ID)
-	updateDeploymentSpec(s, ctx, dep.DeploymentID, testSpecWithVersion("v2"))
-	deleteDeployment(s, ctx, dep.DeploymentID)
+	updateDeploymentSpec(s, ctx, dep.Deployment.ID, testSpecWithVersion("v2"))
+	deleteDeployment(s, ctx, dep.Deployment.ID)
 	if asset.AssetID == 0 {
 		t.Fatal("asset was not created")
 	}
@@ -154,24 +141,7 @@ func TestRebuildFromLogReproducesMaterialisedTables(t *testing.T) {
 	if err := db.QueryRow(`SELECT MAX(entity_id) FROM write_event_mutations WHERE entity_type = ? AND seq < (SELECT MAX(seq) FROM write_events)`, int64(apigen.CoreEntityType_CORE_ENTITY_SECRET)).Scan(&maxID); err != nil {
 		t.Fatal(err)
 	}
-	if next <= maxID.Int64 {
+	if next <= uint64(maxID.Int64) {
 		t.Fatalf("id %d allocated after the rebuild reuses an id at or below %d", next, maxID.Int64)
 	}
-}
-
-func TestOpenRefusesTruncatedWriteLog(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	s := Open(dbPath)
-	seedValueHistory(t, s)
-	seq := erru.Must(s.q.GetGlobalSeq(context.Background()))
-	if err := s.Close(); err != nil {
-		t.Fatal(err)
-	}
-	truncateWriteLogAfter(t, dbPath, seq-2)
-	defer func() {
-		if recover() == nil {
-			t.Fatal("Open accepted a database whose write log stops short of its sequence")
-		}
-	}()
-	Open(dbPath).Close()
 }

@@ -59,42 +59,43 @@ func fillValue(v reflect.Value, depth int) {
 
 func filledEntity(field int) *apigen.CoreEntity {
 	e := &apigen.CoreEntity{}
-	fillValue(reflect.ValueOf(e).Elem().Field(field), 0)
+	fillValue(reflect.ValueOf(&e.Value).Elem().Field(field), 0)
 	return e
 }
 
 func expectedBrowserEntity(e *apigen.CoreEntity) *apigen.CoreEntity {
-	if e.Secret != nil {
-		e.Secret.SmkVersion, e.Secret.Ciphertext, e.Secret.Nonce = 0, nil, nil
+	if e.Value.Secret != nil {
+		e.Value.Secret.Sealed = apigen.Maybe[apigen.SealedSecret]{}
 	}
-	if e.User != nil {
-		e.User.Credentials = nil
+	if e.Value.User != nil {
+		e.Value.User.Authentication = apigen.UserAuthentication{}
 	}
-	if e.AgentSession != nil {
-		e.AgentSession.TokenHash = nil
+	if e.Value.AgentSession != nil && e.Value.AgentSession.Token.Present {
+		e.Value.AgentSession.Token.Value.Hash = apigen.Maybe[[]byte]{}
 	}
-	if e.UserSession != nil {
-		e.UserSession.TokenHash = nil
+	if e.Value.UserSession != nil {
+		e.Value.UserSession.TokenHash = apigen.Maybe[[]byte]{}
 	}
-	if e.SystemConfig != nil {
-		e.SystemConfig.MasterPasswordHash = ""
+	if e.Value.SystemConfig != nil {
+		e.Value.SystemConfig.MasterPasswordHash = apigen.Maybe[string]{}
 	}
-	e.SecretKeyslot = nil
 	return e
 }
 
+var sensitiveEntityFields = map[string]bool{"Secret": true, "User": true, "AgentSession": true, "UserSession": true, "SystemConfig": true}
+
 func TestBrowserMutationStripsOnlySensitiveFieldsOfEveryEntity(t *testing.T) {
-	entityType := reflect.TypeOf(apigen.CoreEntity{})
-	if entityType.NumField() == 0 {
-		t.Fatal("CoreEntity has no fields")
+	oneofType := reflect.TypeOf(apigen.CoreEntityValueOneof{})
+	if oneofType.NumField() == 0 {
+		t.Fatal("CoreEntityValueOneof has no fields")
 	}
-	for i := 0; i < entityType.NumField(); i++ {
-		name := entityType.Field(i).Name
+	for i := 0; i < oneofType.NumField(); i++ {
+		name := oneofType.Field(i).Name
 		if reflect.DeepEqual(filledEntity(i), &apigen.CoreEntity{}) {
 			t.Fatalf("%s: fill produced an empty entity", name)
 		}
 		want := expectedBrowserEntity(filledEntity(i))
-		if reflect.DeepEqual(want, filledEntity(i)) != (name != "Secret" && name != "User" && name != "AgentSession" && name != "UserSession" && name != "SystemConfig" && name != "SecretKeyslot") {
+		if reflect.DeepEqual(want, filledEntity(i)) != !sensitiveEntityFields[name] {
 			t.Fatalf("%s: sensitive field expectation does not match the fill", name)
 		}
 		typ := apigen.CoreEntityType(i + 1)
@@ -102,18 +103,18 @@ func TestBrowserMutationStripsOnlySensitiveFieldsOfEveryEntity(t *testing.T) {
 			kind  string
 			input *apigen.CoreMutation
 		}{
-			{"create", &apigen.CoreMutation{Create: &apigen.CreateMutation{EntityType: typ, EntityID: 42, Entity: filledEntity(i)}}},
-			{"update", &apigen.CoreMutation{Update: &apigen.UpdateMutation{EntityType: typ, EntityID: 42, Entity: filledEntity(i)}}},
+			{"create", &apigen.CoreMutation{Value: apigen.CoreMutationValueOneof{Create: &apigen.CreateMutation{EntityType: typ, EntityID: 42, Entity: *filledEntity(i)}}}},
+			{"update", &apigen.CoreMutation{Value: apigen.CoreMutationValueOneof{Update: &apigen.UpdateMutation{EntityType: typ, EntityID: 42, Entity: *filledEntity(i)}}}},
 		} {
 			original := &apigen.CoreMutation{}
-			if tc.input.Create != nil {
-				c := *tc.input.Create
-				c.Entity = filledEntity(i)
-				original.Create = &c
+			if tc.input.Value.Create != nil {
+				c := *tc.input.Value.Create
+				c.Entity = *filledEntity(i)
+				original.Value.Create = &c
 			} else {
-				u := *tc.input.Update
-				u.Entity = filledEntity(i)
-				original.Update = &u
+				u := *tc.input.Value.Update
+				u.Entity = *filledEntity(i)
+				original.Value.Update = &u
 			}
 			got := browserMutation(tc.input)
 			if !reflect.DeepEqual(tc.input, original) {
@@ -126,9 +127,17 @@ func TestBrowserMutationStripsOnlySensitiveFieldsOfEveryEntity(t *testing.T) {
 				t.Fatalf("%s %s: browser entity = %+v, want %+v", name, tc.kind, got.Entity(), want)
 			}
 		}
-		del := &apigen.CoreMutation{Delete: &apigen.DeleteMutation{EntityType: typ, EntityID: 42}}
-		if got := browserMutation(del); !reflect.DeepEqual(got, del) {
+		del := &apigen.CoreMutation{Value: apigen.CoreMutationValueOneof{Delete: &apigen.DeleteMutation{EntityType: typ, EntityID: 42}}}
+		if got := browserMutation(del); !reflect.DeepEqual(got, *del) {
 			t.Fatalf("%s delete: browserMutation changed a delete: %+v", name, got)
 		}
+	}
+}
+
+func TestKeyslotsNeverReachTheBrowser(t *testing.T) {
+	v := &streamVisibility{}
+	keyslot := &apigen.CoreEntity{Value: apigen.CoreEntityValueOneof{SecretKeyslot: &apigen.SecretKeyslot{ID: 1, SmkVersion: 1}}}
+	if v.entityVisible(apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT, 1, keyslot) {
+		t.Fatal("secret keyslot was visible to an admin stream")
 	}
 }

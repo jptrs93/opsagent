@@ -22,12 +22,12 @@ func isSecretRefOutsideSpaceErr(err error) bool {
 func newSecretLocalityHandler(t *testing.T) (*Handler, *nodes.Node) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := ensureTestNode(store, "primary", "primary")
 	secretsManager, err := secrets.Initialize(t.TempDir(), store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)
 	}
-	configService, err := systemconfig.InitializeService(store, apigen.SystemConfig{})
+	configService, err := systemconfig.InitializeService(store, *systemconfig.Default(systemconfig.DefaultInitial()))
 	if err != nil {
 		t.Fatalf("systemconfig.InitializeService: %v", err)
 	}
@@ -36,8 +36,8 @@ func newSecretLocalityHandler(t *testing.T) (*Handler, *nodes.Node) {
 
 func secretEnvSpec(image string, ref apigen.ValueRef) apigen.DeploymentSpec {
 	spec := remoteDeploymentSpec(image, hostNetworking())
-	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"TOKEN": {Secret: &ref},
+	spec.Workload.Value.Container.Runtime.EnvVars = map[string]apigen.EnvVar{
+		"TOKEN": secretEnv(ref),
 	}
 	return spec
 }
@@ -61,7 +61,7 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod secret: %v", err)
 	}
 
-	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
+	create := func(name string, spaceID uint64, ref apigen.ValueRef) (*apigen.DeploymentRecord, error) {
 		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
@@ -90,17 +90,17 @@ func TestDeploymentSecretRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating clean deployment: %v", err)
 	}
-	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: clean.DeploymentID,
-		ExpectedSeq:  clean.Seq,
-		SpecUpdate:   &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", prodSecret.Ref())},
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: clean.Deployment.ID,
+		ExpectedSeq:  clean.Meta.UpdatedSeq,
+		Update:       apigen.DeploymentUpdateRequestUpdateOneof{Spec: &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", prodSecret.Ref())}},
 	}); !isSecretRefOutsideSpaceErr(err) {
 		t.Fatalf("update adding prod secret err = %v, want %v", err, deployments.SecretRefOutsideSpaceErr)
 	}
-	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: clean.DeploymentID,
-		ExpectedSeq:  clean.Seq,
-		SpecUpdate:   &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", globalSecret.Ref())},
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: clean.Deployment.ID,
+		ExpectedSeq:  clean.Meta.UpdatedSeq,
+		Update:       apigen.DeploymentUpdateRequestUpdateOneof{Spec: &apigen.SpecUpdate{Spec: secretEnvSpec("nginx", globalSecret.Ref())}},
 	}); err != nil {
 		t.Fatalf("update adding global secret ref: %v", err)
 	}
@@ -124,13 +124,13 @@ func TestIngressCertSecretRefScopedToSpace(t *testing.T) {
 	httpsSpec := func() apigen.DeploymentSpec {
 		return remoteDeploymentSpec("httpecho", apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-			Ingress: []*apigen.Ingress{{
-				Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
+			Ingress: []apigen.Ingress{{
 				Hostname: "web.ingress.opendeploy.test",
-				HttpsConfig: &apigen.HttpsConfig{
-					ContainerPort: 8080,
-					CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{Secret: certSecret.Ref()}},
-				},
+				Config: apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{Https: &apigen.HttpsConfig{
+					ContainerPort:   8080,
+					BackendProtocol: apigen.HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_HTTP1,
+					CertSource:      apigen.Some(apigen.CertSource{Value: apigen.CertSourceValueOneof{Secret: &apigen.SecretCertSource{Secret: apigen.SecretRef{SecretID: certSecret.Ref().ID, Version: certSecret.Ref().Version}}}}),
+				}}},
 			}},
 		})
 	}
@@ -176,17 +176,17 @@ func TestSecretMoveToGlobalAllowedWithOutsideRefs(t *testing.T) {
 	// The referencing deployment lives in prod: a move to the global space is
 	// reference-safe, a move to any other space is not.
 	if _, err := h.secretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
-		SecretID: secret.SecretID, SpaceID: nodes.DefaultSpaceID,
+		SecretID: secret.SecretID, SpaceID: apigen.Some(nodes.DefaultSpaceID),
 	}); err != nil {
 		t.Fatalf("move to global with outside refs: %v", err)
 	}
 	if _, err := h.secretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
-		SecretID: secret.SecretID, SpaceID: staging.ID,
+		SecretID: secret.SecretID, SpaceID: apigen.Some(staging.ID),
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("move out of global to staging err = %v, want %v", err, deployments.MoveReferencesOutsideSpaceErr)
 	}
 	if _, err := h.secretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
-		SecretID: secret.SecretID, SpaceID: prod.ID,
+		SecretID: secret.SecretID, SpaceID: apigen.Some(prod.ID),
 	}); err != nil {
 		t.Fatalf("move back to the referencing space: %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/logdb"
 )
@@ -58,7 +59,7 @@ func newManager(db *logdb.Queries) *Manager {
 func StartManager(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate) *Manager {
 	m := newManager(logdb.Open(logDBPath()))
 	snapshot, updates, unsub := store.MustFetchScheduledSnapshotAndSubscribe(predicate)
-	producing := map[int32]int32{}
+	producing := map[uint64]int32{}
 	m.alignProducers(producing, snapshot)
 	go m.runProducerAlignment(ctx, store, predicate, producing, updates, unsub)
 	go func() {
@@ -72,7 +73,7 @@ func StartManager(ctx context.Context, store scheduledInstanceStore, predicate s
 	return m
 }
 
-func (m *Manager) runProducerAlignment(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, producing map[int32]int32, updates chan []apigen.ScheduledInstanceState, unsub func()) {
+func (m *Manager) runProducerAlignment(ctx context.Context, store scheduledInstanceStore, predicate storage.ScheduledInstancePredicate, producing map[uint64]int32, updates chan []apigen.ScheduledInstanceState, unsub func()) {
 	defer func() { unsub() }()
 	for {
 		select {
@@ -92,15 +93,15 @@ func (m *Manager) runProducerAlignment(ctx context.Context, store scheduledInsta
 	}
 }
 
-func (m *Manager) alignProducers(producing map[int32]int32, items []apigen.ScheduledInstanceState) {
-	desired := map[int32]int32{}
+func (m *Manager) alignProducers(producing map[uint64]int32, items []apigen.ScheduledInstanceState) {
+	desired := map[uint64]int32{}
 	for _, it := range items {
-		if it.Config.Value.Spec.OpendeploySpec != nil {
+		if internaldeploy.IsSelfIdentity(it.Config.Deployment.SpaceID, it.Config.Deployment.Name) {
 			continue
 		}
-		switch it.Status.Runner.Status {
-		case apigen.RunningStatus_STARTING, apigen.RunningStatus_RUNNING, apigen.RunningStatus_CRASHED:
-			desired[it.Instance.ID] = it.Instance.DeploymentID
+		switch it.Status.Value.Runner.Value.Status {
+		case apigen.RunningStatus_RUNNING_STATUS_STARTING, apigen.RunningStatus_RUNNING_STATUS_RUNNING, apigen.RunningStatus_RUNNING_STATUS_CRASHED:
+			desired[it.Instance.ID] = int32(it.Instance.Deployment.DeploymentID)
 		}
 	}
 	for id, dep := range desired {
@@ -172,7 +173,7 @@ func (m *Manager) queryCollector(ctx context.Context, deploymentID int32) (*LogS
 // per-level histogram over the full range, the total match count, and
 // per-field sampled value stats.
 func (m *Manager) Query(ctx context.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
-	c, err := m.queryCollector(ctx, req.DeploymentID)
+	c, err := m.queryCollector(ctx, int32(req.DeploymentID))
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +211,7 @@ func (m *Manager) Query(ctx context.Context, req *apigen.LogQueryRequest) (*apig
 		newestFirst:       newestFirst,
 		includeRaw:        req.IncludeRaw,
 		buckets:           buckets,
-		deploymentVersion: req.DeploymentVersion,
+		deploymentVersion: int32(req.DeploymentVersion),
 		filters:           filters,
 	})
 }

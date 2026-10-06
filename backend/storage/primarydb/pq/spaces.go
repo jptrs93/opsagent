@@ -26,7 +26,7 @@ func (q *Queries) ListSpaces(ctx context.Context) ([]apigen.Space, error) {
 
 // GetSpace returns the live space, or sql.ErrNoRows when it never existed or
 // was deleted.
-func (q *Queries) GetSpace(ctx context.Context, spaceID int64) (apigen.Space, error) {
+func (q *Queries) GetSpace(ctx context.Context, spaceID uint64) (apigen.Space, error) {
 	var e apigen.Space
 	err := q.db.QueryRowContext(ctx, `SELECT id, name FROM spaces WHERE id = ?`, spaceID).Scan(&e.ID, &e.Name)
 	return e, err
@@ -54,7 +54,7 @@ func (q *Queries) listSpaceRows(ctx context.Context) ([]spaceRow, error) {
 	return out, rows.Err()
 }
 
-func (q *Queries) reduceSpace(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, s *apigen.Space) error {
+func (q *Queries) reduceSpace(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, s *apigen.Space) error {
 	if s == nil {
 		return fmt.Errorf("payload has no space")
 	}
@@ -64,7 +64,7 @@ RETURNING created_time`,
 		id, s.Name, env.Seq, env.EventTime, env.Author, env.EventTime)
 }
 
-func (q *Queries) deleteSpaceRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteSpaceRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM spaces WHERE id = ?`, id)
 	return err
 }

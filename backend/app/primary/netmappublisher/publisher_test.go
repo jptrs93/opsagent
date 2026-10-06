@@ -1,8 +1,7 @@
 package netmappublisher
 
 import (
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"net/netip"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -11,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
@@ -31,8 +32,8 @@ func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	prefix := network.GeneratePrefix()
 	store := state.Open(dbPath)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
-	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: "192.0.2.10", WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id", mustAddr("192.0.2.10").Addr())
+	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: mustAddr("192.0.2.10"), WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
 	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: node.Reported().UnderlayAddress, WgPublicKey: testWGKeyA, HostAddresses: node.HostAddresses})
 	deployments.EnsureNetproxy(store, node.ID, version.Version)
 
@@ -59,11 +60,11 @@ func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 
 	_, updates, unsubscribe := publisher.SnapshotAndSubscribe(node.ID)
 	defer unsubscribe()
-	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: "192.0.2.11", WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
+	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: mustAddr("192.0.2.11"), WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
 	if err := publisher.Refresh(); err != nil {
 		t.Fatal(err)
 	}
-	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: "192.0.2.12", WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
+	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: mustAddr("192.0.2.12"), WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
 	if err := publisher.Refresh(); err != nil {
 		t.Fatal(err)
 	}
@@ -97,24 +98,24 @@ func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
 func TestRenderDnsCatalog(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodeList := []*nodes.Node{
-		{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA},
-		{ID: 2, Addresses: []string{"192.0.2.2"}, WGPublicKey: testWGKeyB},
+		testNode(1, "192.0.2.1", testWGKeyA),
+		testNode(2, "192.0.2.2", testWGKeyB),
 	}
 
 	serving := servingInstance(100, 10, 2, 3)
-	serving.Config.Value.Name = "database"
+	serving.Config.Deployment.Name = "database"
 	standbyOnly := servingInstance(101, 11, 1, 3)
-	standbyOnly.Config.Value.Name = "webapp"
+	standbyOnly.Config.Deployment.Name = "webapp"
 	standbyOnly.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
 	promotingOld := servingInstance(104, 14, 1, 3)
-	promotingOld.Config.Value.Name = "promoting"
+	promotingOld.Config.Deployment.Name = "promoting"
 	promotingOld.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
 	promotingNew := servingInstance(105, 14, 1, 3)
-	promotingNew.Config.Value.Name = "promoting"
+	promotingNew.Config.Deployment.Name = "promoting"
 	promotingNew.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
 	hostMode := servingInstance(102, 12, 1, 3)
-	hostMode.Config.Value.Name = "hosty"
-	hostMode.Config.Value.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
+	hostMode.Config.Deployment.Name = "hosty"
+	hostMode.Config.Deployment.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
 	unnamed := servingInstance(103, 13, 1, 3)
 
 	got, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{
@@ -127,7 +128,8 @@ func TestRenderDnsCatalog(t *testing.T) {
 		t.Fatalf("dns services = %+v, want database, webapp, promoting, and the fallback-labelled deployment", got.DnsServices)
 	}
 	byName := map[string]*apigen.ClusterNetMapService{}
-	for _, svc := range got.DnsServices {
+	for i := range got.DnsServices {
+		svc := &got.DnsServices[i]
 		byName[svc.Name] = svc
 	}
 	promoting := byName["promoting"]
@@ -152,8 +154,8 @@ func TestRenderDnsCatalog(t *testing.T) {
 func TestRenderIsDeterministic(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodesA := []*nodes.Node{
-		{ID: 2, Addresses: []string{"2001:db8::2"}, WGPublicKey: testWGKeyB},
-		{ID: 1, Addresses: []string{"2001:db8::1"}, WGPublicKey: testWGKeyA},
+		testNode(2, "2001:db8::2", testWGKeyB),
+		testNode(1, "2001:db8::1", testWGKeyA),
 	}
 	instancesA := []apigen.ScheduledInstanceState{
 		servingInstance(200, 20, 2, 4),
@@ -180,10 +182,10 @@ func TestRenderIsDeterministic(t *testing.T) {
 
 func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA}}
+	nodeList := []*nodes.Node{testNode(1, "192.0.2.1", testWGKeyA)}
 
 	host := servingInstance(101, 11, 1, 3)
-	host.Config.Value.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
+	host.Config.Deployment.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
 	terminating := servingInstance(102, 12, 1, 3)
 	terminating.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE
 	finalized := servingInstance(103, 13, 1, 3)
@@ -206,17 +208,17 @@ func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 // new sequence.
 func TestRenderIgnoresRunnerStatus(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA}}
+	nodeList := []*nodes.Node{testNode(1, "192.0.2.1", testWGKeyA)}
 	quiet := servingInstance(100, 10, 1, 3)
 
 	restarted := servingInstance(100, 10, 1, 3)
-	restarted.Status.Runner.NumberOfRestarts = 12
+	restarted.Status.Value.Runner.Value.NumberOfRestarts = 12
 	crashed := servingInstance(100, 10, 1, 3)
-	crashed.Status.Runner.Status = apigen.RunningStatus_CRASHED
+	crashed.Status.Value.Runner.Value.Status = apigen.RunningStatus_RUNNING_STATUS_CRASHED
 	starting := servingInstance(100, 10, 1, 3)
-	starting.Status.Runner.Status = apigen.RunningStatus_STARTING
+	starting.Status.Value.Runner.Value.Status = apigen.RunningStatus_RUNNING_STATUS_STARTING
 	noStatus := servingInstance(100, 10, 1, 3)
-	noStatus.Status = apigen.ScheduledInstanceStatus{}
+	noStatus.Status = apigen.Maybe[apigen.ScheduledInstanceStatus]{}
 
 	base, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{quiet})
 	if err != nil {
@@ -242,8 +244,8 @@ func TestRenderIgnoresRunnerStatus(t *testing.T) {
 func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodeList := []*nodes.Node{
-		{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA},
-		{ID: 2, Addresses: []string{"192.0.2.2"}, WGPublicKey: testWGKeyB},
+		testNode(1, "192.0.2.1", testWGKeyA),
+		testNode(2, "192.0.2.2", testWGKeyB),
 	}
 	instancePrefix, err := prefix.InstanceCIDR(3, 10, 0)
 	if err != nil {
@@ -267,7 +269,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRoutes(t, "warming up", warming, map[string]int32{
+	assertRoutes(t, "warming up", warming, map[string]uint64{
 		instancePrefix.String(): 1,
 		oldPlacement.String():   1,
 		newPlacement.String():   2,
@@ -281,7 +283,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRoutes(t, "promoted", promoted, map[string]int32{
+	assertRoutes(t, "promoted", promoted, map[string]uint64{
 		instancePrefix.String(): 2,
 		oldPlacement.String():   1,
 		newPlacement.String():   2,
@@ -293,7 +295,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertRoutes(t, "retired", retired, map[string]int32{
+	assertRoutes(t, "retired", retired, map[string]uint64{
 		instancePrefix.String(): 2,
 		newPlacement.String():   2,
 	})
@@ -305,7 +307,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 // is nothing for anyone to wait on.
 func TestRenderSameNodeRolloverChangesNothing(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA}}
+	nodeList := []*nodes.Node{testNode(1, "192.0.2.1", testWGKeyA)}
 	old := servingInstance(100, 10, 1, 3)
 	replacement := servingInstance(101, 10, 1, 3)
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
@@ -328,8 +330,8 @@ func TestRenderSameNodeRolloverChangesNothing(t *testing.T) {
 func TestRenderRejectsTwoServingPlacements(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodeList := []*nodes.Node{
-		{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA},
-		{ID: 2, Addresses: []string{"192.0.2.2"}, WGPublicKey: testWGKeyB},
+		testNode(1, "192.0.2.1", testWGKeyA),
+		testNode(2, "192.0.2.2", testWGKeyB),
 	}
 	first := servingInstance(100, 10, 1, 3)
 	second := servingInstance(101, 10, 2, 3)
@@ -340,7 +342,7 @@ func TestRenderRejectsTwoServingPlacements(t *testing.T) {
 
 func TestRenderRejectsUnknownNode(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{{ID: 1, Addresses: []string{"192.0.2.1"}, WGPublicKey: testWGKeyA}}
+	nodeList := []*nodes.Node{testNode(1, "192.0.2.1", testWGKeyA)}
 	orphan := servingInstance(100, 10, 9, 3)
 	if _, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{orphan}); err == nil {
 		t.Fatal("placement on an unknown node accepted")
@@ -368,9 +370,9 @@ func TestPublishLatestDoesNotBlockIfSubscriberDrains(t *testing.T) {
 	}
 }
 
-func assertRoutes(t *testing.T, stage string, got *apigen.ClusterNetMap, want map[string]int32) {
+func assertRoutes(t *testing.T, stage string, got *apigen.ClusterNetMap, want map[string]uint64) {
 	t.Helper()
-	actual := make(map[string]int32, len(got.Routes))
+	actual := make(map[string]uint64, len(got.Routes))
 	for _, route := range got.Routes {
 		actual[route.LogicalPrefix] = route.HostingNodeID
 	}
@@ -385,53 +387,73 @@ func assertRoutes(t *testing.T, stage string, got *apigen.ClusterNetMap, want ma
 	}
 }
 
-func virtualDeployment(id, nodeID, spaceID int32) apigen.DeploymentEvent {
-	return apigen.DeploymentEvent{
-		DeploymentID: id,
-		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: spaceID, Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}, Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}}}}},
+func virtualDeployment(id, nodeID, spaceID uint64) apigen.DeploymentRecord {
+	return apigen.DeploymentRecord{
+		Deployment: apigen.Deployment{ID: id, Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: spaceID, Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}, Workload: containerWorkload()}},
+		Meta:       apigen.EntityMeta{Version: 1, SpecVersion: 1},
 	}
+}
+
+func containerWorkload() apigen.Workload {
+	return apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+		Source:          apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: "example/app"}}},
+		Runtime:         apigen.ContainerRuntime{User: "1000"},
+		UpgradeStrategy: apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE,
+	}}}
+}
+
+func mustAddr(s string) apigen.IpAddress {
+	return apigen.AddrOf(netip.MustParseAddr(s))
+}
+
+func testNode(id uint64, underlay, wgKey string, hostAddresses ...string) *nodes.Node {
+	node := &nodes.Node{ID: id, UnderlayAddress: mustAddr(underlay), WGPublicKey: wgKey}
+	for _, value := range hostAddresses {
+		node.HostAddresses = append(node.HostAddresses, mustAddr(value))
+	}
+	return node
 }
 
 // servingInstance builds a running, serving placement. Status is populated with
 // a healthy runner precisely so tests that vary it can show it makes no
 // difference to what gets rendered.
-func servingInstance(instanceID, deploymentID, nodeID, spaceID int32) apigen.ScheduledInstanceState {
+func servingInstance(instanceID, deploymentID, nodeID, spaceID uint64) apigen.ScheduledInstanceState {
 	return apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID:                    instanceID,
-			DeploymentID:          deploymentID,
-			DeploymentSpecVersion: 1,
-			NodeID:                nodeID,
-			State:                 apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+			ID:         instanceID,
+			Deployment: apigen.DeploymentRef{DeploymentID: deploymentID, Version: 1},
+			NodeID:     nodeID,
+			SpaceID:    spaceID,
+			State:      apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: virtualDeployment(deploymentID, nodeID, spaceID),
-		Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{
+		Status: apigen.Some(apigen.ScheduledInstanceStatus{ScheduledInstanceID: instanceID, UpdatedAt: apigen.TimeOf(time.Unix(1, 0)), Runner: apigen.Some(apigen.RunnerStatus{
 			DeploymentSpecVersion: 1,
-			Status:                apigen.RunningStatus_RUNNING,
-		}},
+			Status:                apigen.RunningStatus_RUNNING_STATUS_RUNNING,
+		})}),
 	}
 }
 
 func TestRenderIngressPublishPerNode(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	nodeList := []*nodes.Node{
-		{ID: 1, Addresses: []string{"192.0.2.10"}, WGPublicKey: testWGKeyA, HostAddresses: []string{"192.0.2.10", "2001:db8::10"}},
-		{ID: 2, Addresses: []string{"192.0.2.20"}, WGPublicKey: testWGKeyB, HostAddresses: []string{"192.0.2.20"}},
+		testNode(1, "192.0.2.10", testWGKeyA, "192.0.2.10", "2001:db8::10"),
+		testNode(2, "192.0.2.20", testWGKeyB, "192.0.2.20"),
 	}
-	virtual := func(id, nodeID int32, listen ...*apigen.IngressListen) *apigen.DeploymentEvent {
-		return &apigen.DeploymentEvent{DeploymentID: id, Value: apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, nodeID), SpaceID: 1, Name: "d", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+	virtual := func(id, nodeID uint64, listen ...apigen.IngressListen) *apigen.DeploymentRecord {
+		return &apigen.DeploymentRecord{Deployment: apigen.Deployment{ID: id, Scheduling: apigen.DedicatedScheduling(false, nodeID), SpaceID: 1, Name: "d", Spec: apigen.DeploymentSpec{Workload: containerWorkload(), Networking: apigen.NetworkingConfig{
 			Mode:    apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-			Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: "app.example.test", HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080, PathPrefix: "/"}, Listen: listen}},
-		}}}}
+			Ingress: []apigen.Ingress{{Hostname: "app.example.test", Config: apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{Https: &apigen.HttpsConfig{ContainerPort: 8080, PathPrefix: "/"}}}, Listen: listen}},
+		}}}, Meta: apigen.EntityMeta{Version: 1, SpecVersion: 1}}
 	}
-	ipv6 := &apigen.IngressListen{Address: &apigen.AddressSelector{Family: apigen.AddressFamily_ADDRESS_FAMILY_IPV6}}
-	inputs := nodes.NetworkMapInputs{Nodes: nodeList, Deployments: []*apigen.DeploymentEvent{virtual(10, 1, ipv6), virtual(11, 2)}}
+	ipv6 := apigen.IngressListen{Addresses: []apigen.IpPrefix{apigen.PrefixOf(netip.MustParsePrefix("::/0"))}}
+	inputs := nodes.NetworkMapInputs{Nodes: nodeList, Deployments: []*apigen.DeploymentRecord{virtual(10, 1, ipv6), virtual(11, 2)}}
 	reservations := []ingressplan.Reservation{{NodeID: 1, Port: 80, Name: "primary Web UI (http_web.listen)"}}
 	got, diagnostics, err := render(prefix, inputs, reservations)
 	if err != nil {
 		t.Fatal(err)
 	}
-	publish := func(nodeID int32) []string {
+	publish := func(nodeID uint64) []string {
 		for _, node := range got.Nodes {
 			if node.NodeID == nodeID {
 				out := make([]string, 0, len(node.IngressPublish))

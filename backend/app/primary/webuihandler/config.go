@@ -36,10 +36,10 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		if ref == nil {
 			return "", false, nil
 		}
-		if !ref.Ref.Valid() {
+		if !ref.Valid() {
 			return "", false, nil
 		}
-		cfg, ok := values.GetConfigVersion(h.Store.Queries(), ref.Ref)
+		cfg, ok := values.GetConfigVersion(h.Store.Queries(), ref.Ref())
 		if !ok {
 			return "", false, nil
 		}
@@ -170,17 +170,18 @@ func resolveStringInPlace(stored, resolved *apigen.StringSetting, field string, 
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if !stored.ConfigRef.Ref.Valid() {
+	ref := stored.Value.Value.ConfigRef
+	if ref == nil || !ref.Valid() {
 		return nil
 	}
-	value, ok, err := resolveRef(&stored.ConfigRef)
+	value, ok, err := resolveRef(ref)
 	if err != nil {
 		return err
 	}
 	if !ok {
 		return fmt.Errorf("%s config ref was not found", field)
 	}
-	resolved.Value = value
+	resolved.Value.Value = apigen.StringSettingValueValueOneof{Literal: &value}
 	return nil
 }
 
@@ -188,10 +189,11 @@ func resolveBoolInPlace(stored, resolved *apigen.BoolSetting, field string, reso
 	if stored == nil || resolved == nil {
 		return fmt.Errorf("%s is required", field)
 	}
-	if !stored.ConfigRef.Ref.Valid() {
+	ref := stored.Value.Value.ConfigRef
+	if ref == nil || !ref.Valid() {
 		return nil
 	}
-	value, ok, err := resolveRef(&stored.ConfigRef)
+	value, ok, err := resolveRef(ref)
 	if err != nil {
 		return err
 	}
@@ -202,15 +204,26 @@ func resolveBoolInPlace(stored, resolved *apigen.BoolSetting, field string, reso
 	if err != nil {
 		return fmt.Errorf("%s referenced config must be true or false", field)
 	}
-	resolved.Value = parsed
+	resolved.Value.Value = apigen.BoolSettingValueValueOneof{Literal: &parsed}
 	return nil
 }
 
+func literalString(s apigen.StringSetting) string {
+	if s.Value.Value.Literal == nil {
+		return ""
+	}
+	return *s.Value.Value.Literal
+}
+
+func literalBool(s apigen.BoolSetting) bool {
+	return s.Value.Value.Literal != nil && *s.Value.Value.Literal
+}
+
 func validateResolvedSettings(settings *apigen.ClusterSettings) error {
-	httpEnabled := settings.HttpWeb.Enabled.Value
-	httpsEnabled := settings.HttpsWeb.Enabled.Value
-	httpListen := settings.HttpWeb.Listen.Value
-	httpsListen := settings.HttpsWeb.Listen.Value
+	httpEnabled := literalBool(settings.HttpWeb.Enabled)
+	httpsEnabled := literalBool(settings.HttpsWeb.Enabled)
+	httpListen := literalString(settings.HttpWeb.Listen)
+	httpsListen := literalString(settings.HttpsWeb.Listen)
 	if !httpEnabled && !httpsEnabled {
 		return fmt.Errorf("at least one of http_web.enabled or https_web.enabled must be true")
 	}
@@ -227,10 +240,10 @@ func validateResolvedSettings(settings *apigen.ClusterSettings) error {
 	if httpEnabled && httpsEnabled && strings.TrimSpace(httpListen) == strings.TrimSpace(httpsListen) {
 		return fmt.Errorf("http_web.listen and https_web.listen must differ when both servers are enabled")
 	}
-	if err := validateListenValue("cluster.listen", settings.Cluster.Listen.Value); err != nil {
+	if err := validateListenValue("cluster.listen", literalString(settings.Cluster.Listen)); err != nil {
 		return err
 	}
-	if err := validateListenValue("cluster.enrollment_listen", settings.Cluster.EnrollmentListen.Value); err != nil {
+	if err := validateListenValue("cluster.enrollment_listen", literalString(settings.Cluster.EnrollmentListen)); err != nil {
 		return err
 	}
 	return nil
@@ -248,16 +261,16 @@ func validateListenValue(field, value string) error {
 }
 
 func (h *Handler) validateWebTLSCert(settings *apigen.ClusterSettings) error {
-	tlsSelfManaged := settings.HttpsWeb.TlsSelfManaged.Value
-	ref := settings.HttpsWeb.TlsCertPem.Ref
+	tlsSelfManaged := literalBool(settings.HttpsWeb.TlsSelfManaged)
+	ref := settings.HttpsWeb.TlsCertPem
 	if !tlsSelfManaged {
 		return nil
 	}
-	if !ref.Valid() {
-		_, _, err := pki.EnsureWebUILocalTLS(h.Secrets, certu.WebUITLSNames(settings.HttpsWeb.AcmeHosts.Value, settings.HttpsWeb.Listen.Value))
+	if !ref.Present || !ref.Value.Valid() {
+		_, _, err := pki.EnsureWebUILocalTLS(h.Secrets, certu.WebUITLSNames(literalString(settings.HttpsWeb.AcmeHosts), literalString(settings.HttpsWeb.Listen)))
 		return err
 	}
-	bundle, err := h.Secrets.RevealByRef(ref)
+	bundle, err := h.Secrets.RevealByRef(ref.Value.Ref())
 	if err != nil {
 		return err
 	}
@@ -267,20 +280,20 @@ func (h *Handler) validateWebTLSCert(settings *apigen.ClusterSettings) error {
 	return nil
 }
 
-func settingsSecretRefs(settings *apigen.ClusterSettings) []*apigen.SecretRef {
-	return []*apigen.SecretRef{
-		&settings.HttpsWeb.TlsCertPem,
-		&settings.Repo.GithubToken,
-		&settings.Backup.S3SecretAccessKey,
-		&settings.LargeAssets.S3SecretAccessKey,
+func settingsSecretRefs(settings *apigen.ClusterSettings) []apigen.Maybe[apigen.SecretRef] {
+	return []apigen.Maybe[apigen.SecretRef]{
+		settings.HttpsWeb.TlsCertPem,
+		settings.Repo.GithubToken,
+		settings.Backup.S3SecretAccessKey,
+		settings.LargeAssets.S3SecretAccessKey,
 	}
 }
 
-func (h *Handler) validateSecretRef(ref *apigen.SecretRef) error {
-	if ref == nil || !ref.Ref.Valid() {
+func (h *Handler) validateSecretRef(ref apigen.Maybe[apigen.SecretRef]) error {
+	if !ref.Present || !ref.Value.Valid() {
 		return nil
 	}
-	if _, ok := h.Secrets.MetaByRef(ref.Ref); !ok {
+	if _, ok := h.Secrets.MetaByRef(ref.Value.Ref()); !ok {
 		return SecretNotFoundErr
 	}
 	return nil

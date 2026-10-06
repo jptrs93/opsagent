@@ -2,6 +2,7 @@ package webuihandler
 
 import (
 	"context"
+	"errors"
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
@@ -19,11 +20,11 @@ import (
 func newNodeSpacesHandler(t *testing.T) (*Handler, *nodes.Node) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
+	node := ensureTestNode(store, "primary", "primary-id")
 	return &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries()}, node
 }
 
-func setAllowed(t *testing.T, h *Handler, identifier string, spaces []int32) (*pq.NodeEvent, error) {
+func setAllowed(t *testing.T, h *Handler, identifier string, spaces []uint64) (*pq.NodeEvent, error) {
 	t.Helper()
 	return h.nodesAllowedSpaces(apigen.Context{Ctx: context.Background()},
 		&apigen.NodeAllowedSpacesRequest{Identifier: identifier, SpaceIds: spaces})
@@ -52,7 +53,7 @@ func TestDeploymentCannotBeCreatedInADisallowedSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	if _, err := setAllowed(t, h, node.Identifier, []int32{nodes.DefaultSpaceID, space.ID}); err != nil {
+	if _, err := setAllowed(t, h, node.Identifier, []uint64{nodes.DefaultSpaceID, space.ID}); err != nil {
 		t.Fatalf("narrowing: %v", err)
 	}
 
@@ -81,14 +82,14 @@ func TestDeploymentCannotMoveIntoADisallowedSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if _, err := setAllowed(t, h, node.Identifier, []int32{nodes.DefaultSpaceID}); err != nil {
+	if _, err := setAllowed(t, h, node.Identifier, []uint64{nodes.DefaultSpaceID}); err != nil {
 		t.Fatalf("narrowing: %v", err)
 	}
 
-	_, err = h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID:        cfg.DeploymentID,
-		ExpectedSeq:         cfg.Seq,
-		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: space.ID},
+	_, err = h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: cfg.Deployment.ID,
+		ExpectedSeq:  cfg.Meta.UpdatedSeq,
+		Update:       apigen.DeploymentUpdateRequestUpdateOneof{AssignedSpace: &apigen.AssignedSpaceUpdate{SpaceID: space.ID}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "node_space_not_allowed") {
 		t.Fatalf("err = %v, want node_space_not_allowed", err)
@@ -121,13 +122,13 @@ func TestNarrowingIsRejectedWhileDeploymentsUseTheSpace(t *testing.T) {
 func TestSetAllowedSpacesRejectsUnknownAndMissingInput(t *testing.T) {
 	h, node := newNodeSpacesHandler(t)
 
-	if _, err := setAllowed(t, h, "  ", nil); err != InvalidAllowedSpacesErr {
+	if _, err := setAllowed(t, h, "  ", nil); !errors.Is(err, InvalidAllowedSpacesErr) {
 		t.Fatalf("blank identifier err = %v, want InvalidAllowedSpacesErr", err)
 	}
-	if _, err := setAllowed(t, h, "no-such-node", nil); err != NodeNotFoundErr {
+	if _, err := setAllowed(t, h, "no-such-node", nil); !errors.Is(err, NodeNotFoundErr) {
 		t.Fatalf("unknown node err = %v, want NodeNotFoundErr", err)
 	}
-	if _, err := setAllowed(t, h, node.Identifier, []int32{999}); err != UnknownSpaceErr {
+	if _, err := setAllowed(t, h, node.Identifier, []uint64{999}); !errors.Is(err, UnknownSpaceErr) {
 		t.Fatalf("unknown space err = %v, want UnknownSpaceErr", err)
 	}
 }
@@ -141,18 +142,18 @@ func TestClusterNodesCarryAllowedSpaces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	if _, err := setAllowed(t, h, node.Identifier, []int32{space.ID}); err != nil {
+	if _, err := setAllowed(t, h, node.Identifier, []uint64{space.ID}); err != nil {
 		t.Fatalf("narrowing: %v", err)
 	}
 
-	var got []int32
+	var got []uint64
 	for _, row := range erru.Must(h.Store.Queries().ListNodeRows(context.Background(), pq.MemberNodeStatuses)) {
 		if row.Event.NodeID == node.ID {
 			got = row.Event.Value.Operator.AllowedSpaces
 		}
 	}
 	slices.Sort(got)
-	if !slices.Equal(got, []int32{internaldeploy.SpaceID, space.ID}) {
+	if !slices.Equal(got, []uint64{internaldeploy.SpaceID, space.ID}) {
 		t.Fatalf("AllowedSpaces = %v, want [%d %d]", got, internaldeploy.SpaceID, space.ID)
 	}
 }
@@ -164,7 +165,7 @@ func TestSetAllowedSpacesAlwaysKeepsTheOpendeploySpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SetAllowedSpaces: %v", err)
 	}
-	if !slices.Equal(updated.Value.Operator.AllowedSpaces, []int32{internaldeploy.SpaceID}) {
+	if !slices.Equal(updated.Value.Operator.AllowedSpaces, []uint64{internaldeploy.SpaceID}) {
 		t.Fatalf("AllowedSpaces = %v, want just the opendeploy space", updated.Value.Operator.AllowedSpaces)
 	}
 	// Which means an internal deployment can still be placed there.
@@ -173,7 +174,7 @@ func TestSetAllowedSpacesAlwaysKeepsTheOpendeploySpace(t *testing.T) {
 	}
 }
 
-func nodeAllowsSpaceForTest(h *Handler, nodeID, spaceID int32) bool {
+func nodeAllowsSpaceForTest(h *Handler, nodeID, spaceID uint64) bool {
 	node := liveNodes(h.Store.Queries()).Nodes[nodeID]
 	return node != nil && slices.Contains(node.AllowedSpaces, spaceID)
 }

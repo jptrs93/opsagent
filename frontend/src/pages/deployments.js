@@ -32,7 +32,7 @@ const defaultEditorActions = () => ({
     createAsset: request => uploadAsset({key: request.key, space_id: Number(request.spaceId || 0)}, request.blob),
     saveVersion: request => uploadAsset({asset_id: Number(request.assetId)}, request.blob),
     createDeployment: request => capi.postV1DeploymentsCreate(request),
-    updateDeployment: request => capi.postV2DeploymentsUpdate(request),
+    updateDeployment: request => capi.postV1DeploymentsUpdate(request),
 });
 
 // deploymentsPage(onOpenLogs, {actions}) — actions override the editor's API
@@ -111,7 +111,7 @@ export function deploymentsPage(onOpenLogs = () => {}, options = {}) {
     // tab; there is nothing to de-duplicate on.
     const openCreateTab = (opts = {}) => {
         const id = `create-${nextCreateTab++}`;
-        const sourceName = opts.sourceDeployment?.value?.name || opts.sourceDeploymentRow?.name || "";
+        const sourceName = opts.sourceDeployment?.deployment?.name || opts.sourceDeploymentRow?.name || "";
         const title = opts.retainIdentity && sourceName ? `Restore ${sourceName}`
             : sourceName ? `Fork of ${sourceName}`
                 : "New deployment";

@@ -2,13 +2,9 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model_logs_operations.proto";
-import "api-contract/model_metrics_operations.proto";
-import "api-contract/model/deployments.proto";
-import "api-contract/model/networking.proto";
-import "api-contract/model/nodes.proto";
-import "api-contract/model/scheduled_instances.proto";
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
@@ -18,75 +14,74 @@ message GithubCredentials {
 }
 
 // Primary and secondary communicate over an HTTP/2 mTLS protobuf stream.
+// Each frame carries one field. cluster_protocol_version keeps tag 9 so a
+// node on the previous contract still reads the refusal.
 message MsgToSecondary {
   ScheduledInstanceSnapshot scheduled_instances_snapshot = 1;
   ScheduledInstanceState scheduled_instance_update = 2;
-  DeploymentLogRequest deployment_log_request = 5;
-  string stop_log_request_id = 6;  // Cancel an active log stream or query by its request_id.
-  // Cluster-wide network parameters, sent at the head of every session before
-  // the scheduled-instances snapshot. Secondaries persist it and program the local
-  // dataplane from it on boot before reaching the primary.
-  ClusterNetworkInfo cluster_network = 7;
-  ClusterNetMap cluster_net_map = 8;
-
-  int32 cluster_protocol_version = 9;
-  AcmeState acme_state = 10;
-  LogQueryRequest log_query_request = 11;  // One-shot structured log query; reply is log_query_response.
-  MetricsQueryRequest metrics_query_request = 12;    // One-shot metrics rollup; reply is metrics_query_response.
-  MetricsLatestRequest metrics_latest_request = 13;  // Latest sample per running container; reply is metrics_latest_response.
-  NixStoreResets nix_store_resets = 14;  // Outstanding operator store resets, sent at the session head and on change.
-  bool evicted = 15;
+  DeploymentLogRequest deployment_log_request = 3;
+  optional string stop_log_request_id = 4;   // cancel an active log stream or query by its request_id
+  ClusterNetworkInfo cluster_network = 5;    // sent at the head of every session before the snapshot
+  ClusterNetMap cluster_net_map = 6;
+  AcmeState acme_state = 7;
+  LogQueryRequest log_query_request = 8;
+  uint32 cluster_protocol_version = 9;
+  MetricsQueryRequest metrics_query_request = 10;
+  MetricsLatestRequest metrics_latest_request = 11;
+  NixStoreResets nix_store_resets = 12;      // outstanding operator store resets, at the session head and on change
+  optional bool evicted = 13;
 }
 
-// NixStoreReset asks every node to reseed its Nix build store for one
-// repository before the next build that starts after requested_at.
-message NixStoreReset {
+message NixStoreResetItem {
   string repo = 1;
-  int64 requested_at = 2;  // epoch ms
+  int64 requested_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
 message NixStoreResets {
-  repeated NixStoreReset items = 1;
+  repeated NixStoreResetItem items = 1;
 }
 
-message NixStoreResetRequest {
-  string repo = 1;
-}
-
-// ClusterHello is the first frame sent by a secondary on each authenticated
-// cluster session.
+// ClusterHello is the first frame a secondary sends on each authenticated
+// cluster session. cluster_protocol_version keeps tag 2.
 message ClusterHello {
-  string opendeploy_version = 6;
-  string runtime_versions = 7;
-  NodeReported reported = 5;
-  int32 cluster_protocol_version = 2;
-  reserved 1, 3, 4;
-  reserved "underlay_address", "wg_public_key", "host_addresses";
+  string opendeploy_version = 1;
+  uint32 cluster_protocol_version = 2;
+  string runtime_versions = 3;
+  NodeReported reported = 4 [(cp.go_value) = true];
 }
 
+// MsgToPrimary frames carry one field each. cluster_hello keeps tag 6.
 message MsgToPrimary {
   ScheduledInstanceStatus status_write = 1;
-  bytes log_data = 2;
-  bool log_end = 3;
-  string log_request_id = 4;  // Tags log_data/log_end/log query replies with the originating request_id.
+  optional bytes log_data = 2;
+  optional bool log_end = 3;
+  optional string log_request_id = 4;        // tags log_data, log_end, and query replies with the originating request_id
   NetMapStatus net_map_status = 5;
   ClusterHello cluster_hello = 6;
   LogQueryResponse log_query_response = 7;
-  string log_query_error = 8;  // Secondary-side failure for the query tagged by log_request_id.
-  MetricsQueryResponse metrics_query_response = 9;    // Tagged by log_request_id.
-  MetricsLatestResponse metrics_latest_response = 10; // Tagged by log_request_id.
+  optional string log_query_error = 8;       // secondary-side failure for the query tagged by log_request_id
+  MetricsQueryResponse metrics_query_response = 9;
+  MetricsLatestResponse metrics_latest_response = 10;
+}
+
+// ScheduledInstanceState is the authoritative runtime assignment view: the
+// schedule row, the deployment version it pins, and the latest observed status.
+message ScheduledInstanceState {
+  ScheduledInstance instance = 1 [(cp.go_value) = true];
+  DeploymentRecord config = 2 [(cp.go_value) = true];
+  ScheduledInstanceStatus status = 3;
+}
+
+message ScheduledInstanceSnapshot {
+  repeated ScheduledInstanceState items = 1;
 }
 
 message ClusterSecretsRequest {
-  reserved 1;
-  reserved "ids";
-  repeated ValueRef refs = 2;
+  repeated SecretRef refs = 1;
 }
 
 message ClusterSecretValue {
-  reserved 1;
-  reserved "id";
-  ValueRef ref = 3 [(cp.go_value) = true];
+  SecretRef ref = 1 [(cp.go_value) = true];
   bytes value = 2;
 }
 
@@ -95,15 +90,11 @@ message ClusterSecretsResponse {
 }
 
 message ClusterConfigsRequest {
-  reserved 1;
-  reserved "ids";
-  repeated ValueRef refs = 2;
+  repeated ConfigRef refs = 1;
 }
 
 message ClusterConfigValue {
-  reserved 1;
-  reserved "id";
-  ValueRef ref = 3 [(cp.go_value) = true];
+  ConfigRef ref = 1 [(cp.go_value) = true];
   string value = 2;
 }
 
@@ -112,20 +103,20 @@ message ClusterConfigsResponse {
 }
 
 message ClusterIssuedTLSRequest {
-  int32 deployment_id = 1;
-  int32 deployment_spec_version = 2;
+  uint64 deployment_id = 1 [(cp.js_type) = "number"];
+  uint32 deployment_spec_version = 2;
 }
 
 message ClusterIssuedTLSResponse {
   bytes cert_pem = 1;
   bytes key_pem = 2;
   bytes ca_cert_pem = 3;
-  int64 issued_at = 4;
-  int64 not_after = 5;
+  int64 issued_at = 4 [(cp.js_type) = "number"];
+  int64 not_after = 5 [(cp.js_type) = "number"];
 }
 
 message ClusterRenewCertificateResponse {
   bytes cert_pem = 1;
   bytes ca_cert_pem = 2;
-  int64 not_after = 3;
+  int64 not_after = 3 [(cp.js_type) = "number"];
 }

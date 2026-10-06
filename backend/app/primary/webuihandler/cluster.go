@@ -34,10 +34,10 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	}
 	// Derived visibility counts as viewable: a space operator who can see the
 	// node gets a 403 here, not a 404.
-	if !h.nodeVisible(ctx, int64(existing.ID), existing.AllowedSpaces) {
+	if !h.nodeVisible(ctx, existing.ID, existing.AllowedSpaces) {
 		return nil, NodeNotFoundErr
 	}
-	if err := h.requireAccess(ctx, vUpdate, eNode, 0, int64(existing.ID)); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eNode, 0, existing.ID); err != nil {
 		return nil, err
 	}
 	node, err := nodes.RenameNode(h.Store, identifier, name)
@@ -70,20 +70,20 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	if node == nil {
 		return nil, NodeNotFoundErr
 	}
-	if !h.nodeVisible(ctx, int64(node.ID), node.AllowedSpaces) {
+	if !h.nodeVisible(ctx, node.ID, node.AllowedSpaces) {
 		return nil, NodeNotFoundErr
 	}
-	if err := h.requireAccess(ctx, vUpdate, eNode, 0, int64(node.ID)); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eNode, 0, node.ID); err != nil {
 		return nil, err
 	}
 
 	// A list naming a space that does not exist is a caller mistake, not a
 	// narrowing: accepting it would silently store an id that can never match.
-	existing := map[int32]struct{}{}
+	existing := map[uint64]struct{}{}
 	for _, space := range nodes.ListSpaces(h.Store.Queries()) {
 		existing[space.ID] = struct{}{}
 	}
-	requested := map[int32]struct{}{}
+	requested := map[uint64]struct{}{}
 	for _, id := range req.SpaceIds {
 		if _, ok := existing[id]; !ok {
 			return nil, UnknownSpaceErr
@@ -97,17 +97,17 @@ func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeA
 	// Narrowing must not contradict what is already placed on the node. This is
 	// the same shape as refusing to delete a space with live deployments.
 	for _, cfg := range deployments.Active(h.Queries, nil) {
-		if cfg.Value.PlacementNodeID() != node.ID {
+		if cfg.Deployment.PlacementNodeID() != node.ID {
 			continue
 		}
-		if _, ok := requested[cfg.Value.SpaceID]; !ok {
+		if _, ok := requested[cfg.Deployment.SpaceID]; !ok {
 			return nil, apigen.NewApiErr(
-				fmt.Sprintf("Deployment %q is already on this node in a space you are removing", cfg.Value.Name),
+				fmt.Sprintf("Deployment %q is already on this node in a space you are removing", cfg.Deployment.Name),
 				"node_space_in_use", http.StatusConflict)
 		}
 	}
 
-	spaces := make([]int32, 0, len(requested))
+	spaces := make([]uint64, 0, len(requested))
 	for id := range requested {
 		spaces = append(spaces, id)
 	}
@@ -135,7 +135,7 @@ func (h *Handler) visibleMemberNode(ctx apigen.Context, identifier string) (*nod
 		return nil, InvalidNodeRequestErr
 	}
 	node := h.nodeByIdentifier(identifier)
-	if node == nil || !h.nodeVisible(ctx, int64(node.ID), node.AllowedSpaces) {
+	if node == nil || !h.nodeVisible(ctx, node.ID, node.AllowedSpaces) {
 		return nil, NodeNotFoundErr
 	}
 	return node, nil
@@ -171,7 +171,7 @@ func (h *Handler) PostV1NodesDrain(ctx apigen.Context, req *apigen.NodeDrainRequ
 	if err != nil {
 		return nil, err
 	}
-	if err := h.requireAccess(ctx, vUpdate, eNode, 0, int64(node.ID)); err != nil {
+	if err := h.requireAccess(ctx, vUpdate, eNode, 0, node.ID); err != nil {
 		return nil, err
 	}
 	event, err := nodes.SetNodeDraining(ctx, h.Store, node.Identifier, req.Draining)
@@ -189,7 +189,7 @@ func (h *Handler) PostV1NodesEvict(ctx apigen.Context, req *apigen.NodeEvictRequ
 	if err != nil {
 		return nil, err
 	}
-	if err := h.requireAccess(ctx, vDelete, eNode, 0, int64(node.ID)); err != nil {
+	if err := h.requireAccess(ctx, vDelete, eNode, 0, node.ID); err != nil {
 		return nil, err
 	}
 	event, err := nodes.EvictNode(ctx, h.Store, node.Identifier, req.ExpectedSeq, req.Force)
@@ -211,10 +211,10 @@ func (h *Handler) PostV1NodesExposure(ctx apigen.Context, req *apigen.NodeExposu
 		return nil, err
 	}
 	nodeID := row.Event.NodeID
-	if !h.nodeVisible(ctx, int64(nodeID), row.Event.Value.Operator.AllowedSpaces) {
+	if !h.nodeVisible(ctx, nodeID, row.Event.Value.Operator.AllowedSpaces) {
 		return nil, NodeNotFoundErr
 	}
-	if err := h.requireAccess(ctx, vDelete, eNode, 0, int64(nodeID)); err != nil {
+	if err := h.requireAccess(ctx, vDelete, eNode, 0, nodeID); err != nil {
 		return nil, err
 	}
 	exposure, err := nodes.NodeExposure(ctx, h.Queries, nodeID)
@@ -223,24 +223,24 @@ func (h *Handler) PostV1NodesExposure(ctx apigen.Context, req *apigen.NodeExposu
 	}
 	out := &apigen.NodeExposure{NodeID: nodeID, GithubToken: exposure.GithubToken, AcmeHostnames: exposure.AcmeHostnames}
 	for _, cfg := range exposure.Deployments {
-		out.Deployments = append(out.Deployments, &apigen.NodeExposureItem{ID: cfg.DeploymentID, Name: cfg.Value.Name, SpaceID: cfg.Value.SpaceID, Version: cfg.Version})
+		out.Deployments = append(out.Deployments, apigen.NodeExposureItem{ID: cfg.Deployment.ID, Name: cfg.Deployment.Name, SpaceID: cfg.Deployment.SpaceID, Version: cfg.Meta.Version})
 	}
 	for _, cfg := range exposure.IssuedTLSDeployments {
-		out.IssuedTlsDeployments = append(out.IssuedTlsDeployments, &apigen.NodeExposureItem{ID: cfg.DeploymentID, Name: cfg.Value.Name, SpaceID: cfg.Value.SpaceID, Version: cfg.Version})
+		out.IssuedTlsDeployments = append(out.IssuedTlsDeployments, apigen.NodeExposureItem{ID: cfg.Deployment.ID, Name: cfg.Deployment.Name, SpaceID: cfg.Deployment.SpaceID, Version: cfg.Meta.Version})
 	}
 	for _, ref := range exposure.Secrets {
-		item := &apigen.NodeExposureItem{ID: ref.ID, Version: ref.Version}
+		item := apigen.NodeExposureItem{ID: ref.ID, Version: ref.Version}
 		if h.Secrets != nil {
 			if meta, ok := h.Secrets.MetaByRef(ref); ok {
-				item.Name, item.SpaceID = meta.Name, meta.SpaceID
+				item.Name, item.SpaceID = meta.Key, meta.SpaceID
 			}
 		}
 		out.Secrets = append(out.Secrets, item)
 	}
 	for _, ref := range exposure.Configs {
-		item := &apigen.NodeExposureItem{ID: ref.ID, Version: ref.Version}
+		item := apigen.NodeExposureItem{ID: ref.ID, Version: ref.Version}
 		if version, ok := values.GetConfigVersion(h.Queries, ref); ok {
-			item.Name, item.SpaceID = version.Name, version.SpaceID
+			item.Name, item.SpaceID = version.Key, version.SpaceID
 		}
 		out.Configs = append(out.Configs, item)
 	}

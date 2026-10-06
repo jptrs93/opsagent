@@ -274,7 +274,7 @@ export async function createNixDockerDeployment(page, {
   if (expectDefaultDockerImage) {
     await expect(sourceTypeSelect).toHaveValue('containerImage');
   }
-  await step(`select nix docker source ${name}`, () => sourceTypeSelect.selectOption('nixDockerBuild'));
+  await step(`select nix docker source ${name}`, () => sourceTypeSelect.selectOption('nixImageBuild'));
   const validateRequests = trackRepoValidateRequests(page);
   const repoInput = byTestId(dialog, 'deployment-repo-input', textField(dialog, 'Repository'));
   const flakeInput = byTestId(dialog, 'deployment-flake-input', textField(dialog, 'Path to flake.nix'));
@@ -391,7 +391,7 @@ export async function updateNixDockerDeployment(page, {
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -419,7 +419,7 @@ export async function expectDeploymentNetworkingModeDenied(page, {name, machine 
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(false);
@@ -470,7 +470,7 @@ export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2'
       await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
       const updateResponse = page.waitForResponse(response => {
         const request = response.request();
-        return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+        return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
       }, {timeout: LONG_UI_TIMEOUT});
       await submit.click();
       expect((await updateResponse).ok()).toBe(false);
@@ -486,7 +486,7 @@ export async function setDeploymentHttpsRoutes(page, {name, machine = 'worker-2'
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -655,7 +655,7 @@ export async function setDeploymentIssuedTLSMount(page, {name, machine = 'worker
       await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
       const updateResponse = page.waitForResponse(response => {
         const request = response.request();
-        return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+        return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
       }, {timeout: LONG_UI_TIMEOUT});
       await submit.click();
       expect((await updateResponse).ok()).toBe(false);
@@ -671,7 +671,7 @@ export async function setDeploymentIssuedTLSMount(page, {name, machine = 'worker
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -734,7 +734,7 @@ export async function setPortForwardAllowList(page, {name, machine = 'worker-1',
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const updateResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await updateResponse).ok()).toBe(true);
@@ -1030,7 +1030,7 @@ export async function restartDeployment(page, {name, machine = 'worker-1'} = {})
   await expect(overlay).toBeVisible();
   const response = page.waitForResponse(res => {
     const request = res.request();
-    return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
   }, {timeout: LONG_UI_TIMEOUT});
   await overlay.getByTestId('deployment-restart-confirm').click();
   expect((await response).ok()).toBe(true);
@@ -1069,7 +1069,7 @@ export async function restartDeploymentFromEditor(page, {name, machine = 'worker
   await expect(overlay).toBeVisible();
   const response = page.waitForResponse(res => {
     const request = res.request();
-    return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+    return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
   }, {timeout: LONG_UI_TIMEOUT});
   await overlay.getByTestId('deployment-restart-confirm').click();
   expect((await response).ok()).toBe(true);
@@ -2669,7 +2669,7 @@ export async function expectDeploymentNetworkPolicies(page, {name, machine, pres
 
 // moveDeploymentToSpace changes a deployment's space through the update
 // dialog's Space picker, which carries the new space in the single
-// /v2/deployments/update call. The move is a connection-breaking
+// /v1/deployments/update call. The move is a connection-breaking
 // security-domain migration: the deployment's addresses and DNS name change
 // with its space.
 export async function moveDeploymentToSpace(page, {name, machine, space} = {}) {
@@ -2697,7 +2697,7 @@ export async function moveDeploymentToSpace(page, {name, machine, space} = {}) {
     await expect(submit).toBeEnabled({timeout: LONG_UI_TIMEOUT});
     const moveResponse = page.waitForResponse(response => {
       const request = response.request();
-      return request.method() === 'POST' && new URL(request.url()).pathname === '/v2/deployments/update';
+      return request.method() === 'POST' && new URL(request.url()).pathname === '/v1/deployments/update';
     }, {timeout: LONG_UI_TIMEOUT});
     await submit.click();
     expect((await moveResponse).ok()).toBe(true);

@@ -78,9 +78,7 @@ func TestRunNetStateWriterProcessesUpdateQueuedWithInitialSnapshot(t *testing.T)
 	network.SetDefault(network.New(network.GeneratePrefix(), 99))
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
-	route := apigen.ScheduledInstanceState{Config: apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: "queued.example.com", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: 8443, ContainerPort: 443}}}}}},
-	}}
+	route := apigen.ScheduledInstanceState{Config: apigen.DeploymentRecord{Deployment: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{tlsIngress("queued.example.com", 8443, 443)}}}}}}
 	updates := make(chan []apigen.ScheduledInstanceState, 1)
 	updates <- []apigen.ScheduledInstanceState{route}
 	store := &netStateWriterStore{current: []apigen.ScheduledInstanceState{route}, updates: updates}
@@ -136,9 +134,7 @@ func TestRunNetStateWriterSkipsRewriteWhenContentUnchanged(t *testing.T) {
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
 	route := func(hostname string) apigen.ScheduledInstanceState {
-		return apigen.ScheduledInstanceState{Config: apigen.DeploymentEvent{
-			Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: hostname, TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: 8443, ContainerPort: 443}}}}}},
-		}}
+		return apigen.ScheduledInstanceState{Config: apigen.DeploymentRecord{Deployment: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{tlsIngress(hostname, 8443, 443)}}}}}}
 	}
 	first := route("first.example.com")
 	updates := make(chan []apigen.ScheduledInstanceState, 2)
@@ -179,17 +175,9 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	network.SetDefault(network.New(prefix, 99))
 	state := RenderNetState(7, "node-a", []apigen.ScheduledInstanceState{{
-		Config: apigen.DeploymentEvent{
-			DeploymentID: 42,
-			Value:        apigen.Deployment{SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: "DB.Example.COM.", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 5432}}}}}},
-		},
-		Instance: apigen.ScheduledInstance{
-			ID: 5, DeploymentID: 42, NodeID: 1,
-			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
-		},
-		Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{
-			Status: apigen.RunningStatus_RUNNING,
-		}},
+		Config:   apigen.DeploymentRecord{Deployment: apigen.Deployment{ID: 42, SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{tlsIngress("DB.Example.COM.", 0, 5432)}}}}},
+		Instance: apigen.ScheduledInstance{ID: 5, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, Deployment: apigen.DeploymentRef{DeploymentID: 42}},
+		Status:   runnerStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING),
 	}}, nil, nil)
 
 	backendAddr, err := prefix.InboundAddr(1, 42, 0)
@@ -206,10 +194,10 @@ func TestRenderNetStateRendersTlsPassthroughIngress(t *testing.T) {
 	if route.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || route.Hostname != "db.example.com" {
 		t.Fatalf("route = %+v, want normalized TLS passthrough route", route)
 	}
-	if route.TlsPassthrough == nil || route.TlsPassthrough.HostPort != 443 {
+	if !route.TlsPassthrough.Present || route.TlsPassthrough.Value.HostPort != 443 {
 		t.Fatalf("TLS passthrough config = %+v, want default host port 443", route.TlsPassthrough)
 	}
-	if got := route.TlsPassthrough.Backends; len(got) != 1 || got[0].Address != backendAddr.String() || got[0].Port != 5432 {
+	if got := route.TlsPassthrough.Value.Backends; len(got) != 1 || got[0].Address != backendAddr.String() || got[0].Port != 5432 {
 		t.Fatalf("backends = %+v, want %s:5432", got, backendAddr)
 	}
 }
@@ -227,12 +215,9 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 
 	item := func(state apigen.ScheduledInstanceTarget, running apigen.RunningStatus) apigen.ScheduledInstanceState {
 		return apigen.ScheduledInstanceState{
-			Instance: apigen.ScheduledInstance{ID: 5, DeploymentID: 42, NodeID: 1, State: state},
-			Config: apigen.DeploymentEvent{
-				DeploymentID: 42,
-				Value:        apigen.Deployment{SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}},
-			},
-			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: running}},
+			Instance: apigen.ScheduledInstance{ID: 5, NodeID: 1, State: state, Deployment: apigen.DeploymentRef{DeploymentID: 42}},
+			Config:   apigen.DeploymentRecord{Deployment: apigen.Deployment{ID: 42, SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}}},
+			Status:   runnerStatus(running),
 		}
 	}
 	want, err := prefix.InboundAddr(1, 42, 0)
@@ -241,7 +226,7 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 	}
 
 	serving := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{
-		item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_RUNNING),
+		item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_RUNNING_STATUS_RUNNING),
 	}, nil, nil)
 	if len(serving.DnsServices) != 1 || len(serving.DnsServices[0].Endpoints) != 1 {
 		t.Fatalf("dns services = %+v, want one endpoint", serving.DnsServices)
@@ -253,8 +238,8 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 	// A serving placement publishes its endpoint regardless of runner status;
 	// crashing does not change the record.
 	for name, up := range map[string]apigen.ScheduledInstanceState{
-		"crashed":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_CRASHED),
-		"starting": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_STARTING),
+		"crashed":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_RUNNING_STATUS_CRASHED),
+		"starting": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, apigen.RunningStatus_RUNNING_STATUS_STARTING),
 	} {
 		got := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{up}, nil, nil)
 		if len(got.DnsServices) != 1 || len(got.DnsServices[0].Endpoints) != 1 {
@@ -267,8 +252,8 @@ func TestRenderNetStateDerivesEndpointsFromPlacement(t *testing.T) {
 	// established ordinal instead of leaking the lookup upstream — but
 	// publishes no endpoint, since its address does not route yet.
 	for name, down := range map[string]apigen.ScheduledInstanceState{
-		"standby":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY, apigen.RunningStatus_RUNNING),
-		"draining": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING, apigen.RunningStatus_RUNNING),
+		"standby":  item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY, apigen.RunningStatus_RUNNING_STATUS_RUNNING),
+		"draining": item(apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING, apigen.RunningStatus_RUNNING_STATUS_RUNNING),
 	} {
 		got := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{down}, nil, nil)
 		if len(got.DnsServices) != 1 || len(got.DnsServices[0].Endpoints) != 0 {
@@ -283,14 +268,11 @@ func TestRenderNetStateEndpointFollowsServingPlacement(t *testing.T) {
 	network.SetDefault(network.New(prefix, 99))
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
-	item := func(id int32, state apigen.ScheduledInstanceTarget, running apigen.RunningStatus) apigen.ScheduledInstanceState {
+	item := func(id uint64, state apigen.ScheduledInstanceTarget, running apigen.RunningStatus) apigen.ScheduledInstanceState {
 		return apigen.ScheduledInstanceState{
-			Instance: apigen.ScheduledInstance{ID: id, DeploymentID: 42, NodeID: 1, State: state},
-			Config: apigen.DeploymentEvent{
-				DeploymentID: 42,
-				Value:        apigen.Deployment{SpaceID: 1, Name: "webapp", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: "app.example.com", HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080}}}}}},
-			},
-			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: running}},
+			Instance: apigen.ScheduledInstance{ID: id, NodeID: 1, State: state, Deployment: apigen.DeploymentRef{DeploymentID: 42}},
+			Config:   apigen.DeploymentRecord{Deployment: apigen.Deployment{ID: 42, SpaceID: 1, Name: "webapp", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{httpsIngress("app.example.com", 8080)}}}}},
+			Status:   runnerStatus(running),
 		}
 	}
 	want, err := prefix.InboundAddr(1, 42, 0)
@@ -306,31 +288,31 @@ func TestRenderNetStateEndpointFollowsServingPlacement(t *testing.T) {
 		wantEndpoints int
 	}{
 		"serving with ready standby": {
-			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING), item(5, serving, apigen.RunningStatus_RUNNING)},
+			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING_STATUS_RUNNING), item(5, serving, apigen.RunningStatus_RUNNING_STATUS_RUNNING)},
 			wantEndpoints: 1,
 		},
 		"serving with warming standby": {
-			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_STARTING), item(5, serving, apigen.RunningStatus_RUNNING)},
+			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING_STATUS_STARTING), item(5, serving, apigen.RunningStatus_RUNNING_STATUS_RUNNING)},
 			wantEndpoints: 1,
 		},
 		"crashed serving": {
-			items:         []apigen.ScheduledInstanceState{item(5, serving, apigen.RunningStatus_CRASHED)},
+			items:         []apigen.ScheduledInstanceState{item(5, serving, apigen.RunningStatus_RUNNING_STATUS_CRASHED)},
 			wantEndpoints: 1,
 		},
 		"lone ready standby": {
-			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING)},
+			items:         []apigen.ScheduledInstanceState{item(6, standby, apigen.RunningStatus_RUNNING_STATUS_RUNNING)},
 			wantEndpoints: 0,
 		},
 		"lone draining": {
-			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING)},
+			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING_STATUS_RUNNING)},
 			wantEndpoints: 0,
 		},
 		"draining with ready standby": {
-			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING), item(6, standby, apigen.RunningStatus_RUNNING)},
+			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING_STATUS_RUNNING), item(6, standby, apigen.RunningStatus_RUNNING_STATUS_RUNNING)},
 			wantEndpoints: 1,
 		},
 		"draining with warming standby": {
-			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING), item(6, standby, apigen.RunningStatus_STARTING)},
+			items:         []apigen.ScheduledInstanceState{item(5, draining, apigen.RunningStatus_RUNNING_STATUS_RUNNING), item(6, standby, apigen.RunningStatus_RUNNING_STATUS_STARTING)},
 			wantEndpoints: 1,
 		},
 	} {
@@ -349,7 +331,7 @@ func TestRenderNetStateEndpointFollowsServingPlacement(t *testing.T) {
 		if len(state.Ingress) != 1 {
 			t.Fatalf("%s: ingress = %+v, want exactly one merged route", name, state.Ingress)
 		}
-		backends := state.Ingress[0].Https.Backends
+		backends := state.Ingress[0].Https.Value.Backends
 		if len(backends) != tc.wantEndpoints {
 			t.Errorf("%s: backends = %+v, want %d", name, backends, tc.wantEndpoints)
 			continue
@@ -367,15 +349,12 @@ func TestRenderNetStateUsesClusterMapCatalog(t *testing.T) {
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
 	local := apigen.ScheduledInstanceState{
-		Instance: apigen.ScheduledInstance{ID: 6, DeploymentID: 43, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY},
-		Config: apigen.DeploymentEvent{
-			DeploymentID: 43,
-			Value:        apigen.Deployment{SpaceID: 1, Name: "webapp", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: "app.example.com", HttpsConfig: &apigen.HttpsConfig{ContainerPort: 8080}}}}}},
-		},
+		Instance: apigen.ScheduledInstance{ID: 6, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY, Deployment: apigen.DeploymentRef{DeploymentID: 43}},
+		Config:   apigen.DeploymentRecord{Deployment: apigen.Deployment{ID: 43, SpaceID: 1, Name: "webapp", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{httpsIngress("app.example.com", 8080)}}}}},
 	}
-	clusterMap := &apigen.ClusterNetMap{DnsServices: []*apigen.ClusterNetMapService{
-		{Name: "database", SpaceID: 1, DeploymentID: 42, Ordinals: []*apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
-		{Name: "webapp", SpaceID: 1, DeploymentID: 43, Ordinals: []*apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
+	clusterMap := &apigen.ClusterNetMap{DnsServices: []apigen.ClusterNetMapService{
+		{Name: "database", SpaceID: 1, DeploymentID: 42, Ordinals: []apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
+		{Name: "webapp", SpaceID: 1, DeploymentID: 43, Ordinals: []apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
 	}}
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{local}, nil, clusterMap)
 
@@ -391,8 +370,8 @@ func TestRenderNetStateUsesClusterMapCatalog(t *testing.T) {
 		t.Fatalf("dns services = %+v, want the full cluster catalog", state.DnsServices)
 	}
 	byName := map[string]*apigen.DnsService{}
-	for _, svc := range state.DnsServices {
-		byName[svc.Name] = svc
+	for i := range state.DnsServices {
+		byName[state.DnsServices[i].Name] = &state.DnsServices[i]
 	}
 	remote := byName["database"]
 	if remote == nil || len(remote.Endpoints) != 1 || remote.Endpoints[0].Address != databaseAddr.String() {
@@ -401,7 +380,7 @@ func TestRenderNetStateUsesClusterMapCatalog(t *testing.T) {
 	if len(state.Ingress) != 1 {
 		t.Fatalf("ingress = %+v, want the locally configured route", state.Ingress)
 	}
-	backends := state.Ingress[0].Https.Backends
+	backends := state.Ingress[0].Https.Value.Backends
 	if len(backends) != 1 || backends[0].Address != webappAddr.String() || backends[0].Port != 8080 {
 		t.Fatalf("backends = %+v, want catalog-derived %s:8080", backends, webappAddr)
 	}
@@ -414,11 +393,8 @@ func TestRenderNetStateFallsBackWithoutCatalog(t *testing.T) {
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
 	local := apigen.ScheduledInstanceState{
-		Instance: apigen.ScheduledInstance{ID: 5, DeploymentID: 42, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING},
-		Config: apigen.DeploymentEvent{
-			DeploymentID: 42,
-			Value:        apigen.Deployment{SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}},
-		},
+		Instance: apigen.ScheduledInstance{ID: 5, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, Deployment: apigen.DeploymentRef{DeploymentID: 42}},
+		Config:   apigen.DeploymentRecord{Deployment: apigen.Deployment{ID: 42, SpaceID: 1, Name: "database", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}}}},
 	}
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{local}, nil, &apigen.ClusterNetMap{})
 	if len(state.DnsServices) != 1 || len(state.DnsServices[0].Endpoints) != 1 {
@@ -432,14 +408,11 @@ func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
 	network.SetDefault(network.New(prefix, 99))
 	t.Cleanup(func() { network.SetDefault(previousNetwork) })
 
-	item := func(id, deploymentID int32, name string, state apigen.ScheduledInstanceTarget) apigen.ScheduledInstanceState {
+	item := func(id, deploymentID uint64, name string, state apigen.ScheduledInstanceTarget) apigen.ScheduledInstanceState {
 		return apigen.ScheduledInstanceState{
-			Instance: apigen.ScheduledInstance{ID: id, DeploymentID: deploymentID, NodeID: 1, State: state},
-			Config: apigen.DeploymentEvent{
-				DeploymentID: deploymentID,
-				Value:        apigen.Deployment{SpaceID: 1, Name: name, Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: name + ".example.com", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: 8443, ContainerPort: 5432}}}}}},
-			},
-			Status: apigen.ScheduledInstanceStatus{Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}},
+			Instance: apigen.ScheduledInstance{ID: id, NodeID: 1, State: state, Deployment: apigen.DeploymentRef{DeploymentID: deploymentID}},
+			Config:   apigen.DeploymentRecord{Deployment: apigen.Deployment{ID: deploymentID, SpaceID: 1, Name: name, Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{tlsIngress(name+".example.com", 8443, 5432)}}}}},
+			Status:   runnerStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING),
 		}
 	}
 	serving := apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
@@ -457,24 +430,20 @@ func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
 
 func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
-		Config: apigen.DeploymentEvent{
-			Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: "db.example.com", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: 8443, ContainerPort: 5432}}}}}},
-		},
+		Config: apigen.DeploymentRecord{Deployment: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{tlsIngress("db.example.com", 8443, 5432)}}}}},
 	}}, nil, nil)
 
 	if got := len(state.Ingress); got != 1 {
 		t.Fatalf("ingress count = %d, want 1", got)
 	}
-	if got := state.Ingress[0].TlsPassthrough.Backends; len(got) != 0 {
+	if got := state.Ingress[0].TlsPassthrough.Value.Backends; len(got) != 0 {
 		t.Fatalf("backends = %+v, want none", got)
 	}
 }
 
 func TestRenderNetStateOmitsIngressOnDNSPort(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
-		Config: apigen.DeploymentEvent{
-			Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []*apigen.Ingress{{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: "dns.example.com", TlsPassthroughConfig: &apigen.TlsPassthroughConfig{HostPort: netproxyDNSPort, ContainerPort: 443}}}}}},
-		},
+		Config: apigen.DeploymentRecord{Deployment: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{tlsIngress("dns.example.com", netproxyDNSPort, 443)}}}}},
 	}}, nil, nil)
 
 	if len(state.Ingress) != 0 {
@@ -514,4 +483,20 @@ func TestHostResolversPrefersUsableSystemConfig(t *testing.T) {
 	if got := hostResolversFromFiles(primaryPath, fallbackPath); !slices.Equal(got, want) {
 		t.Fatalf("resolvers = %v, want %v", got, want)
 	}
+}
+
+func tlsIngress(hostname string, hostPort, containerPort uint32) apigen.Ingress {
+	cfg := apigen.TlsPassthroughConfig{ContainerPort: containerPort}
+	if hostPort != 0 {
+		cfg.HostPort = apigen.Some(hostPort)
+	}
+	return apigen.Ingress{Hostname: hostname, Config: apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{TlsPassthrough: &cfg}}}
+}
+
+func httpsIngress(hostname string, containerPort uint32) apigen.Ingress {
+	return apigen.Ingress{Hostname: hostname, Config: apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{Https: &apigen.HttpsConfig{ContainerPort: containerPort}}}}
+}
+
+func runnerStatus(status apigen.RunningStatus) apigen.Maybe[apigen.ScheduledInstanceStatus] {
+	return apigen.Some(apigen.ScheduledInstanceStatus{Runner: apigen.Some(apigen.RunnerStatus{Status: status})})
 }

@@ -2,38 +2,39 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/authz.proto";
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message AuthzRuleTemplateList {
-  repeated AuthzRuleTemplate items = 1;
+message AuthzGrantTemplateList {
+  repeated AuthzGrantTemplate items = 1;
 }
 
-message AuthzRuleTemplateCreateRequest {
+message AuthzGrantTemplateCreateRequest {
   string name = 1;
-  AuthzRuleTemplateSpec spec = 2;
+  AuthzGrantTemplateSpec spec = 2 [(cp.go_value) = true];
 }
 
-message AuthzRuleTemplateUpdateRequest {
-  int64 id = 1;
+message AuthzGrantTemplateUpdateRequest {
+  uint64 id = 1 [(cp.js_type) = "number"];
   string name = 2;
-  AuthzRuleTemplateSpec spec = 3;
+  AuthzGrantTemplateSpec spec = 3 [(cp.go_value) = true];
 }
 
-message AuthzRuleTemplateDeleteRequest {
-  int64 id = 1;
+message AuthzGrantTemplateDeleteRequest {
+  uint64 id = 1 [(cp.js_type) = "number"];
 }
 
 message AuthzGrantCreateRequest {
-  int64 user_id = 1;
-  int64 template_id = 2;
-  AuthzGrantSpec spec = 3;
+  uint64 user_id = 1 [(cp.js_type) = "number"];
+  AuthzGrantSource grant = 2 [(cp.go_value) = true];
 }
 
 message AuthzGrantDeleteRequest {
-  int64 user_id = 1;
-  int64 id = 2;
+  uint64 user_id = 1 [(cp.js_type) = "number"];
+  uint64 id = 2 [(cp.js_type) = "number"];
 }
 
 message AuthzGlobalRuleList {
@@ -42,9 +43,9 @@ message AuthzGlobalRuleList {
 
 message AuthzGlobalRuleCreateRequest {
   string name = 1;
-  AuthzGlobalRuleSpec spec = 2;
+  AuthzRule rule = 2 [(cp.go_value) = true];
 }
 
 message AuthzGlobalRuleDeleteRequest {
-  int64 id = 1;
+  uint64 id = 1 [(cp.js_type) = "number"];
 }

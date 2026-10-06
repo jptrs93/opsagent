@@ -3,6 +3,7 @@ package clusterhandler
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"path/filepath"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 func acceptTestSecondary(t *testing.T, store *state.Service, identifier string) *nodes.Node {
 	t.Helper()
-	req, version, err := nodes.UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: identifier, UnderlayAddress: "10.0.0.2", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
+	req, version, err := nodes.UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: identifier, UnderlayAddress: apigen.AddrOf(netip.MustParseAddr("10.0.0.2")), WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +35,7 @@ func acceptTestSecondary(t *testing.T, store *state.Service, identifier string) 
 func TestEvictedNodeIsForbiddenAndItsSessionEnds(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	nodes.EnsurePrimaryNode(store, "primary", "primary-id")
+	nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("10.0.0.1"))
 	node := acceptTestSecondary(t, store, "secondary-id")
 	handler := New(store, nil, nil, nil, network.Prefix{}, nil, nil, nil, nil)
 	peerCtx := context.WithValue(context.Background(), machineCtxKey{}, node.Identifier)
@@ -56,7 +57,7 @@ func TestEvictedNodeIsForbiddenAndItsSessionEnds(t *testing.T) {
 	}
 	select {
 	case msg := <-sess.outbox:
-		if !msg.Evicted {
+		if !msg.Evicted.Present || !msg.Evicted.Value {
 			t.Fatalf("session frame = %+v, want evicted", msg)
 		}
 	case <-time.After(5 * time.Second):

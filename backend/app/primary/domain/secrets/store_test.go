@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/netip"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -24,37 +25,37 @@ func openTestStore(t *testing.T) *state.Service {
 }
 
 func testSealFunc(value byte) SealFunc {
-	return func(int32) (SealedValue, error) {
+	return func(uint64) (SealedValue, error) {
 		return SealedValue{SMKVersion: 1, Ciphertext: []byte{value}, Nonce: []byte{value}}, nil
 	}
 }
 
-func expectedSeqs(events ...*apigen.DeploymentEvent) []*apigen.DeploymentExpectedSeq {
-	var out []*apigen.DeploymentExpectedSeq
-	for _, e := range events {
-		out = append(out, &apigen.DeploymentExpectedSeq{DeploymentID: e.DeploymentID, ExpectedSeq: e.Seq})
+func expectedSeqs(records ...*apigen.DeploymentRecord) []apigen.DeploymentExpectedSeq {
+	var out []apigen.DeploymentExpectedSeq
+	for _, r := range records {
+		out = append(out, apigen.DeploymentExpectedSeq{DeploymentID: r.Deployment.ID, ExpectedSeq: r.Meta.UpdatedSeq})
 	}
 	return out
 }
 
 func mutationsOf(update state.WriteUpdate, typ apigen.CoreEntityType) []*apigen.CoreMutation {
 	var out []*apigen.CoreMutation
-	for _, m := range update.Mutations {
-		if m.Type() == typ {
+	for i := range update.Mutations {
+		if m := &update.Mutations[i]; m.Type() == typ {
 			out = append(out, m)
 		}
 	}
 	return out
 }
 
-func latestDeploymentEvent(t *testing.T, store *state.Service, id int32) *apigen.DeploymentEvent {
+func latestDeploymentEvent(t *testing.T, store *state.Service, id uint64) *apigen.DeploymentRecord {
 	t.Helper()
-	return erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(id)))
+	return erru.Must(store.Queries().GetLatestDeployment(context.Background(), id))
 }
 
 func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 
 	first, err := CreateWithVersion(store, "token", nodes.DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
@@ -64,7 +65,7 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	create := func(name string, secret apigen.ValueRef) *apigen.DeploymentEvent {
+	create := func(name string, secret apigen.ValueRef) *apigen.DeploymentRecord {
 		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"TOKEN": secret}))
 	}
 	firstDeployment := create("first", first.ref())
@@ -77,14 +78,14 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	if third.Version != 3 || len(updatedIDs) != 2 {
 		t.Fatalf("secret = %+v, updated deployments = %v", third, updatedIDs)
 	}
-	if got := statetest.DeploymentEnvRef(t, latestDeploymentEvent(t, store, firstDeployment.DeploymentID), "TOKEN", true); got != third.ref() {
+	if got := statetest.DeploymentEnvRef(t, latestDeploymentEvent(t, store, firstDeployment.Deployment.ID), "TOKEN", true); got != third.ref() {
 		t.Fatalf("first deployment secret ref = %v, want %v", got, third.ref())
 	}
-	if got := statetest.DeploymentEnvRef(t, latestDeploymentEvent(t, store, secondDeployment.DeploymentID), "TOKEN", true); got != third.ref() {
+	if got := statetest.DeploymentEnvRef(t, latestDeploymentEvent(t, store, secondDeployment.Deployment.ID), "TOKEN", true); got != third.ref() {
 		t.Fatalf("second deployment secret ref = %v, want %v", got, third.ref())
 	}
 
-	_, _, err = appendVersionWithDeploymentUpdates(store, first.SecretID, 0, testSealFunc(4), true, expectedSeqs(latestDeploymentEvent(t, store, firstDeployment.DeploymentID)), nil)
+	_, _, err = appendVersionWithDeploymentUpdates(store, first.SecretID, 0, testSealFunc(4), true, expectedSeqs(latestDeploymentEvent(t, store, firstDeployment.Deployment.ID)), nil)
 	if !errors.Is(err, values.ErrReferencingDeploymentsChanged) {
 		t.Fatalf("incomplete update error = %v, want ErrReferencingDeploymentsChanged", err)
 	}
@@ -95,62 +96,62 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 
 func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 
 	first, err := CreateWithVersion(store, "pgpassword", nodes.DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	create := func(name string) *apigen.DeploymentEvent {
+	create := func(name string) *apigen.DeploymentRecord {
 		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"POSTGRES_PASSWORD": first.ref()}))
 	}
 	original := create("original")
 	live := create("live")
-	statetest.DeleteDeployment(store, apigen.Context{}, original.DeploymentID)
+	statetest.DeleteDeployment(store, apigen.Context{}, original.Deployment.ID)
 
 	second, updatedIDs, err := appendVersionWithDeploymentUpdates(store, first.SecretID, 0, testSealFunc(2), true, expectedSeqs(live), nil)
 	if err != nil {
 		t.Fatalf("rotation rejected: %v", err)
 	}
-	if len(updatedIDs) != 1 || updatedIDs[0] != live.DeploymentID {
-		t.Fatalf("updated deployments = %v, want only %d", updatedIDs, live.DeploymentID)
+	if len(updatedIDs) != 1 || updatedIDs[0] != live.Deployment.ID {
+		t.Fatalf("updated deployments = %v, want only %d", updatedIDs, live.Deployment.ID)
 	}
-	if got := statetest.DeploymentEnvRef(t, latestDeploymentEvent(t, store, live.DeploymentID), "POSTGRES_PASSWORD", true); got != second.ref() {
+	if got := statetest.DeploymentEnvRef(t, latestDeploymentEvent(t, store, live.Deployment.ID), "POSTGRES_PASSWORD", true); got != second.ref() {
 		t.Fatalf("live deployment secret ref = %v, want %v", got, second.ref())
 	}
-	if _, err := store.Queries().GetLatestDeploymentEvent(context.Background(), int64(original.DeploymentID)); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := store.Queries().GetLatestDeployment(context.Background(), original.Deployment.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("deleted deployment still live: %v", err)
 	}
-	tombstones := erru.Must(store.Queries().ListDeletedDeploymentEvents(context.Background()))
-	if len(tombstones) != 1 || tombstones[0].DeploymentID != original.DeploymentID || !tombstones[0].Deleted() {
+	tombstones := erru.Must(store.Queries().ListDeletedDeployments(context.Background()))
+	if len(tombstones) != 1 || tombstones[0].Deployment.ID != original.Deployment.ID || !tombstones[0].Deleted() {
 		t.Fatalf("deleted listing = %+v", tombstones)
 	}
 	tombstone := tombstones[0]
 	if got := statetest.DeploymentEnvRef(t, tombstone, "POSTGRES_PASSWORD", true); got != first.ref() {
 		t.Fatalf("tombstone secret ref = %v, want it left at %v", got, first.ref())
 	}
-	if tombstone.SpecVersion != original.SpecVersion || tombstone.Version != original.Version {
-		t.Fatalf("tombstone = v%d specV%d, want v%d specV%d", tombstone.Version, tombstone.SpecVersion, original.Version, original.SpecVersion)
+	if tombstone.Meta.SpecVersion != original.Meta.SpecVersion || tombstone.Meta.Version != original.Meta.Version {
+		t.Fatalf("tombstone = v%d specV%d, want v%d specV%d", tombstone.Meta.Version, tombstone.Meta.SpecVersion, original.Meta.Version, original.Meta.SpecVersion)
 	}
 }
 
 func TestRotationChecksExpectedSeqsBeforeSealingAndPreservesRenames(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 	secret, err := CreateWithVersion(store, "token", nodes.DefaultSpaceID, 0, 1, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	first := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "first", node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"TOKEN": secret.ref()}))
 	second := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "second", node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"TOKEN": secret.ref()}))
-	renamed := statetest.RenameDeployment(store, apigen.Context{}, second.DeploymentID, "renamed")
-	if renamed.Seq <= second.Seq {
+	renamed := statetest.RenameDeployment(store, apigen.Context{}, second.Deployment.ID, "renamed")
+	if renamed.Meta.UpdatedSeq <= second.Meta.UpdatedSeq {
 		t.Fatal("test requires the rename to advance the deployment's seq")
 	}
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()
 	sealed := false
-	seal := func(id int32) (SealedValue, error) {
+	seal := func(id uint64) (SealedValue, error) {
 		sealed = true
 		return testSealFunc(2)(id)
 	}
@@ -170,13 +171,13 @@ func TestRotationChecksExpectedSeqsBeforeSealingAndPreservesRenames(t *testing.T
 		t.Fatal("stale rotation published")
 	default:
 	}
-	expected[1].ExpectedSeq = renamed.Seq
+	expected[1].ExpectedSeq = renamed.Meta.UpdatedSeq
 	rotated, ids, err := appendVersionWithDeploymentUpdates(store, secret.SecretID, 1, seal, true, expected, nil)
 	if err != nil || !sealed || len(ids) != 2 {
 		t.Fatalf("valid rotation: err=%v, sealed=%v, ids=%v", err, sealed, ids)
 	}
-	current := latestDeploymentEvent(t, store, second.DeploymentID)
-	if current.Value.Name != "renamed" || current.Version != renamed.Version+1 || current.SpecVersion != second.SpecVersion+1 || statetest.DeploymentEnvRef(t, current, "TOKEN", true) != rotated.ref() {
+	current := latestDeploymentEvent(t, store, second.Deployment.ID)
+	if current.Deployment.Name != "renamed" || current.Meta.Version != renamed.Meta.Version+1 || current.Meta.SpecVersion != second.Meta.SpecVersion+1 || statetest.DeploymentEnvRef(t, current, "TOKEN", true) != rotated.ref() {
 		t.Fatalf("rotation lost the latest deployment state: %+v", current)
 	}
 	statetest.AssertUpdateMatchesRows(t, store, <-sub)
@@ -184,12 +185,12 @@ func TestRotationChecksExpectedSeqsBeforeSealingAndPreservesRenames(t *testing.T
 
 func TestTransactionUpdateIncludesRotationAndAllDeploymentEvents(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 	secret, err := CreateWithVersion(store, "password", nodes.DefaultSpaceID, 0, 1, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var deployments []*apigen.DeploymentEvent
+	var deployments []*apigen.DeploymentRecord
 	for _, name := range []string{"one", "two"} {
 		deployments = append(deployments, statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, statetest.EnvRefSpec(nil, map[string]apigen.ValueRef{"PASSWORD": secret.ref()})))
 	}
@@ -206,17 +207,18 @@ func TestTransactionUpdateIncludesRotationAndAllDeploymentEvents(t *testing.T) {
 	if update.Seq != seqBefore+1 || len(update.Mutations) != 3 || len(secretMutations) != 1 || len(deploymentMutations) != 2 {
 		t.Fatalf("incomplete transaction: %+v", update)
 	}
-	if len(secretMutations[0].Entity().Secret.Ciphertext) == 0 || secretMutations[0].Entity().Secret.SmkVersion == 0 {
-		t.Fatalf("secret mutation = %+v, want the sealed value on the payload", secretMutations[0].Entity().Secret)
+	sealed := secretMutations[0].Entity().Value.Secret.Sealed
+	if !sealed.Present || len(sealed.Value.Ciphertext) == 0 || sealed.Value.SmkVersion == 0 {
+		t.Fatalf("secret mutation = %+v, want the sealed value on the payload", secretMutations[0].Entity().Value.Secret)
 	}
-	pin := apigen.ValueRef{ID: int32(secretMutations[0].EntityID()), Version: secretMutations[0].Meta().ValueVersion}
+	pin := apigen.ValueRef{ID: secretMutations[0].EntityID(), Version: secretMutations[0].Meta().ValueVersion}
 	if pin != (apigen.ValueRef{ID: secret.SecretID, Version: 2}) {
 		t.Fatalf("published pin = %v, want version 2 of secret %d", pin, secret.SecretID)
 	}
 	for _, m := range deploymentMutations {
-		d := latestDeploymentEvent(t, store, int32(m.EntityID()))
-		published := &apigen.DeploymentEvent{DeploymentID: d.DeploymentID, Value: *m.Entity().Deployment}
-		if d.Seq != update.Seq || m.Kind() != apigen.AuthzVerb_AUTHZ_VERB_UPDATE || statetest.DeploymentEnvRef(t, published, "PASSWORD", true) != pin || statetest.DeploymentEnvRef(t, d, "PASSWORD", true) != pin {
+		d := latestDeploymentEvent(t, store, m.EntityID())
+		published := &apigen.DeploymentRecord{Deployment: *m.Entity().Value.Deployment}
+		if d.Meta.UpdatedSeq != update.Seq || m.Kind() != apigen.AuthzVerb_AUTHZ_VERB_UPDATE || statetest.DeploymentEnvRef(t, published, "PASSWORD", true) != pin || statetest.DeploymentEnvRef(t, d, "PASSWORD", true) != pin {
 			t.Fatalf("deployment was not frozen with rotation: %+v", m)
 		}
 	}

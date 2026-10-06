@@ -14,32 +14,32 @@ type sessionNetMapProvider struct {
 	current *apigen.ClusterNetMap
 
 	mu        sync.Mutex
-	applied   map[int32]int64
-	forgotten []int32
+	applied   map[uint64]int64
+	forgotten []uint64
 }
 
-func (p *sessionNetMapProvider) SnapshotAndSubscribe(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
+func (p *sessionNetMapProvider) SnapshotAndSubscribe(nodeID uint64) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
 	next := *p.current
 	next.TargetNodeID = nodeID
 	return &next, make(chan *apigen.ClusterNetMap), func() {}
 }
 
-func (p *sessionNetMapProvider) RecordApplied(nodeID int32, appliedSequence int64) {
+func (p *sessionNetMapProvider) RecordApplied(nodeID uint64, appliedSequence int64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.applied == nil {
-		p.applied = make(map[int32]int64)
+		p.applied = make(map[uint64]int64)
 	}
 	p.applied[nodeID] = appliedSequence
 }
 
-func (p *sessionNetMapProvider) ForgetNode(nodeID int32) {
+func (p *sessionNetMapProvider) ForgetNode(nodeID uint64) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.forgotten = append(p.forgotten, nodeID)
 }
 
-func (p *sessionNetMapProvider) appliedFor(nodeID int32) (int64, bool) {
+func (p *sessionNetMapProvider) appliedFor(nodeID uint64) (int64, bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	seq, ok := p.applied[nodeID]
@@ -54,14 +54,14 @@ func TestSessionRecordsOnlyCleanNetMapApplies(t *testing.T) {
 	provider := &sessionNetMapProvider{current: &apigen.ClusterNetMap{DerivedFromSeq: 1}}
 	session := &Session{NodeID: 7, networkMaps: provider}
 
-	session.handleIncoming(&apigen.MsgToPrimary{NetMapStatus: &apigen.NetMapStatus{AppliedSeq: 4}})
+	session.handleIncoming(&apigen.MsgToPrimary{NetMapStatus: apigen.Some(apigen.NetMapStatus{AppliedSeq: 4})})
 	if seq, ok := provider.appliedFor(7); !ok || seq != 4 {
 		t.Fatalf("clean apply recorded %d (present=%v), want 4", seq, ok)
 	}
 
-	session.handleIncoming(&apigen.MsgToPrimary{NetMapStatus: &apigen.NetMapStatus{
+	session.handleIncoming(&apigen.MsgToPrimary{NetMapStatus: apigen.Some(apigen.NetMapStatus{
 		AppliedSeq: 9, ReconciliationError: "installing remote route: no such device",
-	}})
+	})})
 	if seq, _ := provider.appliedFor(7); seq != 4 {
 		t.Fatalf("failed apply recorded %d, want the previous clean value 4", seq)
 	}
@@ -96,10 +96,10 @@ func initialSessionNetMap(t *testing.T, store *state.Service, provider networkMa
 		if err != nil {
 			t.Fatal(err)
 		}
-		if msg.ClusterNetMap != nil {
-			got = msg.ClusterNetMap
+		if msg.ClusterNetMap.Present {
+			got = &msg.ClusterNetMap.Value
 		}
-		return msg.ScheduledInstancesSnapshot == nil
+		return !msg.ScheduledInstancesSnapshot.Present
 	})
 	if got == nil {
 		t.Fatal("session did not send a network map")

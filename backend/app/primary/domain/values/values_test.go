@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"net/netip"
 	"path/filepath"
 	"testing"
 	"time"
@@ -22,9 +23,9 @@ func openTestStore(t *testing.T) *state.Service {
 	return store
 }
 
-func setConfigByName(s *state.Service, name, value string, author int32) *pq.ConfigEvent {
+func setConfigByName(s *state.Service, name, value string, author int64) *pq.ConfigEvent {
 	for _, cfg := range ListConfigs(s.Queries()) {
-		if cfg.Value.Fs.Name != name || cfg.SpaceID() != nodes.DefaultSpaceID || cfg.Value.Fs.DirectoryID != 0 {
+		if cfg.Value.Fs.Key != name || cfg.SpaceID() != nodes.DefaultSpaceID || cfg.Value.Fs.DirectoryID.Present {
 			continue
 		}
 		event, _, err := AppendConfigVersion(s, cfg.ConfigID, value, author, false, nil)
@@ -33,18 +34,18 @@ func setConfigByName(s *state.Service, name, value string, author int32) *pq.Con
 	return erru.Must(CreateConfig(s, name, nodes.DefaultSpaceID, 0, author, value))
 }
 
-func expectedSeqs(events ...*apigen.DeploymentEvent) []*apigen.DeploymentExpectedSeq {
-	var out []*apigen.DeploymentExpectedSeq
-	for _, e := range events {
-		out = append(out, &apigen.DeploymentExpectedSeq{DeploymentID: e.DeploymentID, ExpectedSeq: e.Seq})
+func expectedSeqs(records ...*apigen.DeploymentRecord) []apigen.DeploymentExpectedSeq {
+	var out []apigen.DeploymentExpectedSeq
+	for _, r := range records {
+		out = append(out, apigen.DeploymentExpectedSeq{DeploymentID: r.Deployment.ID, ExpectedSeq: r.Meta.UpdatedSeq})
 	}
 	return out
 }
 
 func mutationsOf(update state.WriteUpdate, typ apigen.CoreEntityType) []*apigen.CoreMutation {
 	var out []*apigen.CoreMutation
-	for _, m := range update.Mutations {
-		if m.Type() == typ {
+	for i := range update.Mutations {
+		if m := &update.Mutations[i]; m.Type() == typ {
 			out = append(out, m)
 		}
 	}
@@ -61,7 +62,7 @@ func latestConfigRef(t *testing.T, c *pq.ConfigEvent) *statetest.ValueVersion {
 
 func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 
 	database := setConfigByName(store, "database", "one", 1)
 	database = setConfigByName(store, "database", "two", 1)
@@ -69,7 +70,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	secondRef := statetest.ValueVersions(store, database)[0].Ref
 	unrelated := setConfigByName(store, "other", "keep", 1)
 	unrelatedRef := latestConfigRef(t, unrelated).Ref
-	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, spec)
 	}
 	firstDeployment := create("first", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": firstRef, "OTHER": unrelatedRef}, nil))
@@ -84,9 +85,9 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if savedRef.Version != 3 || len(updatedIDs) != 2 {
 		t.Fatalf("saved config = %+v, updated deployments = %v", saved, updatedIDs)
 	}
-	firstCurrent := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(firstDeployment.DeploymentID)))
-	secondCurrent := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(secondDeployment.DeploymentID)))
-	unchangedCurrent := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(unchangedDeployment.DeploymentID)))
+	firstCurrent := erru.Must(store.Queries().GetLatestDeployment(context.Background(), firstDeployment.Deployment.ID))
+	secondCurrent := erru.Must(store.Queries().GetLatestDeployment(context.Background(), secondDeployment.Deployment.ID))
+	unchangedCurrent := erru.Must(store.Queries().GetLatestDeployment(context.Background(), unchangedDeployment.Deployment.ID))
 	if got := statetest.DeploymentEnvRef(t, firstCurrent, "DATABASE", false); got != savedRef.Ref {
 		t.Fatalf("first deployment config ref = %v, want %v", got, savedRef.Ref)
 	}
@@ -96,13 +97,13 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if got := statetest.DeploymentEnvRef(t, firstCurrent, "OTHER", false); got != unrelatedRef {
 		t.Fatalf("unrelated config ref = %v, want %v", got, unrelatedRef)
 	}
-	if firstCurrent.SpecVersion != firstDeployment.SpecVersion+1 || secondCurrent.SpecVersion != secondDeployment.SpecVersion+1 {
-		t.Fatalf("updated deployment versions = %d, %d", firstCurrent.SpecVersion, secondCurrent.SpecVersion)
+	if firstCurrent.Meta.SpecVersion != firstDeployment.Meta.SpecVersion+1 || secondCurrent.Meta.SpecVersion != secondDeployment.Meta.SpecVersion+1 {
+		t.Fatalf("updated deployment versions = %d, %d", firstCurrent.Meta.SpecVersion, secondCurrent.Meta.SpecVersion)
 	}
-	if unchangedCurrent.SpecVersion != unchangedDeployment.SpecVersion {
-		t.Fatalf("unrelated deployment version = %d, want %d", unchangedCurrent.SpecVersion, unchangedDeployment.SpecVersion)
+	if unchangedCurrent.Meta.SpecVersion != unchangedDeployment.Meta.SpecVersion {
+		t.Fatalf("unrelated deployment version = %d, want %d", unchangedCurrent.Meta.SpecVersion, unchangedDeployment.Meta.SpecVersion)
 	}
-	if got := len(erru.Must(store.Queries().ListDeploymentEvents(context.Background(), int64(firstDeployment.DeploymentID)))); got != 2 {
+	if got := len(erru.Must(store.Queries().ListDeploymentHistory(context.Background(), firstDeployment.Deployment.ID))); got != 2 {
 		t.Fatalf("first deployment history length = %d, want 2", got)
 	}
 
@@ -114,7 +115,7 @@ func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	if !ok || latestConfigRef(t, latest).Ref != savedRef.Ref || latestConfigRef(t, latest).Version != 3 {
 		t.Fatalf("latest config after rollback = %+v, ok=%v", latest, ok)
 	}
-	if erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(firstDeployment.DeploymentID))).SpecVersion != firstCurrent.SpecVersion {
+	if erru.Must(store.Queries().GetLatestDeployment(context.Background(), firstDeployment.Deployment.ID)).Meta.SpecVersion != firstCurrent.Meta.SpecVersion {
 		t.Fatal("stale request changed deployment config")
 	}
 }
@@ -136,8 +137,8 @@ func TestRenameConfigPublishesEventAndPreservesHistory(t *testing.T) {
 		if len(tx.Mutations) != 1 || len(configs) != 1 || configs[0].Kind() != apigen.AuthzVerb_AUTHZ_VERB_UPDATE {
 			t.Fatalf("expected one config update: %+v", tx)
 		}
-		update := configs[0].Entity().Config
-		if update.Fs.Name != "new-name" || int32(configs[0].EntityID()) != meta.ConfigID || configs[0].Meta().ValueVersion != 2 || update.Value != "two" {
+		update := configs[0].Entity().Value.Config
+		if update.Fs.Key != "new-name" || configs[0].EntityID() != meta.ConfigID || configs[0].Meta().ValueVersion != 2 || update.Value != "two" {
 			t.Fatalf("config update = %+v", update)
 		}
 		renamed, ok := GetConfig(store.Queries(), meta.ConfigID)
@@ -205,12 +206,12 @@ func TestSetConfigSameValueIsNoOp(t *testing.T) {
 
 func TestSetConfigSameValueStillRepointsStaleDeployments(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 	database := setConfigByName(store, "database", "one", 1)
 	database = setConfigByName(store, "database", "two", 1)
 	oldRef := statetest.ValueVersions(store, database)[1].Ref
 	currentRef := statetest.ValueVersions(store, database)[0].Ref
-	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+	create := func(name string, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, node.ID, spec)
 	}
 	stale := create("stale", statetest.EnvRefSpec(map[string]apigen.ValueRef{"DATABASE": oldRef}, nil))
@@ -223,16 +224,16 @@ func TestSetConfigSameValueStillRepointsStaleDeployments(t *testing.T) {
 	if saved.ConfigID != database.ConfigID || saved.ValueVersion != 2 {
 		t.Fatalf("saved = %+v, want the current version 2 event", saved)
 	}
-	if len(updatedIDs) != 1 || updatedIDs[0] != stale.DeploymentID {
-		t.Fatalf("updated deployments = %v, want only %d", updatedIDs, stale.DeploymentID)
+	if len(updatedIDs) != 1 || updatedIDs[0] != stale.Deployment.ID {
+		t.Fatalf("updated deployments = %v, want only %d", updatedIDs, stale.Deployment.ID)
 	}
-	staleNow := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(stale.DeploymentID)))
-	currentNow := erru.Must(store.Queries().GetLatestDeploymentEvent(context.Background(), int64(current.DeploymentID)))
-	if got := statetest.DeploymentEnvRef(t, staleNow, "DATABASE", false); got != currentRef || staleNow.SpecVersion != stale.SpecVersion+1 {
-		t.Fatalf("stale deployment ref = %v specVersion %d, want %v and %d", got, staleNow.SpecVersion, currentRef, stale.SpecVersion+1)
+	staleNow := erru.Must(store.Queries().GetLatestDeployment(context.Background(), stale.Deployment.ID))
+	currentNow := erru.Must(store.Queries().GetLatestDeployment(context.Background(), current.Deployment.ID))
+	if got := statetest.DeploymentEnvRef(t, staleNow, "DATABASE", false); got != currentRef || staleNow.Meta.SpecVersion != stale.Meta.SpecVersion+1 {
+		t.Fatalf("stale deployment ref = %v specVersion %d, want %v and %d", got, staleNow.Meta.SpecVersion, currentRef, stale.Meta.SpecVersion+1)
 	}
-	if currentNow.Version != current.Version {
-		t.Fatalf("deployment already at the current version was rewritten: %d -> %d", current.Version, currentNow.Version)
+	if currentNow.Meta.Version != current.Meta.Version {
+		t.Fatalf("deployment already at the current version was rewritten: %d -> %d", current.Meta.Version, currentNow.Meta.Version)
 	}
 	if got := len(statetest.ValueVersions(store, database)); got != 2 {
 		t.Fatalf("config history length = %d, want 2", got)

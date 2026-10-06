@@ -47,15 +47,14 @@ func (q *Queries) GetLocalKV(ctx context.Context, key string) ([]byte, error) {
 
 const insertScheduledInstanceStatus = `-- name: InsertScheduledInstanceStatus :exec
 INSERT INTO scheduled_instance_status (
-    scheduled_instance_id, updated_at, deployment_id,
+    scheduled_instance_id, updated_at,
     preparer_spec_version, preparer_artifact,
     preparer_inputs_status, preparer_image_status,
     runner_spec_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at, runner_extra_blob,
     runner_exit_code
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
-    deployment_id = excluded.deployment_id,
     preparer_spec_version = excluded.preparer_spec_version,
     preparer_artifact = excluded.preparer_artifact,
     preparer_inputs_status = excluded.preparer_inputs_status,
@@ -73,7 +72,6 @@ ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
 type InsertScheduledInstanceStatusParams struct {
 	ScheduledInstanceID  int64
 	UpdatedAt            int64
-	DeploymentID         int64
 	PreparerSpecVersion  sql.NullInt64
 	PreparerArtifact     sql.NullString
 	PreparerInputsStatus int64
@@ -92,7 +90,6 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 	_, err := q.db.ExecContext(ctx, insertScheduledInstanceStatus,
 		arg.ScheduledInstanceID,
 		arg.UpdatedAt,
-		arg.DeploymentID,
 		arg.PreparerSpecVersion,
 		arg.PreparerArtifact,
 		arg.PreparerInputsStatus,
@@ -110,7 +107,7 @@ func (q *Queries) InsertScheduledInstanceStatus(ctx context.Context, arg InsertS
 }
 
 const listLatestScheduledInstanceStatuses = `-- name: ListLatestScheduledInstanceStatuses :many
-SELECT s.scheduled_instance_id, s.updated_at, s.deployment_id,
+SELECT s.scheduled_instance_id, s.updated_at,
        s.preparer_spec_version, s.preparer_artifact,
        s.preparer_inputs_status, s.preparer_image_status,
        s.runner_spec_version, s.runner_pid, s.runner_artifact, s.runner_status,
@@ -136,7 +133,6 @@ func (q *Queries) ListLatestScheduledInstanceStatuses(ctx context.Context) ([]Sc
 		if err := rows.Scan(
 			&i.ScheduledInstanceID,
 			&i.UpdatedAt,
-			&i.DeploymentID,
 			&i.PreparerSpecVersion,
 			&i.PreparerArtifact,
 			&i.PreparerInputsStatus,
@@ -225,7 +221,7 @@ func (q *Queries) ListLocalScheduledInstanceCache(ctx context.Context) ([]LocalS
 }
 
 const listScheduledInstanceStatusHistorySince = `-- name: ListScheduledInstanceStatusHistorySince :many
-SELECT scheduled_instance_id, updated_at, deployment_id,
+SELECT scheduled_instance_id, updated_at,
        preparer_spec_version, preparer_artifact,
        preparer_inputs_status, preparer_image_status,
        runner_spec_version, runner_pid, runner_artifact, runner_status,
@@ -253,7 +249,6 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, a
 		if err := rows.Scan(
 			&i.ScheduledInstanceID,
 			&i.UpdatedAt,
-			&i.DeploymentID,
 			&i.PreparerSpecVersion,
 			&i.PreparerArtifact,
 			&i.PreparerInputsStatus,

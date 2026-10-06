@@ -15,8 +15,8 @@ import (
 
 // In-lock locality checks use current database metadata, including space moves
 // since the request's pre-lock validation. Secret values are never loaded.
-func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.DeploymentSpec, spaceID int32) error {
-	cfg := &apigen.DeploymentEvent{Value: apigen.Deployment{Spec: *spec}}
+func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.DeploymentSpec, spaceID uint64) error {
+	cfg := &apigen.DeploymentRecord{Deployment: apigen.Deployment{Spec: *spec}}
 	for _, ref := range runtimeinputs.SecretRefs(cfg) {
 		joined, err := q.GetSecretVersionJoined(ctx, ref)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -26,9 +26,9 @@ func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.Deployme
 			return err
 		}
 		secret := joined.Secret
-		if secret.SpaceID == int64(internaldeploy.SpaceID) || secret.SpaceID != int64(spaceID) && secret.SpaceID != int64(nodes.DefaultSpaceID) {
+		if secret.SpaceID == internaldeploy.SpaceID || secret.SpaceID != spaceID && secret.SpaceID != nodes.DefaultSpaceID {
 			e := SecretRefOutsideSpaceErr
-			e.DisplayErr = fmt.Sprintf("Secret %q lives in space %d and cannot be referenced from a deployment in space %d", secret.Name, secret.SpaceID, spaceID)
+			e.DisplayErr = fmt.Sprintf("Secret %q lives in space %d and cannot be referenced from a deployment in space %d", secret.Key, secret.SpaceID, spaceID)
 			return e
 		}
 	}
@@ -41,9 +41,9 @@ func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.Deployme
 			return err
 		}
 		config := joined.Config
-		if config.SpaceID == int64(internaldeploy.SpaceID) || config.SpaceID != int64(spaceID) && config.SpaceID != int64(nodes.DefaultSpaceID) {
+		if config.SpaceID == internaldeploy.SpaceID || config.SpaceID != spaceID && config.SpaceID != nodes.DefaultSpaceID {
 			e := ConfigRefOutsideSpaceErr
-			e.DisplayErr = fmt.Sprintf("Config %q lives in space %d and cannot be referenced from a deployment in space %d", config.Name, config.SpaceID, spaceID)
+			e.DisplayErr = fmt.Sprintf("Config %q lives in space %d and cannot be referenced from a deployment in space %d", config.Key, config.SpaceID, spaceID)
 			return e
 		}
 	}
@@ -55,7 +55,7 @@ func validateRefSpaces(ctx context.Context, q *pq.Queries, spec *apigen.Deployme
 		if err != nil {
 			return err
 		}
-		if version.Asset.SpaceID == int64(internaldeploy.SpaceID) || version.Asset.SpaceID != int64(spaceID) && version.Asset.SpaceID != int64(nodes.DefaultSpaceID) {
+		if version.Asset.SpaceID == internaldeploy.SpaceID || version.Asset.SpaceID != spaceID && version.Asset.SpaceID != nodes.DefaultSpaceID {
 			e := AssetRefOutsideSpaceErr
 			e.DisplayErr = fmt.Sprintf("Asset %q lives in space %d and cannot be referenced from a deployment in space %d", version.Asset.Key, version.Asset.SpaceID, spaceID)
 			return e

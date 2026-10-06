@@ -30,7 +30,7 @@ func validateDeployment(def *apigen.Deployment) error {
 	if err := validateScheduling(&def.Scheduling); err != nil {
 		return err
 	}
-	if def.SpaceID < 0 || def.SpaceID > network.MaxSpaceID {
+	if def.SpaceID > uint64(network.MaxSpaceID) {
 		return InvalidConfigErrf("spaceId must be between 0 and %d", network.MaxSpaceID)
 	}
 	return validateNixWorkloadVersion(def)
@@ -42,18 +42,18 @@ func SystemSpaceErr() error {
 	return InvalidConfigErrf("spaceId must be between 1 and %d", network.MaxSpaceID)
 }
 
-func preLockValidateDeploymentCreate(q *pq.Queries, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, updated *apigen.DeploymentEvent) error {
-	if updated.Value.SpaceID == internaldeploy.SpaceID {
+func preLockValidateDeploymentCreate(q *pq.Queries, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, updated *apigen.DeploymentRecord) error {
+	if updated.Deployment.SpaceID == internaldeploy.SpaceID {
 		return SystemSpaceErr()
 	}
-	if err := validateDeployment(&updated.Value); err != nil {
+	if err := validateDeployment(&updated.Deployment); err != nil {
 		return err
 	}
-	spec, err := ValidateSpec(q, secretStore, &updated.Value.Spec)
+	spec, err := ValidateSpec(q, secretStore, &updated.Deployment.Spec)
 	if err != nil {
 		return err
 	}
-	updated.Value.Spec = *spec
+	updated.Deployment.Spec = *spec
 	if updated.WorkloadRunning() {
 		return verifyRunningNixSource(gitVersions, ctx, spec)
 	}
@@ -64,72 +64,72 @@ func preLockValidateDeploymentCreate(q *pq.Queries, secretStore *secrets.Manager
 // placement lands: the node is part of a deployment's identity, so an empty
 // list is not yet a legal draft.
 func validateScheduling(scheduling *apigen.Scheduling) error {
-	if scheduling.DedicatedNodes == nil {
+	if scheduling.Placement.Value.DedicatedNodes == nil {
 		return InvalidConfigErrf("scheduling.dedicatedNodes is required")
 	}
-	nodes := scheduling.DedicatedNodes.Nodes
+	nodes := scheduling.Placement.Value.DedicatedNodes.Nodes
 	if len(nodes) != 1 {
 		return InvalidConfigErrf("scheduling.dedicatedNodes.nodes must name exactly one node")
 	}
-	if nodes[0] <= 0 {
+	if nodes[0] == 0 {
 		return InvalidConfigErrf("scheduling.dedicatedNodes.nodes: node id must be positive")
 	}
 	return nil
 }
 
-func preLockValidateDeploymentUpdate(q *pq.Queries, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, existing *apigen.DeploymentEvent, req *apigen.DeploymentUpdateRequestV2, updated *apigen.DeploymentEvent) error {
-	if req.SpecUpdate != nil {
+func preLockValidateDeploymentUpdate(q *pq.Queries, secretStore *secrets.Manager, gitVersions NixSourceVerifier, ctx apigen.Context, existing *apigen.DeploymentRecord, req *apigen.DeploymentUpdateRequest, updated *apigen.DeploymentRecord) error {
+	if req.Update.Spec != nil {
 		if err := validateInternalSpecUnchanged(existing, updated); err != nil {
 			return err
 		}
-		spec, err := ValidateSpec(q, secretStore, &updated.Value.Spec)
+		spec, err := ValidateSpec(q, secretStore, &updated.Deployment.Spec)
 		if err != nil {
 			return err
 		}
-		updated.Value.Spec = *spec
+		updated.Deployment.Spec = *spec
 	}
-	if !updated.WorkloadRunning() && !sameDesiredVersionSource(&existing.Value.Spec, &updated.Value.Spec) {
+	if !updated.WorkloadRunning() && !sameDesiredVersionSource(&existing.Deployment.Spec, &updated.Deployment.Spec) {
 		if err := updated.SetWorkloadState("", false); err != nil {
 			return InvalidConfigErrf("spec: %v", err)
 		}
 	}
-	if updated.Value.PlacementNodeID() != existing.Value.PlacementNodeID() {
+	if updated.Deployment.PlacementNodeID() != existing.Deployment.PlacementNodeID() {
 		return InvalidConfigErrf("scheduling.dedicatedNodes.nodes: the node cannot be changed after creation")
 	}
 	if updated.WorkloadRunning() && updated.WorkloadVersion() == "" {
 		return InvalidConfigErrf("deployment has no version to start; set a target version")
 	}
-	if err := validateDeployment(&updated.Value); err != nil {
+	if err := validateDeployment(&updated.Deployment); err != nil {
 		return err
 	}
-	nixChanged := !sameNixBuildConfig(nixSource(&existing.Value.Spec), nixSource(&updated.Value.Spec))
-	if updated.WorkloadRunning() && nixSource(&updated.Value.Spec) != nil &&
+	nixChanged := !sameNixBuildConfig(nixSource(&existing.Deployment.Spec), nixSource(&updated.Deployment.Spec))
+	if updated.WorkloadRunning() && nixSource(&updated.Deployment.Spec) != nil &&
 		(!existing.WorkloadRunning() || updated.WorkloadVersion() != existing.WorkloadVersion() || nixChanged) {
-		return verifyRunningNixSource(gitVersions, ctx, &updated.Value.Spec)
+		return verifyRunningNixSource(gitVersions, ctx, &updated.Deployment.Spec)
 	}
 	return nil
 }
 
 // validateInternalSpecUnchanged lets a system deployment's spec change only in
 // its workload version.
-func validateInternalSpecUnchanged(existing, updated *apigen.DeploymentEvent) error {
+func validateInternalSpecUnchanged(existing, updated *apigen.DeploymentRecord) error {
 	if !internaldeploy.IsInternalConfig(existing) {
 		return nil
 	}
-	base, err := cloneDeploymentSpec(&existing.Value.Spec)
+	base, err := cloneDeploymentSpec(&existing.Deployment.Spec)
 	if err != nil {
 		return err
 	}
-	if err := base.SetWorkloadVersion(updated.Value.Spec.WorkloadVersion()); err != nil {
+	if err := base.SetWorkloadVersion(updated.Deployment.Spec.WorkloadVersion()); err != nil {
 		return InvalidConfigErrf("spec: %v", err)
 	}
-	if !pq.DeploymentSpecsEqual(base, &updated.Value.Spec) {
+	if !pq.DeploymentSpecsEqual(base, &updated.Deployment.Spec) {
 		return InvalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
 	}
 	return nil
 }
 
-func validateNodeAllowsSpace(live nodes.LiveState, nodeID, spaceID int32) error {
+func validateNodeAllowsSpace(live nodes.LiveState, nodeID, spaceID uint64) error {
 	node := live.Nodes[nodeID]
 	if node == nil {
 		return InvalidConfigErrf("node is not registered")
@@ -140,97 +140,97 @@ func validateNodeAllowsSpace(live nodes.LiveState, nodeID, spaceID int32) error 
 	return nil
 }
 
-func validateNodeNotDraining(live nodes.LiveState, updated, existing *apigen.DeploymentEvent) error {
-	node := live.Nodes[updated.Value.PlacementNodeID()]
-	if node == nil || node.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING {
+func validateNodeNotDraining(live nodes.LiveState, updated, existing *apigen.DeploymentRecord) error {
+	node := live.Nodes[updated.Deployment.PlacementNodeID()]
+	if node == nil || node.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_DRAINING {
 		return nil
 	}
-	if existing != nil && existing.Value.PlacementNodeID() == updated.Value.PlacementNodeID() && !updated.WorkloadRunning() {
+	if existing != nil && existing.Deployment.PlacementNodeID() == updated.Deployment.PlacementNodeID() && !updated.WorkloadRunning() {
 		return nil
 	}
 	return NodeDrainingErr
 }
 
-func validateNoDuplicateIdentity(live nodes.LiveState, updated *apigen.DeploymentEvent) error {
+func validateNoDuplicateIdentity(live nodes.LiveState, updated *apigen.DeploymentRecord) error {
 	for _, other := range live.Deployments {
-		if other.DeploymentID == updated.DeploymentID {
+		if other.Deployment.ID == updated.Deployment.ID {
 			continue
 		}
-		if storage.DeploymentKeyMatches(other.Value, updated.Value.PlacementNodeID(), updated.Value.SpaceID, updated.Value.Name) {
+		if storage.DeploymentKeyMatches(other.Deployment, updated.Deployment.PlacementNodeID(), updated.Deployment.SpaceID, updated.Deployment.Name) {
 			return DuplicateErr
 		}
 	}
 	return nil
 }
 
-func inLockValidateDeploymentCreate(ctx context.Context, q *pq.Queries, reservations []ingressplan.Reservation, updated *apigen.DeploymentEvent) error {
+func inLockValidateDeploymentCreate(ctx context.Context, q *pq.Queries, reservations []ingressplan.Reservation, updated *apigen.DeploymentRecord) error {
 	live, err := nodes.ReadLiveState(ctx, q)
 	if err != nil {
 		return err
 	}
-	if internaldeploy.IsInternalIdentity(updated.Value.SpaceID, updated.Value.Name) {
+	if internaldeploy.IsInternalIdentity(updated.Deployment.SpaceID, updated.Deployment.Name) {
 		return InvalidConfigErrf("opendeploy system deployment identity is internal-only")
 	}
 	if err := validateNoDuplicateIdentity(live, updated); err != nil {
 		return err
 	}
-	if err := validateNodeAllowsSpace(live, updated.Value.PlacementNodeID(), updated.Value.SpaceID); err != nil {
+	if err := validateNodeAllowsSpace(live, updated.Deployment.PlacementNodeID(), updated.Deployment.SpaceID); err != nil {
 		return err
 	}
 	if err := validateNodeNotDraining(live, updated, nil); err != nil {
 		return err
 	}
-	if err := ValidateNodeNetworkingClaims(live, reservations, updated.Value.PlacementNodeID(), updated.DeploymentID, &updated.Value.Spec); err != nil {
+	if err := ValidateNodeNetworkingClaims(live, reservations, updated.Deployment.PlacementNodeID(), updated.Deployment.ID, &updated.Deployment.Spec); err != nil {
 		return err
 	}
-	if err := validateAddressEnvRefs(live, updated.Value.PlacementNodeID(), updated.DeploymentID, updated.Value.SpaceID, &updated.Value.Spec); err != nil {
+	if err := validateAddressEnvRefs(live, updated.Deployment.PlacementNodeID(), updated.Deployment.ID, updated.Deployment.SpaceID, &updated.Deployment.Spec); err != nil {
 		return err
 	}
-	if err := validateCrossDeploymentMountSources(live, &updated.Value.Spec, updated.Value.PlacementNodeID(), updated.DeploymentID, updated.Value.SpaceID); err != nil {
+	if err := validateCrossDeploymentMountSources(live, &updated.Deployment.Spec, updated.Deployment.PlacementNodeID(), updated.Deployment.ID, updated.Deployment.SpaceID); err != nil {
 		return err
 	}
-	if err := validateIssuedTLSNames(&updated.Value.Spec, updated.DeploymentID, updated.Value.SpaceID); err != nil {
+	if err := validateIssuedTLSNames(&updated.Deployment.Spec, updated.Deployment.ID, updated.Deployment.SpaceID); err != nil {
 		return err
 	}
-	return validateRefSpaces(ctx, q, &updated.Value.Spec, updated.Value.SpaceID)
+	return validateRefSpaces(ctx, q, &updated.Deployment.Spec, updated.Deployment.SpaceID)
 }
 
-func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservations []ingressplan.Reservation, updated *apigen.DeploymentEvent, expectedSeq int64) error {
+func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservations []ingressplan.Reservation, updated *apigen.DeploymentRecord, expectedSeq int64) error {
 	live, err := nodes.ReadLiveState(ctx, q)
 	if err != nil {
 		return err
 	}
-	existing := live.Deployments[updated.DeploymentID]
+	existing := live.Deployments[updated.Deployment.ID]
 	if existing == nil || existing.Deleted() {
 		return NotFoundErr
 	}
-	if expectedSeq != 0 && existing.Seq > expectedSeq {
-		return InvalidConfigErrf("deployment %d changed since it was loaded", existing.DeploymentID)
+	if expectedSeq != 0 && existing.Meta.UpdatedSeq > expectedSeq {
+		return InvalidConfigErrf("deployment %d changed since it was loaded", existing.Deployment.ID)
 	}
 	if err := validateNodeNotDraining(live, updated, existing); err != nil {
 		return err
 	}
-	if existing.Value.SpaceID != updated.Value.SpaceID {
+	if existing.Deployment.SpaceID != updated.Deployment.SpaceID {
 		if internaldeploy.IsInternalConfig(existing) {
 			return InvalidConfigErrf("opendeploy system deployment identity and spec are internal-only")
 		}
-		if existing.Value.SpaceID == 0 {
+		if existing.Deployment.SpaceID == 0 {
 			return InvalidConfigErrf("deployments in space 0 cannot be moved")
 		}
-		if updated.Value.SpaceID < 1 || updated.Value.SpaceID > network.MaxSpaceID {
+		if updated.Deployment.SpaceID < 1 || updated.Deployment.SpaceID > uint64(network.MaxSpaceID) {
 			return SystemSpaceErr()
 		}
 		if err := validateNoDuplicateIdentity(live, updated); err != nil {
 			return err
 		}
-		if err := validateNodeAllowsSpace(live, updated.Value.PlacementNodeID(), updated.Value.SpaceID); err != nil {
+		if err := validateNodeAllowsSpace(live, updated.Deployment.PlacementNodeID(), updated.Deployment.SpaceID); err != nil {
 			return err
 		}
-		ids := Int32Set([]int32{existing.DeploymentID})
+		ids := IDSet([]uint64{existing.Deployment.ID})
 		if UsesAddressID(live, ids) {
 			return AddressReferencedErr
 		}
-		if updated.Value.SpaceID != nodes.DefaultSpaceID && ReferencesOutsideSpace(live, ids, CrossDeploymentMountSourceIDs, updated.Value.SpaceID) {
+		if updated.Deployment.SpaceID != nodes.DefaultSpaceID && ReferencesOutsideSpace(live, ids, CrossDeploymentMountSourceIDs, updated.Deployment.SpaceID) {
 			return MoveReferencesOutsideSpaceErr
 		}
 	} else {
@@ -240,27 +240,27 @@ func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservat
 		if internaldeploy.IsSelfConfig(existing) && !updated.WorkloadRunning() {
 			return InvalidConfigErrf("the opendeploy system deployment cannot be stopped")
 		}
-		if updated.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL &&
-			UsesAddressID(live, Int32Set([]int32{existing.DeploymentID})) {
+		if updated.Deployment.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL &&
+			UsesAddressID(live, IDSet([]uint64{existing.Deployment.ID})) {
 			return InvalidConfigErrf("deployment networking cannot leave virtual mode while address references exist")
 		}
-		if err := ValidateNodeNetworkingClaims(live, reservations, updated.Value.PlacementNodeID(), updated.DeploymentID, &updated.Value.Spec); err != nil {
+		if err := ValidateNodeNetworkingClaims(live, reservations, updated.Deployment.PlacementNodeID(), updated.Deployment.ID, &updated.Deployment.Spec); err != nil {
 			return err
 		}
 	}
-	if err := validateAddressEnvRefs(live, updated.Value.PlacementNodeID(), updated.DeploymentID, updated.Value.SpaceID, &updated.Value.Spec); err != nil {
+	if err := validateAddressEnvRefs(live, updated.Deployment.PlacementNodeID(), updated.Deployment.ID, updated.Deployment.SpaceID, &updated.Deployment.Spec); err != nil {
 		return err
 	}
-	if err := validateCrossDeploymentMountSources(live, &updated.Value.Spec, updated.Value.PlacementNodeID(), updated.DeploymentID, updated.Value.SpaceID); err != nil {
+	if err := validateCrossDeploymentMountSources(live, &updated.Deployment.Spec, updated.Deployment.PlacementNodeID(), updated.Deployment.ID, updated.Deployment.SpaceID); err != nil {
 		return err
 	}
-	if err := validateIssuedTLSNames(&updated.Value.Spec, updated.DeploymentID, updated.Value.SpaceID); err != nil {
+	if err := validateIssuedTLSNames(&updated.Deployment.Spec, updated.Deployment.ID, updated.Deployment.SpaceID); err != nil {
 		return err
 	}
-	return validateRefSpaces(ctx, q, &updated.Value.Spec, updated.Value.SpaceID)
+	return validateRefSpaces(ctx, q, &updated.Deployment.Spec, updated.Deployment.SpaceID)
 }
 
-func inLockValidateDeploymentDelete(ctx context.Context, q *pq.Queries, cluster NodeConnectivity, primaryNodeID, deploymentID int32, expectedSeq int64) error {
+func inLockValidateDeploymentDelete(ctx context.Context, q *pq.Queries, cluster NodeConnectivity, primaryNodeID, deploymentID uint64, expectedSeq int64) error {
 	live, err := nodes.ReadLiveState(ctx, q)
 	if err != nil {
 		return err
@@ -269,13 +269,13 @@ func inLockValidateDeploymentDelete(ctx context.Context, q *pq.Queries, cluster 
 	if existing == nil || existing.Deleted() {
 		return NotFoundErr
 	}
-	if expectedSeq != 0 && existing.Seq > expectedSeq {
-		return InvalidConfigErrf("deployment %d changed since it was loaded", existing.DeploymentID)
+	if expectedSeq != 0 && existing.Meta.UpdatedSeq > expectedSeq {
+		return InvalidConfigErrf("deployment %d changed since it was loaded", existing.Deployment.ID)
 	}
 	statuses := []apigen.ScheduledInstanceStatus{}
 	for _, entry := range live.Scheduled {
-		if entry.Instance.DeploymentID == existing.DeploymentID {
-			statuses = append(statuses, entry.Status)
+		if entry.Instance.Deployment.DeploymentID == existing.Deployment.ID {
+			statuses = append(statuses, entry.Status.Value)
 		}
 	}
 	if internaldeploy.IsInternalConfig(existing) {
@@ -285,7 +285,7 @@ func inLockValidateDeploymentDelete(ctx context.Context, q *pq.Queries, cluster 
 	} else if !canDeleteDeployment(cluster, primaryNodeID, existing, statuses) {
 		return InvalidConfigErrf("deployment must be stopped before deletion")
 	}
-	if details := RefDetails(ctx, q, live, Int32Set([]int32{existing.DeploymentID}), AddressRefIDs); len(details) > 0 {
+	if details := RefDetails(ctx, q, live, IDSet([]uint64{existing.Deployment.ID}), AddressRefIDs); len(details) > 0 {
 		return ReferenceInUseDetailErr("Deployment address", details)
 	}
 	return nil

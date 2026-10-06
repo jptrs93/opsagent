@@ -39,7 +39,7 @@ const countDistinct = (items, spaceID, keyOf) => {
 
 const countDeployments = (deployments, spaceID) => (deployments || []).filter((deployment) => {
     const config = deployment?.config;
-    return config && !deploymentDeleted(config) && Number(config.value?.spaceId || 0) === spaceID;
+    return config && !deploymentDeleted(config) && Number(config.deployment?.spaceId || 0) === spaceID;
 }).length;
 
 const smallBtn = (text, onclick, cls, disabledWhen) => button({
@@ -196,8 +196,8 @@ export function spacesPage() {
             {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `space-row-${id}`},
             td({class: "py-1 pr-3 min-w-0"}, spaceNameEditor(space)),
             countCell(countDeployments(deploymentsS.val, id)),
-            countCell(countDistinct(secretMetasS.val, id, (item) => item.name)),
-            countCell(countDistinct(userConfigsS.val, id, (item) => item.name)),
+            countCell(countDistinct(secretMetasS.val, id, (item) => item.key)),
+            countCell(countDistinct(userConfigsS.val, id, (item) => item.key)),
             countCell(countDistinct(assetMetasS.val, id, (item) => item.key)),
             td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
                 div({class: "flex items-center justify-end gap-1"},

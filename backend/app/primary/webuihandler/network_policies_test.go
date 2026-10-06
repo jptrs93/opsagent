@@ -9,15 +9,19 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func spacePeer(id int32) *apigen.NetworkPolicyPeerRef {
-	return &apigen.NetworkPolicyPeerRef{Kind: apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE, ID: id}
+func spacePeer(id uint64) apigen.NetworkPolicyPeer {
+	return apigen.NetworkPolicyPeer{Target: apigen.NetworkPolicyPeerTarget{Value: apigen.NetworkPolicyPeerTargetValueOneof{Space: &apigen.SpacePeer{SpaceID: id}}}}
 }
 
-func deploymentPeer(id int32) *apigen.NetworkPolicyPeerRef {
-	return &apigen.NetworkPolicyPeerRef{Kind: apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT, ID: id}
+func deploymentPeer(id uint64) apigen.NetworkPolicyPeer {
+	return apigen.NetworkPolicyPeer{Target: apigen.NetworkPolicyPeerTarget{Value: apigen.NetworkPolicyPeerTargetValueOneof{Deployment: &apigen.DeploymentPeer{DeploymentID: id}}}}
 }
 
-func allowCreateRequest(source, destination *apigen.NetworkPolicyPeerRef) *apigen.NetworkPolicyCreateRequest {
+func tcpPort(port uint32) apigen.NetPortMatch {
+	return apigen.NetPortMatch{Protocol: apigen.NetProtocol_NET_PROTOCOL_TCP, Range: apigen.PortRange{Start: port, End: port}}
+}
+
+func allowCreateRequest(source, destination apigen.NetworkPolicyPeer) *apigen.NetworkPolicyCreateRequest {
 	return &apigen.NetworkPolicyCreateRequest{
 		Action:      apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW,
 		Source:      source,
@@ -30,11 +34,11 @@ func TestNetworkPolicyCreateValidation(t *testing.T) {
 	admin := enforceCtx(1, false)
 
 	if _, err := h.networkPoliciesCreate(admin, &apigen.NetworkPolicyCreateRequest{
-		Action:      apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_DENY,
+		Action:      apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_UNSPECIFIED,
 		Source:      spacePeer(staging.ID),
 		Destination: spacePeer(nodes.DefaultSpaceID),
-	}); !errors.Is(err, networkpolicies.DenyUnsupportedErr) {
-		t.Fatalf("deny create error = %v, want networkpolicies.DenyUnsupportedErr", err)
+	}); !errors.Is(err, networkpolicies.InvalidErr) {
+		t.Fatalf("unspecified action create error = %v, want networkpolicies.InvalidErr", err)
 	}
 
 	if _, err := h.networkPoliciesCreate(admin, allowCreateRequest(spacePeer(nodes.DefaultSpaceID), spacePeer(nodes.DefaultSpaceID))); !errors.Is(err, networkpolicies.RedundantErr) {
@@ -50,7 +54,7 @@ func TestNetworkPolicyCreateValidation(t *testing.T) {
 	}
 
 	bad := allowCreateRequest(spacePeer(staging.ID), spacePeer(nodes.DefaultSpaceID))
-	bad.Ports = []*apigen.NetPortMatch{{Protocol: apigen.NetProtocol_NET_PROTOCOL_TCP, Port: 700000}}
+	bad.Ports = []apigen.NetPortMatch{tcpPort(700000)}
 	if _, err := h.networkPoliciesCreate(admin, bad); !errors.Is(err, networkpolicies.InvalidErr) {
 		t.Fatalf("bad port create error = %v, want networkpolicies.InvalidErr", err)
 	}
@@ -86,7 +90,7 @@ func TestNetworkPolicyDestinationConsentAuthz(t *testing.T) {
 	}
 
 	list := visibleOpening(t, h, spaceAdmin)[apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY]
-	if len(list) != 1 || list[int64(created.NetworkPolicyID)] == nil {
+	if len(list) != 1 || list[created.NetworkPolicyID] == nil {
 		t.Fatalf("space admin list = %+v, want the rule targeting their space", list)
 	}
 
@@ -114,7 +118,7 @@ func TestNetworkPolicyUpdateVersionConflict(t *testing.T) {
 		Action:      apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW,
 		Source:      spacePeer(staging.ID),
 		Destination: spacePeer(nodes.DefaultSpaceID),
-		Ports:       []*apigen.NetPortMatch{{Protocol: apigen.NetProtocol_NET_PROTOCOL_TCP, Port: 443}},
+		Ports:       []apigen.NetPortMatch{tcpPort(443)},
 	}
 	updated, err := h.networkPoliciesUpdate(admin, update)
 	if err != nil {
@@ -134,19 +138,18 @@ func TestNetworkPolicyUpdateVersionConflict(t *testing.T) {
 func TestNetworkPolicyDeploymentPeerResolution(t *testing.T) {
 	h, staging := newEnforcementTestHandler(t)
 	admin := enforceCtx(1, false)
-	spec := &apigen.DeploymentSpec{}
-	spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL
-	cfg := createTestDeployment(h.Store, "primary-id", staging.ID, "api", spec)
+	spec := remoteDeploymentSpec("nginx", virtualNetworking())
+	cfg := createTestDeployment(h.Store, "primary-id", staging.ID, "api", &spec)
 
-	created, err := h.networkPoliciesCreate(admin, allowCreateRequest(spacePeer(nodes.DefaultSpaceID), deploymentPeer(cfg.DeploymentID)))
+	created, err := h.networkPoliciesCreate(admin, allowCreateRequest(spacePeer(nodes.DefaultSpaceID), deploymentPeer(cfg.Deployment.ID)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if created.Value.Destination.Kind != apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT || created.Value.Destination.ID != cfg.DeploymentID {
+	if dest := created.Value.Destination.Target.Value.Deployment; dest == nil || dest.DeploymentID != cfg.Deployment.ID {
 		t.Fatalf("created destination = %+v", created.Value.Destination)
 	}
 
-	if _, err := h.networkPoliciesCreate(admin, allowCreateRequest(deploymentPeer(cfg.DeploymentID), spacePeer(staging.ID))); !errors.Is(err, networkpolicies.RedundantErr) {
+	if _, err := h.networkPoliciesCreate(admin, allowCreateRequest(deploymentPeer(cfg.Deployment.ID), spacePeer(staging.ID))); !errors.Is(err, networkpolicies.RedundantErr) {
 		t.Fatalf("deployment-to-own-space create error = %v, want networkpolicies.RedundantErr", err)
 	}
 }

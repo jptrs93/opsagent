@@ -4,7 +4,7 @@ import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {sectionBand} from "../components/sectionBand.js";
 import {evictNodeOverlay, pinnedUserDeployments} from "../components/evictNodeOverlay.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
-import {deploymentWorkload, placementNodeId} from "../lib/deployment.js";
+import {deploymentWorkload, isSelfDeployment, placementNodeId} from "../lib/deployment.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
 
 const { button, code, div, input, label, p, span, table, tbody, td, th, thead, tr } = van.tags;
@@ -439,11 +439,7 @@ function installCommandBlock(command) {
 function primaryOpenDeployVersion() {
     const primaryID = Number(machinesS.val.find(machine => machine.isPrimary)?.id || 0);
     if (!primaryID) return "";
-    const deployment = deploymentsS.val.find(item =>
-        placementNodeId(item.config) === primaryID &&
-        Number(item.config?.value?.spaceId || 0) === 0 &&
-        item.config?.value?.name === "opendeploy",
-    );
+    const deployment = deploymentsS.val.find(item => placementNodeId(item.config) === primaryID && isSelfDeployment(item.config));
     return (deployment?.status?.runner?.runningVersion || deploymentWorkload(deployment?.config)?.version || "").trim();
 }
 
@@ -463,10 +459,11 @@ function secondaryInstallCommand(config, enrollmentInfo, version) {
 }
 
 function resolveStringSetting(setting) {
-    if (!setting) return "";
-    const refID = Number(setting.configRef?.ref?.id || 0);
-    const refVersion = Number(setting.configRef?.ref?.version || 0);
-    if (!refID || !refVersion) return (setting.value || "").trim();
+    const value = setting?.value?.value;
+    if (!value) return "";
+    const refID = Number(value.configRef?.configId || 0);
+    const refVersion = Number(value.configRef?.version || 0);
+    if (!refID || !refVersion) return (value.literal || "").trim();
     const item = (userConfigRefsS.val || []).find(ref => Number(ref.stableId || 0) === refID && Number(ref.version || 0) === refVersion);
     return (item?.value || "").trim();
 }

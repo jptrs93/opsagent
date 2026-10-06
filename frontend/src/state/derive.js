@@ -1,5 +1,6 @@
 import van from 'vanjs-core';
 import {deriveDeploymentRows} from './deploymentMerge.js';
+import {formatIpAddress} from '../lib/ipaddr.js';
 
 // deploymentsS is the one-row-per-desired-deployment UI view. Each row merges
 // the latest desired config with all non-final scheduled instances and keeps
@@ -59,7 +60,7 @@ const valueViewModel = (history, idField) => {
     return {
         id: event[idField], version: event.valueVersion, seq: event.seq, fs: event.value.fs,
         spaceId: event.value.spaceId,
-        name: event.value.fs?.name || '', key: event.value.fs?.key || '',
+        name: event.value.fs?.key || '', key: event.value.fs?.key || '',
         valueDirectoryId: Number(event.value.fs?.directoryId || 0), directoryId: Number(event.value.fs?.directoryId || 0),
     };
 };
@@ -80,8 +81,8 @@ export const nodeViewModel = event => ({
     enrolledAt: new Date(event.value.operator?.enrolledTime || 0),
     status: event.value.status, enrollmentRequestedAt: event.value.enrollmentRequestedAt,
     draining: event.value.status === 6, evicted: event.value.status === 8, eventTime: event.eventTime || 0,
-    addresses: event.value.reported?.underlayAddress ? [event.value.reported.underlayAddress] : [],
-    hostAddresses: event.value.reported?.hostAddresses || [], wgPublicKey: event.value.reported?.wgPublicKey || '',
+    addresses: event.value.reported?.underlayAddress ? [formatIpAddress(event.value.reported.underlayAddress)] : [],
+    hostAddresses: (event.value.reported?.hostAddresses || []).map(formatIpAddress), wgPublicKey: event.value.reported?.wgPublicKey || '',
 });
 
 export const authzGrantViewModel = event => ({
@@ -95,7 +96,8 @@ export function deriveEnrollments(tree) {
             id: event.nodeId, seq: event.seq,
             createdAt: new Date(event.value.enrollmentRequestedAt || event.createdTime),
             requestingMachineId: event.value.reported?.identifier || '', requestingIpAddress: observed.remoteAddress || '',
-            underlayAddress: event.value.reported?.underlayAddress || '', hostAddresses: event.value.reported?.hostAddresses || [],
+            underlayAddress: event.value.reported?.underlayAddress ? formatIpAddress(event.value.reported.underlayAddress) : '',
+            hostAddresses: (event.value.reported?.hostAddresses || []).map(formatIpAddress),
             opendeployVersion: observed.opendeployVersion || '', isConnected: observed.isConnected === true,
             status: event.value.enrollmentRequestedAt ? 1 : event.value.status,
         };
@@ -129,7 +131,7 @@ export function publishDerived(tree, changed) {
     if (any('assetDirectories')) assetDirectoriesS.val = sortAssets([...tree.assetDirectories.values()]);
     if (any('networkPolicies')) networkPoliciesS.val = [...tree.networkPolicies.values()].map(e => ({...e.value, id: e.networkPolicyId, seq: e.seq})).sort((a, b) => a.id - b.id);
     if (any('authzGrants')) authzGrantsS.val = [...tree.authzGrants.values()].map(authzGrantViewModel).sort((a, b) => a.id - b.id);
-    if (any('authzRuleTemplates')) authzTemplatesS.val = [...tree.authzRuleTemplates.values()].sort((a, b) => a.id - b.id);
+    if (any('authzGrantTemplates')) authzTemplatesS.val = [...tree.authzGrantTemplates.values()].sort((a, b) => a.id - b.id);
     if (any('authzGlobalRules')) authzGlobalRulesS.val = [...tree.authzGlobalRules.values()].sort((a, b) => a.id - b.id);
     if (any('ingressDiagnostics')) ingressDiagnosticsS.val = tree.ingressDiagnostics?.items || [];
     for (const [field, state] of [['secretsStatus', secretsStatusS], ['backupStatus', backupStatusS], ['systemConfig', systemConfigS]]) {

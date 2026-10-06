@@ -17,7 +17,7 @@ import (
 
 const (
 	operationalWarningInterval = 30 * time.Second
-	netproxyDNSPort            = int32(53)
+	netproxyDNSPort            = uint32(53)
 )
 
 func Run(ctx context.Context) error {

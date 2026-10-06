@@ -10,13 +10,21 @@ import (
 )
 
 type testSecretStore struct {
-	updated map[int32]time.Time
+	updated map[uint64]time.Time
 }
 
 type testConfigLoader struct{}
 
-func (testConfigLoader) MustLoadStringSetting(v apigen.StringSetting) string { return v.Value }
-func (testConfigLoader) MustLoadBoolSetting(v apigen.BoolSetting) bool       { return v.Value }
+func (testConfigLoader) MustLoadStringSetting(v apigen.StringSetting) string {
+	if v.Value.Value.Literal == nil {
+		return ""
+	}
+	return *v.Value.Value.Literal
+}
+
+func (testConfigLoader) MustLoadBoolSetting(v apigen.BoolSetting) bool {
+	return v.Value.Value.Literal != nil && *v.Value.Value.Literal
+}
 
 func (s testSecretStore) MetaByRef(ref apigen.ValueRef) (secrets.Meta, bool) {
 	updated, ok := s.updated[ref.ID]
@@ -32,41 +40,41 @@ func configWithSettings(settings *apigen.ClusterSettings) apigen.SystemConfig {
 }
 
 func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
-	secretSource := testSecretStore{updated: map[int32]time.Time{10: time.Unix(1, 0)}}
+	secretSource := testSecretStore{updated: map[uint64]time.Time{10: time.Unix(1, 0)}}
 	filter := newBackupConfigFilter(testConfigLoader{}, secretSource)
 	initial := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	initial.HttpWeb.Listen = apigen.StringSetting{Value: ":8080"}
-	initial.Backup.Enabled = apigen.BoolSetting{Value: true}
-	initial.Backup.S3AccessKeyID = apigen.StringSetting{Value: "access-key"}
-	initial.Backup.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 10, Version: 1}}
-	initial.Backup.S3Bucket = apigen.StringSetting{Value: "bucket"}
-	initial.Backup.S3Path = apigen.StringSetting{Value: "path"}
-	initial.Backup.S3Region = apigen.StringSetting{Value: "region"}
-	initial.Backup.S3Endpoint = apigen.StringSetting{Value: "endpoint"}
-	initial.LargeAssets.UseSeparateS3 = apigen.BoolSetting{Value: false}
-	initial.LargeAssets.S3AccessKeyID = apigen.StringSetting{Value: "unrelated"}
-	initial.LargeAssets.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 11, Version: 1}}
+	initial.HttpWeb.Listen = systemconfig.StringLiteral(":8080")
+	initial.Backup.Enabled = systemconfig.BoolLiteral(true)
+	initial.Backup.S3AccessKeyID = systemconfig.StringLiteral("access-key")
+	initial.Backup.S3SecretAccessKey = apigen.Some(apigen.SecretRef{SecretID: 10, Version: 1})
+	initial.Backup.S3Bucket = systemconfig.StringLiteral("bucket")
+	initial.Backup.S3Path = systemconfig.StringLiteral("path")
+	initial.Backup.S3Region = systemconfig.StringLiteral("region")
+	initial.Backup.S3Endpoint = systemconfig.StringLiteral("endpoint")
+	initial.LargeAssets.UseSeparateS3 = systemconfig.BoolLiteral(false)
+	initial.LargeAssets.S3AccessKeyID = systemconfig.StringLiteral("unrelated")
+	initial.LargeAssets.S3SecretAccessKey = apigen.Some(apigen.SecretRef{SecretID: 11, Version: 1})
 	filter.SetInitial(configWithSettings(initial))
 
 	unrelatedValue := *initial
 	unrelated := &unrelatedValue
-	unrelated.HttpWeb.Listen.Value = ":9090"
-	unrelated.LargeAssets.UseSeparateS3.Value = true
-	unrelated.LargeAssets.S3AccessKeyID.Value = "changed"
+	unrelated.HttpWeb.Listen = systemconfig.StringLiteral(":9090")
+	unrelated.LargeAssets.UseSeparateS3 = systemconfig.BoolLiteral(true)
+	unrelated.LargeAssets.S3AccessKeyID = systemconfig.StringLiteral("changed")
 	if filter.Filter(configWithSettings(initial), configWithSettings(unrelated)) {
 		t.Fatal("unrelated config change passed backup filter")
 	}
 
 	backupChangedValue := *unrelated
 	backupChanged := &backupChangedValue
-	backupChanged.Backup.S3Bucket.Value = "new-bucket"
+	backupChanged.Backup.S3Bucket = systemconfig.StringLiteral("new-bucket")
 	if !filter.Filter(configWithSettings(unrelated), configWithSettings(backupChanged)) {
 		t.Fatal("backup config change did not pass backup filter")
 	}
 
 	secretChangedValue := *backupChanged
 	secretChanged := &secretChangedValue
-	filter.secrets = testSecretStore{updated: map[int32]time.Time{10: time.Unix(2, 0)}}
+	filter.secrets = testSecretStore{updated: map[uint64]time.Time{10: time.Unix(2, 0)}}
 	if !filter.Filter(configWithSettings(backupChanged), configWithSettings(secretChanged)) {
 		t.Fatal("backup secret change did not pass backup filter")
 	}
@@ -75,22 +83,22 @@ func TestBackupConfigFilterOnlyAllowsBackupChanges(t *testing.T) {
 func TestBackupConfigFilterIgnoresBackupSettingsWhileDisabled(t *testing.T) {
 	filter := newBackupConfigFilter(testConfigLoader{}, nil)
 	initial := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	initial.Backup.Enabled = apigen.BoolSetting{Value: false}
-	initial.Backup.S3AccessKeyID = apigen.StringSetting{Value: "access-key"}
-	initial.Backup.S3Bucket = apigen.StringSetting{Value: "bucket"}
+	initial.Backup.Enabled = systemconfig.BoolLiteral(false)
+	initial.Backup.S3AccessKeyID = systemconfig.StringLiteral("access-key")
+	initial.Backup.S3Bucket = systemconfig.StringLiteral("bucket")
 	filter.SetInitial(configWithSettings(initial))
 
 	changedWhileDisabledValue := *initial
 	changedWhileDisabled := &changedWhileDisabledValue
-	changedWhileDisabled.Backup.S3AccessKeyID.Value = "new-access-key"
-	changedWhileDisabled.Backup.S3Bucket.Value = "new-bucket"
+	changedWhileDisabled.Backup.S3AccessKeyID = systemconfig.StringLiteral("new-access-key")
+	changedWhileDisabled.Backup.S3Bucket = systemconfig.StringLiteral("new-bucket")
 	if filter.Filter(configWithSettings(initial), configWithSettings(changedWhileDisabled)) {
 		t.Fatal("disabled backup settings change passed backup filter")
 	}
 
 	enabledValue := *changedWhileDisabled
 	enabled := &enabledValue
-	enabled.Backup.Enabled.Value = true
+	enabled.Backup.Enabled = systemconfig.BoolLiteral(true)
 	if !filter.Filter(configWithSettings(changedWhileDisabled), configWithSettings(enabled)) {
 		t.Fatal("backup enable did not pass backup filter")
 	}

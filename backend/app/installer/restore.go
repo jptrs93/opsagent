@@ -218,18 +218,18 @@ func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions, own 
 	for _, override := range overrides {
 		switch override.key {
 		case primaryConfigWebListen:
-			settings.HttpWeb.Listen = apigen.StringSetting{Value: override.value}
-			settings.HttpsWeb.Listen = apigen.StringSetting{Value: override.value}
+			settings.HttpWeb.Listen = systemconfig.StringLiteral(override.value)
+			settings.HttpsWeb.Listen = systemconfig.StringLiteral(override.value)
 		case primaryConfigWebHTTPOnly:
 			httpOnly, _ := strconv.ParseBool(override.value)
-			settings.HttpWeb.Enabled = apigen.BoolSetting{Value: httpOnly}
-			settings.HttpsWeb.Enabled = apigen.BoolSetting{Value: !httpOnly}
+			settings.HttpWeb.Enabled = systemconfig.BoolLiteral(httpOnly)
+			settings.HttpsWeb.Enabled = systemconfig.BoolLiteral(!httpOnly)
 		case primaryConfigPasswordLogin:
 			enabled, _ := strconv.ParseBool(override.value)
-			settings.Auth.PasswordLoginEnabled = apigen.BoolSetting{Value: enabled}
+			settings.Auth.PasswordLoginEnabled = systemconfig.BoolLiteral(enabled)
 		case primaryConfigWebTLSSelfManaged:
 			selfManaged, _ := strconv.ParseBool(override.value)
-			settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: selfManaged}
+			settings.HttpsWeb.TlsSelfManaged = systemconfig.BoolLiteral(selfManaged)
 		case primaryConfigWebTLSCertPEM:
 			bundle := []byte(override.value)
 			if _, err := tls.X509KeyPair(bundle, bundle); err != nil {
@@ -241,17 +241,17 @@ func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions, own 
 				_ = store.Close()
 				return fmt.Errorf("creating restored Web TLS certificate secret: %w", err)
 			}
-			settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
-			settings.HttpsWeb.TlsCertPem = apigen.SecretRef{Ref: meta.Ref()}
+			settings.HttpsWeb.TlsSelfManaged = systemconfig.BoolLiteral(true)
+			settings.HttpsWeb.TlsCertPem = apigen.Some(meta.Ref().Secret())
 		case primaryConfigClusterListen:
-			settings.Cluster.Listen = apigen.StringSetting{Value: override.value}
+			settings.Cluster.Listen = systemconfig.StringLiteral(override.value)
 		case primaryConfigEnrollmentListen:
-			settings.Cluster.EnrollmentListen = apigen.StringSetting{Value: override.value}
+			settings.Cluster.EnrollmentListen = systemconfig.StringLiteral(override.value)
 		case primaryConfigAcmeHosts:
-			settings.HttpsWeb.AcmeHosts = apigen.StringSetting{Value: override.value}
+			settings.HttpsWeb.AcmeHosts = systemconfig.StringLiteral(override.value)
 		}
 	}
-	if service.MustLoadBoolSetting(settings.HttpsWeb.Enabled) && service.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) && !settings.HttpsWeb.TlsCertPem.Ref.Valid() {
+	if service.MustLoadBoolSetting(settings.HttpsWeb.Enabled) && service.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) && !(settings.HttpsWeb.TlsCertPem.Present && settings.HttpsWeb.TlsCertPem.Value.Valid()) {
 		if secretsMgr == nil {
 			secretsMgr, err = secrets.Open(dataDir, store)
 			if err != nil {

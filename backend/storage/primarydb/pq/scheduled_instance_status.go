@@ -3,6 +3,7 @@ package pq
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -12,14 +13,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-const scheduledInstanceStatusColumnsS = `s.scheduled_instance_id, s.updated_at, s.deployment_id,
+const scheduledInstanceStatusColumnsS = `s.scheduled_instance_id, s.updated_at,
  s.preparer_spec_version, s.preparer_artifact, s.preparer_inputs_status, s.preparer_image_status,
  s.runner_spec_version, s.runner_pid, s.runner_artifact, s.runner_status, s.runner_num_restarts, s.runner_last_restart_at, s.runner_extra_blob, s.runner_exit_code`
 
 type scheduledInstanceStatusRow struct {
 	scheduledInstanceID  sql.NullInt64
 	updatedAt            sql.NullInt64
-	deploymentID         sql.NullInt64
 	preparerSpecVersion  sql.NullInt64
 	preparerArtifact     sql.NullString
 	preparerInputsStatus sql.NullInt64
@@ -35,7 +35,7 @@ type scheduledInstanceStatusRow struct {
 }
 
 func (r *scheduledInstanceStatusRow) fields() []any {
-	return []any{&r.scheduledInstanceID, &r.updatedAt, &r.deploymentID,
+	return []any{&r.scheduledInstanceID, &r.updatedAt,
 		&r.preparerSpecVersion, &r.preparerArtifact, &r.preparerInputsStatus, &r.preparerImageStatus,
 		&r.runnerSpecVersion, &r.runnerPid, &r.runnerArtifact, &r.runnerStatus, &r.runnerNumRestarts, &r.runnerLastRestartAt, &r.runnerExtraBlob, &r.runnerExitCode}
 }
@@ -46,41 +46,45 @@ func (r *scheduledInstanceStatusRow) toStatus() *apigen.ScheduledInstanceStatus 
 	}
 	st := &apigen.ScheduledInstanceStatus{
 		UpdatedAt:           nanosToClock(r.updatedAt.Int64),
-		ScheduledInstanceID: int32(r.scheduledInstanceID.Int64),
-		DeploymentID:        int32(r.deploymentID.Int64),
+		ScheduledInstanceID: uint64(r.scheduledInstanceID.Int64),
 	}
 	if r.preparerSpecVersion.Valid {
-		st.Preparer = apigen.PreparerStatus{
-			DeploymentSpecVersion: int32(r.preparerSpecVersion.Int64),
+		p := apigen.PreparerStatus{
+			DeploymentSpecVersion: uint32(r.preparerSpecVersion.Int64),
 			Artifact:              r.preparerArtifact.String,
 			Inputs:                apigen.InputsStatus(r.preparerInputsStatus.Int64),
-			Image:                 apigen.ImageStatus(r.preparerImageStatus.Int64),
 		}
+		if r.preparerImageStatus.Int64 != 0 {
+			p.Image = apigen.Some(apigen.ImageStatus(r.preparerImageStatus.Int64))
+		}
+		st.Preparer = apigen.Some(p)
 	}
 	if r.runnerStatus.Valid {
-		st.Runner = apigen.RunnerStatus{
-			DeploymentSpecVersion: int32(r.runnerSpecVersion.Int64),
-			RunningPid:            int32(r.runnerPid.Int64),
+		run := apigen.RunnerStatus{
+			DeploymentSpecVersion: uint32(r.runnerSpecVersion.Int64),
 			RunningArtifact:       r.runnerArtifact.String,
 			Status:                apigen.RunningStatus(r.runnerStatus.Int64),
-			NumberOfRestarts:      int32(r.runnerNumRestarts.Int64),
+			NumberOfRestarts:      uint32(r.runnerNumRestarts.Int64),
+		}
+		if r.runnerPid.Valid {
+			run.RunningPid = apigen.Some(uint32(r.runnerPid.Int64))
 		}
 		if r.runnerLastRestartAt.Valid {
-			st.Runner.LastRestartAt = time.UnixMilli(r.runnerLastRestartAt.Int64)
+			run.LastRestartAt = apigen.Some(time.UnixMilli(r.runnerLastRestartAt.Int64))
 		}
 		if r.runnerExitCode.Valid {
-			code := int32(r.runnerExitCode.Int64)
-			st.Runner.ExitCode = &code
+			run.ExitCode = apigen.Some(int32(r.runnerExitCode.Int64))
 		}
 		if len(r.runnerExtraBlob) > 0 {
-			extra, err := apigen.DecodeRunnerStatus(r.runnerExtraBlob)
-			if err != nil {
+			var diagnostics []string
+			if err := json.Unmarshal(r.runnerExtraBlob, &diagnostics); err != nil {
 				slog.WarnContext(logu.AddTag(context.Background(), "Store"), "decoding runner status extra blob",
 					"scheduled_instance", st.ScheduledInstanceID, "err", err)
 			} else {
-				st.Runner.NetworkDiagnostics = extra.NetworkDiagnostics
+				run.NetworkDiagnostics = diagnostics
 			}
 		}
+		st.Runner = apigen.Some(run)
 	}
 	return st
 }
@@ -108,7 +112,7 @@ func (q *Queries) listScheduledInstanceStatusRows(ctx context.Context) ([]schedu
 	return out, rows.Err()
 }
 
-func (q *Queries) GetLatestScheduledInstanceStatus(ctx context.Context, id int32) (*apigen.ScheduledInstanceStatus, error) {
+func (q *Queries) GetLatestScheduledInstanceStatus(ctx context.Context, id uint64) (*apigen.ScheduledInstanceStatus, error) {
 	var r scheduledInstanceStatusRow
 	if err := q.db.QueryRowContext(ctx, `SELECT `+scheduledInstanceStatusColumnsS+` FROM scheduled_instance_status s WHERE s.scheduled_instance_id = ?`, id).Scan(r.fields()...); err != nil {
 		return nil, err
@@ -130,9 +134,9 @@ func (q *Queries) ListLatestScheduledInstanceStatuses(ctx context.Context) ([]*a
 
 // ListScheduledInstanceStatusHistorySince is an instance's observed history
 // after since, oldest first, read from the write log.
-func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, id int32, since time.Time) ([]*apigen.ScheduledInstanceStatus, error) {
+func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, id uint64, since time.Time) ([]*apigen.ScheduledInstanceStatus, error) {
 	rows, err := q.db.QueryContext(ctx, `SELECT payload FROM write_event_mutations WHERE entity_type = ? AND entity_id = ? AND op != ? ORDER BY seq, idx`,
-		int64(apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS), int64(id), int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE))
+		int64(apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS), id, int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE))
 	if err != nil {
 		return nil, err
 	}
@@ -144,17 +148,18 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, i
 			return nil, err
 		}
 		entity, err := apigen.DecodeCoreEntity(payload)
-		if err != nil || entity.ScheduledInstanceStatus == nil {
+		if err != nil || entity.Value.ScheduledInstanceStatus == nil {
 			return nil, fmt.Errorf("scheduled instance %d status: %v", id, err)
 		}
-		if st := entity.ScheduledInstanceStatus; st.UpdatedAt.After(since) {
+		if st := entity.Value.ScheduledInstanceStatus; st.UpdatedAt.Value.After(since) {
+			st.ScheduledInstanceID = id
 			out = append(out, st)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt.Before(out[j].UpdatedAt) })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt.Value.Before(out[j].UpdatedAt.Value) })
 	return out, nil
 }
 
@@ -162,15 +167,15 @@ func (q *Queries) ListScheduledInstanceStatusHistorySince(ctx context.Context, i
 // every instance a deployment ever had, oldest first, read from the write
 // log: the instance ids come from the instance creates, the statuses from
 // each instance's own log entries.
-func (q *Queries) ListScheduledInstanceStatusHistoryForDeployment(ctx context.Context, deploymentID int32) ([]*apigen.ScheduledInstanceStatus, error) {
+func (q *Queries) ListScheduledInstanceStatusHistoryForDeployment(ctx context.Context, deploymentID uint64) ([]*apigen.ScheduledInstanceStatus, error) {
 	rows, err := q.db.QueryContext(ctx, `SELECT entity_id, payload FROM write_event_mutations WHERE entity_type = ? AND op = ? ORDER BY entity_id`,
 		int64(apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE), int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE))
 	if err != nil {
 		return nil, err
 	}
-	var instances []int32
+	var instances []uint64
 	for rows.Next() {
-		var id int64
+		var id uint64
 		var payload []byte
 		if err := rows.Scan(&id, &payload); err != nil {
 			rows.Close()
@@ -181,8 +186,8 @@ func (q *Queries) ListScheduledInstanceStatusHistoryForDeployment(ctx context.Co
 			rows.Close()
 			return nil, err
 		}
-		if entity.ScheduledInstance != nil && entity.ScheduledInstance.DeploymentID == deploymentID {
-			instances = append(instances, int32(id))
+		if inst := entity.Value.ScheduledInstance; inst != nil && inst.Deployment.DeploymentID == deploymentID {
+			instances = append(instances, id)
 		}
 	}
 	rows.Close()
@@ -197,7 +202,7 @@ func (q *Queries) ListScheduledInstanceStatusHistoryForDeployment(ctx context.Co
 		}
 		out = append(out, history...)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt.Before(out[j].UpdatedAt) })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt.Value.Before(out[j].UpdatedAt.Value) })
 	return out, nil
 }
 
@@ -205,13 +210,18 @@ func runnerStatusExtraBlob(r apigen.RunnerStatus) []byte {
 	if len(r.NetworkDiagnostics) == 0 {
 		return []byte{}
 	}
-	return (&apigen.RunnerStatus{NetworkDiagnostics: r.NetworkDiagnostics}).Encode()
+	b, _ := json.Marshal(r.NetworkDiagnostics)
+	return b
+}
+
+func nullInt(v int64, valid bool) sql.NullInt64 {
+	return sql.NullInt64{Int64: v, Valid: valid}
 }
 
 // reduceScheduledInstanceStatus keeps the report with the greater clock: a
 // report older than the row's is the stale half of a merge and is dropped,
 // and its meta is the row's.
-func (q *Queries) reduceScheduledInstanceStatus(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, st *apigen.ScheduledInstanceStatus) error {
+func (q *Queries) reduceScheduledInstanceStatus(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, st *apigen.ScheduledInstanceStatus) error {
 	if st == nil {
 		return fmt.Errorf("payload has no status")
 	}
@@ -219,34 +229,32 @@ func (q *Queries) reduceScheduledInstanceStatus(ctx context.Context, env rowEnve
 	var preparerArtifact, runnerArtifact sql.NullString
 	var preparerInputs, preparerImage int64
 	extra := []byte{}
-	if !st.Preparer.IsZero() {
-		preparerSpecVersion = sql.NullInt64{Int64: int64(st.Preparer.DeploymentSpecVersion), Valid: true}
-		preparerArtifact = sql.NullString{String: st.Preparer.Artifact, Valid: true}
-		preparerInputs = int64(st.Preparer.Inputs)
-		preparerImage = int64(st.Preparer.Image)
+	if st.Preparer.Present {
+		p := st.Preparer.Value
+		preparerSpecVersion = nullInt(int64(p.DeploymentSpecVersion), true)
+		preparerArtifact = sql.NullString{String: p.Artifact, Valid: true}
+		preparerInputs = int64(p.Inputs)
+		preparerImage = int64(p.Image.Value)
 	}
-	if !st.Runner.IsZero() {
-		runnerSpecVersion = sql.NullInt64{Int64: int64(st.Runner.DeploymentSpecVersion), Valid: true}
-		runnerPid = sql.NullInt64{Int64: int64(st.Runner.RunningPid), Valid: true}
-		runnerArtifact = sql.NullString{String: st.Runner.RunningArtifact, Valid: true}
-		runnerStatus = sql.NullInt64{Int64: int64(st.Runner.Status), Valid: true}
-		runnerNumRestarts = sql.NullInt64{Int64: int64(st.Runner.NumberOfRestarts), Valid: true}
-		if !st.Runner.LastRestartAt.IsZero() {
-			runnerLastRestartAt = sql.NullInt64{Int64: st.Runner.LastRestartAt.UnixMilli(), Valid: true}
-		}
-		if st.Runner.ExitCode != nil {
-			runnerExitCode = sql.NullInt64{Int64: int64(*st.Runner.ExitCode), Valid: true}
-		}
-		extra = runnerStatusExtraBlob(st.Runner)
+	if st.Runner.Present {
+		r := st.Runner.Value
+		runnerSpecVersion = nullInt(int64(r.DeploymentSpecVersion), true)
+		runnerPid = nullInt(int64(r.RunningPid.Value), r.RunningPid.Present)
+		runnerArtifact = sql.NullString{String: r.RunningArtifact, Valid: true}
+		runnerStatus = nullInt(int64(r.Status), true)
+		runnerNumRestarts = nullInt(int64(r.NumberOfRestarts), true)
+		runnerLastRestartAt = nullInt(timeToMillis(r.LastRestartAt), r.LastRestartAt.Present)
+		runnerExitCode = nullInt(int64(r.ExitCode.Value), r.ExitCode.Present)
+		extra = runnerStatusExtraBlob(r)
 	}
 	if err := q.upsert(ctx, meta, `INSERT INTO scheduled_instance_status (
- scheduled_instance_id, updated_at, deployment_id,
+ scheduled_instance_id, updated_at,
  preparer_spec_version, preparer_artifact, preparer_inputs_status, preparer_image_status,
  runner_spec_version, runner_pid, runner_artifact, runner_status, runner_num_restarts, runner_last_restart_at, runner_extra_blob, runner_exit_code,
  seq, event_time, author, created_time
- ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
  ON CONFLICT (scheduled_instance_id) DO UPDATE SET
- updated_at = excluded.updated_at, deployment_id = excluded.deployment_id,
+ updated_at = excluded.updated_at,
  preparer_spec_version = excluded.preparer_spec_version, preparer_artifact = excluded.preparer_artifact,
  preparer_inputs_status = excluded.preparer_inputs_status, preparer_image_status = excluded.preparer_image_status,
  runner_spec_version = excluded.runner_spec_version, runner_pid = excluded.runner_pid, runner_artifact = excluded.runner_artifact,
@@ -255,7 +263,7 @@ func (q *Queries) reduceScheduledInstanceStatus(ctx context.Context, env rowEnve
  seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
  WHERE excluded.updated_at >= scheduled_instance_status.updated_at
  RETURNING created_time`,
-		id, clockToNanos(st.UpdatedAt), int64(st.DeploymentID),
+		id, clockToNanos(st.UpdatedAt),
 		preparerSpecVersion, preparerArtifact, preparerInputs, preparerImage,
 		runnerSpecVersion, runnerPid, runnerArtifact, runnerStatus, runnerNumRestarts, runnerLastRestartAt, extra, runnerExitCode,
 		env.Seq, env.EventTime, env.Author, env.EventTime); err != nil {
@@ -264,33 +272,37 @@ func (q *Queries) reduceScheduledInstanceStatus(ctx context.Context, env rowEnve
 	return q.rowMetaIfStale(ctx, meta, apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS, id)
 }
 
-func (q *Queries) deleteScheduledInstanceStatusRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteScheduledInstanceStatusRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM scheduled_instance_status WHERE scheduled_instance_id = ?`, id)
 	return err
 }
 
 // deleteOrphanScheduledInstanceStatus drops a status whose instance is not
 // retained: a report for a pruned instance has nothing to attach to.
-func (q *Queries) deleteOrphanScheduledInstanceStatus(ctx context.Context, id int64) error {
+func (q *Queries) deleteOrphanScheduledInstanceStatus(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM scheduled_instance_status WHERE scheduled_instance_id = ? AND NOT EXISTS (SELECT 1 FROM scheduled_instances WHERE id = ?)`, id, id)
 	return err
 }
 
 // CanonicalScheduledInstanceStatus is the status as its row reads back:
-// restart times at millisecond precision and the runner's extra fields as
-// the blob carries them. A published report equals its materialised row.
+// restart times at millisecond precision and an empty diagnostics list as
+// nil. A published report equals its materialised row.
 func CanonicalScheduledInstanceStatus(st *apigen.ScheduledInstanceStatus) *apigen.ScheduledInstanceStatus {
 	out := *st
-	if !out.Runner.LastRestartAt.IsZero() {
-		out.Runner.LastRestartAt = time.UnixMilli(out.Runner.LastRestartAt.UnixMilli())
+	if out.Runner.Present {
+		r := out.Runner.Value
+		if r.LastRestartAt.Present {
+			r.LastRestartAt = apigen.Some(time.UnixMilli(r.LastRestartAt.Value.UnixMilli()))
+		}
+		if len(r.NetworkDiagnostics) == 0 {
+			r.NetworkDiagnostics = nil
+		}
+		out.Runner = apigen.Some(r)
+	} else {
+		out.Runner = apigen.Maybe[apigen.RunnerStatus]{}
 	}
-	if out.Runner.IsZero() {
-		out.Runner = apigen.RunnerStatus{}
-	} else if len(out.Runner.NetworkDiagnostics) == 0 {
-		out.Runner.NetworkDiagnostics = nil
-	}
-	if out.Preparer.IsZero() {
-		out.Preparer = apigen.PreparerStatus{}
+	if !out.Preparer.Present {
+		out.Preparer = apigen.Maybe[apigen.PreparerStatus]{}
 	}
 	return &out
 }

@@ -42,13 +42,13 @@ type runtimeConfig struct {
 	PrimaryName        string // primary certificate DNS/IP SAN for TLS server name verification
 	UnderlayAddress    string // explicit tunnel endpoint; otherwise resolved for every reconnect
 	NodeIdentifier     string
-	NodeID             int32
+	NodeID             uint64
 	DataDir            string
 	GitCacheDir        string
 	ReleasesDir        string
 	NetproxyStatePath  string
 	ClusterPrefix      network.Prefix
-	NetDeploymentID    int32
+	NetDeploymentID    uint64
 	// WGPublicKey is the node's base64 WireGuard public key, re-reported in
 	// every cluster hello.
 	WGPublicKey string
@@ -80,7 +80,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		go runClusterCertRenewal(ctx, certManager, primaryURL, primaryHTTPClient)
 	}
 	githubCredentials := NewPrimaryGithubCredentialsProvider(primaryURL, primaryHTTPClient)
-	network.SetDefault(network.New(cfg.ClusterPrefix, cfg.NetDeploymentID))
+	network.SetDefault(network.New(cfg.ClusterPrefix, int32(cfg.NetDeploymentID)))
 	// Load-or-generate must precede the cached-map reconcile so peers come
 	// back up directly after an offline reboot. Freshly enrolled secondaries
 	// already hold the file from enrollment. WireGuard is the only cross-node
@@ -138,7 +138,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	go netproxy.RunNetStateWriter(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID), cfg.NodeIdentifier, cfg.NetproxyStatePath, runtimeInputs, acmeHolder, netMapHolder, runtimeInputs.EnsureSecretRefs)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
 	go nixDockerPreparer.RunMaintenance(ctx)
-	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, cfg.NodeID)
+	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, int32(cfg.NodeID))
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
 	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
 	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)

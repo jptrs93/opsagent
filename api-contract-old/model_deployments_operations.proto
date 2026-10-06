@@ -1,0 +1,249 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model/deployments.proto";
+import "api-contract/options.proto";
+import "api-contract/model/scheduled_instances.proto";
+import "api-contract/model/events.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+// DeploymentUpdateRequestV2 applies exactly one kind of change to a
+// deployment, guarded by the top-level version, which bumps on every
+// deployment event regardless of kind. cleanproto does not support oneof, so
+// the kinds are plain optional message fields: exactly one of
+// version_only_update, running_only_update, spec_update,
+// assigned_space_update, and restart_update must be set.
+message DeploymentUpdateRequestV2 {
+  int32 deployment_id = 1;
+  reserved 2; // expected_version: the ordinal check, before seqs were the concurrency token
+  int64 expected_seq = 8; // seq of the deployment's last mutation the caller saw; 0 = no check
+
+  VersionOnlyUpdate version_only_update = 3;
+  RunningOnlyUpdate running_only_update = 4;
+  SpecUpdate spec_update = 5;
+  AssignedSpaceUpdate assigned_space_update = 6;
+  RestartUpdate restart_update = 7;
+}
+
+// VersionOnlyUpdate deploys target_version: the workload version is set and
+// the workload is marked running, leaving the rest of the spec untouched.
+message VersionOnlyUpdate {
+  string target_version = 1;
+}
+
+// RunningOnlyUpdate starts or stops the workload at its current version. A
+// stop preserves the version so a subsequent start can reuse it.
+message RunningOnlyUpdate {
+  bool desired_running = 1;
+}
+
+// SpecUpdate replaces the deployment spec wholesale, including the workload
+// version and running state carried inside it.
+message SpecUpdate {
+  DeploymentSpec spec = 1 [(cp.go_value) = true];
+}
+
+// AssignedSpaceUpdate moves the deployment to another space. Validated like a
+// create into the destination space; live placements keep their pinned space
+// until replaced via the scheduler rollover path.
+message AssignedSpaceUpdate {
+  int32 space_id = 1;
+}
+
+// RestartUpdate replaces the running placement without changing anything:
+// the event carries the previous definition byte for byte, so only the
+// top-level version advances and the scheduler replaces the placement under
+// the deployment's upgrade strategy. Rejected for a stopped workload.
+message RestartUpdate {}
+
+message DeploymentCreateRequest {
+  reserved 4;
+  string name = 1;
+  int32 space_id = 2;
+  DeploymentSpec spec = 3 [(cp.go_value) = true];
+  Scheduling scheduling = 5 [(cp.go_value) = true];
+}
+
+message DeploymentHistoryRequest {
+  int32 deployment_id = 1;
+}
+
+message RecentlyDeletedDeploymentsRequest {
+  int32 limit = 1;  // max entries to return; 0 or out of range uses the server default
+}
+
+// DeploymentRecord is one version of a deployment as a REST response carries
+// it: the payload with the meta the stream would attach to it. For a deleted
+// deployment the meta is the last version's with deleted set and updated_*
+// the delete.
+message DeploymentRecord {
+  Deployment deployment = 1;
+  EntityMeta meta = 2;
+}
+
+message RecentlyDeletedDeployments {
+  reserved 1; // items as DeploymentEvent: the retired per-entity envelope
+  // Final version of each deleted deployment, most recently deleted first. The
+  // spec is intact, so a client can seed a new deployment from one; the id and
+  // spec version belong to the deleted deployment and cannot be reused.
+  repeated DeploymentRecord items = 2;
+}
+
+message DeploymentDeleteRequest {
+  int32 deployment_id = 1;
+  reserved 2; // version: the ordinal check, before seqs were the concurrency token
+  int64 expected_seq = 3; // seq of the deployment's last mutation the caller saw; 0 = no check
+}
+
+// Version is the shared display shape for a deployable source item: a git
+// commit, a container tag, or a GitHub release tag.
+message Version {
+  string id = 1;
+  string label = 2;
+  string author = 3;
+  int64 time = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+// DeploymentVersions returns source-specific deployable versions for one deployment.
+message DeploymentVersions {
+  int32 deployment_id = 1;
+  DeploymentNixDockerBuildVersions nix_docker_build = 2;
+  DeploymentGithubReleaseVersions github_release = 3;
+  DeploymentContainerImageVersions container_image = 4;
+}
+
+message DeploymentNixDockerBuildVersions {
+  repeated string branches = 1;
+  string selected_branch = 2;
+  repeated Version commits = 3;
+}
+
+message DeploymentGithubReleaseVersions {
+  repeated Version releases = 1;
+}
+
+message DeploymentContainerImageVersions {
+  repeated Version tags = 1;
+}
+
+// DeploymentVersionsRequest fetches available versions for a deployment on demand.
+message DeploymentVersionsRequest {
+  int32 deployment_id = 1;
+  string selected_branch = 2;  // optional: specific git branch to list commits for
+}
+
+// RepoValidateRequest checks an image source's accessibility before a
+// deployment using it is created/updated. Exactly one source field must be set.
+message RepoValidateRequest {
+  ValidateNixDockerBuildSource nix_docker_build = 1;
+  ValidateContainerImageSource container_image = 2;
+}
+
+message ValidateNixDockerBuildSource {
+  string repo_url = 1;     // e.g. "github.com/owner/repo"
+  string selected_branch = 2;       // optional branch/scope whose versions should be listed
+  Version selected_commit = 3;       // optional exact commit to validate
+  string selected_flake_path = 4;   // optional path to flake.nix; when empty, path is not validated
+
+  bool refresh_available_branches = 5; // force loading available branches
+  bool refresh_available_commits = 6; // force loading commits for selected_branch
+
+  bool check_repo = 7;
+  bool check_branch = 8;
+  bool check_commit = 9; // validate commit exists
+  bool check_flake_path = 10; // validate flake_path exists at branch/commit
+}
+
+message ValidateNixDockerBuildSourceResponse {
+  string checked_repo_url = 1;
+  ValidationResult git_repository = 2 [(cp.go_value) = true];
+  string checked_branch = 3;
+  ValidationResult branch_check = 4 [(cp.go_value) = true];
+  Version checked_commit = 5;
+  ValidationResult commit_check = 6 [(cp.go_value) = true];
+  string checked_flake_path = 7;
+  ValidationResult nix_flake_file = 8 [(cp.go_value) = true];
+
+  AvailableBranches available_branches = 9 [(cp.go_value) = true];
+  AvailableCommits available_commits = 10 [(cp.go_value) = true];
+}
+
+message AvailableCommits {
+  bool loaded = 1;
+  string branch = 2;
+  optional string errorMessage = 3;
+  repeated Version commits = 4;
+}
+
+message AvailableBranches {
+  bool loaded = 1;
+  optional string errorMessage = 2;
+  repeated string branches = 3;
+}
+
+message ValidationResult {
+  bool checked = 1;
+  bool ok = 2;
+  string message = 3;  // human-readable result, safe to display to the user
+}
+
+message ValidateContainerImageSource {
+  string image = 1;        // image repository without tag; e.g. "ghcr.io/owner/app"
+  bool refresh_versions = 2; // list available image tags/versions
+}
+
+message RepoValidateResponse {
+  ValidateNixDockerBuildSourceResponse nix_docker_build = 1;
+  ValidateContainerImageSourceResponse container_image = 2;
+}
+
+message ValidateContainerImageSourceResponse {
+  ValidationResult image = 1 [(cp.go_value) = true];
+  repeated Version tags = 2;
+}
+
+message DeploymentGetRequest {
+  int32 id = 1;
+}
+
+message DeploymentGetResponse {
+  reserved 1, 2; // deployment_event, scheduled_instance_events: the retired per-entity envelopes
+  DeploymentRecord deployment = 5;
+  repeated ScheduledInstance scheduled_instances = 4;
+  repeated ScheduledInstanceStatus instance_statuses = 3;
+}
+
+// DeploymentHistoryEntry is one row of a deployment's history: a version of
+// the deployment or an observed status, never both.
+message DeploymentHistoryEntry {
+  reserved 1; // config as DeploymentEvent: the retired per-entity envelope
+  DeploymentRecord deployment = 3;
+  ScheduledInstanceStatus status = 2;
+}
+
+message DeploymentHistory {
+  repeated DeploymentHistoryEntry entries = 1;
+}
+
+message DeploymentRunReportRequest {
+  int32 scheduled_instance_id = 1;
+  int32 run = 2;
+}
+
+message DeploymentRunReport {
+  int32 deployment_id = 1;
+  int32 deployment_spec_version = 2;
+  int32 node_id = 3;
+  int32 instance_ordinal = 4;
+  int32 run = 5;
+  bool running = 6;
+  int64 started_at = 7 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  int64 stopped_at = 8 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  optional int32 exit_code = 9;
+  repeated string log_lines = 10;
+  repeated string warnings = 11;
+  RunningStatus status = 12;
+  int32 deployment_version = 13;
+}

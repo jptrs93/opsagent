@@ -19,26 +19,39 @@ func newAccessTestHandler(t *testing.T) (*Handler, apigen.Context) {
 	if err != nil {
 		t.Fatalf("authz.Open: %v", err)
 	}
-	if _, err := authzService.CreateGrant(&apigen.AuthzGrant{
-		UserID:     1,
-		TemplateID: authz.ClusterAdminTemplateID,
-		Spec:       &apigen.AuthzGrantSpec{},
-	}, 0); err != nil {
+	if _, err := authzService.CreateGrant(clusterAdminGrant(1), 0); err != nil {
 		t.Fatalf("seed admin grant: %v", err)
 	}
 	h := &Handler{Store: store, Queries: store.Queries(), Authz: authzService}
-	ctx := apigen.Context{Ctx: context.Background(), User: &apigen.InternalUser{ID: 1, Name: "operator"}}
+	ctx := apigen.Context{Ctx: context.Background(), User: &apigen.User{ID: 1, Name: "operator"}}
 	return h, ctx
 }
 
-func wildcardSelector() *apigen.AuthzSelector {
-	return &apigen.AuthzSelector{Wildcard: true}
+func anyTemplateSelector() apigen.AuthzTemplateSelector {
+	return templateSelectorOf(anySelector())
 }
 
-func TestAccessRuleTemplateCRUD(t *testing.T) {
+func templateSelectorOf(sel apigen.AuthzSelector) apigen.AuthzTemplateSelector {
+	return apigen.AuthzTemplateSelector{
+		Permissions: apigen.AuthzTemplatePermissionSelector{Value: apigen.AuthzTemplatePermissionSelectorValueOneof{Selector: &sel.Permissions}},
+		Spaces:      apigen.AuthzTemplateSpaceSelector{Value: apigen.AuthzTemplateSpaceSelectorValueOneof{Selector: &sel.Spaces}},
+		EntityTypes: apigen.AuthzTemplateEntityTypeSelector{Value: apigen.AuthzTemplateEntityTypeSelectorValueOneof{Selector: &sel.EntityTypes}},
+		EntityRefs:  apigen.AuthzTemplateEntityRefSelector{Value: apigen.AuthzTemplateEntityRefSelectorValueOneof{Selector: &sel.EntityRefs}},
+	}
+}
+
+func templateRules(rules ...apigen.AuthzTemplateRule) apigen.AuthzGrantTemplateSpec {
+	return apigen.AuthzGrantTemplateSpec{Rules: rules}
+}
+
+func allowTemplateRule(sel apigen.AuthzSelector) apigen.AuthzTemplateRule {
+	return apigen.AuthzTemplateRule{Effect: allowEffect(true), Selector: templateSelectorOf(sel)}
+}
+
+func TestAccessGrantTemplateCRUD(t *testing.T) {
 	h, ctx := newAccessTestHandler(t)
 
-	listed, err := h.PostV1AccessRuleTemplatesList(ctx)
+	listed, err := h.PostV1AccessGrantTemplatesList(ctx)
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -46,14 +59,11 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 		t.Fatalf("expected the 2 builtins, got %d", len(listed.Items))
 	}
 
-	created, err := h.accessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
+	viewer := anySelector()
+	viewer.Permissions = exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW)
+	created, err := h.accessGrantTemplatesCreate(ctx, &apigen.AuthzGrantTemplateCreateRequest{
 		Name: "viewer",
-		Spec: &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{{
-			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-			Spaces:      wildcardSelector(),
-			EntityTypes: wildcardSelector(),
-			EntityRefs:  wildcardSelector(),
-		}}},
+		Spec: templateRules(allowTemplateRule(viewer)),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -62,36 +72,28 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 		t.Fatalf("unexpected created template: %+v", created)
 	}
 
-	if _, err := h.accessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
+	if _, err := h.accessGrantTemplatesCreate(ctx, &apigen.AuthzGrantTemplateCreateRequest{
 		Name: "viewer",
-		Spec: &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{{
-			Permissions: wildcardSelector(),
-			Spaces:      wildcardSelector(),
-			EntityTypes: wildcardSelector(),
-			EntityRefs:  wildcardSelector(),
-		}}},
+		Spec: templateRules(allowTemplateRule(anySelector())),
 	}); !errors.Is(err, AccessNameTakenErr) {
 		t.Fatalf("duplicate name should map to AccessNameTakenErr, got %v", err)
 	}
 
-	if _, err := h.accessRuleTemplatesCreate(ctx, &apigen.AuthzRuleTemplateCreateRequest{
+	if _, err := h.accessGrantTemplatesCreate(ctx, &apigen.AuthzGrantTemplateCreateRequest{
 		Name: "empty",
-		Spec: &apigen.AuthzRuleTemplateSpec{},
+		Spec: apigen.AuthzGrantTemplateSpec{},
 	}); err == nil {
 		t.Fatal("template without rules should be rejected")
 	} else if apiErr, ok := err.(apigen.ApiErr); !ok || apiErr.Code != 400 {
 		t.Fatalf("validation failure should map to a 400 ApiErr, got %v", err)
 	}
 
-	updated, err := h.accessRuleTemplatesUpdate(ctx, &apigen.AuthzRuleTemplateUpdateRequest{
+	viewerPlus := anySelector()
+	viewerPlus.Permissions = exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS)
+	updated, err := h.accessGrantTemplatesUpdate(ctx, &apigen.AuthzGrantTemplateUpdateRequest{
 		ID:   created.ID,
 		Name: "viewer_plus",
-		Spec: &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{{
-			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW), int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS)}},
-			Spaces:      wildcardSelector(),
-			EntityTypes: wildcardSelector(),
-			EntityRefs:  wildcardSelector(),
-		}}},
+		Spec: templateRules(allowTemplateRule(viewerPlus)),
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -100,26 +102,21 @@ func TestAccessRuleTemplateCRUD(t *testing.T) {
 		t.Fatalf("update did not apply: %+v", updated)
 	}
 
-	if _, err := h.accessRuleTemplatesUpdate(ctx, &apigen.AuthzRuleTemplateUpdateRequest{
+	if _, err := h.accessGrantTemplatesUpdate(ctx, &apigen.AuthzGrantTemplateUpdateRequest{
 		ID:   authz.ClusterAdminTemplateID,
 		Name: "cluster_admin",
-		Spec: &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{{
-			Permissions: wildcardSelector(),
-			Spaces:      wildcardSelector(),
-			EntityTypes: wildcardSelector(),
-			EntityRefs:  wildcardSelector(),
-		}}},
+		Spec: templateRules(allowTemplateRule(anySelector())),
 	}); !errors.Is(err, AccessBuiltinErr) {
 		t.Fatalf("builtin update should map to AccessBuiltinErr, got %v", err)
 	}
 
-	if err := h.PostV1AccessRuleTemplatesDelete(ctx, &apigen.AuthzRuleTemplateDeleteRequest{ID: authz.ClusterAdminTemplateID}); !errors.Is(err, AccessBuiltinErr) {
+	if err := h.PostV1AccessGrantTemplatesDelete(ctx, &apigen.AuthzGrantTemplateDeleteRequest{ID: authz.ClusterAdminTemplateID}); !errors.Is(err, AccessBuiltinErr) {
 		t.Fatalf("builtin delete should map to AccessBuiltinErr, got %v", err)
 	}
-	if err := h.PostV1AccessRuleTemplatesDelete(ctx, &apigen.AuthzRuleTemplateDeleteRequest{ID: created.ID}); err != nil {
+	if err := h.PostV1AccessGrantTemplatesDelete(ctx, &apigen.AuthzGrantTemplateDeleteRequest{ID: created.ID}); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
-	if err := h.PostV1AccessRuleTemplatesDelete(ctx, &apigen.AuthzRuleTemplateDeleteRequest{ID: created.ID}); !errors.Is(err, AccessNotFoundErr) {
+	if err := h.PostV1AccessGrantTemplatesDelete(ctx, &apigen.AuthzGrantTemplateDeleteRequest{ID: created.ID}); !errors.Is(err, AccessNotFoundErr) {
 		t.Fatalf("second delete should map to AccessNotFoundErr, got %v", err)
 	}
 }
@@ -128,9 +125,8 @@ func TestAccessGrantCRUD(t *testing.T) {
 	h, ctx := newAccessTestHandler(t)
 
 	grant, err := h.accessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
-		UserID:     7,
-		TemplateID: authz.SpaceAdminTemplateID,
-		Spec:       &apigen.AuthzGrantSpec{Args: []*apigen.AuthzArgumentBinding{{ArgumentID: 1, Values: []int64{2}}}},
+		UserID: 7,
+		Grant:  templateSource(authz.SpaceAdminTemplateID, spaceBinding(1, 2)),
 	})
 	if err != nil {
 		t.Fatalf("create template grant: %v", err)
@@ -140,22 +136,20 @@ func TestAccessGrantCRUD(t *testing.T) {
 	}
 
 	if _, err := h.accessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
-		UserID:     7,
-		TemplateID: authz.SpaceAdminTemplateID,
+		UserID: 7,
+		Grant:  templateSource(authz.SpaceAdminTemplateID),
 	}); err == nil {
 		t.Fatal("missing bindings should be rejected")
 	} else if apiErr, ok := err.(apigen.ApiErr); !ok || apiErr.Code != 400 {
 		t.Fatalf("missing bindings should map to a 400 ApiErr, got %v", err)
 	}
 
+	directSel := anySelector()
+	directSel.Permissions = exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW)
+	directSel.Spaces = exactSpaces(3)
 	direct, err := h.accessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
 		UserID: 7,
-		Spec: &apigen.AuthzGrantSpec{Rule: &apigen.AuthzRule{
-			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-			Spaces:      &apigen.AuthzSelector{Include: []int64{3}},
-			EntityTypes: wildcardSelector(),
-			EntityRefs:  wildcardSelector(),
-		}},
+		Grant:  apigen.AuthzGrantSource{Value: apigen.AuthzGrantSourceValueOneof{Rule: allowRule(directSel)}},
 	})
 	if err != nil {
 		t.Fatalf("create direct grant: %v", err)
@@ -176,29 +170,22 @@ func TestAccessGrantCRUD(t *testing.T) {
 func TestAccessGlobalRuleCRUD(t *testing.T) {
 	h, ctx := newAccessTestHandler(t)
 
+	noReveal := anySelector()
+	noReveal.Permissions = exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)
+	noReveal.EntityTypes = exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET)
 	rule, err := h.accessGlobalRulesCreate(ctx, &apigen.AuthzGlobalRuleCreateRequest{
 		Name: "no_reveal",
-		Spec: &apigen.AuthzGlobalRuleSpec{
-			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
-			Spaces:      wildcardSelector(),
-			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
-			EntityRefs:  wildcardSelector(),
-			Deny:        true,
-		},
+		Rule: *denyRule(noReveal),
 	})
 	if err != nil {
 		t.Fatalf("create: %v", err)
 	}
 
+	targetsAccess := anySelector()
+	targetsAccess.EntityTypes = exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS)
 	if _, err := h.accessGlobalRulesCreate(ctx, &apigen.AuthzGlobalRuleCreateRequest{
 		Name: "targets_access",
-		Spec: &apigen.AuthzGlobalRuleSpec{
-			Permissions: wildcardSelector(),
-			Spaces:      wildcardSelector(),
-			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS)}},
-			EntityRefs:  wildcardSelector(),
-			Deny:        true,
-		},
+		Rule: *denyRule(targetsAccess),
 	}); err == nil {
 		t.Fatal("access-entity global deny rule should be rejected")
 	} else if apiErr, ok := err.(apigen.ApiErr); !ok || apiErr.Code != 400 {
@@ -228,14 +215,14 @@ func TestAccessChangeSubscription(t *testing.T) {
 	defer unsub()
 
 	if _, err := h.accessGrantsCreate(ctx, &apigen.AuthzGrantCreateRequest{
-		UserID:     3,
-		TemplateID: authz.ClusterAdminTemplateID,
+		UserID: 3,
+		Grant:  templateSource(authz.ClusterAdminTemplateID),
 	}); err != nil {
 		t.Fatalf("create grant: %v", err)
 	}
 	select {
 	case update := <-sub:
-		if len(update.Mutations) != 1 || update.Mutations[0].Type() != apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT || update.Mutations[0].Entity().AuthzGrant.UserID != 3 {
+		if len(update.Mutations) != 1 || update.Mutations[0].Type() != apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT || update.Mutations[0].Entity().Value.AuthzGrant.UserID != 3 {
 			t.Fatalf("expected grant transaction, got %+v", update)
 		}
 	default:

@@ -9,11 +9,11 @@ import (
 )
 
 func TestRequestedDeploymentVersionsValidatesRequestShape(t *testing.T) {
-	refs := []*apigen.DeploymentExpectedSeq{{DeploymentID: 10, ExpectedSeq: 3}}
+	refs := []apigen.DeploymentExpectedSeq{{DeploymentID: 10, ExpectedSeq: 3}}
 	if _, err := requestedDeploymentVersions(false, refs); !errors.Is(err, InvalidReferencingDeploymentsErr) {
 		t.Fatalf("list without flag error = %v", err)
 	}
-	if _, err := requestedDeploymentVersions(true, []*apigen.DeploymentExpectedSeq{
+	if _, err := requestedDeploymentVersions(true, []apigen.DeploymentExpectedSeq{
 		{DeploymentID: 10, ExpectedSeq: 3},
 		{DeploymentID: 10, ExpectedSeq: 3},
 	}); !errors.Is(err, InvalidReferencingDeploymentsErr) {

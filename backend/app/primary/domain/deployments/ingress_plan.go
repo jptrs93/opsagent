@@ -11,7 +11,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 )
 
-func ReservationsFromSettings(primaryNodeID int32, settings *apigen.ClusterSettings, str func(apigen.StringSetting) string, boolean func(apigen.BoolSetting) bool) []ingressplan.Reservation {
+func ReservationsFromSettings(primaryNodeID uint64, settings *apigen.ClusterSettings, str func(apigen.StringSetting) string, boolean func(apigen.BoolSetting) bool) []ingressplan.Reservation {
 	return ingressplan.WebUIReservations(primaryNodeID,
 		boolean(settings.HttpsWeb.Enabled), str(settings.HttpsWeb.Listen),
 		boolean(settings.HttpWeb.Enabled), str(settings.HttpWeb.Listen))
@@ -19,23 +19,23 @@ func ReservationsFromSettings(primaryNodeID int32, settings *apigen.ClusterSetti
 
 // ingressPlanInputs builds the evaluator's inputs from live state, replacing
 // (or adding) the candidate deployment's spec.
-func ingressPlanInputs(live nodes.LiveState, reservations []ingressplan.Reservation, nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) ingressplan.Inputs {
+func ingressPlanInputs(live nodes.LiveState, reservations []ingressplan.Reservation, nodeID, deploymentID uint64, candidate *apigen.DeploymentSpec) ingressplan.Inputs {
 	in := ingressplan.Inputs{Reservations: reservations, Candidate: deploymentID}
 	for _, node := range live.Nodes {
-		in.Nodes = append(in.Nodes, ingressplan.Node{ID: node.ID, HostAddresses: ingressplan.ParseHostAddresses(node.HostAddresses)})
+		in.Nodes = append(in.Nodes, ingressplan.Node{ID: node.ID, HostAddresses: ingressplan.HostAddresses(node.HostAddresses)})
 	}
 	for _, cfg := range live.Deployments {
 		// The opendeploy system deployments carry no routes and would name
 		// themselves as host-mode neighbours on every node.
-		if cfg.DeploymentID == deploymentID || internaldeploy.IsInternalConfig(cfg) {
+		if cfg.Deployment.ID == deploymentID || internaldeploy.IsInternalConfig(cfg) {
 			continue
 		}
-		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.DeploymentID, cfg.Value.PlacementNodeID(), cfg.Value.Name, &cfg.Value.Spec))
+		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.Deployment.ID, cfg.Deployment.PlacementNodeID(), cfg.Deployment.Name, &cfg.Deployment.Spec))
 	}
 	if candidate != nil {
 		name := ""
 		if existing := live.Deployments[deploymentID]; existing != nil {
-			name = existing.Value.Name
+			name = existing.Deployment.Name
 		}
 		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(deploymentID, nodeID, name, candidate))
 	}
@@ -47,23 +47,24 @@ func ingressPlanInputs(live nodes.LiveState, reservations []ingressplan.Reservat
 // error. A node selector must name a registered node, and until netproxy
 // can dial backends on other machines it must be the deployment's own node:
 // a route named for another node would validate and then publish nothing.
-func ValidateNodeNetworkingClaims(live nodes.LiveState, reservations []ingressplan.Reservation, nodeID, deploymentID int32, candidate *apigen.DeploymentSpec) error {
+func ValidateNodeNetworkingClaims(live nodes.LiveState, reservations []ingressplan.Reservation, nodeID, deploymentID uint64, candidate *apigen.DeploymentSpec) error {
 	if candidate == nil || candidate.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 		return nil
 	}
 	for _, route := range candidate.Networking.Ingress {
-		if route == nil {
-			continue
-		}
 		for _, entry := range route.Listen {
-			if entry == nil || entry.Node == nil || entry.Node.NodeID == 0 {
+			if !entry.Node.Present {
 				continue
 			}
-			node := live.Nodes[entry.Node.NodeID]
-			if node == nil {
-				return InvalidConfigErrf("networking.ingress.listen.node: unknown node id %d", entry.Node.NodeID)
+			specific := entry.Node.Value.Value.Specific
+			if specific == nil || specific.NodeID == 0 {
+				continue
 			}
-			if entry.Node.NodeID != nodeID {
+			node := live.Nodes[specific.NodeID]
+			if node == nil {
+				return InvalidConfigErrf("networking.ingress.listen.node: unknown node id %d", specific.NodeID)
+			}
+			if specific.NodeID != nodeID {
 				return InvalidConfigErrf("networking.ingress.listen.node: ingress is served by the deployment's own node only; node %q cannot publish a route for a deployment on another node", node.Name)
 			}
 		}
@@ -93,10 +94,8 @@ func ValidateNodeNetworkingClaims(live nodes.LiveState, reservations []ingresspl
 // ValidateIngressAgainstSettings rejects a settings change whose Web UI
 // listeners would turn an existing literal ingress claim into an error. The
 // caller holds the global store lock (SystemConfig.LockForUpdate).
-func ValidateIngressAgainstSettings(ctx context.Context, q *pq.Queries, primaryNodeID int32, resolved *apigen.ClusterSettings) error {
-	reservations := ReservationsFromSettings(primaryNodeID, resolved,
-		func(v apigen.StringSetting) string { return v.Value },
-		func(v apigen.BoolSetting) bool { return v.Value })
+func ValidateIngressAgainstSettings(ctx context.Context, q *pq.Queries, primaryNodeID uint64, resolved *apigen.ClusterSettings) error {
+	reservations := ReservationsFromSettings(primaryNodeID, resolved, literalString, literalBool)
 	live, err := nodes.ReadLiveState(ctx, q)
 	if err != nil {
 		return err
@@ -105,9 +104,23 @@ func ValidateIngressAgainstSettings(ctx context.Context, q *pq.Queries, primaryN
 	for _, diag := range result.Errors {
 		name := fmt.Sprintf("deployment %d", diag.DeploymentID)
 		if cfg := live.Deployments[diag.DeploymentID]; cfg != nil {
-			name = fmt.Sprintf("deployment %q", cfg.Value.Name)
+			name = fmt.Sprintf("deployment %q", cfg.Deployment.Name)
 		}
 		return fmt.Errorf("%s: %s", name, diag.Message)
 	}
 	return nil
+}
+
+func literalString(v apigen.StringSetting) string {
+	if l := v.Value.Value.Literal; l != nil {
+		return *l
+	}
+	return ""
+}
+
+func literalBool(v apigen.BoolSetting) bool {
+	if l := v.Value.Value.Literal; l != nil {
+		return *l
+	}
+	return false
 }

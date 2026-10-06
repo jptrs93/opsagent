@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+// Helper types shared by the entity models: addresses, prefixes, and the
+// typed references to one version of a secret, config, or asset.
+
+message IPv4Address {
+  bytes octets = 1 [(buf.validate.field).bytes.len = 4];
+}
+
+message IPv6Address {
+  bytes octets = 1 [(buf.validate.field).bytes.len = 16];
+}
+
+message IpAddress {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    IPv4Address ipv4 = 1;
+    IPv6Address ipv6 = 2;
+  }
+}
+
+message IPv4Prefix {
+  IPv4Address address = 1 [(cp.go_value) = true];
+  uint32 prefix_length = 2 [(buf.validate.field).uint32.lte = 32];
+}
+
+message IPv6Prefix {
+  IPv6Address address = 1 [(cp.go_value) = true];
+  uint32 prefix_length = 2 [(buf.validate.field).uint32.lte = 128];
+}
+
+message IpPrefix {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    IPv4Prefix ipv4 = 1;
+    IPv6Prefix ipv6 = 2;
+  }
+}
+
+// SecretRef pins one immutable value of a secret: the entity id and the value
+// version of the write that set it. ConfigRef and AssetRef do the same.
+message SecretRef {
+  uint64 secret_id = 1 [(cp.js_type) = "number"];
+  uint32 version = 2 [(buf.validate.field).uint32.gte = 1];
+}
+
+message ConfigRef {
+  uint64 config_id = 1 [(cp.js_type) = "number"];
+  uint32 version = 2 [(buf.validate.field).uint32.gte = 1];
+}
+
+message AssetRef {
+  uint64 asset_id = 1 [(cp.js_type) = "number"];
+  uint32 version = 2 [(buf.validate.field).uint32.gte = 1];
+}
+
+enum FilePermission {
+  FILE_PERMISSION_UNSPECIFIED = 0;
+  FILE_PERMISSION_READ_WRITE = 1;
+  FILE_PERMISSION_READ_ONLY = 2;
+  FILE_PERMISSION_READ_EXECUTE = 3;
+}

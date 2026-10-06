@@ -24,12 +24,12 @@ func TestTopologyFromClusterNetMapUsesOnlyRemoteRouteHosts(t *testing.T) {
 		t.Fatal(err)
 	}
 	clusterMap := &apigen.ClusterNetMap{
-		Nodes: []*apigen.ClusterNetMapNode{
+		Nodes: []apigen.ClusterNetMapNode{
 			{NodeID: 1, UnderlayAddress: "192.0.2.1", WgPublicKey: testWGKeyA, WgListenPort: 51833},
 			{NodeID: 2, UnderlayAddress: "192.0.2.2", WgPublicKey: testWGKeyB, WgListenPort: 51833},
 			{NodeID: 3, UnderlayAddress: "192.0.2.3", WgPublicKey: testWGKeyC, WgListenPort: 51833},
 		},
-		Routes: []*apigen.ClusterNetMapRoute{
+		Routes: []apigen.ClusterNetMapRoute{
 			{LogicalPrefix: localPrefix.String(), HostingNodeID: 1},
 			{LogicalPrefix: remotePrefix.String(), HostingNodeID: 2},
 		},
@@ -63,11 +63,11 @@ func TestTopologyFromClusterNetMapRejectsMissingRouteHostUnderlay(t *testing.T) 
 		t.Fatal(err)
 	}
 	_, err = TopologyFromClusterNetMap(&apigen.ClusterNetMap{
-		Nodes: []*apigen.ClusterNetMapNode{
+		Nodes: []apigen.ClusterNetMapNode{
 			{NodeID: 1, UnderlayAddress: "192.0.2.1", WgPublicKey: testWGKeyA, WgListenPort: 51833},
 			{NodeID: 2, WgPublicKey: testWGKeyB, WgListenPort: 51833},
 		},
-		Routes: []*apigen.ClusterNetMapRoute{{LogicalPrefix: destination.String(), HostingNodeID: 2}},
+		Routes: []apigen.ClusterNetMapRoute{{LogicalPrefix: destination.String(), HostingNodeID: 2}},
 	}, 1, prefix)
 	if err == nil {
 		t.Fatal("missing remote underlay was accepted")
@@ -81,11 +81,11 @@ func TestTopologyFromClusterNetMapRequiresWireGuardTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	clusterMap := &apigen.ClusterNetMap{
-		Nodes: []*apigen.ClusterNetMapNode{
+		Nodes: []apigen.ClusterNetMapNode{
 			{NodeID: 1, UnderlayAddress: "192.0.2.1", WgPublicKey: testWGKeyA, WgListenPort: 51833},
 			{NodeID: 2, UnderlayAddress: "192.0.2.2", WgPublicKey: testWGKeyB, WgListenPort: 51833},
 		},
-		Routes: []*apigen.ClusterNetMapRoute{
+		Routes: []apigen.ClusterNetMapRoute{
 			{LogicalPrefix: remotePrefix.String(), HostingNodeID: 2},
 		},
 	}

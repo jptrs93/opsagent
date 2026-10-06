@@ -1,4 +1,13 @@
+import {formatIpAddress, formatIpPrefix, isIpAddressMessage, isIpPrefixMessage} from "../lib/ipaddr.js";
+
+// omitZeroValues drops defaults for display and renders IpPrefix and
+// IpAddress messages in their text form.
 function omitZeroValues(value) {
+    if (isIpPrefixMessage(value)) return formatIpPrefix(value) || undefined;
+    if (isIpAddressMessage(value)) return formatIpAddress(value) || undefined;
+    if (value instanceof Uint8Array) {
+        return value.length ? Array.from(value, byte => byte.toString(16).padStart(2, '0')).join('') : undefined;
+    }
     if (Array.isArray(value)) {
         const items = value.map(omitZeroValues).filter(item => item !== undefined);
         return items.length ? items : undefined;
@@ -55,9 +64,10 @@ function writeValue(value, indent) {
     return `${indent}${yamlScalar(value)}`;
 }
 
+// orderDeployment puts the DeploymentRecord's deployment ahead of its meta.
 export function orderDeployment(config) {
     const ordered = {};
-    for (const key of ['deploymentId', 'seq', 'value', 'version', 'specVersion', 'createdTime', 'eventTime', 'author', 'eventType']) {
+    for (const key of ['deployment', 'meta']) {
         if (config[key] !== undefined) ordered[key] = config[key];
     }
     for (const [key, value] of Object.entries(config)) {

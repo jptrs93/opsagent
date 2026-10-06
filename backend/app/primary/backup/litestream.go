@@ -147,8 +147,9 @@ func backupConfigSignalFromDynamic(loader systemconfig.Loader, cfg *apigen.Clust
 		return signal
 	}
 	signal.AccessKeyID = loader.MustLoadStringSetting(cfg.Backup.S3AccessKeyID)
-	secretRef := cfg.Backup.S3SecretAccessKey
-	signal.Secret = secretRef.Ref
+	if secretRef := cfg.Backup.S3SecretAccessKey; secretRef.Present {
+		signal.Secret = secretRef.Value.Ref()
+	}
 	if secretSource != nil && signal.Secret.Valid() {
 		if meta, ok := secretSource.MetaByRef(signal.Secret); ok {
 			signal.SecretUpdatedAt = meta.CreatedAt
@@ -252,7 +253,7 @@ func CurrentStatus(ctx context.Context) apigen.BackupStatus {
 		return status
 	}
 	status.Running = reported.Running
-	status.LastSuccessfulSyncAt = reported.LastSuccessfulSyncAt
+	status.LastSuccessfulSyncAt = apigen.TimeOf(reported.LastSuccessfulSyncAt)
 	status.LocalTxid = reported.LocalTxid
 	status.RemoteTxid = reported.RemoteTxid
 	status.InSync = reported.InSync
@@ -272,7 +273,7 @@ func publishBackupStatusUntil(ctx context.Context, done <-chan struct{}, publish
 	var last apigen.BackupStatus
 	publishIfChanged := func() {
 		status := withAssetStatus(CurrentStatus(ctx), assets)
-		if status != last {
+		if !backupStatusEqual(status, last) {
 			publishBackupStatus(publisher, status)
 			last = status
 		}
@@ -373,11 +374,11 @@ func validateConfig(cfg S3Config) error {
 	return nil
 }
 
-func revealSecretRef(secretSource secretStore, ref apigen.SecretRef) (string, error) {
-	if secretSource == nil || !ref.Ref.Valid() {
+func revealSecretRef(secretSource secretStore, ref apigen.Maybe[apigen.SecretRef]) (string, error) {
+	if secretSource == nil || !ref.Present || !ref.Value.Valid() {
 		return "", nil
 	}
-	value, err := secretSource.RevealByRef(ref.Ref)
+	value, err := secretSource.RevealByRef(ref.Value.Ref())
 	if err != nil {
 		return "", err
 	}

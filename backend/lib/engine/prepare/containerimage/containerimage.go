@@ -16,14 +16,14 @@ import (
 
 // Prepare pulls and unpacks a registry image for immediate use by the
 // container runner.
-func Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log *preparerlog.Log, credentials githubcredentials.Provider) (string, apigen.ImageStatus) {
-	container := dep.Value.Spec.Container()
+func Prepare(ctx context.Context, dep *apigen.DeploymentRecord, log *preparerlog.Log, credentials githubcredentials.Provider) (string, apigen.ImageStatus) {
+	container := dep.Deployment.Spec.Container()
 	version := dep.WorkloadVersion()
 	logPath := dep.PrepareOutputPath()
-	ref, err := imageref.Ref(container.Source.RemoteImage.Image, version)
+	ref, err := imageref.Ref(container.Source.Value.RemoteImage.Image, version)
 	if err != nil {
-		slog.ErrorContext(ctx, fmt.Sprintf("container image ref %q invalid", container.Source.RemoteImage.Image), "err", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		slog.ErrorContext(ctx, fmt.Sprintf("container image ref %q invalid", container.Source.Value.RemoteImage.Image), "err", err)
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("image pull of %s starting, logging to %s", ref, logPath))
 
@@ -33,8 +33,8 @@ func Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log *preparerlog.
 	if err != nil {
 		slog.ErrorContext(ctx, fmt.Sprintf("image pull of %s failed", ref), "err", err)
 		log.Error("pulling image: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	log.Write("pulled image %s", resolved)
-	return resolved, apigen.ImageStatus_IMAGE_READY
+	return resolved, apigen.ImageStatus_IMAGE_STATUS_READY
 }

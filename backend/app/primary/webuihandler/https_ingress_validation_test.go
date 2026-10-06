@@ -2,7 +2,6 @@ package webuihandler
 
 import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"path/filepath"
 	"testing"
 
@@ -20,8 +19,8 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)
 	}
-	primaryNode := nodes.EnsurePrimaryNode(store, "primary", "primary")
-	secondaryNode := nodes.EnsurePrimaryNode(store, "secondary-2", "secondary-2")
+	primaryNode := ensureTestNode(store, "primary", "primary")
+	secondaryNode := ensureTestNode(store, "secondary-2", "secondary-2")
 	h := &Handler{Store: store, Queries: store.Queries(), Secrets: secretManager, NodeID: primaryNode.ID}
 
 	certPEM, keyPEM, err := certu.GenerateSelfSignedServerCertificate([]string{"web.ingress.opendeploy.test"})
@@ -35,18 +34,14 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 
 	passthroughSpec := func(hostname string) *apigen.DeploymentSpec {
 		spec := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
-			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-			Ingress: []*apigen.Ingress{{
-				Kind:                 apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-				Hostname:             hostname,
-				TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 8443},
-			}},
+			Mode:    apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+			Ingress: []apigen.Ingress{tlsPassthroughIngress(hostname, 8443)},
 		})
 		return &spec
 	}
 	for _, hostname := range []string{"one.ingress.opendeploy.test", "two.ingress.opendeploy.test"} {
 		cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "tls-"+hostname, secondaryNode.ID, passthroughSpec(hostname))
-		if err := deployments.ValidateNodeNetworkingClaims(liveNodes(h.Store.Queries()), h.webUIReservations(), secondaryNode.ID, cfg.DeploymentID, passthroughSpec(hostname)); err != nil {
+		if err := deployments.ValidateNodeNetworkingClaims(liveNodes(h.Store.Queries()), h.webUIReservations(), secondaryNode.ID, cfg.Deployment.ID, passthroughSpec(hostname)); err != nil {
 			t.Fatalf("passthrough claims for %s rejected: %v", hostname, err)
 		}
 	}
@@ -55,21 +50,14 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	echo := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "https-echo-root", secondaryNode.ID, &echoSpec)
 
 	updated := remoteDeploymentSpec("httpecho", apigen.NetworkingConfig{
-		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-		Ingress: []*apigen.Ingress{{
-			Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
-			Hostname: "web.ingress.opendeploy.test",
-			HttpsConfig: &apigen.HttpsConfig{
-				ContainerPort: 8080,
-				CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{Secret: certSecret.Ref()}},
-			},
-		}},
+		Mode:    apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+		Ingress: []apigen.Ingress{httpsIngress("web.ingress.opendeploy.test", 8080, secretCertSource(certSecret.Ref()))},
 	})
 	validated, err := deployments.ValidateSpec(h.Store.Queries(), h.Secrets, &updated)
 	if err != nil {
 		t.Fatalf("deployments.ValidateSpec rejected HTTPS ingress: %v", err)
 	}
-	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(h.Store.Queries()), h.webUIReservations(), echo.Value.PlacementNodeID(), echo.DeploymentID, validated); err != nil {
+	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(h.Store.Queries()), h.webUIReservations(), echo.Deployment.PlacementNodeID(), echo.Deployment.ID, validated); err != nil {
 		t.Fatalf("ValidateNodeNetworkingClaims rejected HTTPS ingress: %v", err)
 	}
 }

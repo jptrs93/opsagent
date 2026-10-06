@@ -377,7 +377,7 @@ const selectorSection = (key, label, res) => section(key, label, res.mode === "a
 // The instance position has no universe: any item, the listed ids, any
 // except the listed ids, the open argument, or none.
 const instanceTokens = (refs) => {
-    const id = (i, state) => ({name: `#${i.id}`, state});
+    const id = (i, state) => ({name: i.name, state});
     if (refs.mode === "all") return [{name: "any", state: "on"}];
     if (refs.mode === "allExcept") return [{name: "any", state: "on"}, ...refs.exclude.map((i) => id(i, "excluded"))];
     if (refs.mode === "list") return refs.include.map((i) => id(i, "on"));

@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS users (
     id           INTEGER PRIMARY KEY,
     name         TEXT    NOT NULL,
-    data_blob    BLOB    NOT NULL,   -- InternalUser: WebAuthn id and credentials
+    data_blob    BLOB    NOT NULL,   -- UserAuthentication: WebAuthn id and credentials
     created_time INTEGER NOT NULL,   -- epoch ms; 0 predates the fact
     seq          INTEGER NOT NULL,
     event_time   INTEGER NOT NULL,   -- epoch ms
@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     expires_at         INTEGER NOT NULL,   -- epoch s
     token_hash         BLOB    NOT NULL,   -- SHA-256; the plaintext is never stored
     revoked_at         INTEGER NOT NULL,   -- epoch s; 0 while live
-    kind               INTEGER NOT NULL,   -- UserSessionKind: 0 full, 1 bootstrap
+    kind               INTEGER NOT NULL,   -- UserSessionKind
     requesting_address TEXT    NOT NULL,
     user_agent         TEXT    NOT NULL,
     seq                INTEGER NOT NULL,

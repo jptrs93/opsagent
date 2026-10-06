@@ -50,8 +50,8 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("systemconfig.NewService: %v", err)
 	}
-	if got := configService.Snapshot().MasterPasswordHash; got != "test-hash" {
-		t.Fatalf("MasterPasswordHash = %q, want test-hash", got)
+	if got := configService.Snapshot().MasterPasswordHash; !got.Present || got.Value != "test-hash" {
+		t.Fatalf("MasterPasswordHash = %v, want test-hash", got)
 	}
 	secretsMgr, err := secrets.Open(dir, store)
 	if err != nil {

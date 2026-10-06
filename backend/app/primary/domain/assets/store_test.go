@@ -27,10 +27,29 @@ import (
 
 type testLoader struct{}
 
-func (testLoader) MustLoadStringSetting(v apigen.StringSetting) string { return v.Value }
-func (testLoader) MustLoadBoolSetting(v apigen.BoolSetting) bool       { return v.Value }
+func (testLoader) MustLoadStringSetting(v apigen.StringSetting) string {
+	if l := v.Value.Value.Literal; l != nil {
+		return *l
+	}
+	return ""
+}
 
-type testSecrets map[int32]string
+func (testLoader) MustLoadBoolSetting(v apigen.BoolSetting) bool {
+	if l := v.Value.Value.Literal; l != nil {
+		return *l
+	}
+	return false
+}
+
+func strSetting(v string) apigen.StringSetting {
+	return apigen.StringSetting{Value: apigen.StringSettingValue{Value: apigen.StringSettingValueValueOneof{Literal: &v}}}
+}
+
+func boolSetting(v bool) apigen.BoolSetting {
+	return apigen.BoolSetting{Value: apigen.BoolSettingValue{Value: apigen.BoolSettingValueValueOneof{Literal: &v}}}
+}
+
+type testSecrets map[uint64]string
 
 func (s testSecrets) RevealByRef(ref apigen.ValueRef) ([]byte, error) {
 	value, ok := s[ref.ID]
@@ -229,12 +248,12 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	defer server.Close()
 
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	settings.Backup.S3AccessKeyID.Value = "shared-key"
-	settings.Backup.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 1, Version: 1}}
-	settings.Backup.S3Bucket.Value = "bucket"
-	settings.Backup.S3Region.Value = "us-east-1"
-	settings.Backup.S3Endpoint.Value = server.URL
-	settings.LargeAssets.S3Path.Value = "asset-prefix"
+	settings.Backup.S3AccessKeyID = strSetting("shared-key")
+	settings.Backup.S3SecretAccessKey = apigen.Some(apigen.SecretRef{SecretID: 1, Version: 1})
+	settings.Backup.S3Bucket = strSetting("bucket")
+	settings.Backup.S3Region = strSetting("us-east-1")
+	settings.Backup.S3Endpoint = strSetting(server.URL)
+	settings.LargeAssets.S3Path = strSetting("asset-prefix")
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 	asset, err := store.CreateAssetFromReader(context.Background(), "large.bin", 1, 0, 0, int64(len(blob)), bytes.NewReader(blob))
@@ -245,7 +264,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	objectPath := "/bucket/asset-prefix/" + row.ID
 
 	newSettings := *settings
-	newSettings.Backup.Enabled.Value = true
+	newSettings.Backup.Enabled = boolSetting(true)
 	settings = &newSettings
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("reconcile to S3: pending=%d err=%v", pending, err)
@@ -267,7 +286,7 @@ func TestLargeAssetReconcilesBetweenLocalAndSharedS3(t *testing.T) {
 	}
 
 	newSettings = *settings
-	newSettings.Backup.Enabled.Value = false
+	newSettings.Backup.Enabled = boolSetting(false)
 	settings = &newSettings
 	if pending, err := store.Reconcile(context.Background()); err != nil || pending != 0 {
 		t.Fatalf("reconcile to local: pending=%d err=%v", pending, err)
@@ -307,17 +326,17 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 	defer server.Close()
 
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	settings.Backup.Enabled.Value = true
-	settings.Backup.S3AccessKeyID.Value = "shared-key"
-	settings.Backup.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 1, Version: 1}}
-	settings.Backup.S3Bucket.Value = "shared-bucket"
-	settings.Backup.S3Region.Value = "us-east-1"
-	settings.LargeAssets.UseSeparateS3.Value = true
-	settings.LargeAssets.S3AccessKeyID.Value = "separate-key"
-	settings.LargeAssets.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 2, Version: 1}}
-	settings.LargeAssets.S3Bucket.Value = "separate-bucket"
-	settings.LargeAssets.S3Region.Value = "us-east-1"
-	settings.LargeAssets.S3Endpoint.Value = server.URL
+	settings.Backup.Enabled = boolSetting(true)
+	settings.Backup.S3AccessKeyID = strSetting("shared-key")
+	settings.Backup.S3SecretAccessKey = apigen.Some(apigen.SecretRef{SecretID: 1, Version: 1})
+	settings.Backup.S3Bucket = strSetting("shared-bucket")
+	settings.Backup.S3Region = strSetting("us-east-1")
+	settings.LargeAssets.UseSeparateS3 = boolSetting(true)
+	settings.LargeAssets.S3AccessKeyID = strSetting("separate-key")
+	settings.LargeAssets.S3SecretAccessKey = apigen.Some(apigen.SecretRef{SecretID: 2, Version: 1})
+	settings.LargeAssets.S3Bucket = strSetting("separate-bucket")
+	settings.LargeAssets.S3Region = strSetting("us-east-1")
+	settings.LargeAssets.S3Endpoint = strSetting(server.URL)
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
@@ -339,7 +358,7 @@ func TestLargeAssetSeparateS3OverridesSharedCredentials(t *testing.T) {
 
 func TestLargeAssetUploadDoesNotFallBackWhenBackupS3IsInvalid(t *testing.T) {
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	settings.Backup.Enabled.Value = true
+	settings.Backup.Enabled = boolSetting(true)
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
@@ -368,7 +387,7 @@ func TestS3ConfigurationChangeRequiresAssetsToBeLocal(t *testing.T) {
 	sha := hashBlob([]byte("remote content"))
 	InsertAssetStoreRow(store.DB.Queries(), "remote-row", sha, 12_000_000, 0, 1)
 	next := *settings
-	next.LargeAssets.S3Path.Value = "different-path"
+	next.LargeAssets.S3Path = strSetting("different-path")
 
 	if err := store.ValidateSettingsUpdate(*settings, next); !errors.Is(err, ErrAssetS3ConfigChangeRequiresLocal) {
 		t.Fatalf("ValidateSettingsUpdate error = %v, want ErrAssetS3ConfigChangeRequiresLocal", err)
@@ -437,12 +456,12 @@ func (f *fakeS3) remove(path string) {
 
 func dualStorageSettings(s3 *fakeS3) *apigen.ClusterSettings {
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	settings.Backup.S3AccessKeyID.Value = "shared-key"
-	settings.Backup.S3SecretAccessKey = apigen.SecretRef{Ref: apigen.ValueRef{ID: 1, Version: 1}}
-	settings.Backup.S3Bucket.Value = "bucket"
-	settings.Backup.S3Region.Value = "us-east-1"
-	settings.Backup.S3Endpoint.Value = s3.server.URL
-	settings.LargeAssets.S3Path.Value = "asset-prefix"
+	settings.Backup.S3AccessKeyID = strSetting("shared-key")
+	settings.Backup.S3SecretAccessKey = apigen.Some(apigen.SecretRef{SecretID: 1, Version: 1})
+	settings.Backup.S3Bucket = strSetting("bucket")
+	settings.Backup.S3Region = strSetting("us-east-1")
+	settings.Backup.S3Endpoint = strSetting(s3.server.URL)
+	settings.LargeAssets.S3Path = strSetting("asset-prefix")
 	return settings
 }
 
@@ -482,8 +501,8 @@ func switchTarget(t *testing.T, store *Store, settings **apigen.ClusterSettings,
 func TestLargeAssetStoredInBothWhenKeepLocalCopy(t *testing.T) {
 	s3 := newFakeS3(t)
 	settings := dualStorageSettings(s3)
-	settings.Backup.Enabled.Value = true
-	settings.LargeAssets.KeepLocalCopy.Value = true
+	settings.Backup.Enabled = boolSetting(true)
+	settings.LargeAssets.KeepLocalCopy = boolSetting(true)
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
@@ -513,8 +532,8 @@ func TestLargeAssetStoredInBothWhenKeepLocalCopy(t *testing.T) {
 func TestOpenAssetFallsBackToS3WhenLocalCopyIsMissing(t *testing.T) {
 	s3 := newFakeS3(t)
 	settings := dualStorageSettings(s3)
-	settings.Backup.Enabled.Value = true
-	settings.LargeAssets.KeepLocalCopy.Value = true
+	settings.Backup.Enabled = boolSetting(true)
+	settings.LargeAssets.KeepLocalCopy = boolSetting(true)
 	store := newTestStore(t, &settings)
 	blob := largeTestBlob()
 
@@ -574,8 +593,8 @@ func TestReconcileConvergesAcrossStorageTargets(t *testing.T) {
 	versionRef := statetest.LatestValue(store.DB, asset).Ref
 
 	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
-		s.Backup.Enabled.Value = true
-		s.LargeAssets.KeepLocalCopy.Value = true
+		s.Backup.Enabled = boolSetting(true)
+		s.LargeAssets.KeepLocalCopy = boolSetting(true)
 	})
 	expectStatuses(t, store, blob, 1, 1)
 	if _, err := os.Stat(localPath(row.ID)); err != nil {
@@ -586,7 +605,7 @@ func TestReconcileConvergesAcrossStorageTargets(t *testing.T) {
 	}
 
 	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
-		s.LargeAssets.KeepLocalCopy.Value = false
+		s.LargeAssets.KeepLocalCopy = boolSetting(false)
 	})
 	expectStatuses(t, store, blob, 0, 1)
 	if _, err := os.Stat(localPath(row.ID)); !os.IsNotExist(err) {
@@ -594,7 +613,7 @@ func TestReconcileConvergesAcrossStorageTargets(t *testing.T) {
 	}
 
 	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
-		s.LargeAssets.KeepLocalCopy.Value = true
+		s.LargeAssets.KeepLocalCopy = boolSetting(true)
 	})
 	expectStatuses(t, store, blob, 1, 1)
 	downloaded, err := os.ReadFile(localPath(row.ID))
@@ -606,7 +625,7 @@ func TestReconcileConvergesAcrossStorageTargets(t *testing.T) {
 	}
 
 	switchTarget(t, store, &settings, func(s *apigen.ClusterSettings) {
-		s.Backup.Enabled.Value = false
+		s.Backup.Enabled = boolSetting(false)
 	})
 	expectStatuses(t, store, blob, 1, 0)
 	if !s3.has(objectPath) {
@@ -675,7 +694,7 @@ func TestReconcileVerifiesLocalClaimsAgainstTheFilesystem(t *testing.T) {
 func TestDropLocalCopyClearsTheClaimBeforeRemovingTheFile(t *testing.T) {
 	s3 := newFakeS3(t)
 	settings := dualStorageSettings(s3)
-	settings.Backup.Enabled.Value = true
+	settings.Backup.Enabled = boolSetting(true)
 	store := newTestStore(t, &settings)
 	content := largeTestBlob()
 	id := newStoreID()
@@ -728,7 +747,7 @@ func TestEveryVersionCarriesTheStorageKeyOfItsContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rename: %v", err)
 	}
-	if renamed.Value.StorageKey != row.ID || renamed.Value.Sha256 != row.Sha256 {
+	if renamed.Value.StorageKey != row.ID || hex.EncodeToString(renamed.Value.Sha256) != row.Sha256 {
 		t.Fatalf("renamed event content = %q %q, want carried forward", renamed.Value.StorageKey, renamed.Value.Sha256)
 	}
 	if rows := ListAssetStoreRowMetas(store.DB.Queries()); len(rows) != 1 {

@@ -90,10 +90,10 @@ func (s *Service) notifyLocked(ctx context.Context, update WriteUpdate) {
 	}
 }
 
-func affectedInstanceIDs(u WriteUpdate) []int32 {
-	seen := map[int32]bool{}
-	var ids []int32
-	add := func(id int32) {
+func affectedInstanceIDs(u WriteUpdate) []uint64 {
+	seen := map[uint64]bool{}
+	var ids []uint64
+	add := func(id uint64) {
 		if !seen[id] {
 			seen[id] = true
 			ids = append(ids, id)
@@ -102,7 +102,7 @@ func affectedInstanceIDs(u WriteUpdate) []int32 {
 	for _, m := range u.Mutations {
 		switch m.Type() {
 		case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE, apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS:
-			add(int32(m.EntityID()))
+			add(m.EntityID())
 		}
 	}
 	slices.Sort(ids)

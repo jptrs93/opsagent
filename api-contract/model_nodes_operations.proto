@@ -2,7 +2,9 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/nodes.proto";
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
@@ -13,7 +15,7 @@ message NodeRenameRequest {
 
 message NodeAllowedSpacesRequest {
   string identifier = 1;
-  repeated int32 space_ids = 2;
+  repeated uint64 space_ids = 2 [(cp.js_type) = "number"];
 }
 
 message NodeDrainRequest {
@@ -23,9 +25,8 @@ message NodeDrainRequest {
 
 message NodeEvictRequest {
   string identifier = 1;
-  reserved 2; // expected_version: the ordinal check, before seqs were the concurrency token
-  bool force = 3;
-  int64 expected_seq = 4; // seq of the node's last mutation the caller saw; 0 = no check
+  bool force = 2;
+  int64 expected_seq = 3 [(cp.js_type) = "number"]; // 0 = no check
 }
 
 message NodeExposureRequest {
@@ -33,18 +34,22 @@ message NodeExposureRequest {
 }
 
 message NodeExposureItem {
-  int32 id = 1;
+  uint64 id = 1 [(cp.js_type) = "number"];
   string name = 2;
-  int32 space_id = 3;
-  int32 version = 4;
+  uint64 space_id = 3 [(cp.js_type) = "number"];
+  uint32 version = 4;
 }
 
 message NodeExposure {
-  int32 node_id = 1;
+  uint64 node_id = 1 [(cp.js_type) = "number"];
   repeated NodeExposureItem deployments = 2;
   repeated NodeExposureItem secrets = 3;
   repeated NodeExposureItem configs = 4;
   repeated NodeExposureItem issued_tls_deployments = 5;
   repeated string acme_hostnames = 6;
   bool github_token = 7;
+}
+
+message NixStoreResetRequest {
+  string repo = 1;
 }

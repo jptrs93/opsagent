@@ -20,10 +20,10 @@ import (
 // deploymentStatuses returns the observed status of every non-final scheduled
 // instance for a deployment, newest instance first. A deployment mid-rollover
 // has more than one, and the newest is not necessarily the one serving.
-func deploymentStatuses(store *state.Service, deploymentID int32) []apigen.ScheduledInstanceStatus {
+func deploymentStatuses(store *state.Service, deploymentID uint64) []apigen.ScheduledInstanceStatus {
 	states := make([]apigen.ScheduledInstanceState, 0, 2)
 	for _, state := range store.FetchScheduledSnapshot(nil) {
-		if state.Instance.DeploymentID != deploymentID ||
+		if state.Instance.Deployment.DeploymentID != deploymentID ||
 			state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
 			continue
 		}
@@ -34,29 +34,31 @@ func deploymentStatuses(store *state.Service, deploymentID int32) []apigen.Sched
 	})
 	out := make([]apigen.ScheduledInstanceStatus, 0, len(states))
 	for _, state := range states {
-		out = append(out, state.Status)
+		if state.Status.Present {
+			out = append(out, state.Status.Value)
+		}
 	}
 	return out
 }
 
-func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) int32 {
+func preparerOutputVersion(statuses []apigen.ScheduledInstanceStatus) uint32 {
 	for i := range statuses {
-		if p := statuses[i].Preparer; !p.IsZero() && prepare.InProgress(p) {
-			return p.DeploymentSpecVersion
+		if p := statuses[i].Preparer; p.Present && prepare.InProgress(p.Value) {
+			return p.Value.DeploymentSpecVersion
 		}
 	}
 	for i := range statuses {
-		if p := statuses[i].Preparer; !p.IsZero() {
-			return p.DeploymentSpecVersion
+		if p := statuses[i].Preparer; p.Present {
+			return p.Value.DeploymentSpecVersion
 		}
 	}
 	return 0
 }
 
-func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) bool {
+func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version uint32) bool {
 	for i := range statuses {
 		p := statuses[i].Preparer
-		if !p.IsZero() && p.DeploymentSpecVersion == version && prepare.InProgress(p) {
+		if p.Present && p.Value.DeploymentSpecVersion == version && prepare.InProgress(p.Value) {
 			return true
 		}
 	}
@@ -66,8 +68,8 @@ func preparingVersion(statuses []apigen.ScheduledInstanceStatus, version int32) 
 func streamPrepareOutput(ctx context.Context, out *outbox, store *state.Service, req *apigen.DeploymentLogRequest) {
 	ctx = logu.AddTag(ctx, "LogShipper")
 	requestID := req.RequestID
-	if req.PreparerOutput != nil {
-		p := req.PreparerOutput
+	if req.PreparerOutput.Present {
+		p := req.PreparerOutput.Value
 		if p.SpecVersion == 0 && p.DeploymentID != 0 {
 			p.SpecVersion = preparerOutputVersion(deploymentStatuses(store, p.DeploymentID))
 		}
@@ -76,7 +78,7 @@ func streamPrepareOutput(ctx context.Context, out *outbox, store *state.Service,
 		})
 		return
 	}
-	out.Send(&apigen.MsgToPrimary{LogEnd: true, LogRequestID: requestID})
+	out.Send(&apigen.MsgToPrimary{LogEnd: apigen.Some(true), LogRequestID: apigen.Some(requestID)})
 }
 
 var logManager *logmanager.Manager
@@ -85,7 +87,7 @@ func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) 
 	ctx = logu.AddTag(ctx, "LogShipper")
 	if logManager == nil {
 		slog.ErrorContext(ctx, "log query requested before log manager started", "dep", req.DeploymentID)
-		out.Send(&apigen.MsgToPrimary{LogQueryError: "log manager is not running", LogRequestID: req.RequestID})
+		out.Send(&apigen.MsgToPrimary{LogQueryError: apigen.Some("log manager is not running"), LogRequestID: apigen.Some(req.RequestID)})
 		return
 	}
 	resp, err := logManager.Query(ctx, req)
@@ -94,10 +96,10 @@ func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) 
 			return
 		}
 		slog.ErrorContext(ctx, "log query failed", "dep", req.DeploymentID, "err", err)
-		out.Send(&apigen.MsgToPrimary{LogQueryError: err.Error(), LogRequestID: req.RequestID})
+		out.Send(&apigen.MsgToPrimary{LogQueryError: apigen.Some(err.Error()), LogRequestID: apigen.Some(req.RequestID)})
 		return
 	}
-	out.Send(&apigen.MsgToPrimary{LogQueryResponse: resp, LogRequestID: req.RequestID})
+	out.Send(&apigen.MsgToPrimary{LogQueryResponse: apigen.Some(*resp), LogRequestID: apigen.Some(req.RequestID)})
 }
 
 // streamFile always sends LogEnd, even on failure. When keepTailing is non-nil,
@@ -105,7 +107,7 @@ func runLogQuery(ctx context.Context, out *outbox, req *apigen.LogQueryRequest) 
 // at the first EOF.
 func streamFile(ctx context.Context, out *outbox, path string, requestID string, keepTailing func() bool) {
 	defer func() {
-		out.Send(&apigen.MsgToPrimary{LogEnd: true, LogRequestID: requestID})
+		out.Send(&apigen.MsgToPrimary{LogEnd: apigen.Some(true), LogRequestID: apigen.Some(requestID)})
 	}()
 
 	f, err := waitForLogFile(ctx, path)
@@ -122,7 +124,7 @@ func streamFile(ctx context.Context, out *outbox, path string, requestID string,
 			if n > 0 {
 				chunk := make([]byte, n)
 				copy(chunk, buf[:n])
-				if !out.Send(&apigen.MsgToPrimary{LogData: chunk, LogRequestID: requestID}) {
+				if !out.Send(&apigen.MsgToPrimary{LogData: apigen.Some(chunk), LogRequestID: apigen.Some(requestID)}) {
 					return context.Canceled
 				}
 			}

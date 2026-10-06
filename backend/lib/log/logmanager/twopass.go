@@ -632,7 +632,7 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 	if limit > len(retained) {
 		limit = len(retained)
 	}
-	records := make([]*apigen.LogRecord, 0, limit)
+	records := make([]apigen.LogRecord, 0, limit)
 	var sampled int64
 	for idx := range retained {
 		r := &retained[idx]
@@ -662,16 +662,16 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 			accumFields(fieldAccums, fields, false)
 		}
 		if len(records) < q.limit {
-			out := &apigen.LogRecord{
+			out := apigen.LogRecord{
 				Time:            r.rec.Time,
 				Level:           level,
 				Msg:             msg,
 				Fields:          fieldsToDisplay(fields),
-				Version:         r.rec.Version,
+				Version:         uint32(r.rec.Version),
 				Stream:          r.rec.Stream,
 				InstanceOrdinal: r.rec.InstanceOrdinal,
 				Run:             r.rec.Run,
-				Node:            r.rec.Node,
+				Node:            uint64(r.rec.Node),
 				Seq:             r.rec.Seq,
 			}
 			if q.includeRaw {
@@ -681,7 +681,7 @@ func (e *queryEngine) runTwoPassQuery(ctx context.Context, q queryParams) (*apig
 		}
 	}
 	resp := queryResponse(&q, start, agg.scanned, agg.matched, sampled, records, fieldAccums, warnings, b, counts)
-	slog.InfoContext(ctx, trace.summary(time.Duration(resp.Stats.TookMs)*time.Millisecond, agg.scanned),
+	slog.InfoContext(ctx, trace.summary(time.Duration(resp.Stats.Value.TookMs)*time.Millisecond, agg.scanned),
 		"deployment", e.deploymentID)
 	return resp, nil
 }

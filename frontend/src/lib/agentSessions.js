@@ -20,14 +20,18 @@ export function sessionPending(session) {
     return session?.status === STATUS.PENDING;
 }
 
+// The token is minted when the agent collects an approved session, so a
+// pending or uncollected session has none.
+export const sessionExpiresAt = (session) => {
+    const expiresAt = session?.token?.expiresAt;
+    return expiresAt instanceof Date && !Number.isNaN(expiresAt.getTime()) && expiresAt.getTime() !== 0 ? expiresAt : null;
+};
+
 // A pending or uncollected session has no expiry yet, so "no expiry" cannot
 // mean expired: only an approved session with a date in the past has run out.
 export function sessionExpired(session, now = Date.now()) {
-    const expiresAt = session?.expiresAt;
-    if (!(expiresAt instanceof Date) || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() === 0) {
-        return false;
-    }
-    return expiresAt.getTime() <= now;
+    const expiresAt = sessionExpiresAt(session);
+    return expiresAt !== null && expiresAt.getTime() <= now;
 }
 
 export function sessionLive(session, now = Date.now()) {
@@ -61,7 +65,7 @@ export function sessionStatus(session, now = Date.now()) {
             if (sessionExpired(session, now)) return {label: "Expired", tone: "text-gray-500"};
             // Approved but never picked up. The distinction matters: the
             // operator did their part and the agent never came back.
-            if (!session?.expiresAt || session.expiresAt.getTime() === 0) {
+            if (sessionExpiresAt(session) === null) {
                 return {label: "Approved, not collected", tone: "text-amber-400"};
             }
             return {label: "Active", tone: "text-green-400"};

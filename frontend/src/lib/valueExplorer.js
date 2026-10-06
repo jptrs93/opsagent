@@ -43,7 +43,7 @@ export function makeItems(secretMetas, userConfigs, secretsUnlocked) {
         return [{
             kind,
             id: Number(meta.id),
-            name: meta.name || "",
+            name: meta.key || "",
             spaceId: Number(meta.spaceId || 0),
             directoryId: Number(meta.valueDirectoryId || 0),
             version: Number(latest.version || 0),
@@ -59,6 +59,11 @@ export function makeItems(secretMetas, userConfigs, secretsUnlocked) {
 }
 
 export const dirsById = (dirs) => new Map((dirs || []).map((d) => [Number(d.id), d]));
+
+// Directory ids are optional on the wire: a space's root is the absence of a
+// parent or directory id, never 0. The explorers keep 0 for the root in their
+// own row model, so every request converts at the boundary.
+export const dirIdForWire = (directoryId) => Number(directoryId || 0) || undefined;
 
 // emptySpaceIds returns the spaces holding neither a folder nor an item, which
 // the explorers hide by default: an empty space contributes a closed root and
@@ -88,7 +93,7 @@ export function dirPathSegments(byId, directoryId) {
         seen.add(current);
         const dir = byId.get(current);
         if (!dir) break;
-        segments.unshift(dir.name || "");
+        segments.unshift(dir.key || "");
         current = Number(dir.parentId || 0);
     }
     return segments;
@@ -151,7 +156,7 @@ export function buildRows({spaces, dirs, items, hiddenSpaceIds, types = null, qu
 
     const cmpItems = compareBy(sort, usesByKey);
     const dirSign = sort.key === "name" && sort.dir === "desc" ? -1 : 1;
-    const cmpDirs = (a, b) => dirSign * (a.name || "").localeCompare(b.name || "");
+    const cmpDirs = (a, b) => dirSign * (a.key || "").localeCompare(b.key || "");
 
     const matchesQuery = (item) => !q ||
         item.name.toLowerCase().includes(q) ||
@@ -169,7 +174,7 @@ export function buildRows({spaces, dirs, items, hiddenSpaceIds, types = null, qu
         let count = 0;
         let kept = false;
         for (const dir of [...(childDirs.get(key) || [])].sort(cmpDirs)) {
-            const selfMatch = q !== "" && (dir.name || "").toLowerCase().includes(q);
+            const selfMatch = q !== "" && (dir.key || "").toLowerCase().includes(q);
             const sub = walk(spaceId, Number(dir.id), depth + 1, ancestorMatch || selfMatch);
             if (narrowed && !selfMatch && !sub.kept) continue;
             count += sub.count;
@@ -257,7 +262,7 @@ export function dropDestination(row) {
 export function dragSource(row) {
     if (row?.type === "dir") {
         return {
-            type: "dir", key: row.key, id: Number(row.dir.id), name: row.dir.name,
+            type: "dir", key: row.key, id: Number(row.dir.id), name: row.dir.key,
             spaceId: Number(row.dir.spaceId), parentId: Number(row.dir.parentId || 0),
         };
     }
@@ -302,7 +307,7 @@ export function checkDrop({dirs, items, drag, destination}) {
 
     const taken = (dirs || []).some((d) => Number(d.spaceId) === destination.spaceId
             && Number(d.parentId || 0) === destination.directoryId
-            && d.name === drag.name
+            && d.key === drag.name
             && !(drag.type === "dir" && Number(d.id) === drag.id))
         || (items || []).some((it) => Number(it.spaceId) === destination.spaceId
             && Number(it.directoryId || 0) === destination.directoryId

@@ -13,17 +13,17 @@ import (
 )
 
 type netMapApplier struct {
-	nodeID               int32
+	nodeID               uint64
 	prefix               network.Prefix
-	snapshotAndSubscribe func(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
-	recordApplied        func(nodeID int32, appliedSeq int64)
+	snapshotAndSubscribe func(nodeID uint64) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
+	recordApplied        func(nodeID uint64, appliedSeq int64)
 	reconcile            func(network.Topology) error
 	setPolicyRules       func([]network.PolicyRule) error
 	setNetproxyPublish   func([]network.IngressPublish) error
 	retryDelay           time.Duration
 }
 
-func newNetMapApplier(nodeID int32, prefix network.Prefix, maps *netmappublisher.Publisher) *netMapApplier {
+func newNetMapApplier(nodeID uint64, prefix network.Prefix, maps *netmappublisher.Publisher) *netMapApplier {
 	return &netMapApplier{
 		nodeID:               nodeID,
 		prefix:               prefix,
@@ -68,5 +68,5 @@ func (a *netMapApplier) run(ctx context.Context) {
 }
 
 func (a *netMapApplier) apply(clusterMap *apigen.ClusterNetMap) error {
-	return network.ApplyClusterNetMap(clusterMap, a.nodeID, a.prefix, a.reconcile, a.setPolicyRules, a.setNetproxyPublish)
+	return network.ApplyClusterNetMap(clusterMap, int32(a.nodeID), a.prefix, a.reconcile, a.setPolicyRules, a.setNetproxyPublish)
 }

@@ -3,11 +3,7 @@
 -- duplicate column, no such column, no such table). Comments must not contain
 -- semicolons — statements are split on them.
 --
--- History note: all migrations accumulated up to v0.0.541 (2026-08-31),
--- ending with the scheduled_instance_status runner_exit_code column, were
--- removed after every active cluster had been rolled forward, as were the
--- v0.0.549 spec-version column renames after the v0.0.550 rollout. Upgrading
--- a database from before then requires stepping through a release that still
+-- History note: all migrations accumulated up to v0.0.615 were removed on
+-- 2026-10-05 after every active cluster had been rolled forward. Upgrading a
+-- database from before then requires stepping through a release that still
 -- carried them.
-
-DELETE FROM local_kv WHERE key = 'migration_deployment_config_v2';

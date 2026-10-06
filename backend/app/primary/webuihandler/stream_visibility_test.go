@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -15,11 +14,11 @@ import (
 )
 
 type spaceEntities struct {
-	deployment, instance, secret, config, asset int64
+	deployment, instance, secret, config, asset uint64
 }
 
-func (e spaceEntities) byType() map[apigen.CoreEntityType]int64 {
-	return map[apigen.CoreEntityType]int64{
+func (e spaceEntities) byType() map[apigen.CoreEntityType]uint64 {
+	return map[apigen.CoreEntityType]uint64{
 		apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT:         e.deployment,
 		apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE: e.instance,
 		apigen.CoreEntityType_CORE_ENTITY_SECRET:             e.secret,
@@ -28,12 +27,12 @@ func (e spaceEntities) byType() map[apigen.CoreEntityType]int64 {
 	}
 }
 
-func seedSpaceEntities(t *testing.T, h *Handler, spaceID int32, tag string) spaceEntities {
+func seedSpaceEntities(t *testing.T, h *Handler, spaceID uint64, tag string) spaceEntities {
 	t.Helper()
 	admin := enforceCtx(1, false)
-	node := nodes.EnsurePrimaryNode(h.Store, "node-"+tag, "node-"+tag)
+	node := ensureTestNode(h.Store, "node-"+tag, "node-"+tag)
 	dep := createTestDeployment(h.Store, "node-"+tag, spaceID, "dep-"+tag, ptr(remoteDeploymentSpec("nginx", hostNetworking())))
-	inst := statetest.CreateScheduledInstance(h.Store, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := statetest.CreateScheduledInstance(h.Store, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	secret, err := h.Secrets.Create("secret-"+tag, []byte("s"), 1, spaceID, 0)
 	if err != nil {
 		t.Fatalf("create secret: %v", err)
@@ -46,10 +45,10 @@ func seedSpaceEntities(t *testing.T, h *Handler, spaceID int32, tag string) spac
 	if err != nil {
 		t.Fatalf("create asset: %v", err)
 	}
-	return spaceEntities{int64(dep.DeploymentID), int64(inst.ID), int64(secret.SecretID), int64(config.ConfigID), int64(asset.AssetID)}
+	return spaceEntities{dep.Deployment.ID, inst.ID, secret.SecretID, config.ConfigID, asset.AssetID}
 }
 
-func assertFoldHasOnly(t *testing.T, fold map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity, present, absent spaceEntities) {
+func assertFoldHasOnly(t *testing.T, fold map[apigen.CoreEntityType]map[uint64]*apigen.CoreEntity, present, absent spaceEntities) {
 	t.Helper()
 	for typ, id := range present.byType() {
 		if fold[typ][id] == nil {
@@ -82,24 +81,24 @@ func TestSpaceScopedStreamSeesOnlyItsSpace(t *testing.T) {
 	}
 
 	stream := startTestEventStream(t, h, 2)
-	statetest.DeleteDeployment(h.Store, apigen.Context{}, int32(visible.deployment))
+	statetest.DeleteDeployment(h.Store, apigen.Context{}, visible.deployment)
 	msg := recvMsg(t, stream)
 	var deleted bool
 	for _, m := range mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT) {
 		deleted = deleted || (m.Kind() == apigen.AuthzVerb_AUTHZ_VERB_DELETE && m.EntityID() == visible.deployment)
 	}
-	if !deleted || msg.Snapshot != nil {
+	if !deleted || msg.Snapshot.Present {
 		t.Fatalf("delete of a sent deployment was not forwarded: %+v", msg)
 	}
 
-	statetest.DeleteDeployment(h.Store, apigen.Context{}, int32(hidden.deployment))
+	statetest.DeleteDeployment(h.Store, apigen.Context{}, hidden.deployment)
 	marker, err := values.CreateConfig(h.Store, "marker", nodes.DefaultSpaceID, 0, 1, "ready")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for {
 		msg := recvMsg(t, stream)
-		if msg.Snapshot != nil {
+		if msg.Snapshot.Present {
 			t.Fatalf("hidden delete reset the stream: %+v", msg)
 		}
 		for _, m := range mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT) {
@@ -107,16 +106,16 @@ func TestSpaceScopedStreamSeesOnlyItsSpace(t *testing.T) {
 				t.Fatalf("delete of a never-sent deployment was forwarded: %+v", m)
 			}
 		}
-		if configs := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) == 1 && configs[0].EntityID() == int64(marker.ConfigID) {
+		if configs := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) == 1 && configs[0].EntityID() == marker.ConfigID {
 			break
 		}
 	}
 
-	if _, err := h.Authz.CreateGrant(&apigen.AuthzGrant{UserID: 2, TemplateID: authz.ClusterAdminTemplateID, Spec: &apigen.AuthzGrantSpec{}}, 0); err != nil {
+	if _, err := h.Authz.CreateGrant(clusterAdminGrant(2), 0); err != nil {
 		t.Fatal(err)
 	}
 	reset := recvMsg(t, stream)
-	if reset.Snapshot == nil || !reset.Synced {
+	if !reset.Snapshot.Present || !reset.Synced {
 		t.Fatalf("grant change did not send a fresh snapshot: %+v", reset)
 	}
 	fold = foldOpening(reset)
@@ -139,7 +138,7 @@ func TestStreamsOpenedDuringCommitsSeeEverySeqOnce(t *testing.T) {
 	startSeq := globalSeq(t, h)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	created := map[int64]int64{}
+	created := map[uint64]int64{}
 	start := make(chan struct{})
 	for w := range writers {
 		wg.Add(1)
@@ -153,7 +152,7 @@ func TestStreamsOpenedDuringCommitsSeeEverySeqOnce(t *testing.T) {
 					return
 				}
 				mu.Lock()
-				created[int64(event.ConfigID)] = event.Seq
+				created[event.ConfigID] = event.Seq
 				mu.Unlock()
 			}
 		}()
@@ -177,8 +176,8 @@ func TestStreamsOpenedDuringCommitsSeeEverySeqOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	for k, s := range streams {
-		seen := map[int64]int64{}
-		record := func(events []*apigen.CoreWriteUpdate) {
+		seen := map[uint64]int64{}
+		record := func(events []apigen.CoreWriteUpdate) {
 			for _, e := range events {
 				for _, m := range e.Mutations {
 					if m.Type() != apigen.CoreEntityType_CORE_ENTITY_CONFIG {
@@ -191,7 +190,7 @@ func TestStreamsOpenedDuringCommitsSeeEverySeqOnce(t *testing.T) {
 				}
 			}
 		}
-		for _, e := range s.opening.Snapshot.Entities {
+		for _, e := range s.opening.Snapshot.Value.Entities {
 			if e.EntityType != apigen.CoreEntityType_CORE_ENTITY_CONFIG {
 				continue
 			}
@@ -201,9 +200,9 @@ func TestStreamsOpenedDuringCommitsSeeEverySeqOnce(t *testing.T) {
 			seen[e.EntityID] = e.Meta.UpdatedSeq
 		}
 		last := s.opening.Seq
-		for seen[int64(marker.ConfigID)] == 0 {
+		for seen[marker.ConfigID] == 0 {
 			msg := recvMsg(t, s.ch)
-			if msg.Snapshot != nil {
+			if msg.Snapshot.Present {
 				t.Fatalf("stream %d reset without a visibility change", k)
 			}
 			if msg.Seq <= last || len(msg.Events) != 1 || msg.Events[0].Seq != msg.Seq {
@@ -212,7 +211,7 @@ func TestStreamsOpenedDuringCommitsSeeEverySeqOnce(t *testing.T) {
 			last = msg.Seq
 			record(msg.Events)
 		}
-		delete(seen, int64(marker.ConfigID))
+		delete(seen, marker.ConfigID)
 		for id, seq := range created {
 			got, ok := seen[id]
 			if !ok || got != seq {
@@ -236,11 +235,11 @@ func TestOpeningDecidesAnEntityByItsNewestRow(t *testing.T) {
 	if _, err := h.Secrets.SetWithDeploymentUpdates(secret.SecretID, []byte("s2"), 1, false, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	id := int64(secret.SecretID)
+	id := secret.SecretID
 	noop := func(*pq.Queries) error { return nil }
 	rows := func(msg *apigen.EventStreamMsg) int {
 		n := 0
-		for _, e := range msg.Snapshot.Entities {
+		for _, e := range msg.Snapshot.Value.Entities {
 			if e.EntityType == apigen.CoreEntityType_CORE_ENTITY_SECRET && e.EntityID == id {
 				n++
 			}
@@ -263,7 +262,7 @@ func TestOpeningDecidesAnEntityByItsNewestRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	reset := recvMsg(t, stream)
-	if reset.Snapshot == nil {
+	if !reset.Snapshot.Present {
 		t.Fatalf("space move did not send a fresh snapshot: %+v", reset)
 	}
 	if got := rows(reset); got != 0 {

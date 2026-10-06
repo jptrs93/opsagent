@@ -160,14 +160,14 @@ func TestQueryMetaFieldFiltersAndStats(t *testing.T) {
 	m := jsonFixture(t)
 	got := queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		Filters:      []*apigen.LogFilter{{Field: "stream", Op: "eq", Value: "stderr"}},
+		Filters:      []apigen.LogFilter{{Field: "stream", Op: "eq", Value: "stderr"}},
 	}))
 	if !equalStrings(got, []string{"plain panic output"}) {
 		t.Fatalf("msgs = %#v", got)
 	}
 	got = queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		Filters: []*apigen.LogFilter{
+		Filters: []apigen.LogFilter{
 			{Field: "node", Op: "eq", Value: "7"},
 			{Field: "version", Op: "eq", Value: "1"},
 			{Field: "run", Op: "eq", Value: "1"},
@@ -179,7 +179,7 @@ func TestQueryMetaFieldFiltersAndStats(t *testing.T) {
 	}
 	got = queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		Filters:      []*apigen.LogFilter{{Field: "node", Op: "eq", Value: "99"}},
+		Filters:      []apigen.LogFilter{{Field: "node", Op: "eq", Value: "99"}},
 	}))
 	if len(got) != 0 {
 		t.Fatalf("msgs = %#v", got)
@@ -205,7 +205,7 @@ func TestQueryMetaFieldFiltersAndStats(t *testing.T) {
 		t.Fatalf("version stats = %+v", s)
 	}
 	for _, r := range resp.Records {
-		if r.Node != testNodeID || r.Run != 1 {
+		if r.Node != uint64(testNodeID) || r.Run != 1 {
 			t.Fatalf("record meta = %+v", r)
 		}
 	}
@@ -220,14 +220,14 @@ func TestQueryNarrowFilesMatchFull(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Stats.MatchedRows != 5 || resp.Stats.SampledRows != 1 {
+	if resp.Stats.Value.MatchedRows != 5 || resp.Stats.Value.SampledRows != 1 {
 		t.Fatalf("stats = %+v", resp.Stats)
 	}
 	if len(resp.Records) != 1 || resp.Records[0].Msg != "b2" {
 		t.Fatalf("records = %+v", resp.Records)
 	}
 	var total int64
-	for _, s := range resp.Histogram.Series {
+	for _, s := range resp.Histogram.Value.Series {
 		for _, c := range s.Counts {
 			total += c
 		}

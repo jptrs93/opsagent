@@ -22,87 +22,74 @@ const deploymentVersionColumns = `v.deployment_id, v.version, v.spec_version, v.
 const liveDeploymentVersionsFrom = `FROM deployments d JOIN deployment_versions v ON v.deployment_id = d.id AND v.version = d.version`
 
 type deploymentVersionRow struct {
-	event                          apigen.DeploymentEvent
-	eventTime, createdTime, author int64
-	value                          []byte
+	id    uint64
+	meta  apigen.EntityMeta
+	value []byte
 }
 
 func (r *deploymentVersionRow) fields() []any {
-	return []any{&r.event.DeploymentID, &r.event.Version, &r.event.SpecVersion, &r.createdTime, &r.value, &r.event.Seq, &r.eventTime, &r.author}
+	return []any{&r.id, &r.meta.Version, &r.meta.SpecVersion, &r.meta.CreatedTime, &r.value, &r.meta.UpdatedSeq, &r.meta.UpdatedTime, &r.meta.UpdatedActor}
 }
 
-func (r *deploymentVersionRow) toEvent() (*apigen.DeploymentEvent, error) {
+func (r *deploymentVersionRow) toRecord() (*apigen.DeploymentRecord, error) {
 	def, err := apigen.DecodeDeployment(r.value)
 	if err != nil {
 		return nil, err
 	}
-	event := r.event
-	event.Author = int32(r.author)
-	event.EventTime, event.CreatedTime = time.UnixMilli(r.eventTime), time.UnixMilli(r.createdTime)
-	event.EventType = apigen.EventType_EVENT_TYPE_UPDATE
-	if event.Version == 1 {
-		event.EventType = apigen.EventType_EVENT_TYPE_CREATE
-	}
-	event.Value = *def
-	event.Value.ID = event.DeploymentID
-	return &event, nil
+	def.ID = r.id
+	return &apigen.DeploymentRecord{Deployment: *def, Meta: r.meta}, nil
 }
 
-func scanDeploymentEvent(row scanner) (*apigen.DeploymentEvent, error) {
+func scanDeploymentRecord(row scanner) (*apigen.DeploymentRecord, error) {
 	var r deploymentVersionRow
 	if err := row.Scan(r.fields()...); err != nil {
 		return nil, err
 	}
-	return r.toEvent()
+	return r.toRecord()
 }
 
-func (q *Queries) NextDeploymentID(ctx context.Context) (int64, error) {
+func (q *Queries) NextDeploymentID(ctx context.Context) (uint64, error) {
 	return q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT)
 }
 
-type GetDeploymentEventByVersionParams struct {
-	DeploymentID int64
-	Version      int64
+// GetDeploymentVersion returns a retained version: the current one of a live
+// deployment or one a retained scheduled instance pins.
+func (q *Queries) GetDeploymentVersion(ctx context.Context, deploymentID uint64, version uint32) (*apigen.DeploymentRecord, error) {
+	return scanDeploymentRecord(q.db.QueryRowContext(ctx, `SELECT `+deploymentVersionColumns+` FROM deployment_versions v WHERE v.deployment_id = ? AND v.version = ?`, deploymentID, version))
 }
 
-// GetDeploymentEventByVersion returns a retained version: the current one of
-// a live deployment or one a retained scheduled instance pins.
-func (q *Queries) GetDeploymentEventByVersion(ctx context.Context, arg GetDeploymentEventByVersionParams) (*apigen.DeploymentEvent, error) {
-	return scanDeploymentEvent(q.db.QueryRowContext(ctx, `SELECT `+deploymentVersionColumns+` FROM deployment_versions v WHERE v.deployment_id = ? AND v.version = ?`, arg.DeploymentID, arg.Version))
-}
-
-// GetLatestDeploymentEvent returns the current version of a live deployment,
-// or sql.ErrNoRows when the deployment is deleted or unknown.
-func (q *Queries) GetLatestDeploymentEvent(ctx context.Context, deploymentID int64) (*apigen.DeploymentEvent, error) {
-	return scanDeploymentEvent(q.db.QueryRowContext(ctx, `SELECT `+deploymentVersionColumns+` `+liveDeploymentVersionsFrom+` WHERE d.id = ?`, deploymentID))
+// GetLatestDeployment returns the current version of a live deployment, or
+// sql.ErrNoRows when the deployment is deleted or unknown.
+func (q *Queries) GetLatestDeployment(ctx context.Context, deploymentID uint64) (*apigen.DeploymentRecord, error) {
+	return scanDeploymentRecord(q.db.QueryRowContext(ctx, `SELECT `+deploymentVersionColumns+` `+liveDeploymentVersionsFrom+` WHERE d.id = ?`, deploymentID))
 }
 
 // ListActiveDeployments returns the current version of every live deployment.
-func (q *Queries) ListActiveDeployments(ctx context.Context) ([]*apigen.DeploymentEvent, error) {
-	return q.queryDeploymentEvents(ctx, `SELECT `+deploymentVersionColumns+` `+liveDeploymentVersionsFrom+` ORDER BY d.id`)
+func (q *Queries) ListActiveDeployments(ctx context.Context) ([]*apigen.DeploymentRecord, error) {
+	return q.queryDeploymentRecords(ctx, `SELECT `+deploymentVersionColumns+` `+liveDeploymentVersionsFrom+` ORDER BY d.id`)
 }
 
 // ListRetainedDeploymentVersions returns every retained version row in
 // (deployment, version) order.
-func (q *Queries) ListRetainedDeploymentVersions(ctx context.Context) ([]*apigen.DeploymentEvent, error) {
-	return q.queryDeploymentEvents(ctx, `SELECT `+deploymentVersionColumns+` FROM deployment_versions v ORDER BY v.deployment_id, v.version`)
+func (q *Queries) ListRetainedDeploymentVersions(ctx context.Context) ([]*apigen.DeploymentRecord, error) {
+	return q.queryDeploymentRecords(ctx, `SELECT `+deploymentVersionColumns+` FROM deployment_versions v ORDER BY v.deployment_id, v.version`)
 }
 
-func (q *Queries) queryDeploymentEvents(ctx context.Context, query string, args ...any) ([]*apigen.DeploymentEvent, error) {
+func (q *Queries) queryDeploymentRecords(ctx context.Context, query string, args ...any) ([]*apigen.DeploymentRecord, error) {
 	rows, err := q.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var events []*apigen.DeploymentEvent
+	var records []*apigen.DeploymentRecord
 	for rows.Next() {
-		event, err := scanDeploymentEvent(rows)
+		record, err := scanDeploymentRecord(rows)
 		if err != nil {
 			return nil, err
 		}
-		events = append(events, event)
+		records = append(records, record)
 	}
-	return events, rows.Err()
+	return records, rows.Err()
 }
 
 // deploymentVersionFacts numbers a deployment's logged documents the way the
@@ -110,14 +97,14 @@ func (q *Queries) queryDeploymentEvents(ctx context.Context, query string, args 
 // version advances when the spec changed, and the creation time is the first
 // row's. The log holds documents only; a history is derived on read.
 type deploymentVersionFacts struct {
-	version, specVersion int32
-	createdTime          time.Time
+	version, specVersion uint32
+	createdTime          int64
 	previous             *apigen.Deployment
 }
 
 func (f *deploymentVersionFacts) next(d *apigen.Deployment, eventTime int64) {
 	if f.previous == nil {
-		f.version, f.specVersion, f.createdTime = 1, 1, time.UnixMilli(eventTime)
+		f.version, f.specVersion, f.createdTime = 1, 1, eventTime
 	} else {
 		f.version++
 		if !DeploymentSpecsEqual(&d.Spec, &f.previous.Spec) {
@@ -127,81 +114,80 @@ func (f *deploymentVersionFacts) next(d *apigen.Deployment, eventTime int64) {
 	f.previous = d
 }
 
-func (f *deploymentVersionFacts) event(id, seq, eventTime int64, actor int32, eventType apigen.EventType, d *apigen.Deployment) *apigen.DeploymentEvent {
+func (f *deploymentVersionFacts) record(id uint64, seq, eventTime, actor int64, deleted bool, d *apigen.Deployment) *apigen.DeploymentRecord {
 	value := *d
-	value.ID = int32(id)
-	return &apigen.DeploymentEvent{
-		DeploymentID: int32(id), Version: f.version, SpecVersion: f.specVersion, Seq: seq, Author: actor, EventType: eventType,
-		CreatedTime: f.createdTime, EventTime: time.UnixMilli(eventTime), Value: value,
-	}
+	value.ID = id
+	return &apigen.DeploymentRecord{Deployment: value, Meta: apigen.EntityMeta{
+		CreatedTime: f.createdTime, UpdatedTime: eventTime, UpdatedSeq: seq, UpdatedActor: actor,
+		Version: f.version, SpecVersion: f.specVersion, Deleted: deleted,
+	}}
 }
 
-// deploymentLogEvents is a deployment's history, oldest first, read from the
-// write log; a delete carries the document it removed under the facts of
-// the last version.
-func (q *Queries) deploymentLogEvents(ctx context.Context, deploymentID int64) ([]*apigen.DeploymentEvent, error) {
+// deploymentLogRecords is a deployment's history, oldest first, read from
+// the write log; a delete carries the document it removed under the facts
+// of the last version.
+func (q *Queries) deploymentLogRecords(ctx context.Context, deploymentID uint64) ([]*apigen.DeploymentRecord, error) {
 	rows, err := q.db.QueryContext(ctx, `SELECT m.seq, e.time, e.actor, m.op, m.payload FROM write_event_mutations m JOIN write_events e ON e.seq = m.seq
 WHERE m.entity_type = ? AND m.entity_id = ? ORDER BY m.seq, m.idx`, int64(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT), deploymentID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var events []*apigen.DeploymentEvent
+	var records []*apigen.DeploymentRecord
 	var facts deploymentVersionFacts
 	for rows.Next() {
-		var seq, eventTime, op int64
-		var actor int32
+		var seq, eventTime, actor, op int64
 		var payload []byte
 		if err := rows.Scan(&seq, &eventTime, &actor, &op, &payload); err != nil {
 			return nil, err
 		}
 		if apigen.AuthzVerb(op) == apigen.AuthzVerb_AUTHZ_VERB_DELETE {
 			if facts.previous != nil {
-				events = append(events, facts.event(deploymentID, seq, eventTime, actor, apigen.EventType_EVENT_TYPE_DELETE, facts.previous))
+				records = append(records, facts.record(deploymentID, seq, eventTime, actor, true, facts.previous))
 			}
 			continue
 		}
 		entity, err := apigen.DecodeCoreEntity(payload)
-		if err != nil || entity.Deployment == nil {
+		if err != nil || entity.Value.Deployment == nil {
 			return nil, fmt.Errorf("deployment %d at seq %d: %v", deploymentID, seq, err)
 		}
-		facts.next(entity.Deployment, eventTime)
-		events = append(events, facts.event(deploymentID, seq, eventTime, actor, apigen.EventType(op), entity.Deployment))
+		facts.next(entity.Value.Deployment, eventTime)
+		records = append(records, facts.record(deploymentID, seq, eventTime, actor, false, entity.Value.Deployment))
 	}
-	return events, rows.Err()
+	return records, rows.Err()
 }
 
 // deploymentVersionFromLog is one version of a deployment read from the write
 // log, for a version the tables no longer retain.
-func (q *Queries) deploymentVersionFromLog(ctx context.Context, deploymentID, version int64) (*apigen.DeploymentEvent, error) {
-	events, err := q.deploymentLogEvents(ctx, deploymentID)
+func (q *Queries) deploymentVersionFromLog(ctx context.Context, deploymentID uint64, version uint32) (*apigen.DeploymentRecord, error) {
+	records, err := q.deploymentLogRecords(ctx, deploymentID)
 	if err != nil {
 		return nil, err
 	}
-	for _, event := range events {
-		if int64(event.Version) == version && event.EventType != apigen.EventType_EVENT_TYPE_DELETE {
-			return event, nil
+	for _, r := range records {
+		if r.Meta.Version == version && !r.Meta.Deleted {
+			return r, nil
 		}
 	}
 	return nil, sql.ErrNoRows
 }
 
-// ListDeploymentEvents is a deployment's history, oldest first.
-func (q *Queries) ListDeploymentEvents(ctx context.Context, deploymentID int64) ([]*apigen.DeploymentEvent, error) {
-	return q.deploymentLogEvents(ctx, deploymentID)
+// ListDeploymentHistory is a deployment's history, oldest first.
+func (q *Queries) ListDeploymentHistory(ctx context.Context, deploymentID uint64) ([]*apigen.DeploymentRecord, error) {
+	return q.deploymentLogRecords(ctx, deploymentID)
 }
 
-// ListDeletedDeploymentEvents returns one tombstone per deleted deployment,
+// ListDeletedDeployments returns one tombstone per deleted deployment,
 // newest deletion first, read from the write log.
-func (q *Queries) ListDeletedDeploymentEvents(ctx context.Context) ([]*apigen.DeploymentEvent, error) {
+func (q *Queries) ListDeletedDeployments(ctx context.Context) ([]*apigen.DeploymentRecord, error) {
 	rows, err := q.db.QueryContext(ctx, `SELECT DISTINCT entity_id FROM write_event_mutations WHERE entity_type = ? AND op = ? ORDER BY entity_id`,
 		int64(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT), int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE))
 	if err != nil {
 		return nil, err
 	}
-	var ids []int64
+	var ids []uint64
 	for rows.Next() {
-		var id int64
+		var id uint64
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
 			return nil, err
@@ -212,81 +198,81 @@ func (q *Queries) ListDeletedDeploymentEvents(ctx context.Context) ([]*apigen.De
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	var events []*apigen.DeploymentEvent
+	var records []*apigen.DeploymentRecord
 	for _, id := range ids {
-		history, err := q.deploymentLogEvents(ctx, id)
+		history, err := q.deploymentLogRecords(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		if last := history[len(history)-1]; len(history) > 0 && last.EventType == apigen.EventType_EVENT_TYPE_DELETE {
-			events = append(events, last)
+		if n := len(history); n > 0 && history[n-1].Meta.Deleted {
+			records = append(records, history[n-1])
 		}
 	}
-	sort.SliceStable(events, func(i, j int) bool {
-		if !events[i].EventTime.Equal(events[j].EventTime) {
-			return events[i].EventTime.After(events[j].EventTime)
+	sort.SliceStable(records, func(i, j int) bool {
+		if records[i].Meta.UpdatedTime != records[j].Meta.UpdatedTime {
+			return records[i].Meta.UpdatedTime > records[j].Meta.UpdatedTime
 		}
-		return events[i].DeploymentID > events[j].DeploymentID
+		return records[i].Deployment.ID > records[j].Deployment.ID
 	})
-	return events, nil
+	return records, nil
 }
 
-// DeploymentCreateEvent is the first version of a new deployment. Nothing is
-// written: the caller returns its mutation from Commit.
-func DeploymentCreateEvent(ctx apigen.Context, deploymentID, seq int64, now time.Time, d *apigen.Deployment) *apigen.DeploymentEvent {
-	at := time.UnixMilli(now.UnixMilli())
-	event := &apigen.DeploymentEvent{
-		Seq: seq, EventTime: at, CreatedTime: at, Author: ctx.AttributionUserID(),
-		DeploymentID: int32(deploymentID), Version: 1, SpecVersion: 1, Value: *d, EventType: apigen.EventType_EVENT_TYPE_CREATE,
-	}
-	event.Value.ID = event.DeploymentID
-	return event
+// DeploymentCreateRecord is the first version of a new deployment. Nothing
+// is written: the caller returns its mutation from Commit.
+func DeploymentCreateRecord(ctx apigen.Context, deploymentID uint64, seq int64, now time.Time, d *apigen.Deployment) *apigen.DeploymentRecord {
+	at := now.UnixMilli()
+	value := *d
+	value.ID = deploymentID
+	return &apigen.DeploymentRecord{Deployment: value, Meta: apigen.EntityMeta{
+		UpdatedSeq: seq, UpdatedTime: at, CreatedTime: at, UpdatedActor: ctx.AttributionUserID(), Version: 1, SpecVersion: 1,
+	}}
 }
 
-// DeploymentUpdateEvent is the next version of a live deployment, or
+// DeploymentUpdateRecord is the next version of a live deployment, or
 // ErrDeploymentUnchanged when no facet differs from the current one.
-func (q *Queries) DeploymentUpdateEvent(ctx apigen.Context, deploymentID, seq int64, now time.Time, d *apigen.Deployment) (*apigen.DeploymentEvent, error) {
-	prev, err := q.GetLatestDeploymentEvent(ctx, deploymentID)
+func (q *Queries) DeploymentUpdateRecord(ctx apigen.Context, deploymentID uint64, seq int64, now time.Time, d *apigen.Deployment) (*apigen.DeploymentRecord, error) {
+	prev, err := q.GetLatestDeployment(ctx, deploymentID)
 	if err != nil {
 		return nil, err
 	}
-	event, changed := BuildDeploymentUpdateEvent(prev, d, ctx.AttributionUserID(), now)
+	record, changed := BuildDeploymentUpdateRecord(prev, d, ctx.AttributionUserID(), now)
 	if !changed {
 		return nil, ErrDeploymentUnchanged
 	}
-	event.Seq = seq
-	return event, nil
+	record.Meta.UpdatedSeq = seq
+	return record, nil
 }
 
-// DeploymentDeleteEvent is the tombstone of a live deployment, carrying the
+// DeploymentDeleteRecord is the tombstone of a live deployment, carrying the
 // document it removes; its mutation is a delete.
-func (q *Queries) DeploymentDeleteEvent(ctx apigen.Context, deploymentID, seq int64, now time.Time) (*apigen.DeploymentEvent, error) {
-	prev, err := q.GetLatestDeploymentEvent(ctx, deploymentID)
+func (q *Queries) DeploymentDeleteRecord(ctx apigen.Context, deploymentID uint64, seq int64, now time.Time) (*apigen.DeploymentRecord, error) {
+	prev, err := q.GetLatestDeployment(ctx, deploymentID)
 	if err != nil {
 		return nil, err
 	}
-	event := *prev
-	event.Seq, event.EventTime, event.Author, event.EventType = seq, time.UnixMilli(now.UnixMilli()), ctx.AttributionUserID(), apigen.EventType_EVENT_TYPE_DELETE
-	return &event, nil
+	record := *prev
+	record.Meta.UpdatedSeq, record.Meta.UpdatedTime, record.Meta.UpdatedActor, record.Meta.Deleted = seq, now.UnixMilli(), ctx.AttributionUserID(), true
+	return &record, nil
 }
 
-// BuildDeploymentUpdateEvent advances the version, and the spec version when
-// the spec changed, and reports whether any facet changed. The reducer
-// derives the same numbers when the write lands; the event is the writer's
+// BuildDeploymentUpdateRecord advances the version, and the spec version
+// when the spec changed, and reports whether any facet changed. The reducer
+// derives the same numbers when the write lands; the record is the writer's
 // view of the result.
-func BuildDeploymentUpdateEvent(prev *apigen.DeploymentEvent, updated *apigen.Deployment, author int32, now time.Time) (*apigen.DeploymentEvent, bool) {
-	prevDef := &prev.Value
-	event := &apigen.DeploymentEvent{
-		EventTime: time.UnixMilli(now.UnixMilli()), CreatedTime: prev.CreatedTime, Author: author,
-		DeploymentID: prev.DeploymentID, Version: prev.Version + 1, SpecVersion: prev.SpecVersion, Value: *updated, EventType: apigen.EventType_EVENT_TYPE_UPDATE,
-	}
+func BuildDeploymentUpdateRecord(prev *apigen.DeploymentRecord, updated *apigen.Deployment, author int64, now time.Time) (*apigen.DeploymentRecord, bool) {
+	prevDef := &prev.Deployment
+	value := *updated
+	value.ID = prev.Deployment.ID
+	record := &apigen.DeploymentRecord{Deployment: value, Meta: apigen.EntityMeta{
+		UpdatedTime: now.UnixMilli(), CreatedTime: prev.Meta.CreatedTime, UpdatedActor: author,
+		Version: prev.Meta.Version + 1, SpecVersion: prev.Meta.SpecVersion,
+	}}
 	specChanged := !DeploymentSpecsEqual(&updated.Spec, &prevDef.Spec)
 	if specChanged {
-		event.SpecVersion++
+		record.Meta.SpecVersion++
 	}
 	changed := specChanged || !DeploymentSchedulingEqual(&updated.Scheduling, &prevDef.Scheduling) || updated.SpaceID != prevDef.SpaceID || updated.Name != prevDef.Name
-	event.Value.ID = event.DeploymentID
-	return event, changed
+	return record, changed
 }
 
 func DeploymentSpecsEqual(a, b *apigen.DeploymentSpec) bool {
@@ -304,20 +290,20 @@ func DeploymentSchedulingEqual(a, b *apigen.Scheduling) bool {
 // reduceDeployment numbers the document: the next version of a live
 // deployment, the next spec version when its spec differs from the current
 // version's, or version 1 of a new one.
-func (q *Queries) reduceDeployment(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, d *apigen.Deployment) error {
+func (q *Queries) reduceDeployment(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, d *apigen.Deployment) error {
 	if d == nil {
 		return fmt.Errorf("payload has no deployment")
 	}
 	value := *d
 	value.ID = 0
-	version, specVersion, created := int64(1), int64(1), env.EventTime
-	prev, err := q.GetLatestDeploymentEvent(ctx, id)
+	version, specVersion, created := uint32(1), uint32(1), env.EventTime
+	prev, err := q.GetLatestDeployment(ctx, id)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
 	if err == nil {
-		version, specVersion, created = int64(prev.Version)+1, int64(prev.SpecVersion), prev.CreatedTime.UnixMilli()
-		if !DeploymentSpecsEqual(&d.Spec, &prev.Value.Spec) {
+		version, specVersion, created = prev.Meta.Version+1, prev.Meta.SpecVersion, prev.Meta.CreatedTime
+		if !DeploymentSpecsEqual(&d.Spec, &prev.Deployment.Spec) {
 			specVersion++
 		}
 	}
@@ -334,14 +320,14 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET space_id = excluded.space_id, name = excluded.name, version = excluded.version, spec_version = excluded.spec_version,
   seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,
-		id, int64(d.SpaceID), d.Name, version, specVersion, created, env.Seq, env.EventTime, env.Author); err != nil {
+		id, d.SpaceID, d.Name, version, specVersion, created, env.Seq, env.EventTime, env.Author); err != nil {
 		return err
 	}
-	meta.Version, meta.SpecVersion = int32(version), int32(specVersion)
+	meta.Version, meta.SpecVersion = version, specVersion
 	return nil
 }
 
-func (q *Queries) deleteDeploymentRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteDeploymentRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM deployments WHERE id = ?`, id)
 	return err
 }
@@ -351,7 +337,7 @@ func (q *Queries) deleteDeploymentRow(ctx context.Context, id int64) error {
 // the ordinal has a non-final instance, or when a newer final exists; a
 // pruned instance takes its status with it; a version stays while it is the
 // current one or a retained instance pins it.
-func (q *Queries) retainDeployment(ctx context.Context, id int64) error {
+func (q *Queries) retainDeployment(ctx context.Context, id uint64) error {
 	var current sql.NullInt64
 	if err := q.db.QueryRowContext(ctx, `SELECT version FROM deployments WHERE id = ?`, id).Scan(&current); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
@@ -364,9 +350,9 @@ func (q *Queries) retainDeployment(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	var pruned []int64
+	var pruned []uint64
 	for rows.Next() {
-		var instance int64
+		var instance uint64
 		if err := rows.Scan(&instance); err != nil {
 			rows.Close()
 			return err
@@ -389,7 +375,7 @@ func (q *Queries) retainDeployment(ctx context.Context, id int64) error {
 
 // deletionEnvelope is the write that deleted an entity, for the opening of a
 // stream that still carries rows the deleted entity left behind.
-func (q *Queries) deletionEnvelope(ctx context.Context, t apigen.CoreEntityType, id int64) (rowEnvelope, error) {
+func (q *Queries) deletionEnvelope(ctx context.Context, t apigen.CoreEntityType, id uint64) (rowEnvelope, error) {
 	var env rowEnvelope
 	err := q.db.QueryRowContext(ctx, `SELECT m.seq, e.time, e.actor FROM write_event_mutations m JOIN write_events e ON e.seq = m.seq
 WHERE m.entity_type = ? AND m.entity_id = ? AND m.op = ? ORDER BY m.seq DESC LIMIT 1`, int64(t), id, int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)).Scan(&env.Seq, &env.EventTime, &env.Author)

@@ -27,11 +27,12 @@ func sortDedup(samples []*apigen.MetricsSample) []*apigen.MetricsSample {
 	})
 }
 
-func ResolveRange(start, end time.Time, now time.Time) (time.Time, time.Time, error) {
-	if end.IsZero() {
+func ResolveRange(timeStart, timeEnd apigen.Maybe[time.Time], now time.Time) (time.Time, time.Time, error) {
+	start, end := timeStart.Value, timeEnd.Value
+	if !timeEnd.Present || end.IsZero() {
 		end = now
 	}
-	if start.IsZero() {
+	if !timeStart.Present || start.IsZero() {
 		start = end.Add(-DefaultQueryRange)
 	}
 	if !end.After(start) {
@@ -72,12 +73,12 @@ func (s *Store) QueryResponse(ctx context.Context, req *apigen.MetricsQueryReque
 		Query: Query{
 			From:                from,
 			To:                  to,
-			DeploymentID:        req.DeploymentID,
-			ScheduledInstanceID: req.ScheduledInstanceID,
+			DeploymentID:        int32(req.DeploymentID),
+			ScheduledInstanceID: int32(req.ScheduledInstanceID),
 		},
 		Step:              time.Duration(req.StepMs) * time.Millisecond,
 		Fields:            fields,
-		DeploymentVersion: req.DeploymentVersion,
+		DeploymentVersion: int32(req.DeploymentVersion),
 		Run:               req.Run,
 	})
 	if err != nil {
@@ -91,12 +92,12 @@ func (s *Store) QueryResponse(ctx context.Context, req *apigen.MetricsQueryReque
 		TookMs:      int32(time.Since(started).Milliseconds()),
 	}
 	for _, ser := range res.Series {
-		out.Series = append(out.Series, &apigen.MetricsSeries{
-			ScheduledInstanceID: ser.Key.ScheduledInstanceID,
+		out.Series = append(out.Series, apigen.MetricsSeries{
+			ScheduledInstanceID: uint64(ser.Key.ScheduledInstanceID),
 			Ordinal:             ser.Key.Ordinal,
-			DeploymentVersion:   ser.Key.DeploymentVersion,
+			DeploymentVersion:   uint32(ser.Key.DeploymentVersion),
 			Run:                 ser.Key.Run,
-			NodeID:              ser.NodeID,
+			NodeID:              uint64(ser.NodeID),
 			Field:               ser.Field.Name,
 			Kind:                int32(ser.Field.Kind),
 			Values:              ser.Values,
@@ -113,8 +114,8 @@ func (s *Store) LatestResponse() *apigen.MetricsLatestResponse {
 	return out
 }
 
-func LatestEntry(prev, cur *apigen.MetricsSample) *apigen.MetricsLatestEntry {
-	e := &apigen.MetricsLatestEntry{Sample: cur}
+func LatestEntry(prev, cur *apigen.MetricsSample) apigen.MetricsLatestEntry {
+	e := apigen.MetricsLatestEntry{Sample: *cur}
 	if prev == nil {
 		return e
 	}
@@ -123,7 +124,7 @@ func LatestEntry(prev, cur *apigen.MetricsSample) *apigen.MetricsLatestEntry {
 			continue
 		}
 		if r, ok := Rate(prev, cur, f); ok {
-			e.Rates = append(e.Rates, &apigen.MetricsRate{Field: f.Name, PerSecond: r})
+			e.Rates = append(e.Rates, apigen.MetricsRate{Field: f.Name, PerSecond: r})
 		}
 	}
 	return e

@@ -7,27 +7,28 @@ import (
 )
 
 const (
-	SpaceID       int32 = 0
-	Repo                = "github.com/jptrs93/opsagent"
-	SelfName            = "opendeploy"
-	SelfUnit            = SelfName + ".service"
-	ReleaseAsset        = "opendeploy-linux-" + runtime.GOARCH
-	NetproxyName        = "opendeploy-net"
-	NetproxyImage       = "opendeploy-net"
+	SpaceID       uint64 = 0
+	Repo                 = "github.com/jptrs93/opsagent"
+	SelfName             = "opendeploy"
+	SelfImage            = "opendeploy"
+	SelfUnit             = SelfName + ".service"
+	ReleaseAsset         = "opendeploy-linux-" + runtime.GOARCH
+	NetproxyName         = "opendeploy-net"
+	NetproxyImage        = "opendeploy-net"
 )
 
-func IsSelfIdentity(spaceID int32, name string) bool {
+func IsSelfIdentity(spaceID uint64, name string) bool {
 	return spaceID == SpaceID && name == SelfName
 }
 
-func IsNetproxyIdentity(spaceID int32, name string) bool {
+func IsNetproxyIdentity(spaceID uint64, name string) bool {
 	return spaceID == SpaceID && name == NetproxyName
 }
 
-func IsInternalIdentity(spaceID int32, name string) bool {
+func IsInternalIdentity(spaceID uint64, name string) bool {
 	return IsSelfIdentity(spaceID, name) || IsNetproxyIdentity(spaceID, name)
 }
 
-func IsNetproxyConfig(cfg *apigen.DeploymentEvent) bool {
-	return cfg != nil && IsNetproxyIdentity(cfg.Value.SpaceID, cfg.Value.Name)
+func IsNetproxyConfig(cfg *apigen.DeploymentRecord) bool {
+	return cfg != nil && IsNetproxyIdentity(cfg.Deployment.SpaceID, cfg.Deployment.Name)
 }

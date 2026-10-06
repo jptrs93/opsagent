@@ -16,14 +16,14 @@ func (p GithubCredentialsProvider) LoadCredentials(ctx context.Context) (*github
 	if p.SecretRef == nil {
 		return &githubcredentials.GithubCredentials{}, nil
 	}
-	ref := p.SecretRef(ctx)
-	if !ref.Ref.Valid() || p.Secrets == nil {
+	ref := p.SecretRef(ctx).Ref()
+	if !ref.Valid() || p.Secrets == nil {
 		return &githubcredentials.GithubCredentials{}, nil
 	}
-	token, err := p.Secrets.RevealByRef(ref.Ref)
+	token, err := p.Secrets.RevealByRef(ref)
 	if err != nil {
 		return nil, err
 	}
-	meta, _ := p.Secrets.MetaByRef(ref.Ref)
+	meta, _ := p.Secrets.MetaByRef(ref)
 	return &githubcredentials.GithubCredentials{Token: string(token), ChangedAt: meta.CreatedAt}, nil
 }

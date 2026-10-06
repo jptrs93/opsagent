@@ -68,10 +68,10 @@ relying on a filter. The HCL form is a `port_forward` block inside `ingress`
 with `protocol`, `container_port`, optional `host_port` (default
 `container_port`), and `allow` (see Ingress Shape).
 
-`networking.ingress` also requires virtual mode. The supported kinds are
-`TLS_PASSTHROUGH` and `HTTPS` (see Ingress Shape below). A `TLS_PASSTHROUGH`
-route carries a hostname and a `tlsPassthroughConfig` containing
-`containerPort` plus optional `hostPort` (zero/default is `443`). The route and
+`networking.ingress` also requires virtual mode. A route's `config` is
+`tls_passthrough` or `https` (see Ingress Shape below). A `tls_passthrough`
+route carries a hostname and a `container_port` plus an optional `host_port`
+(absent is `443`). The route and
 raw TCP forwarding cannot claim the same host port on a node; multiple distinct
 hostnames can share one ingress host port. Netproxy reads the TLS ClientHello to
 match SNI, then forwards the original TCP stream to an established backend. Every
@@ -417,37 +417,41 @@ that run ends.
 
 ## Ingress Shape
 
-The proxy-backed ingress config is separate from raw `portForwarding`. Each
-kind owns its configuration message; the envelope carries the kind-independent
-claim fields (kind, hostname, listen):
+The proxy-backed ingress config is separate from raw `port_forwarding`. An
+`Ingress` carries the claim fields `hostname` and `listen` beside `config`, a
+union of `tls_passthrough` and `https`, each owning its own message:
 
 ```js
 ingress: [
   {
-    kind: "TLS_PASSTHROUGH",
     hostname: "db.example.com",
-    tlsPassthroughConfig: {hostPort: 443, containerPort: 5432},
     listen: [],                 // empty = every host address of the scheduled node
+    config: {tls_passthrough: {container_port: 5432}},   // host_port absent = 443
   },
   {
-    kind: "HTTPS",
     hostname: "app.example.com",
-    httpsConfig: {
-      containerPort: 8080,
-      pathPrefix: "/api",       // "" ≡ "/"; segment-boundary prefix match
-      stripPrefix: true,        // sets X-Forwarded-Prefix; no response rewriting
-      backendProtocol: "H2C",   // default HTTP/1.1
-      maxRequestBodyBytes: 0,   // 0 = unlimited
-      flushIntervalMs: 0,       // 0 = auto; < 0 = flush every write
-      certSource: {acme: {}},   // or {secret: {secret: {id, version}}}; unset = acme
-    },
     listen: [
-      {node: {nodeId: 2}, address: {prefixes: ["203.0.113.10"]}},
-      {address: {family: "IPV4"}},
+      {node: {specific: {node_id: 2}}, addresses: ["203.0.113.10/32"]},
+      {addresses: ["0.0.0.0/0"]},   // no node = the scheduled node; every IPv4 address
     ],
+    config: {
+      https: {
+        container_port: 8080,
+        path_prefix: "/api",       // "" ≡ "/"; segment-boundary prefix match
+        strip_prefix: true,        // sets X-Forwarded-Prefix; no response rewriting
+        backend_protocol: "H2C",   // or HTTP1; never unspecified
+                                   // max_request_body_bytes absent = unlimited
+                                   // flush_interval_ms absent = auto
+        cert_source: {acme: {challenge: "HTTP_01"}},   // or {secret: {secret: {secret_id, version}}}; absent = acme
+      },
+    },
   },
 ]
 ```
+
+`listen[].addresses` are `IpPrefix` values (shown here as CIDR strings); an
+`IpFilter` and a node's reported addresses use the same `IpPrefix` and
+`IpAddress` shapes.
 
 The HCL `network` section is block-form and optional. Virtual mode is the
 default, so the renderer emits the block only when it carries the host-mode
@@ -464,7 +468,6 @@ network {
     https {
       hostname          = "api.example.com"
       container_port    = 5001
-      flush_interval_ms = -1
       cert              = acme()
 
       listen {

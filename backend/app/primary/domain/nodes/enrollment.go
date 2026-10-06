@@ -29,17 +29,21 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 		if !isNew && isMemberStatus(current.Event.Value.Status) {
 			return nil, ErrEnrollmentIdentifierEnrolled
 		}
-		if !isNew && current.Event.Value.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
+		if !isNew && current.Event.Value.Status == apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED {
 			return nil, ErrEnrollmentIdentifierEvicted
 		}
+		underlay := reported.UnderlayAddress.Addr()
+		if !underlay.IsValid() {
+			return nil, ErrUnderlayAddressRequired
+		}
 		spec := nodeEventSpecOf(current)
-		spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED
+		spec.Status = apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUESTED
 		if !reported.HostAddressesUnknown {
 			spec.HostAddressesJSON = nodeAddressesJSON(canonicalHostAddresses(reported.HostAddresses))
 		}
-		spec.AddressesJSON = nodeAddressesJSON([]string{reported.UnderlayAddress})
+		spec.UnderlayAddress = underlay
 		spec.WGPublicKey = reported.WgPublicKey
-		changed := isNew || current.Event.Value.EnrollmentRequestedAt == 0 || spec != nodeEventSpecOf(current)
+		changed := isNew || !current.Event.Value.EnrollmentRequestedAt.Present || spec != nodeEventSpecOf(current)
 		var update state.WriteUpdate
 		row = current
 		if changed {
@@ -47,10 +51,10 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 			if isNew {
 				verb = apigen.AuthzVerb_AUTHZ_VERB_CREATE
 				row, err = q.NewNode(ctx, seq, now, apigen.Node{
-					EnrollmentRequestedAt: now,
-					Status:                apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED,
-					Operator:              apigen.NodeOperator{Name: requestingMachineID, Roles: []int32{NodeRoleSecondary}},
-					Reported: apigen.NodeReported{Identifier: requestingMachineID, UnderlayAddress: reported.UnderlayAddress, WgPublicKey: reported.WgPublicKey,
+					EnrollmentRequestedAt: millisToMaybe(now),
+					Status:                apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUESTED,
+					Operator:              apigen.NodeOperator{Name: requestingMachineID, Roles: []apigen.NodeRole{NodeRoleSecondary}},
+					Reported: apigen.NodeReported{Identifier: requestingMachineID, UnderlayAddress: apigen.AddrOf(underlay), WgPublicKey: reported.WgPublicKey,
 						HostAddresses: canonicalHostAddresses(reported.HostAddresses)},
 				})
 				if err != nil {
@@ -58,7 +62,7 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 				}
 			} else {
 				if spec.EnrollmentRequestedAt == 0 {
-					spec.EnrollmentRequestedAt, err = q.NextEnrollmentRequestedAt(ctx, int64(current.Event.NodeID), now)
+					spec.EnrollmentRequestedAt, err = q.NextEnrollmentRequestedAt(ctx, current.Event.NodeID, now)
 					if err != nil {
 						return nil, err
 					}
@@ -81,12 +85,12 @@ func UpsertEnrollmentRequest(store *state.Service, remoteAddress, opendeployVers
 	return enrollmentRequestFromRow(row), row.Event.Seq, nil
 }
 
-func MarkEnrollmentDisconnected(store *state.Service, id int32, requestingMachineID string) {
+func MarkEnrollmentDisconnected(store *state.Service, id uint64, requestingMachineID string) {
 	ctx := context.Background()
 	var row pq.CurrentNode
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
-		row, err = q.GetNodeRowByID(ctx, int64(id))
+		row, err = q.GetNodeRowByID(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -123,12 +127,12 @@ func ListEnrollmentRequests(q *pq.Queries) ([]*apigen.EnrollmentRequestStatus, e
 
 // AcceptEnrollmentRequest accepts the request as long as the node has no
 // event newer than expectedSeq; zero skips the check.
-func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestingMachineID string, expectedSeq int64) (*apigen.EnrollmentRequestStatus, error) {
+func AcceptEnrollmentRequest(store *state.Service, id uint64, nodeName, requestingMachineID string, expectedSeq int64) (*apigen.EnrollmentRequestStatus, error) {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	var row pq.CurrentNode
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		current, err := q.GetNodeRowByID(ctx, int64(id))
+		current, err := q.GetNodeRowByID(ctx, id)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrEnrollmentRequestChanged
 		}
@@ -137,10 +141,10 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 		}
 		if (expectedSeq != 0 && current.Event.Seq > expectedSeq) ||
 			current.Event.Value.Reported.Identifier != requestingMachineID ||
-			current.Event.Value.EnrollmentRequestedAt == 0 {
+			!current.Event.Value.EnrollmentRequestedAt.Present {
 			return nil, ErrEnrollmentRequestChanged
 		}
-		taken, err := q.CountNodesWithName(ctx, nodeName, int64(id))
+		taken, err := q.CountNodesWithName(ctx, nodeName, id)
 		if err != nil {
 			return nil, err
 		}
@@ -152,8 +156,8 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 			if spec.EnrolledTime == 0 {
 				spec.EnrolledTime = now
 			}
-			spec.Status = apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL
-			spec.RolesJSON = nodeRolesJSON([]int32{NodeRoleSecondary})
+			spec.Status = apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL
+			spec.RolesJSON = nodeRolesJSON([]apigen.NodeRole{NodeRoleSecondary})
 			spec.EnrollmentRequestedAt = 0
 		})
 		return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event)), nil
@@ -163,23 +167,24 @@ func AcceptEnrollmentRequest(store *state.Service, id int32, nodeName, requestin
 	}
 	return enrollmentRequestFromRow(row), nil
 }
-func EndEnrollmentRequest(store *state.Service, id int32, requestedAt int64, expired bool) error {
+
+func EndEnrollmentRequest(store *state.Service, id uint64, requestedAt int64, expired bool) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		current, err := q.GetNodeRowByID(ctx, int64(id))
+		current, err := q.GetNodeRowByID(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		if current.Event.Value.EnrollmentRequestedAt == 0 ||
-			current.Event.Value.EnrollmentRequestedAt != requestedAt {
+		if !current.Event.Value.EnrollmentRequestedAt.Present ||
+			current.Event.Value.EnrollmentRequestedAt.Value.UnixMilli() != requestedAt {
 			return nil, nil
 		}
 		row, _ := appendNodeVersion(seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) {
 			spec.EnrollmentRequestedAt = 0
 			if spec.EnrolledTime == 0 {
-				spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED
+				spec.Status = apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_CANCELLED
 				if expired {
-					spec.Status = apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED
+					spec.Status = apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUEST_EXPIRED
 				}
 			}
 		})

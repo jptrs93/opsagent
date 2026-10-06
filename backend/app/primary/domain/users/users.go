@@ -14,21 +14,21 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-func userMutation(ctx context.Context, q *pq.Queries, seq int64, user *apigen.InternalUser) (*state.WriteUpdate, error) {
+func userMutation(ctx context.Context, q *pq.Queries, seq int64, user *apigen.User) (*state.WriteUpdate, error) {
 	now := time.Now().UnixMilli()
 	meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(user.ID), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
-	_, err := q.GetUserRow(ctx, int64(user.ID))
+	_, err := q.GetUserRow(ctx, user.ID)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
 	case err != nil:
 		return nil, err
 	}
-	return pq.NewUpdate(pq.UserMutation(meta, apigen.User{ID: user.ID, Name: user.Name, Credentials: user.Encode()})), nil
+	return pq.NewUpdate(pq.UserMutation(meta, *user)), nil
 }
 
 // Write stores the account, allocating its id when it has none.
-func Write(store *state.Service, user *apigen.InternalUser) {
+func Write(store *state.Service, user *apigen.User) {
 	ctx := context.Background()
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if user.ID == 0 {
@@ -36,7 +36,7 @@ func Write(store *state.Service, user *apigen.InternalUser) {
 			if err != nil {
 				return nil, err
 			}
-			user.ID = int32(id)
+			user.ID = id
 		}
 		return userMutation(ctx, q, seq, user)
 	}); err != nil {
@@ -47,18 +47,19 @@ func Write(store *state.Service, user *apigen.InternalUser) {
 // SetCredential stores a passkey by credential id. The library hands back the
 // same credential after every login with a fresh sign counter and flags, so
 // an existing entry is replaced in place rather than appended.
-func SetCredential(u *apigen.InternalUser, id, data []byte) {
-	for _, c := range u.Credentials {
-		if bytes.Equal(c.ID, id) {
-			c.Data = data
+func SetCredential(u *apigen.User, id, data []byte) {
+	creds := u.Authentication.Credentials
+	for i := range creds {
+		if bytes.Equal(creds[i].ID, id) {
+			creds[i].Data = data
 			return
 		}
 	}
-	u.Credentials = append(u.Credentials, &apigen.WebAuthnCredential{ID: id, Data: data})
+	u.Authentication.Credentials = append(creds, apigen.WebAuthnCredential{ID: id, Data: data})
 }
 
-func ByID(q *pq.Queries, id int32) (*apigen.InternalUser, error) {
-	row, err := q.GetInternalUser(context.Background(), int64(id))
+func ByID(q *pq.Queries, id uint64) (*apigen.User, error) {
+	row, err := q.GetFullUser(context.Background(), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -68,8 +69,8 @@ func ByID(q *pq.Queries, id int32) (*apigen.InternalUser, error) {
 	return row, nil
 }
 
-func matching(ctx context.Context, q *pq.Queries, predicate func(*apigen.InternalUser) bool) (*apigen.InternalUser, error) {
-	rows, err := q.ListInternalUsers(ctx)
+func matching(ctx context.Context, q *pq.Queries, predicate func(*apigen.User) bool) (*apigen.User, error) {
+	rows, err := q.ListFullUsers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -81,11 +82,11 @@ func matching(ctx context.Context, q *pq.Queries, predicate func(*apigen.Interna
 	return nil, ErrNotFound
 }
 
-func Matching(q *pq.Queries, predicate func(*apigen.InternalUser) bool) (*apigen.InternalUser, error) {
+func Matching(q *pq.Queries, predicate func(*apigen.User) bool) (*apigen.User, error) {
 	return matching(context.Background(), q, predicate)
 }
 
-func UpdateMatching(store *state.Service, predicate func(*apigen.InternalUser) bool, f func(*apigen.InternalUser)) {
+func UpdateMatching(store *state.Service, predicate func(*apigen.User) bool, f func(*apigen.User)) {
 	ctx := context.Background()
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		user, err := matching(ctx, q, predicate)

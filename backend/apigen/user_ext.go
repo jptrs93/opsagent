@@ -8,21 +8,21 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
-func (m *InternalUser) WebAuthnID() []byte {
-	return m.WebAuthNID
+func (m *User) WebAuthnID() []byte {
+	return m.Authentication.WebAuthnID
 }
 
-func (m *InternalUser) WebAuthnName() string {
+func (m *User) WebAuthnName() string {
 	return m.Name
 }
 
-func (m *InternalUser) WebAuthnDisplayName() string {
+func (m *User) WebAuthnDisplayName() string {
 	return m.Name
 }
 
-func (m *InternalUser) WebAuthnCredentials() []webauthn.Credential {
+func (m *User) WebAuthnCredentials() []webauthn.Credential {
 	var res []webauthn.Credential
-	for _, c := range m.Credentials {
+	for _, c := range m.Authentication.Credentials {
 		var out webauthn.Credential
 		err := json.Unmarshal(c.Data, &out)
 		if err != nil {

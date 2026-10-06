@@ -13,54 +13,59 @@ import (
 
 // The builtins shipped before host permissions existed. Keep this independent
 // of builtinTemplates so the test exercises upgrading a persisted old policy.
-func builtinBeforeHostPermissions(operatorSpaces, agentSpaces *apigen.AuthzSelector) *apigen.AuthzRuleTemplateSpec {
-	return &apigen.AuthzRuleTemplateSpec{Rules: []*apigen.AuthzRule{
-		{Permissions: all(), Spaces: operatorSpaces, EntityTypes: all(), EntityRefs: all()},
-		{
-			Permissions: &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{5}},
+func builtinBeforeHostPermissions(operatorSpaces, agentSpaces apigen.AuthzTemplateSpaceSelector) *apigen.AuthzGrantTemplateSpec {
+	return &apigen.AuthzGrantTemplateSpec{Rules: []apigen.AuthzTemplateRule{
+		templateRule(allow(false), apigen.AuthzTemplateSelector{
+			Permissions: templatePermissions(allVerbsExcluding()),
+			Spaces:      operatorSpaces,
+			EntityTypes: templateEntityTypes(allEntityTypesExcluding()),
+			EntityRefs:  templateEntityRefs(allEntityRefs()),
+		}),
+		templateRule(allow(true), apigen.AuthzTemplateSelector{
+			Permissions: templatePermissions(allVerbsExcluding(apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS)),
 			Spaces:      agentSpaces,
-			EntityTypes: &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{3}},
-			EntityRefs:  all(), DelegationAllowed: true,
-		},
-		{
-			Permissions: &apigen.AuthzSelector{Include: []int64{4, 1}},
+			EntityTypes: templateEntityTypes(allEntityTypesExcluding(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET)),
+			EntityRefs:  templateEntityRefs(allEntityRefs()),
+		}),
+		templateRule(allow(true), apigen.AuthzTemplateSelector{
+			Permissions: templatePermissions(exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzVerb_AUTHZ_VERB_CREATE)),
 			Spaces:      agentSpaces,
-			EntityTypes: &apigen.AuthzSelector{Include: []int64{3}},
-			EntityRefs:  all(), DelegationAllowed: true,
-		},
+			EntityTypes: templateEntityTypes(exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET)),
+			EntityRefs:  templateEntityRefs(allEntityRefs()),
+		}),
 	}}
 }
 
 func TestBuiltinHostAccessUpgrade(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
-	cluster := builtinBeforeHostPermissions(all(), &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{0}})
-	space := builtinBeforeHostPermissions(&apigen.AuthzSelector{ArgumentID: 1}, &apigen.AuthzSelector{ArgumentID: 1})
-	space.Arguments = []*apigen.AuthzTemplateArgument{{ID: 1, Name: "spaces"}}
+	cluster := builtinBeforeHostPermissions(templateSpaces(allSpacesExcluding()), templateSpaces(allSpacesExcluding(0)))
+	space := builtinBeforeHostPermissions(templateSpacesArgument(1), templateSpacesArgument(1))
+	space.Arguments = []apigen.AuthzTemplateArgument{spaceArg(1, "spaces")}
 	for _, old := range []struct {
-		id       int64
+		id       uint64
 		name     string
-		template *apigen.AuthzRuleTemplateSpec
+		template *apigen.AuthzGrantTemplateSpec
 	}{
 		{ClusterAdminTemplateID, "cluster_admin", cluster}, {SpaceAdminTemplateID, "space_admin", space},
 	} {
-		if err := upsertBuiltinRuleTemplate(store, old.id, old.name, old.template.Encode()); err != nil {
+		if err := upsertBuiltinGrantTemplate(store, old.id, old.name, old.template.Encode()); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, old := range []GrantRow{
-		{UserID: 1, TemplateID: ClusterAdminTemplateID, Blob: (&apigen.AuthzGrantSpec{}).Encode()},
-		{UserID: 2, TemplateID: SpaceAdminTemplateID, Blob: (&apigen.AuthzGrantSpec{Args: []*apigen.AuthzArgumentBinding{{ArgumentID: 1, Values: []int64{2}}}}).Encode()},
+		{UserID: 1, Blob: sourceBlob(templateSource(ClusterAdminTemplateID))},
+		{UserID: 2, Blob: sourceBlob(templateSource(SpaceAdminTemplateID, spaceBinding(1, 2)))},
 	} {
 		if _, err := insertGrant(store, old); err != nil {
 			t.Fatal(err)
 		}
 	}
-	grantsBefore, err := listGrants(store.Queries())
+	grantsBefore, err := store.Queries().ListAuthzGrants(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	templatesBefore, err := store.Queries().ListAuthzRuleTemplates(context.Background())
+	templatesBefore, err := store.Queries().ListAuthzGrantTemplates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,14 +80,14 @@ func TestBuiltinHostAccessUpgrade(t *testing.T) {
 	store = state.Open(dbPath)
 	svc := mustOpen(t, store)
 	assertHostAccessDefaults(t, svc)
-	grantsAfter, err := listGrants(store.Queries())
+	grantsAfter, err := store.Queries().ListAuthzGrants(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(grantsBefore, grantsAfter) {
 		t.Fatal("upgrade rewrote existing grants")
 	}
-	updated, err := store.Queries().ListAuthzRuleTemplates(context.Background())
+	updated, err := store.Queries().ListAuthzGrantTemplates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +99,7 @@ func TestBuiltinHostAccessUpgrade(t *testing.T) {
 		if row.ID != before.ID || row.Seq <= seqBefore || row.CreatedTime != before.CreatedTime || !row.Builtin || bytes.Equal(row.DataBlob, before.DataBlob) {
 			t.Fatalf("template %d: %+v after %+v, want one update keeping the creation time", row.ID, row, before)
 		}
-		if m, err := store.Queries().LatestMutation(context.Background(), apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, row.ID); err != nil || m.Kind() != apigen.AuthzVerb_AUTHZ_VERB_UPDATE {
+		if m, err := store.Queries().LatestMutation(context.Background(), apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, row.ID); err != nil || m.Kind() != apigen.AuthzVerb_AUTHZ_VERB_UPDATE {
 			t.Fatalf("template %d: newest logged mutation %v %v, want an update", row.ID, m, err)
 		}
 	}
@@ -106,7 +111,7 @@ func TestBuiltinHostAccessUpgrade(t *testing.T) {
 	defer store.Close()
 	svc = mustOpen(t, store)
 	assertHostAccessDefaults(t, svc)
-	again, err := store.Queries().ListAuthzRuleTemplates(context.Background())
+	again, err := store.Queries().ListAuthzGrantTemplates(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,11 +122,11 @@ func TestBuiltinHostAccessUpgrade(t *testing.T) {
 
 func assertHostAccessDefaults(t *testing.T, svc *Service) {
 	t.Helper()
-	for _, user := range []int64{1, 2} {
+	for _, user := range []uint64{1, 2} {
 		for _, delegated := range []bool{false, true} {
-			for _, space := range []int64{0, 2, 3} {
+			for _, space := range []uint64{0, 2, 3} {
 				for _, verb := range []apigen.AuthzVerb{apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS, apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK} {
-					req := RequestedAccess{Verb: verb, SpaceID: space, EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, EntityID: 7, Delegated: delegated}
+					req := RequestedAccess{Verb: verb, SpaceID: space, EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT, EntityID: 7, Delegated: delegated}
 					want := user == 1 && !delegated
 					if got := svc.HasAccess(user, req); got != want {
 						t.Fatalf("user %d access %+v = %v, want %v", user, req, got, want)
@@ -129,7 +134,7 @@ func assertHostAccessDefaults(t *testing.T, svc *Service) {
 				}
 			}
 			if !svc.HasAccess(user, RequestedAccess{Verb: apigen.AuthzVerb_AUTHZ_VERB_UPDATE, SpaceID: 2,
-				EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, EntityID: 7, Delegated: delegated}) {
+				EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT, EntityID: 7, Delegated: delegated}) {
 				t.Fatalf("user %d delegated=%v lost ordinary deployment updates", user, delegated)
 			}
 		}

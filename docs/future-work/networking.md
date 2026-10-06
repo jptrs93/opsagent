@@ -13,7 +13,7 @@ Design for the built-in networking layer: per-workload addressing, cross-machine
 - Configuration lives on the deployment config (a `networking` section edited in a side panel). Cluster-scoped knobs are limited to settings (ingress machines) and are validated cluster-wide.
 - Boring, debuggable dataplane first (netlink, fixed `ip6tnl` or SIT interfaces, nftables — inspectable with `ip` and `nft`). eBPF is a later optimization, never a prerequisite.
 
-The initial fixed-tunnel full mesh targets clusters of at most approximately 100 nodes. Larger topologies require a later flow-based tunnel or bounded-degree routing design, without changing logical workload addresses.
+The scalability target is parity with Kubernetes: clusters of thousands of nodes. The shipped fixed-tunnel full mesh and whole-map distribution do not reach that, and a lower ceiling is accepted in the medium term while the product is being developed. Reaching the target requires a flow-based tunnel or bounded-degree routing design and per-node map distribution, without changing logical workload addresses.
 
 ## Addressing, dataplane, and netmap distribution
 
@@ -29,17 +29,67 @@ Still open here:
   `service-balancing-and-attachment-nat.md`), but the address code does not
   yet reserve the ordinal and the balancing rungs that consume it are not
   built. The workload ABI allocates only `I` and `O`.
-- Full snapshots are acceptable for the initial approximately 100-node target;
-  later scale requires incremental and sharded distribution, and a flow-based
-  tunnel or bounded-degree gateway topology in place of the `N * (N - 1)`
-  fixed-tunnel mesh.
-- Route pruning by reachability. Identity addressing cannot aggregate routes
-  by node, so a node's route count is the cluster's placement count unless
-  routes are pruned. The only sound basis for pruning is policy-derived
-  reachability: a node carries routes for placements in the spaces its local
-  workloads may reach (own space, global space, explicitly allowed spaces)
-  plus any placement its ingress routes back. Pruning by observed traffic is
-  rejected — it reintroduces a runtime lookup on the path.
+- Whole-cluster map snapshots are accepted in the medium term only. One map
+  is rendered for the whole cluster and every node receives an identical copy
+  (only `target_node_id` differs), so every placement, node, or policy change
+  fans out to every node, and every node holds routes, WireGuard peers, and a
+  DNS catalog for the whole cluster. The agreed replacement (2026-10-05) is
+  the per-node map scoped by reachability described in the next item.
+- Per-node maps scoped by reachability. Identity addressing cannot aggregate
+  routes by node, so without pruning a node's route table is the cluster's
+  placement count. The only sound basis for pruning is policy-derived
+  reachability; pruning by observed traffic is rejected because it
+  reintroduces a runtime lookup on the path. Agreed design:
+  - A node's reachable set is: the placements in every space one of its own
+    workloads occupies; the placements in every space joined to one of those
+    by an explicit policy, in either direction, because replies and
+    anti-spoofing need the reverse routes and peer entries; the backend
+    placements of every ingress route the node publishes through a listen
+    selector; and every placement in the global space (space 1), whose
+    destinations accept every cluster source by definition.
+  - Space 0 contributes nothing. The agent self-deployment is host-mode and
+    never enters the map. Each node's `opendeploy-net` is a distinct
+    deployment serving only clients on its own node, DNS is same-node by
+    construction, and netproxies never need to reach each other, so the
+    same-space rule does not apply to space 0. The build container is
+    egress-only. A netproxy's only cross-node need is an ingress route whose
+    listen selector names another node or `any_node()`, which the ingress
+    term above covers; the blanket "any space 0 source" accept in the
+    destination filter can then tighten to the local netproxy plus the
+    netproxies of the nodes publishing a route to that deployment.
+  - The map's `routes`, `nodes` (WireGuard peers), and DNS catalog are all
+    pruned by the same set. Pruning the node list is what shrinks the tunnel
+    mesh from `N * (N - 1)` to the reachable set; a workload resolving a name
+    it cannot reach gets an upstream miss, which is accepted.
+  - Each node's map is stamped with the global write seq of the last render
+    that changed that node's content, held beside the cached per-node map.
+    The global seq is monotonic across primary restarts, so a node's
+    acceptance rule is unchanged and no separate counter or table is needed;
+    persisting the per-node stamps is an optimisation.
+  - On each commit the primary derives the affected nodes from the mutations
+    (a placement, node row, policy, space, or networking spec change) through
+    a reverse index from space to hosting nodes and the policy adjacency,
+    re-renders only those nodes' maps, and sends only the ones whose content
+    changed. Whole per-node maps are sent first; deltas keyed by route prefix
+    and node id are a later layer if per-node maps grow large.
+  - Scalability therefore depends on cluster layout, and this is deliberate.
+    With spaces partitioned onto dedicated nodes, a change in a space fans
+    out to that space's nodes and each map is the size of that space.
+    Cross-space policies, space-wide rather than deployment-scoped peers, a
+    hub space many spaces talk to, `any_node()` ingress, and anything placed
+    in the global space are escape hatches with a fan-out cost proportional
+    to the reach they grant. The global space is kept as the one implicit
+    broadcast set.
+  - Rejected alternatives: a single global map shipped as deltas (fixes
+    bandwidth but leaves every node holding cluster-wide routes and
+    tunnels); shipping each node the filtered entities and rendering the map
+    on the node (loses the single renderer and primary-side validation
+    during mixed-version rollouts); relay or regional tiers in front of the
+    primary (not a capacity need: one Go process serves tens of thousands of
+    idle mTLS sessions, and the real per-session costs are the session-head
+    snapshot and the per-commit subscriber work inside the write lock, both
+    primary-internal and fixed by indexed per-node reads and per-node
+    dispatch outside the lock).
 - The rollover barrier at scale. Today a drained placement is terminated only
   once every connected node has applied the map that replaced it, with a
   fixed 30 s backstop for a node that is connected but wedged

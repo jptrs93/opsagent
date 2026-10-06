@@ -46,7 +46,7 @@ func TestPostV1GlobalEventsReturnsEachSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	if res.Seq == 0 || res.Snapshot == nil || !res.Synced || len(res.Snapshot.Entities) == 0 || res.Snapshot.Seq != res.Seq {
+	if res.Seq == 0 || !res.Snapshot.Present || !res.Synced || len(res.Snapshot.Value.Entities) == 0 || res.Snapshot.Value.Seq != res.Seq {
 		t.Fatalf("expected a synced snapshot with entries, got %+v", res)
 	}
 	fold := foldOpening(res)
@@ -55,15 +55,15 @@ func TestPostV1GlobalEventsReturnsEachSection(t *testing.T) {
 	}
 	var foundConfig bool
 	for _, c := range fold[apigen.CoreEntityType_CORE_ENTITY_CONFIG] {
-		if c.Config.Fs.Name == "log_level" && c.Config.Value == "debug" {
+		if c.Value.Config.Fs.Key == "log_level" && c.Value.Config.Value == "debug" {
 			foundConfig = true
 		}
 	}
 	if !foundConfig {
 		t.Errorf("expected log_level config, got %+v", fold[apigen.CoreEntityType_CORE_ENTITY_CONFIG])
 	}
-	if fold[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][int64(cfg.DeploymentID)] == nil {
-		t.Errorf("expected deployment %d in the bootstrap", cfg.DeploymentID)
+	if fold[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][cfg.Deployment.ID] == nil {
+		t.Errorf("expected deployment %d in the bootstrap", cfg.Deployment.ID)
 	}
 }
 
@@ -76,32 +76,32 @@ func TestPostV1GlobalEventsExcludesDeletedDeployments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
-	if foldOpening(res)[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][int64(cfg.DeploymentID)] != nil {
-		t.Fatalf("deleted deployment %d must not appear", cfg.DeploymentID)
+	if foldOpening(res)[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][cfg.Deployment.ID] != nil {
+		t.Fatalf("deleted deployment %d must not appear", cfg.Deployment.ID)
 	}
 }
 
 func TestPostV1DeploymentsGetReturnsConfigAndInstances(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
 	cfg := createTestDeployment(h.Store, "node-a", 0, "api", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
-	seedDeploymentRunnerStatus(h.Store, cfg, apigen.RunningStatus_RUNNING)
+	seedDeploymentRunnerStatus(h.Store, cfg, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
 
-	res, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: cfg.DeploymentID})
+	res, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: cfg.Deployment.ID})
 	if err != nil {
 		t.Fatalf("PostV1DeploymentsGet: %v", err)
 	}
-	if res.Deployment == nil || res.Deployment.Deployment == nil || res.Deployment.Deployment.ID != cfg.DeploymentID {
-		t.Fatalf("deployment = %+v, want id %d", res.Deployment, cfg.DeploymentID)
+	if res.Deployment.Deployment.ID != cfg.Deployment.ID {
+		t.Fatalf("deployment = %+v, want id %d", res.Deployment, cfg.Deployment.ID)
 	}
-	if meta := res.Deployment.Meta; meta == nil || meta.Version != cfg.Version || meta.SpecVersion != cfg.SpecVersion || meta.UpdatedSeq != cfg.Seq || meta.CreatedTime != cfg.CreatedTime.UnixMilli() || meta.Deleted {
-		t.Fatalf("deployment meta = %+v, want version %d spec %d seq %d", res.Deployment.Meta, cfg.Version, cfg.SpecVersion, cfg.Seq)
+	if meta := res.Deployment.Meta; meta.Version != cfg.Meta.Version || meta.SpecVersion != cfg.Meta.SpecVersion || meta.UpdatedSeq != cfg.Meta.UpdatedSeq || meta.CreatedTime != cfg.Meta.CreatedTime || meta.Deleted {
+		t.Fatalf("deployment meta = %+v, want version %d spec %d seq %d", res.Deployment.Meta, cfg.Meta.Version, cfg.Meta.SpecVersion, cfg.Meta.UpdatedSeq)
 	}
 	if res.ScheduledInstances == nil || len(res.ScheduledInstances) == 0 {
 		t.Fatalf("expected at least one instance, got %+v", res.ScheduledInstances)
 	}
 	for _, inst := range res.ScheduledInstances {
-		if inst.DeploymentID != cfg.DeploymentID {
-			t.Errorf("instance belongs to deployment %d, want %d", inst.DeploymentID, cfg.DeploymentID)
+		if inst.Deployment.DeploymentID != cfg.Deployment.ID {
+			t.Errorf("instance belongs to deployment %d, want %d", inst.Deployment.DeploymentID, cfg.Deployment.ID)
 		}
 	}
 }
@@ -110,16 +110,16 @@ func TestPostV1DeploymentsGetOnlyReturnsRequestedDeployment(t *testing.T) {
 	h := newGlobalStateTestHandler(t)
 	wanted := createTestDeployment(h.Store, "node-a", 0, "api", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	other := createTestDeployment(h.Store, "node-b", 0, "web", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
-	seedDeploymentRunnerStatus(h.Store, wanted, apigen.RunningStatus_RUNNING)
-	seedDeploymentRunnerStatus(h.Store, other, apigen.RunningStatus_RUNNING)
+	seedDeploymentRunnerStatus(h.Store, wanted, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
+	seedDeploymentRunnerStatus(h.Store, other, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
 
-	res, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: wanted.DeploymentID})
+	res, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: wanted.Deployment.ID})
 	if err != nil {
 		t.Fatalf("PostV1DeploymentsGet: %v", err)
 	}
 	for _, inst := range res.ScheduledInstances {
-		if inst.DeploymentID == other.DeploymentID {
-			t.Fatalf("leaked instance from deployment %d", other.DeploymentID)
+		if inst.Deployment.DeploymentID == other.Deployment.ID {
+			t.Fatalf("leaked instance from deployment %d", other.Deployment.ID)
 		}
 	}
 }
@@ -129,7 +129,7 @@ func TestPostV1DeploymentsGetRejectsBadID(t *testing.T) {
 	cfg := createTestDeployment(h.Store, "node-a", 0, "gone", ptr(remoteDeploymentSpec("nginx", hostNetworking())))
 	markDeleted(t, h, cfg)
 
-	for name, id := range map[string]int32{"zero": 0, "negative": -1, "unknown": 99999, "deleted": cfg.DeploymentID} {
+	for name, id := range map[string]uint64{"zero": 0, "unknown": 99999, "deleted": cfg.Deployment.ID} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := h.PostV1DeploymentsGet(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentGetRequest{ID: id}); err == nil {
 				t.Fatal("expected an error")
@@ -174,7 +174,7 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 	})
 
 	t.Run("deployment-state accepts a JSON request body", func(t *testing.T) {
-		r := httptest.NewRequest(http.MethodPost, "/v1/deployments/get", strings.NewReader(`{"id":`+strconv.Itoa(int(cfg.DeploymentID))+`}`))
+		r := httptest.NewRequest(http.MethodPost, "/v1/deployments/get", strings.NewReader(`{"id":`+strconv.Itoa(int(cfg.Deployment.ID))+`}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Accept", "application/json")
 		w := httptest.NewRecorder()
@@ -192,8 +192,8 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 		}
 		deployment, _ := record["deployment"].(map[string]any)
 		meta, _ := record["meta"].(map[string]any)
-		if deployment == nil || meta == nil || int32(deployment["id"].(float64)) != cfg.DeploymentID || int32(meta["version"].(float64)) != cfg.Version {
-			t.Errorf("record = %v, want deployment %d at version %d with meta", record, cfg.DeploymentID, cfg.Version)
+		if deployment == nil || meta == nil || uint64(deployment["id"].(float64)) != cfg.Deployment.ID || uint32(meta["version"].(float64)) != cfg.Meta.Version {
+			t.Errorf("record = %v, want deployment %d at version %d with meta", record, cfg.Deployment.ID, cfg.Meta.Version)
 		}
 	})
 
@@ -210,9 +210,9 @@ func TestGlobalStateRoutesSpeakJSON(t *testing.T) {
 	})
 }
 
-func markDeleted(t *testing.T, h *Handler, cfg *apigen.DeploymentEvent) {
+func markDeleted(t *testing.T, h *Handler, cfg *apigen.DeploymentRecord) {
 	t.Helper()
-	statetest.DeleteDeployment(h.Store, apigen.Context{}, cfg.DeploymentID)
+	statetest.DeleteDeployment(h.Store, apigen.Context{}, cfg.Deployment.ID)
 }
 
 func keysOf(m map[string]any) []string {

@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"context"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 func TestUpdateCannotUseStaleAuthorizedDeployment(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 	svc := &Service{Store: store}
 	ctx := apigen.Context{Ctx: context.Background()}
 	initial, err := svc.Create(ctx, &apigen.Deployment{
@@ -29,27 +30,27 @@ func TestUpdateCannotUseStaleAuthorizedDeployment(t *testing.T) {
 	// An administrator adds host access after another request has loaded and
 	// authorized the initial, unprivileged deployment.
 	hostSpec := remoteDeploymentSpec("nginx", hostNetworking())
-	privileged, err := svc.Update(ctx, initial, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: initial.DeploymentID, ExpectedSeq: initial.Seq,
-		SpecUpdate: &apigen.SpecUpdate{Spec: hostSpec},
+	privileged, err := svc.Update(ctx, initial, &apigen.DeploymentUpdateRequest{
+		DeploymentID: initial.Deployment.ID, ExpectedSeq: initial.Meta.UpdatedSeq,
+		Update: apigen.DeploymentUpdateRequestUpdateOneof{Spec: &apigen.SpecUpdate{Spec: hostSpec}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, existing := range []*apigen.DeploymentEvent{initial, privileged} {
-		_, err := svc.Update(ctx, existing, &apigen.DeploymentUpdateRequestV2{
-			DeploymentID: initial.DeploymentID, ExpectedSeq: initial.Seq,
-			VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.29"},
+	for _, existing := range []*apigen.DeploymentRecord{initial, privileged} {
+		_, err := svc.Update(ctx, existing, &apigen.DeploymentUpdateRequest{
+			DeploymentID: initial.Deployment.ID, ExpectedSeq: initial.Meta.UpdatedSeq,
+			Update: apigen.DeploymentUpdateRequestUpdateOneof{VersionOnly: &apigen.VersionOnlyUpdate{TargetVersion: "1.29"}},
 		})
 		if err == nil || !strings.Contains(err.Error(), "changed since it was loaded") {
-			t.Fatalf("stale token against the row at seq %d: %v", existing.Seq, err)
+			t.Fatalf("stale token against the row at seq %d: %v", existing.Meta.UpdatedSeq, err)
 		}
 	}
-	latest, err := store.Queries().GetLatestDeploymentEvent(ctx, int64(initial.DeploymentID))
+	latest, err := store.Queries().GetLatestDeployment(ctx, initial.Deployment.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest.Version != privileged.Version || latest.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_HOST {
+	if latest.Meta.Version != privileged.Meta.Version || latest.Deployment.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_HOST {
 		t.Fatal("stale update overwrote the host-access deployment")
 	}
 }
@@ -57,7 +58,7 @@ func TestUpdateCannotUseStaleAuthorizedDeployment(t *testing.T) {
 func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 	svc := &Service{Store: store}
 	ctx := apigen.Context{Ctx: context.Background()}
 	initial, err := svc.Create(ctx, &apigen.Deployment{
@@ -67,18 +68,18 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restart := func(existing *apigen.DeploymentEvent) (*apigen.DeploymentEvent, error) {
-		return svc.Update(ctx, existing, &apigen.DeploymentUpdateRequestV2{
-			DeploymentID: existing.DeploymentID, ExpectedSeq: existing.Seq,
-			RestartUpdate: &apigen.RestartUpdate{},
+	restart := func(existing *apigen.DeploymentRecord) (*apigen.DeploymentRecord, error) {
+		return svc.Update(ctx, existing, &apigen.DeploymentUpdateRequest{
+			DeploymentID: existing.Deployment.ID, ExpectedSeq: existing.Meta.UpdatedSeq,
+			Update: apigen.DeploymentUpdateRequestUpdateOneof{Restart: &apigen.RestartUpdate{}},
 		})
 	}
 	if _, err := restart(initial); err == nil || !strings.Contains(err.Error(), "not running") {
 		t.Fatalf("restart of a stopped deployment: %v, want rejection", err)
 	}
-	running, err := svc.Update(ctx, initial, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: initial.DeploymentID, ExpectedSeq: initial.Seq,
-		VersionOnlyUpdate: &apigen.VersionOnlyUpdate{TargetVersion: "1.29"},
+	running, err := svc.Update(ctx, initial, &apigen.DeploymentUpdateRequest{
+		DeploymentID: initial.Deployment.ID, ExpectedSeq: initial.Meta.UpdatedSeq,
+		Update: apigen.DeploymentUpdateRequestUpdateOneof{VersionOnly: &apigen.VersionOnlyUpdate{TargetVersion: "1.29"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -87,29 +88,29 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if restarted.Version != running.Version+1 || restarted.Seq <= running.Seq {
-		t.Fatalf("version/seq = %d/%d, want %d and a later seq than %d", restarted.Version, restarted.Seq, running.Version+1, running.Seq)
+	if restarted.Meta.Version != running.Meta.Version+1 || restarted.Meta.UpdatedSeq <= running.Meta.UpdatedSeq {
+		t.Fatalf("version/seq = %d/%d, want %d and a later seq than %d", restarted.Meta.Version, restarted.Meta.UpdatedSeq, running.Meta.Version+1, running.Meta.UpdatedSeq)
 	}
-	if restarted.Value.Scheduling.Generation != running.Value.Scheduling.Generation+1 {
-		t.Fatalf("generation = %d, want %d", restarted.Value.Scheduling.Generation, running.Value.Scheduling.Generation+1)
+	if restarted.Deployment.Scheduling.RestartGeneration != running.Deployment.Scheduling.RestartGeneration+1 {
+		t.Fatalf("generation = %d, want %d", restarted.Deployment.Scheduling.RestartGeneration, running.Deployment.Scheduling.RestartGeneration+1)
 	}
-	if restarted.SpecVersion != running.SpecVersion || restarted.Value.SpaceID != running.Value.SpaceID || restarted.Value.Name != running.Value.Name {
+	if restarted.Meta.SpecVersion != running.Meta.SpecVersion || restarted.Deployment.SpaceID != running.Deployment.SpaceID || restarted.Deployment.Name != running.Deployment.Name {
 		t.Fatalf("facets moved: spec %d->%d space %d->%d name %q->%q",
-			running.SpecVersion, restarted.SpecVersion, running.Value.SpaceID, restarted.Value.SpaceID, running.Value.Name, restarted.Value.Name)
+			running.Meta.SpecVersion, restarted.Meta.SpecVersion, running.Deployment.SpaceID, restarted.Deployment.SpaceID, running.Deployment.Name, restarted.Deployment.Name)
 	}
-	if !pq.DeploymentSpecsEqual(&restarted.Value.Spec, &running.Value.Spec) ||
-		restarted.Value.Name != running.Value.Name || restarted.Value.SpaceID != running.Value.SpaceID || restarted.Value.PlacementNodeID() != running.Value.PlacementNodeID() {
+	if !pq.DeploymentSpecsEqual(&restarted.Deployment.Spec, &running.Deployment.Spec) ||
+		restarted.Deployment.Name != running.Deployment.Name || restarted.Deployment.SpaceID != running.Deployment.SpaceID || restarted.Deployment.PlacementNodeID() != running.Deployment.PlacementNodeID() {
 		t.Fatal("restart changed the definition")
 	}
-	if restarted.EventType != apigen.EventType_EVENT_TYPE_UPDATE {
-		t.Fatalf("event type = %v, want update", restarted.EventType)
+	if restarted.Meta.Deleted {
+		t.Fatal("restart produced a delete")
 	}
 	again, err := restart(restarted)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.Version != restarted.Version+1 || again.SpecVersion != restarted.SpecVersion {
-		t.Fatalf("second restart version/spec = %d/%d, want %d/%d", again.Version, again.SpecVersion, restarted.Version+1, restarted.SpecVersion)
+	if again.Meta.Version != restarted.Meta.Version+1 || again.Meta.SpecVersion != restarted.Meta.SpecVersion {
+		t.Fatalf("second restart version/spec = %d/%d, want %d/%d", again.Meta.Version, again.Meta.SpecVersion, restarted.Meta.Version+1, restarted.Meta.SpecVersion)
 	}
 	if _, err := restart(restarted); err == nil || !strings.Contains(err.Error(), "changed since it was loaded") {
 		t.Fatalf("stale restart: %v, want a stale token rejection", err)
@@ -119,9 +120,9 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 func TestRestartUpdateRejectsTheSelfDeployment(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
 	EnsureSystem(store, node.ID, "v0.0.1")
-	var self *apigen.DeploymentEvent
+	var self *apigen.DeploymentRecord
 	for _, cfg := range Active(store.Queries(), nil) {
 		if internaldeploy.IsSelfConfig(&cfg) {
 			c := cfg
@@ -132,9 +133,9 @@ func TestRestartUpdateRejectsTheSelfDeployment(t *testing.T) {
 		t.Fatal("self deployment not created")
 	}
 	svc := &Service{Store: store}
-	_, err := svc.Update(apigen.Context{Ctx: context.Background()}, self, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: self.DeploymentID, ExpectedSeq: self.Seq,
-		RestartUpdate: &apigen.RestartUpdate{},
+	_, err := svc.Update(apigen.Context{Ctx: context.Background()}, self, &apigen.DeploymentUpdateRequest{
+		DeploymentID: self.Deployment.ID, ExpectedSeq: self.Meta.UpdatedSeq,
+		Update: apigen.DeploymentUpdateRequestUpdateOneof{Restart: &apigen.RestartUpdate{}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot be restarted") {
 		t.Fatalf("self restart: %v, want rejection", err)

@@ -49,7 +49,7 @@ func TestAgentSessionHandshakeOverJSON(t *testing.T) {
 
 	// Step 1, exactly as the instructions spell it.
 	started := post(t, "/v1/agent-sessions/request-start", `{"user_id": 1}`)
-	id, _ := started["id"].(string)
+	id, _ := started["session_id"].(string)
 	if id == "" {
 		t.Fatalf("request-start returned no id: %#v", started)
 	}
@@ -61,7 +61,7 @@ func TestAgentSessionHandshakeOverJSON(t *testing.T) {
 	}
 
 	// Step 2 before approval: pending, and pointedly no token.
-	pending := post(t, "/v1/agent-sessions/get-session", `{"id": "`+id+`"}`)
+	pending := post(t, "/v1/agent-sessions/get-session", `{"session_id": "`+id+`"}`)
 	if status, _ := pending["status"].(float64); int(status) != 1 {
 		t.Fatalf("status = %v, want 1 (PENDING)", pending["status"])
 	}
@@ -69,11 +69,11 @@ func TestAgentSessionHandshakeOverJSON(t *testing.T) {
 		t.Fatal("a pending get-session handed out a token")
 	}
 
-	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{ID: id}); err != nil {
+	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{SessionID: id}); err != nil {
 		t.Fatalf("PostV1AgentSessionsApprove: %v", err)
 	}
 
-	collected := post(t, "/v1/agent-sessions/get-session", `{"id": "`+id+`"}`)
+	collected := post(t, "/v1/agent-sessions/get-session", `{"session_id": "`+id+`"}`)
 	if status, _ := collected["status"].(float64); int(status) != 2 {
 		t.Fatalf("status = %v, want 2 (APPROVED) as documented", collected["status"])
 	}
@@ -104,7 +104,7 @@ func TestAgentSessionHandshakeOverJSON(t *testing.T) {
 	if got := authed(t); got != http.StatusOK {
 		t.Fatalf("collected token status = %d, want 200", got)
 	}
-	if err := h.PostV1AgentSessionsRevoke(h.operatorCtx(t, user), &apigen.AgentSessionRevokeRequest{ID: id}); err != nil {
+	if err := h.PostV1AgentSessionsRevoke(h.operatorCtx(t, user), &apigen.AgentSessionRevokeRequest{SessionID: id}); err != nil {
 		t.Fatalf("PostV1AgentSessionsRevoke: %v", err)
 	}
 	if got := authed(t); got != http.StatusUnauthorized {

@@ -8,7 +8,7 @@ const SYSTEM_SPACE_ID = 0;
 
 export function pinnedUserDeployments(deployments, nodeId) {
     return (deployments || []).filter(row => placementNodeId(row.config) === Number(nodeId)
-        && Number(row.config?.value?.spaceId) !== SYSTEM_SPACE_ID);
+        && Number(row.config?.deployment?.spaceId) !== SYSTEM_SPACE_ID);
 }
 
 const itemLabel = item => `${item.name || `#${item.id}`}${item.version ? ` v${item.version}` : ''}`;
@@ -80,7 +80,7 @@ export function evictNodeOverlay({machine, pinned, evict, close}) {
                 p({class: "text-sm text-amber-200"},
                     `${pinned.length} deployment${pinned.length === 1 ? '' : 's'} still target${pinned.length === 1 ? 's' : ''} this node. Evicting stops ${pinned.length === 1 ? 'it' : 'them'} and leaves ${pinned.length === 1 ? 'it' : 'them'} pinned to the evicted node until you move ${pinned.length === 1 ? 'it' : 'them'}.`),
                 ul({class: "text-xs text-amber-100 pl-4 list-disc"},
-                    ...pinned.map(row => li(`${row.config.value.name} (#${row.config.deploymentId})`))),
+                    ...pinned.map(row => li(`${row.config.deployment.name} (#${row.config.deployment.id})`))),
                 label({class: "flex items-center gap-2 text-sm text-gray-200 cursor-pointer"},
                     input({type: "checkbox", "data-testid": "node-evict-force", checked: () => force.val, onchange: e => { force.val = e.target.checked; }}),
                     "Evict anyway and stop these deployments"),

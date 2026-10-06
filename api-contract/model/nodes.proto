@@ -2,68 +2,71 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/deployments.proto";
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 enum NodeLifecycleStatus {
-  NODE_STATUS_UNKNOWN = 0;
-  NODE_ENROLLMENT_REQUESTED = 1;
-  NODE_ENROLLMENT_CANCELLED = 2;
-  NODE_ENROLLMENT_REQUEST_EXPIRED = 3;
-  NODE_MEMBER_NORMAL = 4;
-  NODE_MEMBER_UNHEALTHY = 5;
-  NODE_MEMBER_DRAINING = 6;
-  NODE_MEMBER_MISSING = 7;
-  NODE_MEMBER_EVICTED = 8;
+  NODE_LIFECYCLE_STATUS_UNSPECIFIED = 0;
+  NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUESTED = 1;
+  NODE_LIFECYCLE_STATUS_ENROLLMENT_CANCELLED = 2;
+  NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUEST_EXPIRED = 3;
+  NODE_LIFECYCLE_STATUS_MEMBER_NORMAL = 4;
+  NODE_LIFECYCLE_STATUS_MEMBER_UNHEALTHY = 5;
+  NODE_LIFECYCLE_STATUS_MEMBER_DRAINING = 6;
+  NODE_LIFECYCLE_STATUS_MEMBER_MISSING = 7;
+  NODE_LIFECYCLE_STATUS_MEMBER_EVICTED = 8;
 }
 
-message NodeReported {
-  string identifier = 1;
-  string underlay_address = 2;
-  string wg_public_key = 3;
-  repeated string host_addresses = 4;
-  // A failed inventory leaves the primary's last known addresses unchanged.
-  bool host_addresses_unknown = 5;
+enum NodeRole {
+  NODE_ROLE_PRIMARY = 0;
+  NODE_ROLE_SECONDARY = 1;
+}
+
+message Node {
+  uint64 id = 1 [(cp.js_type) = "number"];
+  NodeLifecycleStatus status = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  optional int64 enrollment_requested_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  NodeOperator operator = 4 [(cp.go_value) = true];
+  NodeReported reported = 5 [(cp.go_value) = true];
 }
 
 message NodeOperator {
   string name = 1;
-  repeated int32 roles = 2;
-  repeated int32 allowed_spaces = 3;
-  int64 enrolled_time = 4;
+  repeated NodeRole roles = 2 [(buf.validate.field).repeated.items.enum.defined_only = true];
+  repeated uint64 allowed_spaces = 3 [(cp.js_type) = "number"];
+  optional int64 enrolled_time = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
-message Node {
-  NodeLifecycleStatus status = 1;
-  int64 enrollment_requested_at = 2;
-  NodeOperator operator = 3 [(cp.go_value) = true];
-  NodeReported reported = 4 [(cp.go_value) = true];
-  reserved 5;              // created_time: EntityMeta on the mutation
-  int32 id = 6;
+message NodeReported {
+  string identifier = 1;                 // stable machine id the node generates
+  IpAddress underlay_address = 2 [(cp.go_value) = true];
+  string wg_public_key = 3;
+  repeated IpAddress host_addresses = 4;
+  bool host_addresses_unknown = 5;       // a failed inventory leaves the last known addresses unchanged
 }
 
 message NodeStatus {
-  int32 node_id = 1;
-  google.protobuf.Timestamp updated_at = 2;
+  uint64 node_id = 1 [(cp.js_type) = "number"];
+  google.protobuf.Timestamp updated_at = 2 [(buf.validate.field).required = true];
   bool is_connected = 3;
-  int64 last_connected_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  optional int64 last_connected_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   string remote_address = 5;
   string opendeploy_version = 6;
   string runtime_versions = 7;
 }
 
 message EnrollmentRequestStatus {
-  int32 id = 1;
+  uint64 id = 1 [(cp.js_type) = "number"];
   int64 created_at = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  string requesting_ip_address = 4;
-  string requesting_machine_id = 5;
-  string opendeploy_version = 7;
-  string underlay_address = 8;
-  NodeLifecycleStatus status = 9;
-  bool is_connected = 10;
+  string requesting_ip_address = 3;
+  string requesting_machine_id = 4;
+  string opendeploy_version = 5;
+  string underlay_address = 6;
+  NodeLifecycleStatus status = 7;
+  bool is_connected = 8;
 }
 
 message NodeEnrollmentInfo {

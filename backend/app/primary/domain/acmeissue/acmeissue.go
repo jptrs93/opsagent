@@ -39,7 +39,7 @@ const (
 
 type Manager struct {
 	Secrets      *secrets.Manager
-	Snapshot     func() []apigen.DeploymentEvent
+	Snapshot     func() []apigen.DeploymentRecord
 	Store        *state.Service
 	Holder       *acmestate.Holder
 	DirectoryURL string
@@ -47,7 +47,7 @@ type Manager struct {
 	challenges map[string]string
 }
 
-func New(secretsMgr *secrets.Manager, snapshot func() []apigen.DeploymentEvent, store *state.Service, holder *acmestate.Holder) *Manager {
+func New(secretsMgr *secrets.Manager, snapshot func() []apigen.DeploymentRecord, store *state.Service, holder *acmestate.Holder) *Manager {
 	directory := os.Getenv("OPENDEPLOY_ACME_DIRECTORY")
 	if directory == "" {
 		directory = acme.LetsEncryptURL
@@ -97,18 +97,18 @@ func CertSecretName(hostname string) string {
 	return certSecretPrefix + hostname
 }
 
-func acmeHostnames(configs []apigen.DeploymentEvent) []string {
+func acmeHostnames(configs []apigen.DeploymentRecord) []string {
 	seen := map[string]bool{}
 	for _, cfg := range configs {
-		if cfg.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if cfg.Deployment.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		for _, route := range cfg.Value.Spec.Networking.Ingress {
-			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
+		for _, route := range cfg.Deployment.Spec.Networking.Ingress {
+			https := route.Config.Value.Https
+			if https == nil {
 				continue
 			}
-			source := route.HttpsConfig.CertSource
-			if source != nil && source.Secret != nil {
+			if https.CertSource.Present && https.CertSource.Value.Value.Secret != nil {
 				continue
 			}
 			hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(route.Hostname)), ".")
@@ -125,7 +125,7 @@ func acmeHostnames(configs []apigen.DeploymentEvent) []string {
 	return hostnames
 }
 
-func (m *Manager) reconcile(ctx context.Context, configs []apigen.DeploymentEvent) {
+func (m *Manager) reconcile(ctx context.Context, configs []apigen.DeploymentRecord) {
 	hostnames := acmeHostnames(configs)
 	claimed := map[string]bool{}
 	for _, hostname := range hostnames {
@@ -195,7 +195,7 @@ func (m *Manager) publish(bindings map[string]apigen.ValueRef) {
 	}
 	sort.Strings(hostnames)
 	for _, hostname := range hostnames {
-		state.CertBindings = append(state.CertBindings, &apigen.AcmeCertBinding{Hostname: hostname, Secret: bindings[hostname]})
+		state.CertBindings = append(state.CertBindings, apigen.AcmeCertBinding{Hostname: hostname, Secret: bindings[hostname].Secret()})
 	}
 	tokens := make([]string, 0, len(m.challenges))
 	for token := range m.challenges {
@@ -203,7 +203,7 @@ func (m *Manager) publish(bindings map[string]apigen.ValueRef) {
 	}
 	sort.Strings(tokens)
 	for _, token := range tokens {
-		state.Challenges = append(state.Challenges, &apigen.AcmeHttpChallenge{Token: token, KeyAuthorization: m.challenges[token]})
+		state.Challenges = append(state.Challenges, apigen.AcmeHttpChallenge{Token: token, KeyAuthorization: m.challenges[token]})
 	}
 	m.Holder.Set(state)
 }

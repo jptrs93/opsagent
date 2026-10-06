@@ -176,7 +176,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 	prefix, _ := network.Default.PrefixValue()
 	virtual := make([]apigen.ScheduledInstanceState, 0, len(items))
 	for _, item := range items {
-		if item.Config.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if item.Config.Deployment.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
 		virtual = append(virtual, item)
@@ -185,7 +185,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 
 	services := make([]*apigen.DnsService, 0)
 	serviceByName := make(map[string]*apigen.DnsService)
-	addService := func(name, env string, endpoints []*apigen.Endpoint) {
+	addService := func(name, env string, endpoints []apigen.Endpoint) {
 		svc := serviceByName[env+"|"+name]
 		if svc == nil {
 			svc = &apigen.DnsService{Name: name, Environment: env}
@@ -194,39 +194,41 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 		}
 		svc.Endpoints = appendNewEndpoints(svc.Endpoints, endpoints)
 	}
-	endpointsByDeployment := make(map[int32][]*apigen.Endpoint)
+	endpointsByDeployment := make(map[uint64][]apigen.Endpoint)
 	if clusterMap != nil && len(clusterMap.DnsServices) > 0 {
-		for _, service := range clusterMap.DnsServices {
-			if service == nil || service.Name == "" {
+		for i := range clusterMap.DnsServices {
+			service := &clusterMap.DnsServices[i]
+			spaceID, deploymentID, ok := addressIDs(service.SpaceID, service.DeploymentID)
+			if service.Name == "" || !ok {
 				continue
 			}
-			endpoints := make([]*apigen.Endpoint, 0, len(service.Ordinals))
+			endpoints := make([]apigen.Endpoint, 0, len(service.Ordinals))
 			for _, ordinal := range service.Ordinals {
-				if ordinal == nil {
-					continue
-				}
-				addr, err := prefix.InboundAddr(service.SpaceID, service.DeploymentID, ordinal.Ordinal)
+				addr, err := prefix.InboundAddr(spaceID, deploymentID, int32(ordinal.Ordinal))
 				if err != nil {
 					continue
 				}
-				endpoints = append(endpoints, &apigen.Endpoint{
+				endpoints = append(endpoints, apigen.Endpoint{
 					Ordinal: ordinal.Ordinal,
 					Address: addr.String(),
-					State:   apigen.EndpointState_ENDPOINT_READY,
+					State:   apigen.EndpointState_ENDPOINT_STATE_READY,
 				})
 			}
 			endpointsByDeployment[service.DeploymentID] = appendNewEndpoints(endpointsByDeployment[service.DeploymentID], endpoints)
-			addService(service.Name, network.SpaceDNSName(service.SpaceID), endpoints)
+			addService(service.Name, network.SpaceDNSName(spaceID), endpoints)
 		}
 	} else {
-		type ordinalKey struct{ deploymentID, ordinal int32 }
+		type ordinalKey struct {
+			deploymentID uint64
+			ordinal      uint32
+		}
 		type ordinalStates struct{ serving, standby, draining bool }
 		statesByOrdinal := make(map[ordinalKey]*ordinalStates)
 		for _, item := range virtual {
-			if item.Config.DeploymentID <= 0 {
+			if item.Config.Deployment.ID == 0 {
 				continue
 			}
-			key := ordinalKey{item.Config.DeploymentID, item.Instance.InstanceOrdinal}
+			key := ordinalKey{item.Config.Deployment.ID, item.Instance.InstanceOrdinal}
 			states := statesByOrdinal[key]
 			if states == nil {
 				states = &ordinalStates{}
@@ -242,37 +244,42 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 			}
 		}
 		for _, item := range virtual {
-			if item.Config.DeploymentID <= 0 {
+			if item.Config.Deployment.ID == 0 {
 				continue
 			}
-			states := statesByOrdinal[ordinalKey{item.Config.DeploymentID, item.Instance.InstanceOrdinal}]
+			states := statesByOrdinal[ordinalKey{item.Config.Deployment.ID, item.Instance.InstanceOrdinal}]
 			if !states.serving && !(states.standby && states.draining) {
 				continue
 			}
-			addr, err := prefix.InboundAddr(item.Config.Value.SpaceID, item.Config.DeploymentID, item.Instance.InstanceOrdinal)
+			spaceID, deploymentID, ok := addressIDs(item.Config.Deployment.SpaceID, item.Config.Deployment.ID)
+			if !ok {
+				continue
+			}
+			addr, err := prefix.InboundAddr(spaceID, deploymentID, int32(item.Instance.InstanceOrdinal))
 			if err != nil {
 				continue
 			}
-			endpoint := &apigen.Endpoint{
+			endpoint := apigen.Endpoint{
 				Ordinal: item.Instance.InstanceOrdinal,
 				Address: addr.String(),
-				State:   apigen.EndpointState_ENDPOINT_READY,
+				State:   apigen.EndpointState_ENDPOINT_STATE_READY,
 			}
-			endpointsByDeployment[item.Config.DeploymentID] = appendNewEndpoints(endpointsByDeployment[item.Config.DeploymentID], []*apigen.Endpoint{endpoint})
+			endpointsByDeployment[item.Config.Deployment.ID] = appendNewEndpoints(endpointsByDeployment[item.Config.Deployment.ID], []apigen.Endpoint{endpoint})
 		}
 		for _, item := range virtual {
-			name := network.DNSLabel(item.Config.Value.Name)
-			if name == "" {
+			name := network.DNSLabel(item.Config.Deployment.Name)
+			spaceID, _, ok := addressIDs(item.Config.Deployment.SpaceID, item.Config.Deployment.ID)
+			if name == "" || !ok {
 				continue
 			}
-			addService(name, network.SpaceDNSName(item.Config.Value.SpaceID), endpointsByDeployment[item.Config.DeploymentID])
+			addService(name, network.SpaceDNSName(spaceID), endpointsByDeployment[item.Config.Deployment.ID])
 		}
 	}
 
 	ingress := make([]*apigen.NetIngress, 0)
 	ingressByRoute := make(map[string]*apigen.NetIngress)
 	for _, item := range virtual {
-		for _, route := range renderIngress(item, endpointsByDeployment[item.Config.DeploymentID]) {
+		for _, route := range renderIngress(item, endpointsByDeployment[item.Config.Deployment.ID]) {
 			key := ingressRouteKey(route)
 			existing := ingressByRoute[key]
 			if existing == nil {
@@ -290,59 +297,68 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 		return services[i].Name < services[j].Name
 	})
 	sort.Slice(ingress, func(i, j int) bool { return ingressRouteKey(ingress[i]) < ingressRouteKey(ingress[j]) })
-	var challenges []*apigen.AcmeHttpChallenge
+	var challenges []apigen.AcmeHttpChallenge
 	if acme != nil {
 		for _, challenge := range acme.Challenges {
-			if challenge == nil || challenge.Token == "" {
+			if challenge.Token == "" {
 				continue
 			}
 			challenges = append(challenges, challenge)
 		}
 	}
-	return &apigen.NetState{
+	state := &apigen.NetState{
 		Seq:               seq,
 		UlaPrefix:         prefix.Bytes(),
 		NodeIdentifier:    nodeIdentifier,
-		DnsServices:       services,
+		DnsServices:       make([]apigen.DnsService, 0, len(services)),
 		UpstreamResolvers: hostResolvers(),
-		Ingress:           ingress,
+		Ingress:           make([]apigen.NetIngress, 0, len(ingress)),
 		AcmeChallenges:    challenges,
 	}
+	for _, svc := range services {
+		state.DnsServices = append(state.DnsServices, *svc)
+	}
+	for _, route := range ingress {
+		state.Ingress = append(state.Ingress, *route)
+	}
+	return state
 }
 
-func renderIngress(item apigen.ScheduledInstanceState, endpoints []*apigen.Endpoint) []*apigen.NetIngress {
+func addressIDs(spaceID, deploymentID uint64) (int32, int32, bool) {
+	if spaceID > uint64(network.MaxSpaceID) || deploymentID > uint64(network.MaxDeploymentID) {
+		return 0, 0, false
+	}
+	return int32(spaceID), int32(deploymentID), true
+}
+
+func renderIngress(item apigen.ScheduledInstanceState, endpoints []apigen.Endpoint) []*apigen.NetIngress {
 	var out []*apigen.NetIngress
-	for _, route := range item.Config.Value.Spec.Networking.Ingress {
-		if route == nil {
-			continue
-		}
+	for _, route := range item.Config.Deployment.Spec.Networking.Ingress {
 		hostname := ingressHostname(route.Hostname)
 		if hostname == "" {
 			continue
 		}
-		switch route.Kind {
-		case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
-			if route.TlsPassthroughConfig == nil {
-				continue
-			}
-			port := route.TlsPassthroughConfig.HostPort
+		switch {
+		case route.Config.Value.TlsPassthrough != nil:
+			cfg := route.Config.Value.TlsPassthrough
+			port := cfg.HostPort.Value
 			if port == 0 {
 				port = 443
 			}
-			if port == netproxyDNSPort || port < 1 || port > 65535 || route.TlsPassthroughConfig.ContainerPort < 1 || route.TlsPassthroughConfig.ContainerPort > 65535 {
+			if port == netproxyDNSPort || port < 1 || port > 65535 || cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
 				continue
 			}
 			out = append(out, &apigen.NetIngress{
 				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
 				Hostname: hostname,
-				TlsPassthrough: &apigen.TlsPassthroughNetIngress{
+				TlsPassthrough: apigen.Some(apigen.TlsPassthroughNetIngress{
 					HostPort: port,
-					Backends: ingressBackends(endpoints, route.TlsPassthroughConfig.ContainerPort),
-				},
+					Backends: ingressBackends(endpoints, cfg.ContainerPort),
+				}),
 			})
-		case apigen.IngressKind_INGRESS_KIND_HTTPS:
-			cfg := route.HttpsConfig
-			if cfg == nil || cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
+		case route.Config.Value.Https != nil:
+			cfg := route.Config.Value.Https
+			if cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
 				continue
 			}
 			prefix := cfg.PathPrefix
@@ -352,15 +368,15 @@ func renderIngress(item apigen.ScheduledInstanceState, endpoints []*apigen.Endpo
 			out = append(out, &apigen.NetIngress{
 				Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
 				Hostname: hostname,
-				Https: &apigen.HttpsNetIngress{
+				Https: apigen.Some(apigen.HttpsNetIngress{
 					PathPrefix:          prefix,
 					StripPrefix:         cfg.StripPrefix,
 					BackendProtocol:     cfg.BackendProtocol,
-					MaxRequestBodyBytes: cfg.MaxRequestBodyBytes,
-					FlushIntervalMs:     cfg.FlushIntervalMs,
+					MaxRequestBodyBytes: cfg.MaxRequestBodyBytes.Value,
+					FlushIntervalMs:     cfg.FlushIntervalMs.Value,
 					CertID:              HTTPSCertID(cfg, hostname),
 					Backends:            ingressBackends(endpoints, cfg.ContainerPort),
-				},
+				}),
 			})
 		}
 	}
@@ -370,9 +386,9 @@ func renderIngress(item apigen.ScheduledInstanceState, endpoints []*apigen.Endpo
 func ingressRouteKey(route *apigen.NetIngress) string {
 	switch route.Kind {
 	case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
-		return "tls|" + route.Hostname + "|" + strconv.Itoa(int(route.TlsPassthrough.HostPort))
+		return "tls|" + route.Hostname + "|" + strconv.Itoa(int(route.TlsPassthrough.Value.HostPort))
 	case apigen.IngressKind_INGRESS_KIND_HTTPS:
-		return "https|" + route.Hostname + "|" + route.Https.PathPrefix
+		return "https|" + route.Hostname + "|" + route.Https.Value.PathPrefix
 	}
 	return ""
 }
@@ -380,13 +396,13 @@ func ingressRouteKey(route *apigen.NetIngress) string {
 func mergeIngressBackends(dst, src *apigen.NetIngress) {
 	switch dst.Kind {
 	case apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH:
-		dst.TlsPassthrough.Backends = appendNewBackends(dst.TlsPassthrough.Backends, src.TlsPassthrough.Backends)
+		dst.TlsPassthrough.Value.Backends = appendNewBackends(dst.TlsPassthrough.Value.Backends, src.TlsPassthrough.Value.Backends)
 	case apigen.IngressKind_INGRESS_KIND_HTTPS:
-		dst.Https.Backends = appendNewBackends(dst.Https.Backends, src.Https.Backends)
+		dst.Https.Value.Backends = appendNewBackends(dst.Https.Value.Backends, src.Https.Value.Backends)
 	}
 }
 
-func appendNewBackends(dst, src []*apigen.IngressBackend) []*apigen.IngressBackend {
+func appendNewBackends(dst, src []apigen.IngressBackend) []apigen.IngressBackend {
 	for _, backend := range src {
 		duplicate := false
 		for _, have := range dst {
@@ -402,7 +418,7 @@ func appendNewBackends(dst, src []*apigen.IngressBackend) []*apigen.IngressBacke
 	return dst
 }
 
-func appendNewEndpoints(dst, src []*apigen.Endpoint) []*apigen.Endpoint {
+func appendNewEndpoints(dst, src []apigen.Endpoint) []apigen.Endpoint {
 	for _, endpoint := range src {
 		duplicate := false
 		for _, have := range dst {
@@ -418,13 +434,13 @@ func appendNewEndpoints(dst, src []*apigen.Endpoint) []*apigen.Endpoint {
 	return dst
 }
 
-func ingressBackends(endpoints []*apigen.Endpoint, containerPort int32) []*apigen.IngressBackend {
-	backends := make([]*apigen.IngressBackend, 0, len(endpoints))
+func ingressBackends(endpoints []apigen.Endpoint, containerPort uint32) []apigen.IngressBackend {
+	backends := make([]apigen.IngressBackend, 0, len(endpoints))
 	for _, endpoint := range endpoints {
 		if endpoint.Address == "" {
 			continue
 		}
-		backends = append(backends, &apigen.IngressBackend{
+		backends = append(backends, apigen.IngressBackend{
 			Address: endpoint.Address,
 			Port:    containerPort,
 		})
@@ -433,8 +449,8 @@ func ingressBackends(endpoints []*apigen.Endpoint, containerPort int32) []*apige
 }
 
 func HTTPSCertID(cfg *apigen.HttpsConfig, hostname string) string {
-	if cfg != nil && cfg.CertSource != nil && cfg.CertSource.Secret != nil {
-		return "secret:" + cfg.CertSource.Secret.Secret.String()
+	if cfg != nil && cfg.CertSource.Present && cfg.CertSource.Value.Value.Secret != nil {
+		return "secret:" + cfg.CertSource.Value.Value.Secret.Secret.String()
 	}
 	return "acme:" + hostname
 }
@@ -444,22 +460,22 @@ const CertBundleFileName = "certbundle.pb"
 func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledInstanceState, certs CertSecretResolver, acmeBindings map[string]apigen.ValueRef, ensureSecrets func(context.Context, []apigen.ValueRef) error) *apigen.CertBundle {
 	wanted := map[string]apigen.ValueRef{}
 	for _, item := range items {
-		if item.Config.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if item.Config.Deployment.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		for _, route := range item.Config.Value.Spec.Networking.Ingress {
-			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
+		for _, route := range item.Config.Deployment.Spec.Networking.Ingress {
+			https := route.Config.Value.Https
+			if https == nil {
 				continue
 			}
 			hostname := ingressHostname(route.Hostname)
-			id := HTTPSCertID(route.HttpsConfig, hostname)
+			id := HTTPSCertID(https, hostname)
 			if _, ok := wanted[id]; ok {
 				continue
 			}
-			source := route.HttpsConfig.CertSource
-			if source != nil && source.Secret != nil {
-				if source.Secret.Secret.Valid() {
-					wanted[id] = source.Secret.Secret
+			if https.CertSource.Present && https.CertSource.Value.Value.Secret != nil {
+				if secret := https.CertSource.Value.Value.Secret.Secret; secret.Valid() {
+					wanted[id] = secret.Ref()
 				}
 				continue
 			}
@@ -492,7 +508,7 @@ func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledIn
 			slog.WarnContext(ctx, fmt.Sprintf("netproxy cert secret %s is not resolvable yet", id))
 			continue
 		}
-		bundle.Certs = append(bundle.Certs, &apigen.CertBundleEntry{CertID: id, Pem: []byte(value)})
+		bundle.Certs = append(bundle.Certs, apigen.CertBundleEntry{CertID: id, Pem: []byte(value)})
 	}
 	return bundle
 }

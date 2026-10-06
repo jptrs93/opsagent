@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"net/netip"
 	"testing"
 
 	"github.com/jptrs93/goutil/erru"
@@ -10,6 +11,28 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
+
+var testUnderlay = netip.MustParseAddr("10.0.0.1")
+
+func mustAddr(s string) apigen.IpAddress {
+	return apigen.AddrOf(netip.MustParseAddr(s))
+}
+
+func addrs(items ...string) []apigen.IpAddress {
+	out := make([]apigen.IpAddress, 0, len(items))
+	for _, item := range items {
+		out = append(out, mustAddr(item))
+	}
+	return out
+}
+
+func addrStrings(items []apigen.IpAddress) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.String())
+	}
+	return out
+}
 
 func globalSeq(t testing.TB, store *state.Service) int64 {
 	t.Helper()
@@ -36,8 +59,8 @@ func latestNodeEvent(t testing.TB, store *state.Service, identifier string) pq.N
 
 func mutationsOf(update state.WriteUpdate, typ apigen.CoreEntityType) []*apigen.CoreMutation {
 	var out []*apigen.CoreMutation
-	for _, m := range update.Mutations {
-		if m.Type() == typ {
+	for i := range update.Mutations {
+		if m := &update.Mutations[i]; m.Type() == typ {
 			out = append(out, m)
 		}
 	}

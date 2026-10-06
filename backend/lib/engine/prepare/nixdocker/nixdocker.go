@@ -66,17 +66,17 @@ func (p *Preparer) RunMaintenance(ctx context.Context) {
 	p.stores.RunMaintenance(ctx)
 }
 
-func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log *preparerlog.Log) (string, apigen.ImageStatus) {
+func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentRecord, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
-	nix := dep.Value.Spec.Container().Source.NixDockerBuild
+	nix := dep.Deployment.Spec.Container().Source.Value.NixImageBuild
 	localImageRef := imageRef(nix, version)
 	log.Write("checking for reusable image %s", localImageRef)
 	if err := p.imageReady(ctx, localImageRef); err == nil {
 		log.Write("reusing existing image %s", localImageRef)
-		return localImageRef, apigen.ImageStatus_IMAGE_READY
+		return localImageRef, apigen.ImageStatus_IMAGE_STATUS_READY
 	} else if !errors.Is(err, ctrd.ErrImageUnavailable) {
 		log.Error("checking reusable image: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	log.Write("reusable image not found; building %s", localImageRef)
 
@@ -84,7 +84,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 	log.Write("waiting for the build slot of repository %s", nix.Repo)
 	release, err := p.stores.Acquire(ctx, key)
 	if err != nil {
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	defer release()
 
@@ -94,19 +94,19 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 	repoDir, err := p.gitManager.EnsureCheckout(ctx, nix.Repo, version, log.Output())
 	if err != nil {
 		log.Error("checking out repository: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	log.Write("checkout complete in %s: %s", time.Since(checkoutStarted).Round(time.Millisecond), repoDir)
 
 	flakePath, err := checkedOutFlakePath(repoDir, nix.Flake)
 	if err != nil {
 		log.Error("validating flake path: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	flakeDir, err := filepath.Rel(repoDir, filepath.Dir(flakePath))
 	if err != nil {
 		log.Error("resolving flake directory: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 
 	store, err := p.stores.Ensure(ctx, key, nix.Repo, log.Output(), log.Write)
@@ -116,30 +116,30 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 		} else {
 			log.Error("preparing nix store: %v", err)
 		}
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 
 	dns, ok := network.Default.DNSAddr()
 	if !ok {
 		log.Error("setting up build network: netproxy DNS address is not known")
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	build, err := p.stores.NewBuild(store, dns.String())
 	if err != nil {
 		log.Error("preparing build scratch directory: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	defer build.Cleanup()
 
 	netSpec, err := network.Default.BuildNetSpec(build.ID)
 	if err != nil {
 		log.Error("setting up build network: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	buildNet, err := network.Default.SetupContainerNet(netSpec)
 	if err != nil {
 		log.Error("setting up build network: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	defer network.Default.TeardownContainerNet(buildNet)
 
@@ -154,27 +154,27 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 	if err != nil {
 		if isContextDone(ctx.Err()) {
 			log.Write("build cancelled")
-			return "", apigen.ImageStatus_IMAGE_FAILED
+			return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 		}
 		log.Error("running build container: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	switch {
 	case result.OOMKilled:
 		log.Error("build exceeded its memory limit of %s (exit status %d)", formatImageSize(cfg.Resources.MemoryBytes), result.Code)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	case result.Code != 0 && needsCredentials(stderr.Lines()):
 		log.Error("Nix build failed with exit status %d: a flake input requires credentials, which builds do not receive", result.Code)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	case result.Code != 0:
 		log.Error("Nix build failed with exit status %d", result.Code)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	artifactPath := stdout.LastNonEmpty()
 	log.Write("build complete in %s, image description: %s", time.Since(buildStarted).Round(time.Millisecond), artifactPath)
 	if artifactPath == "" {
 		log.Error("Nix build returned an empty output path")
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 
 	n2cStore := nix2container.Store{Root: store.Root}
@@ -185,7 +185,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 		} else {
 			log.Error("reading image description: %v", err)
 		}
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	log.Write("importing %d layers as %s", len(image.Layers), localImageRef)
 	importStarted := time.Now()
@@ -195,7 +195,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 		} else {
 			log.Error("importing image: %v", err)
 		}
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	log.Write("image import complete in %s", time.Since(importStarted).Round(time.Millisecond))
 	imageSize, err := ctrd.Default.ImageSize(ctx, localImageRef)
@@ -205,7 +205,7 @@ func (p *Preparer) Prepare(ctx context.Context, dep *apigen.DeploymentEvent, log
 		log.Write("image import complete: %s (size: %s)", localImageRef, formatImageSize(imageSize))
 	}
 	p.stores.AfterBuild(ctx, store, log.Output(), log.Write)
-	return localImageRef, apigen.ImageStatus_IMAGE_READY
+	return localImageRef, apigen.ImageStatus_IMAGE_STATUS_READY
 }
 
 func (p *Preparer) ingest(ctx context.Context, store nix2container.Store, image *nix2container.Image, key string, ref string, log *preparerlog.Log) error {
@@ -336,7 +336,7 @@ func formatImageSize(size int64) string {
 	return fmt.Sprintf("%d B", size)
 }
 
-func imageRef(nix *apigen.NixDockerBuild, version string) string {
+func imageRef(nix *apigen.NixImageBuild, version string) string {
 	return fmt.Sprintf(
 		"opendeploy.local/nix-docker-build/%s/%s:%s",
 		imageCacheSchemaVersion,
@@ -345,7 +345,7 @@ func imageRef(nix *apigen.NixDockerBuild, version string) string {
 	)
 }
 
-func imageSourceKey(nix *apigen.NixDockerBuild, goos, goarch string) string {
+func imageSourceKey(nix *apigen.NixImageBuild, goos, goarch string) string {
 	h := sha256.New()
 	for _, value := range []string{nix.Repo, nix.Flake, nix.Target, goos, goarch} {
 		_, _ = fmt.Fprintf(h, "%d:", len(value))

@@ -19,10 +19,11 @@ import (
 
 func nonEmptySpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{
-		Container1Spec: &apigen.ContainerSpec{
-			Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
-			Runtime: apigen.ContainerRuntime{User: "1000"},
-		},
+		Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+			Source:          apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: "example/app"}}},
+			Runtime:         apigen.ContainerRuntime{User: "1000"},
+			UpgradeStrategy: apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE,
+		}}},
 		Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST},
 	}
 }
@@ -35,8 +36,8 @@ func testSpecWithVersion(version string) *apigen.DeploymentSpec {
 	return spec
 }
 
-func createDeploymentForTest(s *Service, ctx apigen.Context, def *apigen.Deployment, inlockValidate func(*pq.Queries) error) (*apigen.DeploymentEvent, error) {
-	var event *apigen.DeploymentEvent
+func createDeploymentForTest(s *Service, ctx apigen.Context, def *apigen.Deployment, inlockValidate func(*pq.Queries) error) (*apigen.DeploymentRecord, error) {
+	var record *apigen.DeploymentRecord
 	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
@@ -47,52 +48,52 @@ func createDeploymentForTest(s *Service, ctx apigen.Context, def *apigen.Deploym
 		if err != nil {
 			return nil, err
 		}
-		event = pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), def)
-		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+		record = pq.DeploymentCreateRecord(ctx, id, seq, time.Now(), def)
+		return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 	})
-	return event, err
+	return record, err
 }
 
-func updateDeploymentForTest(s *Service, ctx apigen.Context, deploymentID int32, mutate func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error) *apigen.DeploymentEvent {
-	var event *apigen.DeploymentEvent
+func updateDeploymentForTest(s *Service, ctx apigen.Context, deploymentID uint64, mutate func(def *apigen.Deployment, existing *apigen.DeploymentRecord) error) *apigen.DeploymentRecord {
+	var record *apigen.DeploymentRecord
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		existing, err := q.GetLatestDeploymentEvent(ctx, int64(deploymentID))
+		existing, err := q.GetLatestDeployment(ctx, deploymentID)
 		if err != nil {
 			return nil, err
 		}
 		if existing.Deleted() {
 			return nil, fmt.Errorf("deployment %d is deleted", deploymentID)
 		}
-		def := existing.Value
+		def := existing.Deployment
 		if err := mutate(&def, existing); err != nil {
 			return nil, err
 		}
-		event, err = q.DeploymentUpdateEvent(ctx, int64(deploymentID), seq, time.Now(), &def)
+		record, err = q.DeploymentUpdateRecord(ctx, deploymentID, seq, time.Now(), &def)
 		if errors.Is(err, pq.ErrDeploymentUnchanged) {
-			event = existing
+			record = existing
 			return nil, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+		return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 	}))
-	return event
+	return record
 }
 
-func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+func mustCreateDeploymentForNode(s *Service, ctx apigen.Context, spaceID uint64, name string, nodeID uint64, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 	return mustCreateDeploymentForNodeRunning(s, ctx, spaceID, name, nodeID, true, spec)
 }
 
-func mustCreateDeploymentForNodeRunning(s *Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, running bool, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+func mustCreateDeploymentForNodeRunning(s *Service, ctx apigen.Context, spaceID uint64, name string, nodeID uint64, running bool, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 	stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
 	return erru.Must(createDeploymentForTest(s, ctx, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(running, nodeID), SpaceID: spaceID, Name: name, Spec: *stored}, func(q *pq.Queries) error {
-		events, err := q.ListActiveDeployments(ctx)
+		records, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return err
 		}
-		for _, cfg := range events {
-			if storage.DeploymentKeyMatches(cfg.Value, nodeID, spaceID, name) {
+		for _, cfg := range records {
+			if storage.DeploymentKeyMatches(cfg.Deployment, nodeID, spaceID, name) {
 				return fmt.Errorf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name)
 			}
 		}
@@ -100,36 +101,36 @@ func mustCreateDeploymentForNodeRunning(s *Service, ctx apigen.Context, spaceID 
 	}))
 }
 
-func updateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
-	return updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
+func updateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID uint64, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
+	return updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentRecord) error {
 		def.Spec = *spec
 		return nil
 	})
 }
 
-func moveDeploymentSpace(s *Service, ctx apigen.Context, deploymentID, spaceID int32) *apigen.DeploymentEvent {
-	return updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
+func moveDeploymentSpace(s *Service, ctx apigen.Context, deploymentID, spaceID uint64) *apigen.DeploymentRecord {
+	return updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentRecord) error {
 		def.SpaceID = spaceID
 		return nil
 	})
 }
 
-func deleteDeployment(s *Service, ctx apigen.Context, deploymentID int32) *apigen.DeploymentEvent {
-	var event *apigen.DeploymentEvent
+func deleteDeployment(s *Service, ctx apigen.Context, deploymentID uint64) *apigen.DeploymentRecord {
+	var record *apigen.DeploymentRecord
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
-		event, err = q.DeploymentDeleteEvent(ctx, int64(deploymentID), seq, time.Now())
+		record, err = q.DeploymentDeleteRecord(ctx, deploymentID, seq, time.Now())
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+		return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 	}))
-	return event
+	return record
 }
 
-func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID int32, version string, running bool) {
-	updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error {
-		spec := erru.Must(apigen.DecodeDeploymentSpec(existing.Value.Spec.Encode()))
+func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID uint64, version string, running bool) {
+	updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentRecord) error {
+		spec := erru.Must(apigen.DecodeDeploymentSpec(existing.Deployment.Spec.Encode()))
 		if err := spec.SetWorkloadVersion(version); err != nil {
 			return err
 		}
@@ -139,8 +140,8 @@ func mustSetDeploymentWorkloadState(s *Service, ctx apigen.Context, deploymentID
 	})
 }
 
-func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) {
-	updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error {
+func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID uint64, spec *apigen.DeploymentSpec) {
+	updateDeploymentForTest(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentRecord) error {
 		storedSpec := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
 		if err := storedSpec.SetWorkloadVersion(existing.WorkloadVersion()); err != nil {
 			return err
@@ -150,31 +151,29 @@ func mustUpdateDeploymentSpec(s *Service, ctx apigen.Context, deploymentID int32
 	})
 }
 
-func fetchDeploymentForTest(s *Service, deploymentID int32) *apigen.DeploymentEvent {
-	event, err := s.q.GetLatestDeploymentEvent(context.Background(), int64(deploymentID))
+func fetchDeploymentForTest(s *Service, deploymentID uint64) *apigen.DeploymentRecord {
+	record, err := s.q.GetLatestDeployment(context.Background(), deploymentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
-	return erru.Must(event, err)
+	return erru.Must(record, err)
 }
 
-func createScheduledInstanceForTest(s *Service, deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, target apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
+func createScheduledInstanceForTest(s *Service, deploymentID uint64, deploymentVersion uint32, nodeID uint64, instanceOrdinal uint32, target apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
 	ctx := context.Background()
 	now := time.Now()
 	inst := &apigen.ScheduledInstance{
-		DeploymentID:      deploymentID,
-		DeploymentVersion: deploymentVersion,
-		NodeID:            nodeID,
-		InstanceOrdinal:   instanceOrdinal,
-		State:             target,
+		Deployment:      apigen.DeploymentRef{DeploymentID: deploymentID, Version: deploymentVersion},
+		NodeID:          nodeID,
+		InstanceOrdinal: instanceOrdinal,
+		State:           target,
 	}
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(deploymentID), Version: int64(deploymentVersion)})
+		cfg, err := q.GetDeploymentVersion(ctx, deploymentID, deploymentVersion)
 		if err != nil {
 			return nil, err
 		}
-		inst.DeploymentSpecVersion = cfg.SpecVersion
-		inst.SpaceID = cfg.Value.SpaceID
+		inst.SpaceID = cfg.Deployment.SpaceID
 		inst.ID = erru.Must(q.NextScheduledInstanceID(ctx))
 		event := pq.NewScheduledInstanceEvent(seq, inst, target, now)
 		return pq.NewUpdate(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, event)), nil
@@ -182,7 +181,7 @@ func createScheduledInstanceForTest(s *Service, deploymentID, deploymentVersion,
 	return inst
 }
 
-func setScheduledInstanceState(s *Service, instanceID int32, target apigen.ScheduledInstanceTarget) {
+func setScheduledInstanceState(s *Service, instanceID uint64, target apigen.ScheduledInstanceTarget) {
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		current, err := q.GetScheduledInstance(ctx, instanceID)
@@ -200,11 +199,10 @@ func setScheduledInstanceState(s *Service, instanceID int32, target apigen.Sched
 	}))
 }
 
-func writeInstanceStatusForTest(s *Service, instanceID int32, f func(*apigen.ScheduledInstanceStatus)) {
+func writeInstanceStatusForTest(s *Service, instanceID uint64, f func(*apigen.ScheduledInstanceStatus)) {
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		event, err := q.GetScheduledInstance(ctx, instanceID)
-		if err != nil {
+		if _, err := q.GetScheduledInstance(ctx, instanceID); err != nil {
 			return nil, err
 		}
 		current, err := q.GetLatestScheduledInstanceStatus(ctx, instanceID)
@@ -214,30 +212,36 @@ func writeInstanceStatusForTest(s *Service, instanceID int32, f func(*apigen.Sch
 			return nil, err
 		}
 		current.ScheduledInstanceID = instanceID
-		current.DeploymentID = event.Value.DeploymentID
 		f(current)
 		return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, time.Now().UnixMilli(), pq.CanonicalScheduledInstanceStatus(current))), nil
 	}))
 }
 
+func runnerStatus(status apigen.RunningStatus, pid uint32) apigen.Maybe[apigen.RunnerStatus] {
+	r := apigen.RunnerStatus{Status: status}
+	if pid > 0 {
+		r.RunningPid = apigen.Some(pid)
+	}
+	return apigen.Some(r)
+}
+
 func envRefSpec(configs map[string]apigen.ValueRef, secrets map[string]apigen.ValueRef) *apigen.DeploymentSpec {
 	spec := testSpecWithVersion("v1")
-	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configs)+len(secrets))
+	env := make(map[string]apigen.EnvVar, len(configs)+len(secrets))
 	for key, ref := range configs {
-		ref := ref
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{Config: &ref}
+		env[key] = apigen.EnvVar{Value: apigen.EnvVarValueOneof{Config: &apigen.ConfigEnv{Config: apigen.ConfigRef{ConfigID: ref.ID, Version: ref.Version}}}}
 	}
 	for key, ref := range secrets {
-		ref := ref
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{Secret: &ref}
+		env[key] = apigen.EnvVar{Value: apigen.EnvVarValueOneof{Secret: &apigen.SecretEnv{Secret: apigen.SecretRef{SecretID: ref.ID, Version: ref.Version}}}}
 	}
+	spec.Container().Runtime.EnvVars = env
 	return spec
 }
 
-func activeDeploymentsForTest(s *Service, predicate storage.DeploymentPredicate) []apigen.DeploymentEvent {
-	events := erru.Must(s.q.ListActiveDeployments(context.Background()))
-	out := make([]apigen.DeploymentEvent, 0, len(events))
-	for _, cfg := range events {
+func activeDeploymentsForTest(s *Service, predicate storage.DeploymentPredicate) []apigen.DeploymentRecord {
+	records := erru.Must(s.q.ListActiveDeployments(context.Background()))
+	out := make([]apigen.DeploymentRecord, 0, len(records))
+	for _, cfg := range records {
 		if predicate != nil && !predicate(*cfg) {
 			continue
 		}
@@ -247,7 +251,7 @@ func activeDeploymentsForTest(s *Service, predicate storage.DeploymentPredicate)
 }
 
 type testNodeRef struct {
-	ID         int32
+	ID         uint64
 	Identifier string
 }
 
@@ -258,10 +262,11 @@ func testNode(s *Service, identifier string) testNodeRef {
 	}
 	var row pq.CurrentNode
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		now := time.Now().UnixMilli()
+		now := time.Now()
 		var err error
-		row, err = q.NewNode(ctx, seq, now, apigen.Node{Status: apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL,
-			Operator: apigen.NodeOperator{Name: identifier, EnrolledTime: now, Roles: []int32{0}}, Reported: apigen.NodeReported{Identifier: identifier}})
+		row, err = q.NewNode(ctx, seq, now.UnixMilli(), apigen.Node{Status: apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL,
+			Operator: apigen.NodeOperator{Name: identifier, EnrolledTime: apigen.TimeOf(time.UnixMilli(now.UnixMilli())), Roles: []apigen.NodeRole{apigen.NodeRole_NODE_ROLE_PRIMARY}},
+			Reported: apigen.NodeReported{Identifier: identifier, UnderlayAddress: apigen.IpAddress{Value: apigen.IpAddressValueOneof{Ipv4: &apigen.IPv4Address{Octets: []byte{10, 0, 0, 1}}}}}})
 		if err != nil {
 			return nil, err
 		}
@@ -290,24 +295,24 @@ func createSpaceForTest(s *Service, name string) *apigen.Space {
 			return nil, err
 		}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
-		space = apigen.Space{ID: int32(id), Name: name}
+		space = apigen.Space{ID: id, Name: name}
 		return pq.NewUpdate(pq.SpaceMutation(meta, space)), nil
 	}))
 	return &space
 }
 
-func deleteSpaceForTest(s *Service, id int32) {
+func deleteSpaceForTest(s *Service, id uint64) {
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		if _, err := q.GetSpace(ctx, int64(id)); err != nil {
+		if _, err := q.GetSpace(ctx, id); err != nil {
 			return nil, err
 		}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli()}
-		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_SPACE, int64(id))), nil
+		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_SPACE, id)), nil
 	}))
 }
 
-const defaultSpaceID int32 = 1
+const defaultSpaceID uint64 = 1
 
 func putAssetContentForTest(s *Service, blob []byte) (sha, storageKey string) {
 	sum := sha256.Sum256(blob)

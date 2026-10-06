@@ -45,36 +45,36 @@ func TestContainerRunnerShouldPublishStopped(t *testing.T) {
 		{
 			name: "already stopped",
 			st: apigen.RunnerStatus{
-				Status: apigen.RunningStatus_STOPPED,
+				Status: apigen.RunningStatus_RUNNING_STATUS_STOPPED,
 			},
 			want: false,
 		},
 		{
 			name: "stopped stale pid",
 			st: apigen.RunnerStatus{
-				Status:     apigen.RunningStatus_STOPPED,
-				RunningPid: 123,
+				Status:     apigen.RunningStatus_RUNNING_STATUS_STOPPED,
+				RunningPid: apigen.Some[uint32](123),
 			},
 			want: true,
 		},
 		{
 			name: "no deployment",
 			st: apigen.RunnerStatus{
-				Status: apigen.RunningStatus_NO_DEPLOYMENT,
+				Status: apigen.RunningStatus_RUNNING_STATUS_NO_DEPLOYMENT,
 			},
 			want: false,
 		},
 		{
 			name: "running",
 			st: apigen.RunnerStatus{
-				Status: apigen.RunningStatus_RUNNING,
+				Status: apigen.RunningStatus_RUNNING_STATUS_RUNNING,
 			},
 			want: true,
 		},
 		{
 			name: "crashed",
 			st: apigen.RunnerStatus{
-				Status: apigen.RunningStatus_CRASHED,
+				Status: apigen.RunningStatus_RUNNING_STATUS_CRASHED,
 			},
 			want: true,
 		},
@@ -92,12 +92,12 @@ func TestContainerRunnerShouldPublishStopped(t *testing.T) {
 
 func TestCountEnvVars(t *testing.T) {
 	plain := "value"
-	got := countEnvVars(map[string]*apigen.EnvVarValue{
-		"PLAIN":  {Value: &plain},
-		"SECRET": {Secret: &apigen.ValueRef{ID: 1, Version: 1}},
-		"CONFIG": {Config: &apigen.ValueRef{ID: 2, Version: 1}},
-		"ASSET":  {Asset: "bundle", AssetRef: &apigen.ValueRef{ID: 3, Version: 1}},
-		"NIL":    nil,
+	got := countEnvVars(map[string]apigen.EnvVar{
+		"PLAIN":  literalEnv(plain),
+		"SECRET": secretEnv(1, 1),
+		"CONFIG": configEnv(2, 1),
+		"ASSET":  assetEnv("bundle", 3, 1),
+		"EMPTY":  {},
 	})
 
 	if got.plain != 1 || got.secret != 1 || got.config != 1 || got.asset != 1 {
@@ -139,10 +139,7 @@ func TestDefaultVolumeDest(t *testing.T) {
 }
 
 func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
-	dep := &apigen.DeploymentEvent{
-		DeploymentID: 7,
-		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, AssetMounts: []*apigen.AssetMount{{Asset: apigen.ValueRef{ID: 8, Version: 1}, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY}, {Asset: apigen.ValueRef{ID: 9, Version: 2}, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_READ_EXECUTE}}}}}},
-	}
+	dep := containerDeployment(7, 1, apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, AssetMounts: []apigen.AssetMount{{Asset: apigen.AssetRef{AssetID: 8, Version: 1}, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_FILE_PERMISSION_READ_ONLY}, {Asset: apigen.AssetRef{AssetID: 9, Version: 2}, ContainerPath: "/docker-entrypoint-initdb.d/init.sh", Permission: apigen.FilePermission_FILE_PERMISSION_READ_EXECUTE}}})
 
 	mounts, dataHost := containerMounts(dep)
 	if dataHost != "" {
@@ -162,11 +159,9 @@ func TestContainerMountsUsesExecutableAssetCachePath(t *testing.T) {
 func TestBuildContainerRunnerUsesResourceOverrides(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, 1, &apigen.DeploymentEvent{
-		DeploymentID: 7,
-		SpecVersion:  3,
-		Value:        apigen.Deployment{SpaceID: 5, Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, DevShmSizeKb: 65536, FileDescriptorLimit: 4096}}}},
-	}, 3)
+	dep := containerDeployment(7, 3, apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, DevShmSizeKb: apigen.Some[uint32](65536), FileDescriptorLimit: apigen.Some[uint32](4096)})
+	dep.Deployment.SpaceID = 5
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, 1, dep, 3)
 	if r.devShmSizeKB != 65536 {
 		t.Fatalf("devShmSizeKB = %d, want 65536", r.devShmSizeKB)
 	}
@@ -186,10 +181,7 @@ func TestContainerMountsTranslatesMountsAndPermissions(t *testing.T) {
 	ainit.StaticConfig.VolumesDir = "/var/lib/opendeploy-volumes"
 	t.Cleanup(func() { ainit.StaticConfig.VolumesDir = oldVolumesDir })
 
-	dep := &apigen.DeploymentEvent{
-		DeploymentID: 7,
-		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{ContainerPath: "/state"}, CrossDeploymentMounts: []*apigen.CrossDeploymentMount{{DeploymentID: 12, ContainerPath: "/shared-ro", Permission: apigen.FilePermission_READ_ONLY}, {DeploymentID: 13, ContainerPath: "/shared-rw", Permission: apigen.FilePermission_READ_WRITE}}, Mounts: []*apigen.CustomHostMount{{HostPath: "/host/config", ContainerPath: "/config", Permission: apigen.FilePermission_READ_ONLY}}}}}},
-	}
+	dep := containerDeployment(7, 1, apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{ContainerPath: "/state"}, CrossDeploymentMounts: []apigen.CrossDeploymentMount{{DeploymentID: 12, ContainerPath: "/shared-ro", Permission: apigen.FilePermission_FILE_PERMISSION_READ_ONLY}, {DeploymentID: 13, ContainerPath: "/shared-rw", Permission: apigen.FilePermission_FILE_PERMISSION_READ_WRITE}}, Mounts: []apigen.HostMount{{HostPath: "/host/config", ContainerPath: "/config", Permission: apigen.FilePermission_FILE_PERMISSION_READ_ONLY}}})
 
 	mounts, dataHost := containerMounts(dep)
 	if dataHost != "/var/lib/opendeploy-volumes/7/default" {
@@ -288,12 +280,10 @@ func TestOnlyServingPlacementClaimsInboundAddress(t *testing.T) {
 	}
 }
 
-func rolloverTestDeployment() *apigen.DeploymentEvent {
-	return &apigen.DeploymentEvent{
-		DeploymentID: 7,
-		SpecVersion:  3,
-		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{UpgradeStrategy: apigen.ContainerUpgradeStrategy_ROLLOVER, Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}}}}},
-	}
+func rolloverTestDeployment() *apigen.DeploymentRecord {
+	dep := containerDeployment(7, 3, apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}})
+	dep.Deployment.Spec.Container().UpgradeStrategy = apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_ROLLOVER
+	return dep
 }
 
 func newTestCandidate(t *testing.T, store storage.OperatorStore) *containerRunner {
@@ -322,7 +312,7 @@ func TestRolloverCandidatePublishesStatus(t *testing.T) {
 	if len(statuses) != 1 {
 		t.Fatalf("status writes after construction = %d, want 1", len(statuses))
 	}
-	if statuses[0].Status != apigen.RunningStatus_STARTING {
+	if statuses[0].Status != apigen.RunningStatus_RUNNING_STATUS_STARTING {
 		t.Fatalf("initial candidate status = %v, want STARTING", statuses[0].Status)
 	}
 	if !r.readinessPending.Load() {
@@ -331,9 +321,9 @@ func TestRolloverCandidatePublishesStatus(t *testing.T) {
 
 	// A crash before the readiness signal must reach the store, which is both
 	// what the FE renders and what wakes the operator.
-	r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+	r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 	statuses = store.runnerStatuses()
-	if len(statuses) != 2 || statuses[1].Status != apigen.RunningStatus_CRASHED {
+	if len(statuses) != 2 || statuses[1].Status != apigen.RunningStatus_RUNNING_STATUS_CRASHED {
 		t.Fatalf("statuses = %+v, want a published CRASHED", statuses)
 	}
 }
@@ -402,7 +392,7 @@ func TestFailReadinessReleasesTheOperator(t *testing.T) {
 		t.Fatal("WaitReady() = nil, want the readiness failure")
 	}
 	statuses := store.runnerStatuses()
-	if got := statuses[len(statuses)-1].Status; got != apigen.RunningStatus_CRASHED {
+	if got := statuses[len(statuses)-1].Status; got != apigen.RunningStatus_RUNNING_STATUS_CRASHED {
 		t.Fatalf("final status = %v, want CRASHED", got)
 	}
 }
@@ -457,7 +447,7 @@ func TestContainerNaming(t *testing.T) {
 	if id := containerID(family, 5); id != "opendeploy-7-3-42-5" {
 		t.Fatalf("id = %s", id)
 	}
-	cases := map[string]int32{
+	cases := map[string]uint32{
 		"opendeploy-7-3-42-5":   5,
 		"opendeploy-7-3-42-12":  12,
 		"opendeploy-7-3-42-0":   0,
@@ -513,11 +503,12 @@ func TestWaitTaskExitResumesAfterStreamLoss(t *testing.T) {
 	taskRecheckWindow = 50 * time.Millisecond
 	t.Cleanup(func() { taskRecheckInterval = time.Second; taskRecheckWindow = time.Minute })
 	eof := errors.New("rpc error: code = Unavailable desc = error reading from server: EOF")
-	code := func(c int32) *int32 { return &c }
+	code := func(c int32) apigen.Maybe[int32] { return apigen.Some(c) }
+	none := apigen.Maybe[int32]{}
 	cases := []struct {
 		name  string
 		task  *fakeTaskWaiter
-		want  *int32
+		want  apigen.Maybe[int32]
 		waits int
 	}{
 		{"clean exit", &fakeTaskWaiter{waits: []fakeWait{{exit: ctrd.ExitStatus{Code: 3}}}}, code(3), 1},
@@ -540,16 +531,16 @@ func TestWaitTaskExitResumesAfterStreamLoss(t *testing.T) {
 		{"task gone", &fakeTaskWaiter{
 			waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: eof}}},
 			statuses: []fakeStatus{{err: ctrd.ErrNotFound}},
-		}, nil, 1},
+		}, none, 1},
 		{"status never recovers", &fakeTaskWaiter{
 			waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: eof}}},
 			statuses: []fakeStatus{{err: eof}},
-		}, nil, 1},
+		}, none, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := waitTaskExit(context.Background(), tc.task)
-			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
+			if got != tc.want {
 				t.Fatalf("exit code = %v, want %v", got, tc.want)
 			}
 			if tc.task.waitN != tc.waits {
@@ -567,13 +558,13 @@ func TestWaitTaskExitStopsOnContextCancel(t *testing.T) {
 		waits:    []fakeWait{{exit: ctrd.ExitStatus{Err: errors.New("EOF")}}},
 		statuses: []fakeStatus{{err: errors.New("unavailable")}},
 	}
-	done := make(chan *int32, 1)
+	done := make(chan apigen.Maybe[int32], 1)
 	go func() { done <- waitTaskExit(ctx, task) }()
 	cancel()
 	select {
 	case got := <-done:
-		if got != nil {
-			t.Fatalf("exit code = %v, want nil", *got)
+		if got.Present {
+			t.Fatalf("exit code = %v, want absent", got.Value)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("waitTaskExit did not return after cancel")

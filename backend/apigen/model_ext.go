@@ -8,31 +8,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/ainit"
 )
 
-// Bumped to 7 when assets split into assets + asset_versions: the cluster
-// asset fetch renamed its query param and headers to asset_version_id naming.
-// Bumped to 8 when issued TLS mounts were added: an older secondary would run an
-// issued-TLS deployment without its cert material.
-// Bumped to 10 when the streaming log search was replaced by the one-shot
-// structured log query round trip (per-field stats ride in its response).
-// Bumped to 11 when the metrics query and latest-sample round trips were added.
-// Bumped to 12 when secret, config, and asset references moved from event log
-// row ids to ValueRef (entity id, value version) pairs.
-const ClusterProtocolVersion int32 = 12
-
-// Valid reports whether r names a value: both the entity id and the value
-// version are set.
-func (r ValueRef) Valid() bool {
-	return r.ID > 0 && r.Version > 0
-}
-
-func (r ValueRef) String() string {
-	return fmt.Sprintf("%d@%d", r.ID, r.Version)
-}
-
-// Less orders refs by entity id, then value version.
-func (r ValueRef) Less(o ValueRef) bool {
-	return r.ID < o.ID || (r.ID == o.ID && r.Version < o.Version)
-}
+// Bumped to 13 when the api-contract was rewritten from the data model: every
+// wire shape changed, so an older node must be refused at the hello.
+const ClusterProtocolVersion uint32 = 13
 
 // WantsRunning reports whether a node should be running this placement. The
 // three RUN_* states are deliberately indistinguishable here: they differ only
@@ -57,8 +35,16 @@ func (t ScheduledInstanceTarget) IsFinal() bool {
 
 // BumpUpdatedAt advances the observation clock past both wall time and the
 // previous persisted observation, including a restored tombstone.
-func (s *ScheduledInstanceStatus) BumpUpdatedAt() { s.UpdatedAt = nextObservationTime(s.UpdatedAt) }
-func (s *NodeStatus) BumpUpdatedAt()              { s.UpdatedAt = nextObservationTime(s.UpdatedAt) }
+func (s *ScheduledInstanceStatus) BumpUpdatedAt() {
+	s.UpdatedAt = Maybe[time.Time]{Value: nextObservationTime(s.UpdatedAt.Value), Present: true}
+}
+
+func (s *NodeStatus) BumpUpdatedAt() {
+	s.UpdatedAt = Maybe[time.Time]{Value: nextObservationTime(s.UpdatedAt.Value), Present: true}
+}
+
+func (s *ScheduledInstanceStatus) UpdatedAtTime() time.Time { return s.UpdatedAt.Value }
+func (s *NodeStatus) UpdatedAtTime() time.Time              { return s.UpdatedAt.Value }
 
 func nextObservationTime(previous time.Time) time.Time {
 	now := time.Now().Round(0)
@@ -69,70 +55,72 @@ func nextObservationTime(previous time.Time) time.Time {
 	return previous.Add(time.Nanosecond)
 }
 
-func prepareOutputFile(deploymentID int32, version int32) string {
+func prepareOutputFile(deploymentID uint64, version uint32) string {
 	return filepath.Join(ainit.StaticConfig.PrepareOutputDir, fmt.Sprintf("%d", deploymentID), fmt.Sprintf("%d.log", version))
 }
 
-func LogWALDeploymentDir(deploymentID int32) string {
+func LogWALDeploymentDir(deploymentID uint64) string {
 	return filepath.Join(ainit.StaticConfig.LogWALDir, fmt.Sprintf("%d", deploymentID))
 }
 
-func (d *DeploymentEvent) PrepareOutputPath() string {
-	return prepareOutputFile(d.DeploymentID, d.SpecVersion)
+func (d *DeploymentRecord) PrepareOutputPath() string {
+	return prepareOutputFile(d.Deployment.ID, d.Meta.SpecVersion)
 }
 
-func (d *DeploymentEvent) WorkloadVersion() string {
-	return d.Value.Spec.WorkloadVersion()
+func (d *DeploymentRecord) WorkloadVersion() string {
+	return d.Deployment.Spec.WorkloadVersion()
 }
 
-func (d *DeploymentEvent) WorkloadRunning() bool {
-	return d.Value.Scheduling.Running
+func (d *DeploymentRecord) WorkloadRunning() bool {
+	return d.Deployment.Scheduling.Running
+}
+
+func (d *DeploymentRecord) Deleted() bool {
+	return d.Meta.Deleted
+}
+
+func (d *DeploymentRecord) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
+	container := d.Deployment.Spec.Container()
+	if container == nil || container.UpgradeStrategy == ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
+		return ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE
+	}
+	return container.UpgradeStrategy
+}
+
+func (d *DeploymentRecord) SetWorkloadState(version string, running bool) error {
+	if err := d.Deployment.Spec.SetWorkloadVersion(version); err != nil {
+		return err
+	}
+	d.Deployment.Scheduling.Running = running
+	return nil
 }
 
 // PlacementNodeID is the single dedicated node a deployment runs on, or zero
 // while it has none. Multi-node placements will need callers to iterate the
 // node list instead.
-func (d *Deployment) PlacementNodeID() int32 {
-	if d.Scheduling.DedicatedNodes == nil || len(d.Scheduling.DedicatedNodes.Nodes) == 0 {
+func (d *Deployment) PlacementNodeID() uint64 {
+	nodes := d.Scheduling.Placement.Value.DedicatedNodes
+	if nodes == nil || len(nodes.Nodes) == 0 {
 		return 0
 	}
-	return d.Scheduling.DedicatedNodes.Nodes[0]
+	return nodes.Nodes[0]
 }
 
 func (d *Deployment) Running() bool {
 	return d.Scheduling.Running
 }
 
-func DedicatedScheduling(running bool, nodes ...int32) Scheduling {
-	return Scheduling{Running: running, DedicatedNodes: &DedicatedNodesScheduling{Nodes: nodes}}
+func DedicatedScheduling(running bool, nodes ...uint64) Scheduling {
+	return Scheduling{Running: running, Placement: Placement{Value: PlacementValueOneof{DedicatedNodes: &DedicatedNodesScheduling{Nodes: nodes}}}}
 }
 
-func (d *DeploymentEvent) EffectiveUpgradeStrategy() ContainerUpgradeStrategy {
-	container := d.Value.Spec.Container()
-	if container == nil || container.UpgradeStrategy == ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
-		return ContainerUpgradeStrategy_RECREATE
-	}
-	return container.UpgradeStrategy
-}
-
-func (d *DeploymentEvent) SetWorkloadState(version string, running bool) error {
-	if err := d.Value.Spec.SetWorkloadVersion(version); err != nil {
-		return err
-	}
-	d.Value.Scheduling.Running = running
-	return nil
-}
-
-func (d *DeploymentEvent) Deleted() bool {
-	return d.EventType == EventType_EVENT_TYPE_DELETE
+func (s *DeploymentSpec) Container() *ContainerSpec {
+	return s.Workload.Value.Container
 }
 
 func (s *DeploymentSpec) WorkloadVersion() string {
 	if container := s.Container(); container != nil {
 		return container.Version
-	}
-	if s.OpendeploySpec != nil {
-		return s.OpendeploySpec.Version
 	}
 	return ""
 }
@@ -142,41 +130,26 @@ func (s *DeploymentSpec) SetWorkloadVersion(version string) error {
 		container.Version = version
 		return nil
 	}
-	if s.OpendeploySpec != nil {
-		s.OpendeploySpec.Version = version
-		return nil
-	}
 	return fmt.Errorf("deployment spec has no supported workload")
-}
-
-func (s *DeploymentSpec) Container() *ContainerSpec {
-	for _, container := range []*ContainerSpec{s.Container1Spec, s.Container2Spec, s.Container3Spec} {
-		if container != nil {
-			return container
-		}
-	}
-	return nil
 }
 
 func (r *PrepareOutputRequest) OutputPath() string {
 	return prepareOutputFile(r.DeploymentID, r.SpecVersion)
 }
 
-// --- String methods for status enums ---
-
 func (s RunningStatus) String() string {
 	switch s {
-	case RunningStatus_DEPLOYMENT_STATUS_UNKNOWN:
+	case RunningStatus_RUNNING_STATUS_UNSPECIFIED:
 		return "UNKNOWN"
-	case RunningStatus_NO_DEPLOYMENT:
+	case RunningStatus_RUNNING_STATUS_NO_DEPLOYMENT:
 		return "NO_DEPLOYMENT"
-	case RunningStatus_RUNNING:
+	case RunningStatus_RUNNING_STATUS_RUNNING:
 		return "RUNNING"
-	case RunningStatus_STOPPED:
+	case RunningStatus_RUNNING_STATUS_STOPPED:
 		return "STOPPED"
-	case RunningStatus_STARTING:
+	case RunningStatus_RUNNING_STATUS_STARTING:
 		return "STARTING"
-	case RunningStatus_CRASHED:
+	case RunningStatus_RUNNING_STATUS_CRASHED:
 		return "CRASHED"
 	default:
 		return fmt.Sprintf("RunningStatus(%d)", int32(s))
@@ -185,17 +158,17 @@ func (s RunningStatus) String() string {
 
 func (s PreparationStatus) String() string {
 	switch s {
-	case PreparationStatus_PREPARATION_STATUS_UNKNOWN:
+	case PreparationStatus_PREPARATION_STATUS_UNSPECIFIED:
 		return "UNKNOWN"
-	case PreparationStatus_PREPARING:
+	case PreparationStatus_PREPARATION_STATUS_PREPARING:
 		return "PREPARING"
-	case PreparationStatus_DOWNLOADING:
+	case PreparationStatus_PREPARATION_STATUS_DOWNLOADING:
 		return "DOWNLOADING"
-	case PreparationStatus_READY:
+	case PreparationStatus_PREPARATION_STATUS_READY:
 		return "READY"
-	case PreparationStatus_FAILED:
+	case PreparationStatus_PREPARATION_STATUS_FAILED:
 		return "FAILED"
-	case PreparationStatus_PULLING:
+	case PreparationStatus_PREPARATION_STATUS_PULLING:
 		return "PULLING"
 	default:
 		return fmt.Sprintf("PreparationStatus(%d)", int32(s))
@@ -209,39 +182,53 @@ func (s PreparationStatus) String() string {
 //
 // Note the ordering: an image that is already READY wins over an inputs stage
 // that is merely resolving. That is what keeps an input retry on an
-// already-prepared instance from demoting its rollup and stopping its runner —
+// already-prepared instance from demoting its rollup and stopping its runner:
 // the artifact is built, only input distribution failed.
 func (p PreparerStatus) Rollup() PreparationStatus {
-	if p.Inputs == InputsStatus_INPUTS_FAILED || p.Image == ImageStatus_IMAGE_FAILED {
-		return PreparationStatus_FAILED
+	image := p.Image.Value
+	if !p.Image.Present {
+		image = ImageStatus_IMAGE_STATUS_UNSPECIFIED
 	}
-	switch p.Image {
-	case ImageStatus_IMAGE_READY:
-		return PreparationStatus_READY
-	case ImageStatus_IMAGE_PULLING:
-		return PreparationStatus_PULLING
-	case ImageStatus_IMAGE_DOWNLOADING:
-		return PreparationStatus_DOWNLOADING
-	case ImageStatus_IMAGE_BUILDING:
-		return PreparationStatus_PREPARING
+	if p.Inputs == InputsStatus_INPUTS_STATUS_FAILED || image == ImageStatus_IMAGE_STATUS_FAILED {
+		return PreparationStatus_PREPARATION_STATUS_FAILED
 	}
-	// The image stage has not started. Anything past the start of stage 1 still
-	// reads as PREPARING to everything downstream.
-	if p.Inputs != InputsStatus_INPUTS_STATUS_UNKNOWN {
-		return PreparationStatus_PREPARING
+	switch image {
+	case ImageStatus_IMAGE_STATUS_READY:
+		return PreparationStatus_PREPARATION_STATUS_READY
+	case ImageStatus_IMAGE_STATUS_PULLING:
+		return PreparationStatus_PREPARATION_STATUS_PULLING
+	case ImageStatus_IMAGE_STATUS_DOWNLOADING:
+		return PreparationStatus_PREPARATION_STATUS_DOWNLOADING
+	case ImageStatus_IMAGE_STATUS_BUILDING:
+		return PreparationStatus_PREPARATION_STATUS_PREPARING
 	}
-	return PreparationStatus_PREPARATION_STATUS_UNKNOWN
+	if p.Inputs != InputsStatus_INPUTS_STATUS_UNSPECIFIED {
+		return PreparationStatus_PREPARATION_STATUS_PREPARING
+	}
+	return PreparationStatus_PREPARATION_STATUS_UNSPECIFIED
+}
+
+// ImageStage is the image stage with absence read as unspecified.
+func (p PreparerStatus) ImageStage() ImageStatus {
+	if !p.Image.Present {
+		return ImageStatus_IMAGE_STATUS_UNSPECIFIED
+	}
+	return p.Image.Value
+}
+
+func (p *PreparerStatus) SetImage(s ImageStatus) {
+	p.Image = Maybe[ImageStatus]{Value: s, Present: true}
 }
 
 func (s InputsStatus) String() string {
 	switch s {
-	case InputsStatus_INPUTS_STATUS_UNKNOWN:
+	case InputsStatus_INPUTS_STATUS_UNSPECIFIED:
 		return "UNKNOWN"
-	case InputsStatus_INPUTS_RESOLVING:
+	case InputsStatus_INPUTS_STATUS_RESOLVING:
 		return "RESOLVING"
-	case InputsStatus_INPUTS_READY:
+	case InputsStatus_INPUTS_STATUS_READY:
 		return "READY"
-	case InputsStatus_INPUTS_FAILED:
+	case InputsStatus_INPUTS_STATUS_FAILED:
 		return "FAILED"
 	default:
 		return fmt.Sprintf("InputsStatus(%d)", int32(s))
@@ -250,17 +237,17 @@ func (s InputsStatus) String() string {
 
 func (s ImageStatus) String() string {
 	switch s {
-	case ImageStatus_IMAGE_STATUS_UNKNOWN:
+	case ImageStatus_IMAGE_STATUS_UNSPECIFIED:
 		return "UNKNOWN"
-	case ImageStatus_IMAGE_BUILDING:
+	case ImageStatus_IMAGE_STATUS_BUILDING:
 		return "BUILDING"
-	case ImageStatus_IMAGE_PULLING:
+	case ImageStatus_IMAGE_STATUS_PULLING:
 		return "PULLING"
-	case ImageStatus_IMAGE_DOWNLOADING:
+	case ImageStatus_IMAGE_STATUS_DOWNLOADING:
 		return "DOWNLOADING"
-	case ImageStatus_IMAGE_READY:
+	case ImageStatus_IMAGE_STATUS_READY:
 		return "READY"
-	case ImageStatus_IMAGE_FAILED:
+	case ImageStatus_IMAGE_STATUS_FAILED:
 		return "FAILED"
 	default:
 		return fmt.Sprintf("ImageStatus(%d)", int32(s))
@@ -293,33 +280,18 @@ func (s AccessPolicyType) String() string {
 	}
 }
 
-// ReportedValue accepts the previous release's flat hello during worker rollout.
-func (h *EnrollmentHello) ReportedValue() NodeReported {
-	if h.Reported == nil {
-		return NodeReported{}
+// RunningVersion is the workload version the runner half of a status is
+// running: the pinned deployment's version when the runner reports that
+// deployment's spec version, otherwise empty.
+func RunningVersion(cfg *DeploymentRecord, st ScheduledInstanceStatus) string {
+	if cfg == nil || !st.Runner.Present {
+		return ""
 	}
-	return *h.Reported
-}
-
-func (h *ClusterHello) ReportedValue() NodeReported {
-	if h.Reported == nil {
-		return NodeReported{}
+	ver := st.Runner.Value.DeploymentSpecVersion
+	if ver == 0 || ver != cfg.Meta.SpecVersion {
+		return ""
 	}
-	return *h.Reported
-}
-
-func WithRunningVersion(cfg *DeploymentEvent, st ScheduledInstanceStatus) ScheduledInstanceStatus {
-	if st.Runner.IsZero() || cfg == nil {
-		return st
-	}
-	ver := st.Runner.DeploymentSpecVersion
-	if ver == 0 {
-		return st
-	}
-	if ver == cfg.SpecVersion {
-		st.Runner.RunningVersion = cfg.WorkloadVersion()
-	}
-	return st
+	return cfg.WorkloadVersion()
 }
 
 func (u *CoreWriteUpdate) IsEmpty() bool {
@@ -330,10 +302,10 @@ func (u *CoreWriteUpdate) IsEmpty() bool {
 func (m *CoreMutation) Kind() AuthzVerb {
 	switch {
 	case m == nil:
-		return AuthzVerb_AUTHZ_VERB_UNKNOWN
-	case m.Delete != nil:
+		return AuthzVerb_AUTHZ_VERB_UNSPECIFIED
+	case m.Value.Delete != nil:
 		return AuthzVerb_AUTHZ_VERB_DELETE
-	case m.Create != nil:
+	case m.Value.Create != nil:
 		return AuthzVerb_AUTHZ_VERB_CREATE
 	default:
 		return AuthzVerb_AUTHZ_VERB_UPDATE
@@ -344,26 +316,26 @@ func (m *CoreMutation) Type() CoreEntityType {
 	switch {
 	case m == nil:
 		return CoreEntityType_CORE_ENTITY_UNSPECIFIED
-	case m.Create != nil:
-		return m.Create.EntityType
-	case m.Update != nil:
-		return m.Update.EntityType
-	case m.Delete != nil:
-		return m.Delete.EntityType
+	case m.Value.Create != nil:
+		return m.Value.Create.EntityType
+	case m.Value.Update != nil:
+		return m.Value.Update.EntityType
+	case m.Value.Delete != nil:
+		return m.Value.Delete.EntityType
 	}
 	return CoreEntityType_CORE_ENTITY_UNSPECIFIED
 }
 
-func (m *CoreMutation) EntityID() int64 {
+func (m *CoreMutation) EntityID() uint64 {
 	switch {
 	case m == nil:
 		return 0
-	case m.Create != nil:
-		return m.Create.EntityID
-	case m.Update != nil:
-		return m.Update.EntityID
-	case m.Delete != nil:
-		return m.Delete.EntityID
+	case m.Value.Create != nil:
+		return m.Value.Create.EntityID
+	case m.Value.Update != nil:
+		return m.Value.Update.EntityID
+	case m.Value.Delete != nil:
+		return m.Value.Delete.EntityID
 	}
 	return 0
 }
@@ -373,36 +345,54 @@ func (m *CoreMutation) Entity() *CoreEntity {
 	switch {
 	case m == nil:
 		return nil
-	case m.Create != nil:
-		return m.Create.Entity
-	case m.Update != nil:
-		return m.Update.Entity
+	case m.Value.Create != nil:
+		return &m.Value.Create.Entity
+	case m.Value.Update != nil:
+		return &m.Value.Update.Entity
 	}
 	return nil
 }
 
 // Meta returns what the log says about the entity after a create or update,
-// and nil for a delete.
+// and nil for a delete or before the reducer stamped it.
 func (m *CoreMutation) Meta() *EntityMeta {
+	var meta *Maybe[EntityMeta]
 	switch {
 	case m == nil:
 		return nil
-	case m.Create != nil:
-		return m.Create.Meta
-	case m.Update != nil:
-		return m.Update.Meta
+	case m.Value.Create != nil:
+		meta = &m.Value.Create.Meta
+	case m.Value.Update != nil:
+		meta = &m.Value.Update.Meta
+	default:
+		return nil
 	}
-	return nil
+	if !meta.Present {
+		return nil
+	}
+	return &meta.Value
 }
 
-func (m *CoreMutation) SetMeta(meta *EntityMeta) {
+func (m *CoreMutation) SetMeta(meta EntityMeta) {
 	switch {
 	case m == nil:
-	case m.Create != nil:
-		m.Create.Meta = meta
-	case m.Update != nil:
-		m.Update.Meta = meta
+	case m.Value.Create != nil:
+		m.Value.Create.Meta = Maybe[EntityMeta]{Value: meta, Present: true}
+	case m.Value.Update != nil:
+		m.Value.Update.Meta = Maybe[EntityMeta]{Value: meta, Present: true}
 	}
+}
+
+func CreateMutationOf(t CoreEntityType, id uint64, entity CoreEntity) CoreMutation {
+	return CoreMutation{Value: CoreMutationValueOneof{Create: &CreateMutation{EntityType: t, EntityID: id, Entity: entity}}}
+}
+
+func UpdateMutationOf(t CoreEntityType, id uint64, entity CoreEntity) CoreMutation {
+	return CoreMutation{Value: CoreMutationValueOneof{Update: &UpdateMutation{EntityType: t, EntityID: id, Entity: entity}}}
+}
+
+func DeleteMutationOf(t CoreEntityType, id uint64) CoreMutation {
+	return CoreMutation{Value: CoreMutationValueOneof{Delete: &DeleteMutation{EntityType: t, EntityID: id}}}
 }
 
 // Has reports whether the update carries a mutation of the given type.
@@ -416,4 +406,13 @@ func (u *CoreWriteUpdate) Has(t CoreEntityType) bool {
 		}
 	}
 	return false
+}
+
+func Some[T any](v T) Maybe[T] { return Maybe[T]{Value: v, Present: true} }
+
+func TimeOf(t time.Time) Maybe[time.Time] {
+	if t.IsZero() {
+		return Maybe[time.Time]{}
+	}
+	return Maybe[time.Time]{Value: t, Present: true}
 }

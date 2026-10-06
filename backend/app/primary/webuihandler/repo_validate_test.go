@@ -84,17 +84,17 @@ func TestRepoValidateChecksExactCommitWithoutDiscoveryList(t *testing.T) {
 	provider := &fakeGitSourceProvider{}
 	h := &Handler{GitVersions: provider}
 	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
-		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
+		Source: apigen.RepoValidateRequestSourceOneof{NixImageBuild: &apigen.ValidateNixImageBuildSource{
 			RepoUrl:        "github.com/acme/app",
-			SelectedCommit: &apigen.Version{ID: commit},
+			SelectedCommit: apigen.Some(apigen.Version{ID: commit}),
 			CheckCommit:    true,
-		},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.NixDockerBuild.CommitCheck.Ok {
-		t.Fatalf("commit check = %+v, want success", res.NixDockerBuild.CommitCheck)
+	if !res.Source.NixImageBuild.CommitCheck.Ok {
+		t.Fatalf("commit check = %+v, want success", res.Source.NixImageBuild.CommitCheck)
 	}
 	if provider.listCommitsCalls != 0 || len(provider.validateCommitIDs) != 1 || provider.validateCommitIDs[0] != commit {
 		t.Fatalf("provider calls: list=%d exact=%v", provider.listCommitsCalls, provider.validateCommitIDs)
@@ -106,20 +106,20 @@ func TestRepoValidateCombinesCommitAndFlakeValidation(t *testing.T) {
 	provider := &fakeGitSourceProvider{sourceCommitValid: true}
 	h := &Handler{GitVersions: provider}
 	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
-		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
+		Source: apigen.RepoValidateRequestSourceOneof{NixImageBuild: &apigen.ValidateNixImageBuildSource{
 			RepoUrl:           "github.com/acme/app",
-			SelectedCommit:    &apigen.Version{ID: commit},
+			SelectedCommit:    apigen.Some(apigen.Version{ID: commit}),
 			SelectedFlakePath: "nix/app/flake.nix",
 			CheckRepo:         true,
 			CheckCommit:       true,
 			CheckFlakePath:    true,
-		},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.NixDockerBuild.GitRepository.Ok || !res.NixDockerBuild.CommitCheck.Ok || !res.NixDockerBuild.NixFlakeFile.Ok {
-		t.Fatalf("validation response = %+v", res.NixDockerBuild)
+	if !res.Source.NixImageBuild.GitRepository.Ok || !res.Source.NixImageBuild.CommitCheck.Ok || !res.Source.NixImageBuild.NixFlakeFile.Ok {
+		t.Fatalf("validation response = %+v", res.Source.NixImageBuild)
 	}
 	if len(provider.validateCalls) != 1 || len(provider.validateCommitIDs) != 0 || provider.listBranchesCalls != 0 || provider.listCommitsCalls != 0 {
 		t.Fatalf("provider calls: source=%v commit=%v branches=%d commits=%d", provider.validateCalls, provider.validateCommitIDs, provider.listBranchesCalls, provider.listCommitsCalls)
@@ -131,17 +131,17 @@ func TestRepoValidateUsesRemoteHeadForDefaultFlakeCommit(t *testing.T) {
 	provider := &fakeGitSourceProvider{defaultCommit: commit, defaultBranch: "trunk", sourceCommitValid: true}
 	h := &Handler{GitVersions: provider}
 	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
-		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
+		Source: apigen.RepoValidateRequestSourceOneof{NixImageBuild: &apigen.ValidateNixImageBuildSource{
 			RepoUrl:           "github.com/acme/app",
 			SelectedFlakePath: "flake.nix",
 			CheckFlakePath:    true,
-		},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.NixDockerBuild.NixFlakeFile.Ok {
-		t.Fatalf("flake check = %+v", res.NixDockerBuild.NixFlakeFile)
+	if !res.Source.NixImageBuild.NixFlakeFile.Ok {
+		t.Fatalf("flake check = %+v", res.Source.NixImageBuild.NixFlakeFile)
 	}
 	if provider.defaultCommitCalls != 1 || provider.listBranchesCalls != 0 || provider.listCommitsCalls != 0 {
 		t.Fatalf("default/list calls = %d/%d/%d", provider.defaultCommitCalls, provider.listBranchesCalls, provider.listCommitsCalls)
@@ -156,18 +156,18 @@ func TestRepoValidateUsesSelectedBranchHeadForFlakeCommit(t *testing.T) {
 	provider := &fakeGitSourceProvider{commits: []*apigen.Version{{ID: commit}}, sourceCommitValid: true}
 	h := &Handler{GitVersions: provider}
 	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
-		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
+		Source: apigen.RepoValidateRequestSourceOneof{NixImageBuild: &apigen.ValidateNixImageBuildSource{
 			RepoUrl:           "github.com/acme/app",
 			SelectedBranch:    "release",
 			SelectedFlakePath: "flake.nix",
 			CheckFlakePath:    true,
-		},
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.NixDockerBuild.NixFlakeFile.Ok {
-		t.Fatalf("flake check = %+v", res.NixDockerBuild.NixFlakeFile)
+	if !res.Source.NixImageBuild.NixFlakeFile.Ok {
+		t.Fatalf("flake check = %+v", res.Source.NixImageBuild.NixFlakeFile)
 	}
 	if provider.defaultCommitCalls != 0 || provider.listCommitsCalls != 1 {
 		t.Fatalf("default/commit calls = %d/%d", provider.defaultCommitCalls, provider.listCommitsCalls)
@@ -181,26 +181,26 @@ func TestRepoValidateReturnsInteractiveFailuresInResponse(t *testing.T) {
 	provider := &fakeGitSourceProvider{sourceCommitValid: true, sourceErr: errors.New("not a regular Git file")}
 	h := &Handler{GitVersions: provider}
 	res, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
-		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
+		Source: apigen.RepoValidateRequestSourceOneof{NixImageBuild: &apigen.ValidateNixImageBuildSource{
 			RepoUrl:           "github.com/acme/app",
-			SelectedCommit:    &apigen.Version{ID: "0123456789abcdef0123456789abcdef01234567"},
+			SelectedCommit:    apigen.Some(apigen.Version{ID: "0123456789abcdef0123456789abcdef01234567"}),
 			SelectedFlakePath: "flake.nix",
 			CheckCommit:       true,
 			CheckFlakePath:    true,
-		},
+		}},
 	})
 	if err != nil {
 		t.Fatalf("interactive failure returned HTTP error: %v", err)
 	}
-	if !res.NixDockerBuild.CommitCheck.Ok || res.NixDockerBuild.NixFlakeFile.Ok {
-		t.Fatalf("validation response = %+v", res.NixDockerBuild)
+	if !res.Source.NixImageBuild.CommitCheck.Ok || res.Source.NixImageBuild.NixFlakeFile.Ok {
+		t.Fatalf("validation response = %+v", res.Source.NixImageBuild)
 	}
 }
 
 func TestRepoValidatePreservesMalformedRequestErrors(t *testing.T) {
 	h := &Handler{GitVersions: &fakeGitSourceProvider{}}
 	_, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
-		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{RepoUrl: "github.com/acme/app", CheckCommit: true},
+		Source: apigen.RepoValidateRequestSourceOneof{NixImageBuild: &apigen.ValidateNixImageBuildSource{RepoUrl: "github.com/acme/app", CheckCommit: true}},
 	})
 	var apiErr apigen.ApiErr
 	if !errors.As(err, &apiErr) || apiErr.Code != 400 || apiErr.InternalErr != "missing_selected_commit" {
@@ -212,11 +212,11 @@ func TestRepoValidateRejectsInvalidFlakePathBeforeGit(t *testing.T) {
 	provider := &fakeGitSourceProvider{}
 	h := &Handler{GitVersions: provider}
 	_, err := h.PostV1ReposValidate(apigen.Context{Ctx: context.Background()}, &apigen.RepoValidateRequest{
-		NixDockerBuild: &apigen.ValidateNixDockerBuildSource{
+		Source: apigen.RepoValidateRequestSourceOneof{NixImageBuild: &apigen.ValidateNixImageBuildSource{
 			RepoUrl:           "github.com/acme/app",
 			SelectedFlakePath: "../flake.nix",
 			CheckFlakePath:    true,
-		},
+		}},
 	})
 	var apiErr apigen.ApiErr
 	if !errors.As(err, &apiErr) || apiErr.InternalErr != "invalid_selected_flake_path" {

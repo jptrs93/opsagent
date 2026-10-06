@@ -13,14 +13,14 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 )
 
-func testCtx(user *apigen.InternalUser) apigen.Context {
+func testCtx(user *apigen.User) apigen.Context {
 	return apigen.Context{Ctx: context.Background(), User: user}
 }
 
-func mustCreateDir(t *testing.T, h *Handler, user *apigen.InternalUser, spaceID, parentID int32, name string) *apigen.ValueDirectory {
+func mustCreateDir(t *testing.T, h *Handler, user *apigen.User, spaceID, parentID uint64, name string) *apigen.ValueDirectory {
 	t.Helper()
 	dir, err := h.PostV1ValueDirectoriesCreate(testCtx(user), &apigen.ValueDirectoryCreateRequest{
-		SpaceID: spaceID, ParentID: parentID, Name: name,
+		SpaceID: spaceID, ParentID: optID(parentID), Key: name,
 	})
 	if err != nil {
 		t.Fatalf("PostV1ValueDirectoriesCreate(%q): %v", name, err)
@@ -31,39 +31,39 @@ func mustCreateDir(t *testing.T, h *Handler, user *apigen.InternalUser, spaceID,
 func TestCreateSecretAndConfigInsideDirectory(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	dir := mustCreateDir(t, h, user, 1, 0, "postgres")
-	if dir.SpaceID != 1 || dir.ParentID != 0 {
+	if dir.SpaceID != 1 || idOf(dir.ParentID) != 0 {
 		t.Fatalf("dir = %+v, want a root directory in space 1 created by %d", dir, user.ID)
 	}
 
 	secret, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "password", Value: []byte("hunter2"), SpaceID: 1, ValueDirectoryID: dir.ID,
+		Key: "password", Value: []byte("hunter2"), SpaceID: 1, ValueDirectoryID: optID(dir.ID),
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate into directory: %v", err)
 	}
-	if secret.Value.Fs.DirectoryID != dir.ID {
-		t.Fatalf("secret directory = %d, want %d", secret.Value.Fs.DirectoryID, dir.ID)
+	if idOf(secret.Value.Fs.DirectoryID) != dir.ID {
+		t.Fatalf("secret directory = %d, want %d", idOf(secret.Value.Fs.DirectoryID), dir.ID)
 	}
 
 	config, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "host", Value: "db.internal", SpaceID: 1, ValueDirectoryID: dir.ID,
+		Key: "host", Value: "db.internal", SpaceID: 1, ValueDirectoryID: optID(dir.ID),
 	})
 	if err != nil {
 		t.Fatalf("PostV1ConfigsCreate into directory: %v", err)
 	}
-	if config.Value.Fs.DirectoryID != dir.ID {
-		t.Fatalf("config directory = %d, want %d", config.Value.Fs.DirectoryID, dir.ID)
+	if idOf(config.Value.Fs.DirectoryID) != dir.ID {
+		t.Fatalf("config directory = %d, want %d", idOf(config.Value.Fs.DirectoryID), dir.ID)
 	}
 
 	// The same name is free in the root: the sibling namespace is per directory.
 	if _, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "password", Value: []byte("other"), SpaceID: 1,
+		Key: "password", Value: []byte("other"), SpaceID: 1,
 	}); err != nil {
 		t.Fatalf("PostV1SecretsCreate same name at root: %v", err)
 	}
 	// But taken inside the directory, across types.
 	if _, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "password", Value: "x", SpaceID: 1, ValueDirectoryID: dir.ID,
+		Key: "password", Value: "x", SpaceID: 1, ValueDirectoryID: optID(dir.ID),
 	}); !errors.Is(err, UserConfigAlreadyExistsErr) {
 		t.Fatalf("config over sibling secret err = %v, want UserConfigAlreadyExistsErr", err)
 	}
@@ -72,7 +72,7 @@ func TestCreateSecretAndConfigInsideDirectory(t *testing.T) {
 func TestCreateIntoMissingOrForeignDirectoryIsNotFound(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	if _, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "host", Value: "x", SpaceID: 1, ValueDirectoryID: 999,
+		Key: "host", Value: "x", SpaceID: 1, ValueDirectoryID: optID(999),
 	}); !errors.Is(err, ValueDirectoryNotFoundErr) {
 		t.Fatalf("create into missing directory err = %v, want ValueDirectoryNotFoundErr", err)
 	}
@@ -84,7 +84,7 @@ func TestCreateIntoMissingOrForeignDirectoryIsNotFound(t *testing.T) {
 	foreign := mustCreateDir(t, h, user, space.ID, 0, "tls")
 	// A directory in another space does not exist from this space's viewpoint.
 	if _, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "cert", Value: []byte("pem"), SpaceID: 1, ValueDirectoryID: foreign.ID,
+		Key: "cert", Value: []byte("pem"), SpaceID: 1, ValueDirectoryID: optID(foreign.ID),
 	}); !errors.Is(err, ValueDirectoryNotFoundErr) {
 		t.Fatalf("create into foreign-space directory err = %v, want ValueDirectoryNotFoundErr", err)
 	}
@@ -95,19 +95,19 @@ func TestMoveSecretAndConfigBetweenDirectories(t *testing.T) {
 	dir := mustCreateDir(t, h, user, 1, 0, "app")
 
 	secret, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "token", Value: []byte("v"), SpaceID: 1,
+		Key: "token", Value: []byte("v"), SpaceID: 1,
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
 	moved, err := h.secretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: secret.SecretID, ValueDirectoryID: dir.ID,
+		SecretID: secret.SecretID, ValueDirectoryID: optID(dir.ID),
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsMove: %v", err)
 	}
-	if moved.Value.Fs.DirectoryID != dir.ID {
-		t.Fatalf("moved secret directory = %d, want %d", moved.Value.Fs.DirectoryID, dir.ID)
+	if idOf(moved.Value.Fs.DirectoryID) != dir.ID {
+		t.Fatalf("moved secret directory = %d, want %d", idOf(moved.Value.Fs.DirectoryID), dir.ID)
 	}
 	// The version index survives the move untouched.
 	if len(statetest.ValueVersions(h.Store, moved)) != 1 || statetest.ValueVersions(h.Store, moved)[0].Ref != statetest.ValueVersions(h.Store, secret)[0].Ref {
@@ -115,29 +115,29 @@ func TestMoveSecretAndConfigBetweenDirectories(t *testing.T) {
 	}
 
 	config, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "level", Value: "info", SpaceID: 1,
+		Key: "level", Value: "info", SpaceID: 1,
 	})
 	if err != nil {
 		t.Fatalf("PostV1ConfigsCreate: %v", err)
 	}
 	movedCfg, err := h.configsMove(testCtx(user), &apigen.ConfigMoveRequest{
-		ConfigID: config.ConfigID, ValueDirectoryID: dir.ID,
+		ConfigID: config.ConfigID, ValueDirectoryID: optID(dir.ID),
 	})
 	if err != nil {
 		t.Fatalf("PostV1ConfigsMove: %v", err)
 	}
-	if movedCfg.Value.Fs.DirectoryID != dir.ID {
-		t.Fatalf("moved config directory = %d, want %d", movedCfg.Value.Fs.DirectoryID, dir.ID)
+	if idOf(movedCfg.Value.Fs.DirectoryID) != dir.ID {
+		t.Fatalf("moved config directory = %d, want %d", idOf(movedCfg.Value.Fs.DirectoryID), dir.ID)
 	}
 
 	// A sibling with the same name blocks the move back out.
 	if _, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "level", Value: "root", SpaceID: 1,
+		Key: "level", Value: "root", SpaceID: 1,
 	}); err != nil {
 		t.Fatalf("PostV1ConfigsCreate at root: %v", err)
 	}
 	if _, err := h.configsMove(testCtx(user), &apigen.ConfigMoveRequest{
-		ConfigID: config.ConfigID, ValueDirectoryID: 0,
+		ConfigID: config.ConfigID, ValueDirectoryID: optID(0),
 	}); !errors.Is(err, UserConfigAlreadyExistsErr) {
 		t.Fatalf("move onto taken name err = %v, want UserConfigAlreadyExistsErr", err)
 	}
@@ -152,26 +152,26 @@ func TestCrossSpaceValueMove(t *testing.T) {
 	nested := mustCreateDir(t, h, user, 1, dir.ID, "conf")
 
 	secret, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "token", Value: []byte("v"), SpaceID: 1, ValueDirectoryID: dir.ID,
+		Key: "token", Value: []byte("v"), SpaceID: 1, ValueDirectoryID: optID(dir.ID),
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
 	config, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "level", Value: "info", SpaceID: 1, ValueDirectoryID: dir.ID,
+		Key: "level", Value: "info", SpaceID: 1, ValueDirectoryID: optID(dir.ID),
 	})
 	if err != nil {
 		t.Fatalf("PostV1ConfigsCreate: %v", err)
 	}
 
 	movedSecret, err := h.secretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: secret.SecretID, ValueDirectoryID: 0, SpaceID: 2,
+		SecretID: secret.SecretID, ValueDirectoryID: optID(0), SpaceID: optID(2),
 	})
 	if err != nil {
 		t.Fatalf("cross-space secret move: %v", err)
 	}
-	if movedSecret.SpaceID() != 2 || movedSecret.Value.Fs.DirectoryID != 0 {
-		t.Fatalf("moved secret = space %d dir %d, want space 2 dir 0", movedSecret.SpaceID(), movedSecret.Value.Fs.DirectoryID)
+	if movedSecret.SpaceID() != 2 || idOf(movedSecret.Value.Fs.DirectoryID) != 0 {
+		t.Fatalf("moved secret = space %d dir %d, want space 2 dir 0", movedSecret.SpaceID(), idOf(movedSecret.Value.Fs.DirectoryID))
 	}
 	// The version index survives the move untouched: deployment specs pin
 	// version row ids.
@@ -180,28 +180,28 @@ func TestCrossSpaceValueMove(t *testing.T) {
 	}
 
 	movedCfg, err := h.configsMove(testCtx(user), &apigen.ConfigMoveRequest{
-		ConfigID: config.ConfigID, ValueDirectoryID: 0, SpaceID: 2,
+		ConfigID: config.ConfigID, ValueDirectoryID: optID(0), SpaceID: optID(2),
 	})
 	if err != nil {
 		t.Fatalf("cross-space config move: %v", err)
 	}
-	if movedCfg.SpaceID() != 2 || movedCfg.Value.Fs.DirectoryID != 0 {
-		t.Fatalf("moved config = space %d dir %d, want space 2 dir 0", movedCfg.SpaceID(), movedCfg.Value.Fs.DirectoryID)
+	if movedCfg.SpaceID() != 2 || idOf(movedCfg.Value.Fs.DirectoryID) != 0 {
+		t.Fatalf("moved config = space %d dir %d, want space 2 dir 0", movedCfg.SpaceID(), idOf(movedCfg.Value.Fs.DirectoryID))
 	}
 
 	if _, err := h.PostV1ValueDirectoriesMove(testCtx(user), &apigen.ValueDirectoryMoveRequest{
-		DirectoryID: nested.ID, NewParentID: 0, SpaceID: 2,
+		DirectoryID: nested.ID, NewParentID: optID(0), SpaceID: optID(2),
 	}); !errors.Is(err, ValueSpaceMoveUnsupportedErr) {
 		t.Fatalf("cross-space directory move err = %v, want ValueSpaceMoveUnsupportedErr", err)
 	}
-	if meta, ok := values.DirectoryMeta(h.Store.Queries(), nested.ID); !ok || meta.ParentID != dir.ID || meta.SpaceID != 1 {
+	if meta, ok := values.DirectoryMeta(h.Store.Queries(), nested.ID); !ok || idOf(meta.ParentID) != dir.ID || meta.SpaceID != 1 {
 		t.Fatalf("directory = %+v after a rejected move, want space 1 parent %d", meta, dir.ID)
 	}
 
 	// Naming the row's own space is a no-op, not a rejection: the explorer sends
 	// the target space on every drop, including same-space ones.
 	if _, err := h.secretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: secret.SecretID, ValueDirectoryID: 0, SpaceID: 2,
+		SecretID: secret.SecretID, ValueDirectoryID: optID(0), SpaceID: optID(2),
 	}); err != nil {
 		t.Fatalf("same-space move with an explicit space: %v", err)
 	}
@@ -225,53 +225,46 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 
 	secret, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "token", Value: []byte("v"), SpaceID: 1,
+		Key: "token", Value: []byte("v"), SpaceID: 1,
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
 	config, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "level", Value: "info", SpaceID: 1,
+		Key: "level", Value: "info", SpaceID: 1,
 	})
 	if err != nil {
 		t.Fatalf("PostV1ConfigsCreate: %v", err)
 	}
 	certSecret, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "cert", Value: []byte("pem"), SpaceID: 1,
+		Key: "cert", Value: []byte("pem"), SpaceID: 1,
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
 
 	spec := remoteDeploymentSpec("registry/web", virtualNetworking())
-	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"TOKEN": {Secret: &statetest.ValueVersions(h.Store, secret)[0].Ref},
-		"LEVEL": {Config: &statetest.ValueVersions(h.Store, config)[0].Ref},
+	spec.Workload.Value.Container.Runtime.EnvVars = map[string]apigen.EnvVar{
+		"TOKEN": secretEnv(statetest.ValueVersions(h.Store, secret)[0].Ref),
+		"LEVEL": configEnv(statetest.ValueVersions(h.Store, config)[0].Ref),
 	}
-	spec.Networking.Ingress = []*apigen.Ingress{{
-		Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
-		Hostname: "web.test",
-		HttpsConfig: &apigen.HttpsConfig{
-			ContainerPort: 8080,
-			CertSource:    &apigen.CertSource{Secret: &apigen.SecretCertSource{Secret: statetest.ValueVersions(h.Store, certSecret)[0].Ref}},
-		},
-	}}
+	spec.Networking.Ingress = []apigen.Ingress{httpsIngress("web.test", 8080, secretCertSource(statetest.ValueVersions(h.Store, certSecret)[0].Ref))}
 	createTestDeployment(h.Store, "node1", 1, "web", &spec)
 
 	// All three pins live in space 1, so nothing may leave it.
 	if _, err := h.secretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: secret.SecretID, SpaceID: 2,
+		SecretID: secret.SecretID, SpaceID: optID(2),
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("referenced secret move err = %v, want deployments.MoveReferencesOutsideSpaceErr", err)
 	}
 	if _, err := h.configsMove(testCtx(user), &apigen.ConfigMoveRequest{
-		ConfigID: config.ConfigID, SpaceID: 2,
+		ConfigID: config.ConfigID, SpaceID: optID(2),
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("referenced config move err = %v, want deployments.MoveReferencesOutsideSpaceErr", err)
 	}
 	// The ingress cert pin counts even though no env var names the secret.
 	if _, err := h.secretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: certSecret.SecretID, SpaceID: 2,
+		SecretID: certSecret.SecretID, SpaceID: optID(2),
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("cert-referenced secret move err = %v, want deployments.MoveReferencesOutsideSpaceErr", err)
 	}
@@ -291,18 +284,18 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 	// A value whose only references live in the destination space may move
 	// there: this secret sits in space 2 but is pinned from space 1.
 	stray, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "stray", Value: []byte("s"), SpaceID: 2,
+		Key: "stray", Value: []byte("s"), SpaceID: 2,
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
 	straySpec := remoteDeploymentSpec("registry/secondary", virtualNetworking())
-	straySpec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"STRAY": {Secret: &statetest.ValueVersions(h.Store, stray)[0].Ref},
+	straySpec.Workload.Value.Container.Runtime.EnvVars = map[string]apigen.EnvVar{
+		"STRAY": secretEnv(statetest.ValueVersions(h.Store, stray)[0].Ref),
 	}
 	createTestDeployment(h.Store, "node1", 1, "secondary", &straySpec)
 	moved, err := h.secretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: stray.SecretID, SpaceID: 1,
+		SecretID: stray.SecretID, SpaceID: optID(1),
 	})
 	if err != nil {
 		t.Fatalf("move toward the referencing space: %v", err)
@@ -313,18 +306,18 @@ func TestCrossSpaceValueMoveBlockedByReferences(t *testing.T) {
 
 	// A settings reference pins the value to the global space.
 	pinned, err := h.secretsCreate(testCtx(user), &apigen.SecretCreateRequest{
-		Name: "gh-token", Value: []byte("t"), SpaceID: 1,
+		Key: "gh-token", Value: []byte("t"), SpaceID: 1,
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsCreate: %v", err)
 	}
 	settings := h.SystemConfig.Snapshot().Settings
-	settings.Repo.GithubToken.Ref = statetest.ValueVersions(h.Store, pinned)[0].Ref
+	settings.Repo.GithubToken = apigen.Some(secretRefOf(statetest.ValueVersions(h.Store, pinned)[0].Ref))
 	if err := h.SystemConfig.UpdateSettingsInternal(settings); err != nil {
 		t.Fatalf("UpdateSettingsInternal: %v", err)
 	}
 	if _, err := h.secretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: pinned.SecretID, SpaceID: 2,
+		SecretID: pinned.SecretID, SpaceID: optID(2),
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("settings-referenced secret move err = %v, want deployments.MoveReferencesOutsideSpaceErr", err)
 	}
@@ -337,14 +330,14 @@ func TestMoveReservedSecretIsRejected(t *testing.T) {
 	// Reserved names cannot be created through the Manager at all, so seed one
 	// directly at the storage layer the way install/restore-era rows exist.
 	rec, err := secrets.CreateWithVersion(h.Store, "opendeploy.cluster-ca", 1, 0, 0,
-		func(int32) (secrets.SealedValue, error) {
+		func(uint64) (secrets.SealedValue, error) {
 			return secrets.SealedValue{SMKVersion: 1, Ciphertext: []byte{1}, Nonce: []byte{2}}, nil
 		})
 	if err != nil {
 		t.Fatalf("seeding reserved secret: %v", err)
 	}
 	if _, err := h.secretsMove(testCtx(user), &apigen.SecretMoveRequest{
-		SecretID: rec.SecretID, ValueDirectoryID: dir.ID,
+		SecretID: rec.SecretID, ValueDirectoryID: optID(dir.ID),
 	}); !errors.Is(err, SecretReservedNameErr) {
 		t.Fatalf("moving reserved secret err = %v, want SecretReservedNameErr", err)
 	}
@@ -356,42 +349,42 @@ func TestRenameAndMoveDirectories(t *testing.T) {
 	child := mustCreateDir(t, h, user, 1, parent.ID, "b")
 
 	renamed, err := h.PostV1ValueDirectoriesRename(testCtx(user), &apigen.ValueDirectoryRenameRequest{
-		DirectoryID: child.ID, NewName: "c",
+		DirectoryID: child.ID, NewKey: "c",
 	})
 	if err != nil {
 		t.Fatalf("PostV1ValueDirectoriesRename: %v", err)
 	}
-	if renamed.Name != "c" || renamed.ParentID != parent.ID {
+	if renamed.Key != "c" || idOf(renamed.ParentID) != parent.ID {
 		t.Fatalf("renamed = %+v, want name c under parent %d", renamed, parent.ID)
 	}
 
 	// The rename target namespace spans secrets, configs, and directories.
 	if _, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "taken", Value: "x", SpaceID: 1, ValueDirectoryID: parent.ID,
+		Key: "taken", Value: "x", SpaceID: 1, ValueDirectoryID: optID(parent.ID),
 	}); err != nil {
 		t.Fatalf("PostV1ConfigsCreate: %v", err)
 	}
 	if _, err := h.PostV1ValueDirectoriesRename(testCtx(user), &apigen.ValueDirectoryRenameRequest{
-		DirectoryID: child.ID, NewName: "taken",
+		DirectoryID: child.ID, NewKey: "taken",
 	}); !errors.Is(err, ValueDirectoryNameTakenErr) {
 		t.Fatalf("rename onto sibling config err = %v, want ValueDirectoryNameTakenErr", err)
 	}
 
 	// A directory cannot be moved inside its own subtree.
 	if _, err := h.PostV1ValueDirectoriesMove(testCtx(user), &apigen.ValueDirectoryMoveRequest{
-		DirectoryID: parent.ID, NewParentID: child.ID,
+		DirectoryID: parent.ID, NewParentID: optID(child.ID),
 	}); !errors.Is(err, ValueDirectoryCycleErr) {
 		t.Fatalf("cycle move err = %v, want ValueDirectoryCycleErr", err)
 	}
 
 	moved, err := h.PostV1ValueDirectoriesMove(testCtx(user), &apigen.ValueDirectoryMoveRequest{
-		DirectoryID: child.ID, NewParentID: 0,
+		DirectoryID: child.ID, NewParentID: optID(0),
 	})
 	if err != nil {
 		t.Fatalf("PostV1ValueDirectoriesMove to root: %v", err)
 	}
-	if moved.ParentID != 0 {
-		t.Fatalf("moved parent = %d, want the root", moved.ParentID)
+	if idOf(moved.ParentID) != 0 {
+		t.Fatalf("moved parent = %d, want the root", idOf(moved.ParentID))
 	}
 }
 
@@ -399,7 +392,7 @@ func TestDeleteDirectoryOnlyWhenEmpty(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	dir := mustCreateDir(t, h, user, 1, 0, "tmp")
 	config, err := h.configsCreate(testCtx(user), &apigen.ConfigCreateRequest{
-		Name: "k", Value: "v", SpaceID: 1, ValueDirectoryID: dir.ID,
+		Key: "k", Value: "v", SpaceID: 1, ValueDirectoryID: optID(dir.ID),
 	})
 	if err != nil {
 		t.Fatalf("PostV1ConfigsCreate: %v", err)
@@ -440,7 +433,7 @@ func TestGlobalStateIncludesValueDirectories(t *testing.T) {
 		t.Fatalf("PostV1GlobalEvents: %v", err)
 	}
 	dirs := foldOpening(msg)[apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY]
-	if len(dirs) != 1 || dirs[int64(dir.ID)] == nil || dirs[int64(dir.ID)].ValueDirectory.ID != dir.ID {
+	if len(dirs) != 1 || dirs[dir.ID] == nil || dirs[dir.ID].Value.ValueDirectory.ID != dir.ID {
 		t.Fatalf("bootstrap value directories = %+v, want the one created", dirs)
 	}
 }

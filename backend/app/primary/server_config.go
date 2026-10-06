@@ -1,6 +1,7 @@
 package primary
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 
@@ -28,7 +29,7 @@ func watchServerConfig(ctx context.Context, cs *systemconfig.Service, initial ap
 }
 
 func serverConfigChanged(prev, next apigen.SystemConfig) bool {
-	return prev.Settings.HttpWeb != next.Settings.HttpWeb ||
-		prev.Settings.HttpsWeb != next.Settings.HttpsWeb ||
-		prev.Settings.Cluster != next.Settings.Cluster
+	return !bytes.Equal(prev.Settings.HttpWeb.Encode(), next.Settings.HttpWeb.Encode()) ||
+		!bytes.Equal(prev.Settings.HttpsWeb.Encode(), next.Settings.HttpsWeb.Encode()) ||
+		!bytes.Equal(prev.Settings.Cluster.Encode(), next.Settings.Cluster.Encode())
 }

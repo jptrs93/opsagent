@@ -21,6 +21,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
+	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
 	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
@@ -59,18 +60,15 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return fmt.Errorf("loading cluster TLS material: %w", err)
 	}
 	certificateIdentifier := certu.MustCertCommonNameFromPEM(clusterMaterial.PrimaryCert)
-	primaryNode := nodes.EnsurePrimaryNode(primaryRuntime.store, "primary", certificateIdentifier)
 	initialConfig := primaryRuntime.configService.Snapshot()
-	underlayAddress := ainit.StaticConfig.UnderlayAddress
-	if underlayAddress == "" {
-		clusterListen := primaryRuntime.configService.MustLoadStringSetting(initialConfig.Settings.Cluster.Listen)
-		underlayAddress, err = resolvePrimaryUnderlayAddress(clusterListen)
-		if err != nil {
-			return err
-		}
+	clusterListen := primaryRuntime.configService.MustLoadStringSetting(initialConfig.Settings.Cluster.Listen)
+	underlayAddress, err := primarybootstrap.ResolvePrimaryUnderlayAddress(ainit.StaticConfig.UnderlayAddress, clusterListen)
+	if err != nil {
+		return err
 	}
+	primaryNode := nodes.EnsurePrimaryNode(primaryRuntime.store, "primary", certificateIdentifier, underlayAddress)
 	reported := primaryNode.Reported()
-	reported.UnderlayAddress = underlayAddress
+	reported.UnderlayAddress = apigen.AddrOf(underlayAddress)
 	primaryNode = nodes.ReportNode(primaryRuntime.store, primaryNode.Identifier, reported)
 	// The primary's WireGuard key follows the same custody rule as secondaries:
 	// generated locally, private key only ever in the data directory, public

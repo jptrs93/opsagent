@@ -21,9 +21,9 @@ import (
 
 const defaultSessionTokenTTL = 2 * 24 * time.Hour
 
-func credentialIDMatcher(credentialID []byte) func(user *apigen.InternalUser) bool {
-	return func(u *apigen.InternalUser) bool {
-		for _, j := range u.Credentials {
+func credentialIDMatcher(credentialID []byte) func(user *apigen.User) bool {
+	return func(u *apigen.User) bool {
+		for _, j := range u.Authentication.Credentials {
 			if bytes.Equal(j.ID, credentialID) {
 				return true
 			}
@@ -31,8 +31,8 @@ func credentialIDMatcher(credentialID []byte) func(user *apigen.InternalUser) bo
 		return false
 	}
 }
-func userIDMatcher(userWebAuthnID []byte) func(user *apigen.InternalUser) bool {
-	return func(user *apigen.InternalUser) bool { return bytes.Equal(user.WebAuthNID, userWebAuthnID) }
+func userIDMatcher(userWebAuthnID []byte) func(user *apigen.User) bool {
+	return func(user *apigen.User) bool { return bytes.Equal(user.Authentication.WebAuthnID, userWebAuthnID) }
 }
 
 func (h *Handler) initPasskeyService() error {
@@ -45,7 +45,7 @@ func (h *Handler) initPasskeyService() error {
 	if err != nil {
 		return err
 	}
-	service, err := authu.NewPasskeyService[*apigen.InternalUser](&webauthn.Config{
+	service, err := authu.NewPasskeyService[*apigen.User](&webauthn.Config{
 		RPDisplayName: "Opsagent",
 		RPID:          rpID,
 		RPOrigins:     origins,
@@ -64,13 +64,13 @@ func (h *Handler) initPasskeyService() error {
 		}
 		// The userID was just produced by an in-flight registration session, so
 		// the user must exist. Storage failure → crash; supervisor restarts.
-		users.UpdateMatching(h.Store, userIDMatcher(userID), func(d *apigen.InternalUser) {
+		users.UpdateMatching(h.Store, userIDMatcher(userID), func(d *apigen.User) {
 			users.SetCredential(d, credential.ID, b)
 		})
 		return nil
-	}, func(userID []byte) (*apigen.InternalUser, error) {
+	}, func(userID []byte) (*apigen.User, error) {
 		return users.Matching(h.Store.Queries(), userIDMatcher(userID))
-	}, func(credentialID []byte) (*apigen.InternalUser, error) {
+	}, func(credentialID []byte) (*apigen.User, error) {
 		return users.Matching(h.Store.Queries(), credentialIDMatcher(credentialID))
 	})
 	if err != nil {
@@ -181,7 +181,7 @@ func (h *Handler) PostV1AuthPasskeyRegisterStart(ctx apigen.Context) (*apigen.We
 	if h.PasskeyService == nil {
 		return nil, PasskeysUnavailableErr
 	}
-	sessionID, optionsJSON, err := h.PasskeyService.BeginRegistration(ctx.User.WebAuthNID)
+	sessionID, optionsJSON, err := h.PasskeyService.BeginRegistration(ctx.User.Authentication.WebAuthnID)
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
@@ -195,7 +195,7 @@ func (h *Handler) PostV1AuthPasskeyRegisterFinish(ctx apigen.Context, req *apige
 	if h.PasskeyService == nil {
 		return nil, PasskeysUnavailableErr
 	}
-	_, err := h.PasskeyService.FinishRegistration(ctx.User.WebAuthNID, req.SessionID, req.CredentialJson)
+	_, err := h.PasskeyService.FinishRegistration(ctx.User.Authentication.WebAuthnID, req.SessionID, req.CredentialJson)
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}

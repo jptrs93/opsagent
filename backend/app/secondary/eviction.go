@@ -36,7 +36,7 @@ func handleEviction(ctx context.Context, cfg runtimeConfig, store *state.Service
 	if err := os.WriteFile(marker, []byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o600); err != nil {
 		slog.ErrorContext(ctx, "writing the eviction marker failed", "err", err)
 	}
-	finalized := store.MustFinalizeScheduledInstancesAbsent(map[int32]struct{}{})
+	finalized := store.MustFinalizeScheduledInstancesAbsent(map[uint64]struct{}{})
 	slog.InfoContext(ctx, fmt.Sprintf("finalized cached scheduled instances count=%d", len(finalized)))
 	waitForContainersStopped(ctx, evictionTeardownTimeout)
 	removeAllContainers(ctx)

@@ -10,7 +10,7 @@ import {
   decodeAssetDirectoryList,
   decodeAuthMethodsResponse,
   decodeAuthzGlobalRuleList,
-  decodeAuthzRuleTemplateList,
+  decodeAuthzGrantTemplateList,
   decodeClusterConfigsResponse,
   decodeClusterIssuedTLSResponse,
   decodeClusterRenewCertificateResponse,
@@ -60,9 +60,9 @@ import {
   encodeAuthzGlobalRuleDeleteRequest,
   encodeAuthzGrantCreateRequest,
   encodeAuthzGrantDeleteRequest,
-  encodeAuthzRuleTemplateCreateRequest,
-  encodeAuthzRuleTemplateDeleteRequest,
-  encodeAuthzRuleTemplateUpdateRequest,
+  encodeAuthzGrantTemplateCreateRequest,
+  encodeAuthzGrantTemplateDeleteRequest,
+  encodeAuthzGrantTemplateUpdateRequest,
   encodeClusterConfigsRequest,
   encodeClusterIssuedTLSRequest,
   encodeClusterSecretsRequest,
@@ -77,7 +77,7 @@ import {
   encodeDeploymentGetRequest,
   encodeDeploymentHistoryRequest,
   encodeDeploymentRunReportRequest,
-  encodeDeploymentUpdateRequestV2,
+  encodeDeploymentUpdateRequest,
   encodeDeploymentVersionsRequest,
   encodeEnrollmentAcceptRequest,
   encodeEnrollmentSecondaryMsg,
@@ -529,23 +529,23 @@ export class Capi {
 
   /**
    * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<AuthzRuleTemplateList>}
+   * @returns {Promise<AuthzGrantTemplateList>}
    */
-  async postV1AccessRuleTemplatesList(options = {}) {
-    const response = await this.#request("/v1/access/rule-templates/list", { method: 'POST', signal: options.signal });
+  async postV1AccessGrantTemplatesList(options = {}) {
+    const response = await this.#request("/v1/access/grant-templates/list", { method: 'POST', signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
-    return decodeAuthzRuleTemplateList(await response.arrayBuffer());
+    return decodeAuthzGrantTemplateList(await response.arrayBuffer());
   }
 
   /**
-   * @param {AuthzRuleTemplateCreateRequest} payload
+   * @param {AuthzGrantTemplateCreateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<CoreWriteUpdate>}
    */
-  async postV1AccessRuleTemplatesCreate(payload, options = {}) {
-    const response = await this.#request("/v1/access/rule-templates/create", { method: 'POST', body: encodeAuthzRuleTemplateCreateRequest(payload), signal: options.signal });
+  async postV1AccessGrantTemplatesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/access/grant-templates/create", { method: 'POST', body: encodeAuthzGrantTemplateCreateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -553,12 +553,12 @@ export class Capi {
   }
 
   /**
-   * @param {AuthzRuleTemplateUpdateRequest} payload
+   * @param {AuthzGrantTemplateUpdateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<CoreWriteUpdate>}
    */
-  async postV1AccessRuleTemplatesUpdate(payload, options = {}) {
-    const response = await this.#request("/v1/access/rule-templates/update", { method: 'POST', body: encodeAuthzRuleTemplateUpdateRequest(payload), signal: options.signal });
+  async postV1AccessGrantTemplatesUpdate(payload, options = {}) {
+    const response = await this.#request("/v1/access/grant-templates/update", { method: 'POST', body: encodeAuthzGrantTemplateUpdateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -566,12 +566,12 @@ export class Capi {
   }
 
   /**
-   * @param {AuthzRuleTemplateDeleteRequest} payload
+   * @param {AuthzGrantTemplateDeleteRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<void>}
    */
-  async postV1AccessRuleTemplatesDelete(payload, options = {}) {
-    const response = await this.#request("/v1/access/rule-templates/delete", { method: 'POST', body: encodeAuthzRuleTemplateDeleteRequest(payload), signal: options.signal });
+  async postV1AccessGrantTemplatesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/access/grant-templates/delete", { method: 'POST', body: encodeAuthzGrantTemplateDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }
@@ -712,12 +712,12 @@ export class Capi {
   }
 
   /**
-   * @param {DeploymentUpdateRequestV2} payload
+   * @param {DeploymentUpdateRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<CoreWriteUpdate>}
    */
-  async postV2DeploymentsUpdate(payload, options = {}) {
-    const response = await this.#request("/v2/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequestV2(payload), signal: options.signal });
+  async postV1DeploymentsUpdate(payload, options = {}) {
+    const response = await this.#request("/v1/deployments/update", { method: 'POST', body: encodeDeploymentUpdateRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }

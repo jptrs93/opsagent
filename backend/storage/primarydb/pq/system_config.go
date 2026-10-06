@@ -23,17 +23,19 @@ func (q *Queries) GetSystemConfig(ctx context.Context) (SystemConfigRevision, er
 	return i, err
 }
 
-func (q *Queries) reduceSystemConfig(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, cfg *apigen.SystemConfig) error {
+func (q *Queries) reduceSystemConfig(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, cfg *apigen.SystemConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("payload has no config")
 	}
+	value := *cfg
+	value.ID = uint32(SystemConfigEntityID)
 	return q.upsert(ctx, meta, `INSERT INTO system_config (id, config_blob, seq, event_time, author, created_time) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET config_blob = excluded.config_blob, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,
-		id, notNullBlob(cfg.Encode()), env.Seq, env.EventTime, env.Author, env.EventTime)
+		id, notNullBlob(value.Encode()), env.Seq, env.EventTime, env.Author, env.EventTime)
 }
 
-func (q *Queries) deleteSystemConfigRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteSystemConfigRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM system_config WHERE id = ?`, id)
 	return err
 }

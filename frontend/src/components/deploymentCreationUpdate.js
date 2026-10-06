@@ -1,5 +1,5 @@
 import van from "vanjs-core";
-import {dedicatedScheduling, desiredRunning} from "../lib/deployment.js";
+import {containerWorkload, dedicatedScheduling, desiredRunning, isSelfIdentity} from "../lib/deployment.js";
 import {
     deploymentToForm,
     emptyDeploymentForm,
@@ -20,12 +20,12 @@ import {
     FULL_GIT_COMMIT_RE,
     imageRepositoryFromReference,
     imageVersionFromReference,
-    SOURCE_DOCKER_IMAGE,
-    SOURCE_NIX_DOCKER,
+    SOURCE_CONTAINER_IMAGE,
+    SOURCE_NIX_IMAGE_BUILD,
     validateLocalFlakePath,
 } from "./deploymentSource.js";
 
-export {SOURCE_DOCKER_IMAGE, SOURCE_NIX_DOCKER} from "./deploymentSource.js";
+export {SOURCE_CONTAINER_IMAGE, SOURCE_NIX_IMAGE_BUILD} from "./deploymentSource.js";
 
 // Source validation is layered and human-triggered. Each layer of the source
 // tuple (type, repository, flake path, flake target, image) carries a status:
@@ -62,7 +62,7 @@ const keyOf = tuple => JSON.stringify(tuple);
 // missing required field reads as unvalidated rather than invalid: a blank
 // form has nothing wrong with it yet.
 export function localSourceLayers(tuple) {
-    if (tuple.type === SOURCE_DOCKER_IMAGE) {
+    if (tuple.type === SOURCE_CONTAINER_IMAGE) {
         return {image: tuple.image ? layer('unvalidated', 'Not checked yet.') : layer('unvalidated', 'Image is required.')};
     }
     const flakeLocal = validateLocalFlakePath(tuple.flake);
@@ -100,7 +100,7 @@ export class DeploymentCreationUpdate {
         this.mode = editorMode;
         this.existingState = deploymentRow;
         this.form = deployment ? deploymentToForm(deployment) : emptyDeploymentForm();
-        const workload = deployment?.value?.spec?.container1Spec || deployment?.value?.spec?.opendeploySpec;
+        const workload = containerWorkload(deployment);
         const initialRunning = editorMode === 'create'
             ? (deploymentRow ? Boolean(deploymentRow.desiredRunning) : true)
             : (deployment ? desiredRunning(deployment) : Boolean(deploymentRow?.desiredRunning));
@@ -110,10 +110,10 @@ export class DeploymentCreationUpdate {
         this.initialSource = sourceTupleOf(this.form);
 
         const configuredVersion = workload?.version || deploymentRow?.deployedVersion || '';
-        const deployedNixVersion = deploymentRow?.variant === SOURCE_NIX_DOCKER ? configuredVersion : '';
+        const deployedNixVersion = deploymentRow?.variant === SOURCE_NIX_IMAGE_BUILD ? configuredVersion : '';
         const explicitImageVersion = imageVersionFromReference(this.form.containerImage.val);
-        const deployedImageVersion = deploymentRow?.variant === SOURCE_DOCKER_IMAGE ? configuredVersion : '';
-        this.nixDockerBuild = {
+        const deployedImageVersion = deploymentRow?.variant === SOURCE_CONTAINER_IMAGE ? configuredVersion : '';
+        this.nixImageBuild = {
             selectedBranch: van.state(''),
             selectedCommit: van.state(deployedNixVersion),
             branches: van.state([]),
@@ -162,13 +162,13 @@ export class DeploymentCreationUpdate {
             // image, or source type also invalidates the selection; a flake
             // or target edit keeps it and re-checks it on the next validate.
             this.versions.val = emptyVersions();
-            this.nixDockerBuild.branches.val = [];
-            this.nixDockerBuild.commits.val = [];
+            this.nixImageBuild.branches.val = [];
+            this.nixImageBuild.commits.val = [];
             this.containerImage.tags.val = [];
             const identityChanged = previous.type !== tuple.type || previous.repo !== tuple.repo || previous.image !== tuple.image;
             if (identityChanged) {
-                this.nixDockerBuild.selectedBranch.val = '';
-                this.nixDockerBuild.selectedCommit.val = '';
+                this.nixImageBuild.selectedBranch.val = '';
+                this.nixImageBuild.selectedCommit.val = '';
                 this.containerImage.selectedTag.val = imageVersionFromReference(tuple.image);
             }
         }
@@ -206,11 +206,11 @@ export class DeploymentCreationUpdate {
     }
 
     isImage() {
-        return this.form.sourceType.val === SOURCE_DOCKER_IMAGE;
+        return this.form.sourceType.val === SOURCE_CONTAINER_IMAGE;
     }
 
     isNix() {
-        return this.form.sourceType.val === SOURCE_NIX_DOCKER;
+        return this.form.sourceType.val === SOURCE_NIX_IMAGE_BUILD;
     }
 
     // A response is current when no newer request of its kind started and the
@@ -230,13 +230,13 @@ export class DeploymentCreationUpdate {
         const tuple = this.currentSourceTuple();
         const key = keyOf(tuple);
         const local = localSourceLayers(tuple);
-        const missing = tuple.type === SOURCE_DOCKER_IMAGE ? !tuple.image : (!tuple.repo || !tuple.flake);
+        const missing = tuple.type === SOURCE_CONTAINER_IMAGE ? !tuple.image : (!tuple.repo || !tuple.flake);
         if (missing || Object.values(local).some(item => item.status === 'error')) {
             this.layers.val = local;
             return false;
         }
         const sequence = ++this.requestSequences.list;
-        if (tuple.type === SOURCE_DOCKER_IMAGE) {
+        if (tuple.type === SOURCE_CONTAINER_IMAGE) {
             this.layers.val = {image: layer('checking', 'Checking image access and listing tags...')};
             this.setVersions({loading: true, error: ''});
             try {
@@ -256,12 +256,12 @@ export class DeploymentCreationUpdate {
         this.layers.val = {...local, repo: layer('checking', 'Checking repository access and listing branches...')};
         this.setVersions({loading: true, error: ''});
         try {
-            const listing = await this.requestNixListing(tuple.repo, this.nixDockerBuild.selectedBranch.rawVal);
+            const listing = await this.requestNixListing(tuple.repo, this.nixImageBuild.selectedBranch.rawVal);
             if (!this.isCurrent('list', sequence, key)) return false;
             this.publishNixListing(listing);
             this.setLayer('repo', layer('ok', `Repository accessible · ${listing.branches.length} branch${listing.branches.length === 1 ? '' : 'es'}.`));
             this.setVersions({loaded: true, loading: false, error: ''});
-            const commit = this.nixDockerBuild.selectedCommit.rawVal;
+            const commit = this.nixImageBuild.selectedCommit.rawVal;
             if (commit) {
                 await this.checkFlakeAtCommit(commit);
             } else {
@@ -286,12 +286,12 @@ export class DeploymentCreationUpdate {
         const sequence = ++this.requestSequences.list;
         this.setVersions({loading: true, error: ''});
         try {
-            if (tuple.type === SOURCE_DOCKER_IMAGE) {
+            if (tuple.type === SOURCE_CONTAINER_IMAGE) {
                 const tags = await this.requestImageTags(tuple.image);
                 if (!this.isCurrent('list', sequence, key)) return false;
                 this.containerImage.tags.val = tags;
             } else {
-                const listing = await this.requestNixListing(tuple.repo, this.nixDockerBuild.selectedBranch.rawVal);
+                const listing = await this.requestNixListing(tuple.repo, this.nixImageBuild.selectedBranch.rawVal);
                 if (!this.isCurrent('list', sequence, key)) return false;
                 this.publishNixListing(listing);
             }
@@ -311,13 +311,13 @@ export class DeploymentCreationUpdate {
         const tuple = this.currentSourceTuple();
         const key = keyOf(tuple);
         const sequence = ++this.requestSequences.list;
-        this.nixDockerBuild.selectedBranch.val = selected;
-        this.nixDockerBuild.commits.val = [];
+        this.nixImageBuild.selectedBranch.val = selected;
+        this.nixImageBuild.commits.val = [];
         this.setVersions({loading: true, error: ''});
         try {
             const commits = await this.requestNixCommits(tuple.repo, selected);
             if (!this.isCurrent('list', sequence, key)) return false;
-            this.nixDockerBuild.commits.val = commits;
+            this.nixImageBuild.commits.val = commits;
             this.setVersions({loaded: true, loading: false, error: ''});
             return true;
         } catch (error) {
@@ -336,7 +336,7 @@ export class DeploymentCreationUpdate {
             this.containerImage.selectedTag.val = version;
             return;
         }
-        this.nixDockerBuild.selectedCommit.val = version;
+        this.nixImageBuild.selectedCommit.val = version;
         void this.checkFlakeAtCommit(version);
     }
 
@@ -359,8 +359,8 @@ export class DeploymentCreationUpdate {
             if (Number(response?.deploymentId || 0) !== deploymentId) {
                 throw new Error('Version response did not attest the requested deployment.');
             }
-            if (tuple.type === SOURCE_NIX_DOCKER) {
-                const result = response?.nixDockerBuild;
+            if (tuple.type === SOURCE_NIX_IMAGE_BUILD) {
+                const result = response?.source?.nixImageBuild;
                 if (!result) throw new Error('Version response did not include Nix versions.');
                 this.publishNixListing({
                     branches: result.branches || [],
@@ -368,7 +368,7 @@ export class DeploymentCreationUpdate {
                     commits: result.commits || [],
                 });
             } else {
-                const result = response?.containerImage;
+                const result = response?.source?.containerImage;
                 if (!result) throw new Error('Version response did not include image tags.');
                 this.containerImage.tags.val = result.tags || [];
             }
@@ -385,11 +385,11 @@ export class DeploymentCreationUpdate {
         this.syncSourceTuple();
         const tuple = this.currentSourceTuple();
         const key = keyOf(tuple);
-        if (tuple.type !== SOURCE_NIX_DOCKER || !FULL_GIT_COMMIT_RE.test(commit || '')) return false;
+        if (tuple.type !== SOURCE_NIX_IMAGE_BUILD || !FULL_GIT_COMMIT_RE.test(commit || '')) return false;
         if (this.layerStatus('flake').status === 'trusted' || !validateLocalFlakePath(tuple.flake).ok) return false;
         const sequence = ++this.requestSequences.exact;
         this.setLayer('flake', layer('checking', `Checking ${tuple.flake} at ${shortID(commit)}...`));
-        const stillWanted = () => this.isCurrent('exact', sequence, key) && this.nixDockerBuild.selectedCommit.rawVal === commit;
+        const stillWanted = () => this.isCurrent('exact', sequence, key) && this.nixImageBuild.selectedCommit.rawVal === commit;
         try {
             const response = await this.validateSource(buildExactNixValidationRequest(tuple.repo, commit, tuple.flake));
             if (!stillWanted()) return false;
@@ -428,11 +428,11 @@ export class DeploymentCreationUpdate {
             const result = attestNixCommitDiscoveryResponse(response, repo, preferredBranch);
             if (!result) throw new Error('Repository response did not attest the requested repository and branch.');
             if (!result.gitRepository.ok) throw new Error(result.gitRepository.message || 'Repository is not accessible.');
-            if (!result.availableBranches?.loaded || result.availableBranches?.errormessage) {
-                throw new Error(result.availableBranches?.errormessage || 'Unable to list repository branches.');
+            if (!result.availableBranches?.loaded || result.availableBranches?.errorMessage) {
+                throw new Error(result.availableBranches?.errorMessage || 'Unable to list repository branches.');
             }
             const branches = result.availableBranches.branches || [];
-            if (result.branchCheck.ok && result.availableCommits?.loaded && !result.availableCommits?.errormessage) {
+            if (result.branchCheck.ok && result.availableCommits?.loaded && !result.availableCommits?.errorMessage) {
                 return {branches, branch: preferredBranch, commits: result.availableCommits.commits || []};
             }
             // The remembered branch is gone; fall back to another one.
@@ -444,8 +444,8 @@ export class DeploymentCreationUpdate {
         const result = attestNixRepositoryResponse(response, repo);
         if (!result) throw new Error('Repository response did not attest the requested repository.');
         if (!result.gitRepository.ok) throw new Error(result.gitRepository.message || 'Repository is not accessible.');
-        if (!result.availableBranches?.loaded || result.availableBranches?.errormessage) {
-            throw new Error(result.availableBranches?.errormessage || 'Unable to list repository branches.');
+        if (!result.availableBranches?.loaded || result.availableBranches?.errorMessage) {
+            throw new Error(result.availableBranches?.errorMessage || 'Unable to list repository branches.');
         }
         const branches = result.availableBranches.branches || [];
         const branch = chooseBranch(branches);
@@ -459,16 +459,16 @@ export class DeploymentCreationUpdate {
         if (!result) throw new Error('Commit response did not attest the requested repository and branch.');
         if (!result.gitRepository.ok) throw new Error(result.gitRepository.message || 'Repository is not accessible.');
         if (!result.branchCheck.ok) throw new Error(result.branchCheck.message || 'Branch is not accessible.');
-        if (!result.availableCommits?.loaded || result.availableCommits?.errormessage) {
-            throw new Error(result.availableCommits?.errormessage || 'Unable to list branch commits.');
+        if (!result.availableCommits?.loaded || result.availableCommits?.errorMessage) {
+            throw new Error(result.availableCommits?.errorMessage || 'Unable to list branch commits.');
         }
         return result.availableCommits.commits || [];
     }
 
     publishNixListing(listing) {
-        this.nixDockerBuild.branches.val = listing.branches;
-        this.nixDockerBuild.selectedBranch.val = listing.branch;
-        this.nixDockerBuild.commits.val = listing.commits;
+        this.nixImageBuild.branches.val = listing.branches;
+        this.nixImageBuild.selectedBranch.val = listing.branch;
+        this.nixImageBuild.commits.val = listing.commits;
     }
 
     // ---- selection and labels ------------------------------------------------
@@ -485,7 +485,7 @@ export class DeploymentCreationUpdate {
         if (this.isImage()) {
             return this.explicitImageVersion() || this.containerImage.selectedTag.val.trim();
         }
-        if (this.isNix()) return this.nixDockerBuild.selectedCommit.val.trim();
+        if (this.isNix()) return this.nixImageBuild.selectedCommit.val.trim();
         return '';
     }
 
@@ -498,7 +498,7 @@ export class DeploymentCreationUpdate {
     versionEntry() {
         const selected = this.selectedTargetVersion();
         if (!selected) return null;
-        const list = this.isImage() ? this.containerImage.tags.val : this.nixDockerBuild.commits.val;
+        const list = this.isImage() ? this.containerImage.tags.val : this.nixImageBuild.commits.val;
         return list.find(item => item?.id === selected) || null;
     }
 
@@ -508,8 +508,8 @@ export class DeploymentCreationUpdate {
         if (this.isImage()) {
             return this.containerImage.tags.val.map(tag => ({label: tag.id, apply: tag.id, detail: [tag.label, dateOf(tag)].filter(Boolean).join(' · ')}));
         }
-        const branch = this.nixDockerBuild.selectedBranch.val;
-        return this.nixDockerBuild.commits.val.map(commit => ({
+        const branch = this.nixImageBuild.selectedBranch.val;
+        return this.nixImageBuild.commits.val.map(commit => ({
             label: `${shortID(commit.id)} ${commit.label || ''}`.trim(),
             apply: commit.id,
             detail: [branch, dateOf(commit)].filter(Boolean).join(' · '),
@@ -542,7 +542,7 @@ export class DeploymentCreationUpdate {
     // version is a full commit sha or nothing.
     versionInvalidReason() {
         if (!this.isNix()) return '';
-        const commit = this.nixDockerBuild.selectedCommit.val.trim();
+        const commit = this.nixImageBuild.selectedCommit.val.trim();
         if (commit && !FULL_GIT_COMMIT_RE.test(commit)) return 'Version must be a full 40-character commit sha.';
         return '';
     }
@@ -582,27 +582,28 @@ export class DeploymentCreationUpdate {
     replaceDocument(document) {
         const identity = document?.identity || {};
         const spec = document?.spec || {};
-        const workload = spec.container1Spec || spec.opendeploySpec || {};
+        const workload = spec.workload?.value?.container || {};
         const scheduling = document?.scheduling || {};
         replaceDeploymentFormFromConfig(this.form, {
-            deploymentId: Number(this.form.deploymentId.val || 0),
-            value: {
+            deployment: {
+                id: Number(this.form.deploymentId.val || 0),
                 name: identity.name || '',
                 spaceId: Number(identity.spaceId || 0),
                 scheduling,
                 spec,
             },
+            meta: {},
         });
         // Reset the layers now, before the selection below, so the derive
         // pass that follows sees the tuple already handled.
         this.syncSourceTuple();
-        this.desiredRunning.val = spec.opendeploySpec ? true : Boolean(scheduling.running);
+        this.desiredRunning.val = isSelfIdentity(identity.spaceId, identity.name) ? true : Boolean(scheduling.running);
         const version = (workload.version || '').trim();
         if (this.isImage()) {
             this.containerImage.selectedTag.val = version;
         } else if (this.isNix()) {
-            const previous = this.nixDockerBuild.selectedCommit.rawVal;
-            this.nixDockerBuild.selectedCommit.val = version;
+            const previous = this.nixImageBuild.selectedCommit.rawVal;
+            this.nixImageBuild.selectedCommit.val = version;
             if (version && version !== previous && this.sourceValid()) void this.checkFlakeAtCommit(version);
         }
         this.documentRevision.val += 1;
@@ -619,7 +620,7 @@ export class DeploymentCreationUpdate {
         };
     }
 
-    // toMovePayload returns a DeploymentUpdateRequestV2 assigning a new space
+    // toMovePayload returns a DeploymentUpdateRequest assigning a new space
     // when the form names a different space than the deployment currently has,
     // else null.
     toMovePayload() {
@@ -629,11 +630,11 @@ export class DeploymentCreationUpdate {
         return {
             deploymentId: this.existingState.id,
             expectedSeq: Number(this.existingState.seq || 0),
-            assignedSpaceUpdate: {spaceId: nextSpaceId},
+            update: {assignedSpace: {spaceId: nextSpaceId}},
         };
     }
 
-    // toUpdatePayload returns a DeploymentUpdateRequestV2 carrying the spec or
+    // toUpdatePayload returns a DeploymentUpdateRequest carrying the spec or
     // version change the form implies, or null when neither changed. Running
     // state travels separately through toRunningPayload, except that the
     // version-only update also marks the workload running.
@@ -645,7 +646,7 @@ export class DeploymentCreationUpdate {
         };
         const nextSpec = formToSpec(this.form);
         if (JSON.stringify(nextSpec) !== this.initialSpecKey) {
-            payload.specUpdate = {spec: formToSpec(this.form, {version: this.createDesiredVersion()})};
+            payload.update = {spec: {spec: formToSpec(this.form, {version: this.createDesiredVersion()})}};
             return payload;
         }
         const targetVersion = this.selectedTargetVersion();
@@ -655,10 +656,10 @@ export class DeploymentCreationUpdate {
             // A stopped deployment may still retarget its version for the
             // next start; the spec update carries the version without
             // touching the running state.
-            payload.specUpdate = {spec: formToSpec(this.form, {version: targetVersion})};
+            payload.update = {spec: {spec: formToSpec(this.form, {version: targetVersion})}};
             return payload;
         }
-        payload.versionOnlyUpdate = {targetVersion};
+        payload.update = {versionOnly: {targetVersion}};
         return payload;
     }
 
@@ -669,11 +670,11 @@ export class DeploymentCreationUpdate {
         if (!this.existingState) throw new Error('Cannot produce running payload without existing deployment state');
         const running = Boolean(this.desiredRunning.val);
         if (running === Boolean(this.existingState.desiredRunning)) return null;
-        if (running && precedingPayload?.versionOnlyUpdate) return null;
+        if (running && precedingPayload?.update?.versionOnly) return null;
         return {
             deploymentId: this.existingState.id,
             expectedSeq: Number(this.existingState.seq || 0),
-            runningOnlyUpdate: {desiredRunning: running},
+            update: {runningOnly: {desiredRunning: running}},
         };
     }
 }

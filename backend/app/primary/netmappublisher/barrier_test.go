@@ -8,7 +8,7 @@ import (
 )
 
 func newTestBarrier(currentStamp, lastRenderedSeq int64) *Publisher {
-	p := &Publisher{applied: make(map[int32]int64), ackUpdates: make(chan struct{}, 1)}
+	p := &Publisher{applied: make(map[uint64]int64), ackUpdates: make(chan struct{}, 1)}
 	p.lastRenderedSeq = lastRenderedSeq
 	if currentStamp > 0 {
 		p.current = &apigen.ClusterNetMap{DerivedFromSeq: currentStamp}

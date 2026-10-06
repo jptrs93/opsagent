@@ -28,7 +28,7 @@ func TestUserSessionLoginListRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyAuth on user token: %v", err)
 	}
-	if verified.User.Delegated {
+	if verified.Delegated {
 		t.Fatal("user session marked delegated")
 	}
 	if verified.SessionKind != fullSession || verified.SessionExpiresAt.IsZero() {
@@ -48,20 +48,20 @@ func TestUserSessionLoginListRevoke(t *testing.T) {
 		t.Fatalf("len(items) = %d, want 1", len(list.Items))
 	}
 	session := list.Items[0]
-	if session.ID != current.SessionID || session.UserID != user.ID {
+	if session.SessionID != current.SessionID || session.UserID != user.ID {
 		t.Fatalf("listed session %+v does not match the calling session %s", session, current.SessionID)
 	}
 	if session.ExpiresAt.IsZero() {
 		t.Fatalf("session timestamps not populated: %#v", session)
 	}
 
-	if err := h.PostV1UserSessionsRevoke(verified, &apigen.UserSessionRevokeRequest{ID: session.ID}); err != nil {
+	if err := h.PostV1UserSessionsRevoke(verified, &apigen.UserSessionRevokeRequest{SessionID: session.SessionID}); err != nil {
 		t.Fatalf("PostV1UserSessionsRevoke: %v", err)
 	}
 	if _, err := h.verifyToken(resp.Token); !errors.Is(err, InvalidAuthTokenErr) {
 		t.Fatalf("VerifyAuth after revoke = %v, want InvalidAuthTokenErr", err)
 	}
-	if err := h.PostV1UserSessionsRevoke(verified, &apigen.UserSessionRevokeRequest{ID: session.ID}); err != nil {
+	if err := h.PostV1UserSessionsRevoke(verified, &apigen.UserSessionRevokeRequest{SessionID: session.SessionID}); err != nil {
 		t.Fatalf("second revoke = %v, want nil", err)
 	}
 }
@@ -70,14 +70,14 @@ func TestUserSessionRevokeForeignID(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	mine := h.operatorCtx(t, user)
 
-	other := &apigen.InternalUser{ID: 2, Name: "other"}
+	other := &apigen.User{ID: 2, Name: "other"}
 	users.Write(h.Store, other)
 	otherCtx := h.operatorCtx(t, other)
 
-	if err := h.PostV1UserSessionsRevoke(otherCtx, &apigen.UserSessionRevokeRequest{ID: mine.SessionID}); !errors.Is(err, UserSessionNotFoundErr) {
+	if err := h.PostV1UserSessionsRevoke(otherCtx, &apigen.UserSessionRevokeRequest{SessionID: mine.SessionID}); !errors.Is(err, UserSessionNotFoundErr) {
 		t.Fatalf("foreign revoke = %v, want UserSessionNotFoundErr", err)
 	}
-	if err := h.PostV1UserSessionsRevoke(otherCtx, &apigen.UserSessionRevokeRequest{ID: "missing"}); !errors.Is(err, UserSessionNotFoundErr) {
+	if err := h.PostV1UserSessionsRevoke(otherCtx, &apigen.UserSessionRevokeRequest{SessionID: "missing"}); !errors.Is(err, UserSessionNotFoundErr) {
 		t.Fatalf("missing revoke = %v, want UserSessionNotFoundErr", err)
 	}
 	if _, err := h.verifyToken(mine.Token); err != nil {

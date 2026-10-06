@@ -17,10 +17,10 @@ import (
 
 const metricsLatestTimeout = 5 * time.Second
 
-func (h *Handler) metricsNodes(cfg *apigen.DeploymentEvent) []int32 {
-	nodes := []int32{cfg.Value.PlacementNodeID()}
+func (h *Handler) metricsNodes(cfg *apigen.DeploymentRecord) []uint64 {
+	nodes := []uint64{cfg.Deployment.PlacementNodeID()}
 	for _, st := range h.Store.FetchScheduledSnapshot(nil) {
-		if st.Instance.DeploymentID == cfg.DeploymentID && st.Instance.NodeID > 0 && !slices.Contains(nodes, st.Instance.NodeID) {
+		if st.Instance.Deployment.DeploymentID == cfg.Deployment.ID && st.Instance.NodeID > 0 && !slices.Contains(nodes, st.Instance.NodeID) {
 			nodes = append(nodes, st.Instance.NodeID)
 		}
 	}
@@ -31,14 +31,14 @@ func (h *Handler) PostV1MetricsQuery(ctx apigen.Context, req *apigen.MetricsQuer
 	if req.DeploymentID == 0 {
 		return nil, MissingKeyErr
 	}
-	if req.DeploymentVersion < 0 || req.Run < 0 || req.ScheduledInstanceID < 0 || req.StepMs < 0 {
+	if req.Run < 0 || req.StepMs < 0 {
 		return nil, deployments.InvalidConfigErrf("scope values must not be negative")
 	}
 	cfg := h.findConfigByID(req.DeploymentID)
 	if cfg == nil {
 		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, cfg.Deployment.SpaceID, cfg.Deployment.ID, deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
 	if _, _, err := metricstore.ResolveRange(req.TimeStart, req.TimeEnd, time.Now()); err != nil {
@@ -53,10 +53,10 @@ func (h *Handler) PostV1MetricsQuery(ctx apigen.Context, req *apigen.MetricsQuer
 	}
 	nodes := h.metricsNodes(cfg)
 	if req.TargetNodeID > 0 {
-		nodes = []int32{req.TargetNodeID}
+		nodes = []uint64{req.TargetNodeID}
 	}
 	type reply struct {
-		node int32
+		node uint64
 		resp *apigen.MetricsQueryResponse
 		err  error
 	}
@@ -98,7 +98,7 @@ func (h *Handler) PostV1MetricsQuery(ctx apigen.Context, req *apigen.MetricsQuer
 	return out, nil
 }
 
-func (h *Handler) metricsQueryOnNode(ctx context.Context, nodeID int32, req *apigen.MetricsQueryRequest) (*apigen.MetricsQueryResponse, error) {
+func (h *Handler) metricsQueryOnNode(ctx context.Context, nodeID uint64, req *apigen.MetricsQueryRequest) (*apigen.MetricsQueryResponse, error) {
 	if nodeID > 0 && nodeID != h.NodeID && h.Cluster != nil {
 		r := *req
 		resp, err := h.Cluster.RequestMetricsQuery(ctx, nodeID, &r)
@@ -120,7 +120,7 @@ func (h *Handler) PostV1MetricsLatest(ctx apigen.Context, _ *apigen.MetricsLates
 	}
 	if h.Cluster != nil {
 		type reply struct {
-			node int32
+			node uint64
 			resp *apigen.MetricsLatestResponse
 			err  error
 		}
@@ -147,27 +147,27 @@ func (h *Handler) PostV1MetricsLatest(ctx apigen.Context, _ *apigen.MetricsLates
 			out.Entries = append(out.Entries, r.resp.Entries...)
 		}
 	}
-	visible := make(map[int32]bool)
-	out.Entries = slices.DeleteFunc(out.Entries, func(e *apigen.MetricsLatestEntry) bool {
-		if e.Sample == nil {
+	visible := make(map[uint64]bool)
+	out.Entries = slices.DeleteFunc(out.Entries, func(e apigen.MetricsLatestEntry) bool {
+		if e.Sample.DeploymentID <= 0 {
 			return true
 		}
-		id := e.Sample.DeploymentID
+		id := uint64(e.Sample.DeploymentID)
 		ok, seen := visible[id]
 		if !seen {
 			cfg := h.findConfigByID(id)
-			ok = cfg != nil && h.canAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID))
+			ok = cfg != nil && h.canAccess(ctx, vViewLogs, eDeployment, cfg.Deployment.SpaceID, cfg.Deployment.ID)
 			visible[id] = ok
 		}
 		return !ok
 	})
-	slices.SortFunc(out.Entries, func(a, b *apigen.MetricsLatestEntry) int {
-		return metricstore.CompareKey(metricstore.Key(a.Sample), metricstore.Key(b.Sample))
+	slices.SortFunc(out.Entries, func(a, b apigen.MetricsLatestEntry) int {
+		return metricstore.CompareKey(metricstore.Key(&a.Sample), metricstore.Key(&b.Sample))
 	})
 	return out, nil
 }
 
-func secondaryMetricsErr(nodeID int32, err error) error {
+func secondaryMetricsErr(nodeID uint64, err error) error {
 	var notConnected *clusterhandler.NodeNotConnectedError
 	if errors.As(err, &notConnected) {
 		return apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", nodeID), "secondary_not_connected", http.StatusBadGateway)

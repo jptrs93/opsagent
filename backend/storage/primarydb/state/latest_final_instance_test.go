@@ -4,7 +4,6 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/jptrs93/goutil/erru"
 
@@ -12,8 +11,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage"
 )
 
-func instanceIDs(states []apigen.ScheduledInstanceState) []int32 {
-	out := make([]int32, 0, len(states))
+func instanceIDs(states []apigen.ScheduledInstanceState) []uint64 {
+	out := make([]uint64, 0, len(states))
 	for _, state := range states {
 		out = append(out, state.Instance.ID)
 	}
@@ -29,23 +28,20 @@ func onlyInstance(t *testing.T, states []apigen.ScheduledInstanceState) apigen.S
 }
 
 func runningDeploymentSpec() *apigen.DeploymentSpec {
-	return &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
-		Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
-		Version: "v1",
-	}}
+	return testSpecWithVersion("v1")
 }
 
-func seedDeployment(t *testing.T, store *Service, name string) *apigen.DeploymentEvent {
+func seedDeployment(t *testing.T, store *Service, name string) *apigen.DeploymentRecord {
 	t.Helper()
 	node := testNode(store, "primary")
 	return mustCreateDeploymentForNode(store, apigen.Context{}, defaultSpaceID, name, node.ID, runningDeploymentSpec())
 }
 
-func writeRunnerStatus(t *testing.T, store *Service, instanceID int32, status apigen.RunningStatus) {
+func writeRunnerStatus(t *testing.T, store *Service, instanceID uint64, status apigen.RunningStatus) {
 	t.Helper()
 	writeInstanceStatusForTest(store, instanceID, func(st *apigen.ScheduledInstanceStatus) {
 		st.BumpUpdatedAt()
-		st.Runner = apigen.RunnerStatus{Status: status, RunningPid: 4242}
+		st.Runner = runnerStatus(status, 4242)
 	})
 }
 
@@ -58,8 +54,8 @@ func TestFinalizedInstanceIsRetainedForDisplay(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_STOPPED)
+	inst := createScheduledInstanceForTest(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_RUNNING_STATUS_STOPPED)
 	setScheduledInstanceState(store, inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
 	if live := store.FetchScheduledSnapshot(nil); len(live) != 0 {
@@ -70,10 +66,10 @@ func TestFinalizedInstanceIsRetainedForDisplay(t *testing.T) {
 	if shown.Instance.ID != inst.ID {
 		t.Fatalf("displayed instance = %d, want %d", shown.Instance.ID, inst.ID)
 	}
-	if shown.Status.Runner.Status != apigen.RunningStatus_STOPPED {
-		t.Fatalf("displayed status = %v, want the STOPPED it ended on", shown.Status.Runner.Status)
+	if shown.Status.Value.Runner.Value.Status != apigen.RunningStatus_RUNNING_STATUS_STOPPED {
+		t.Fatalf("displayed status = %v, want the STOPPED it ended on", shown.Status.Value.Runner.Value.Status)
 	}
-	if shown.Config.DeploymentID != cfg.DeploymentID {
+	if shown.Config.Deployment.ID != cfg.Deployment.ID {
 		t.Fatal("displayed instance lost the spec version it was pinned to")
 	}
 }
@@ -85,8 +81,8 @@ func TestRetainedFinalInstanceSurvivesRestart(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := Open(dbPath)
 	cfg := seedDeployment(t, store, "app")
-	inst := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_STOPPED)
+	inst := createScheduledInstanceForTest(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	writeRunnerStatus(t, store, inst.ID, apigen.RunningStatus_RUNNING_STATUS_STOPPED)
 	setScheduledInstanceState(store, inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	if err := store.Close(); err != nil {
 		t.Fatalf("close: %v", err)
@@ -102,8 +98,8 @@ func TestRetainedFinalInstanceSurvivesRestart(t *testing.T) {
 	if shown.Instance.ID != inst.ID {
 		t.Fatalf("displayed instance after restart = %d, want %d", shown.Instance.ID, inst.ID)
 	}
-	if shown.Status.Runner.Status != apigen.RunningStatus_STOPPED {
-		t.Fatalf("displayed status after restart = %v, want STOPPED", shown.Status.Runner.Status)
+	if shown.Status.Value.Runner.Value.Status != apigen.RunningStatus_RUNNING_STATUS_STOPPED {
+		t.Fatalf("displayed status after restart = %v, want STOPPED", shown.Status.Value.Runner.Value.Status)
 	}
 }
 
@@ -115,9 +111,9 @@ func TestNewInstanceEvictsTheRetainedRun(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	older := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	older := createScheduledInstanceForTest(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	setScheduledInstanceState(store, older.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	newer := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	newer := createScheduledInstanceForTest(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	shown := onlyInstance(t, snapshotInstances(store, nil))
 	if shown.Instance.ID != newer.ID {
@@ -141,8 +137,8 @@ func TestRetainedRunIsPerOrdinal(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cfg := seedDeployment(t, store, "app")
 
-	first := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	second := createScheduledInstanceForTest(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	first := createScheduledInstanceForTest(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	second := createScheduledInstanceForTest(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	setScheduledInstanceState(store, first.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	setScheduledInstanceState(store, second.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
@@ -160,13 +156,13 @@ func TestDisplaySnapshotAppliesPredicate(t *testing.T) {
 	visible := seedDeployment(t, store, "visible")
 	hidden := seedDeployment(t, store, "hidden")
 
-	shownInst := createScheduledInstanceForTest(store, visible.DeploymentID, visible.Version, visible.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	hiddenInst := createScheduledInstanceForTest(store, hidden.DeploymentID, hidden.Version, hidden.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	shownInst := createScheduledInstanceForTest(store, visible.Deployment.ID, visible.Meta.Version, visible.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	hiddenInst := createScheduledInstanceForTest(store, hidden.Deployment.ID, hidden.Meta.Version, hidden.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	setScheduledInstanceState(store, shownInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	setScheduledInstanceState(store, hiddenInst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
 	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
-		return state.Instance.DeploymentID == visible.DeploymentID
+		return state.Instance.Deployment.DeploymentID == visible.Deployment.ID
 	})
 	got := onlyInstance(t, snapshotInstances(store, predicate))
 	if got.Instance.ID != shownInst.ID {
@@ -176,17 +172,19 @@ func TestDisplaySnapshotAppliesPredicate(t *testing.T) {
 
 func snapshotInstances(store *Service, predicate storage.ScheduledInstancePredicate) []apigen.ScheduledInstanceState {
 	entries := erru.Must(store.q.Snapshot(context.Background()))
-	type pin struct{ deployment, version int32 }
-	deployments := map[pin]*apigen.DeploymentEvent{}
-	instances := map[int64]*apigen.ScheduledInstance{}
-	statuses := map[int64]*apigen.ScheduledInstanceStatus{}
-	var order []int64
+	type pin struct {
+		deployment uint64
+		version    uint32
+	}
+	deployments := map[pin]*apigen.DeploymentRecord{}
+	instances := map[uint64]*apigen.ScheduledInstance{}
+	statuses := map[uint64]*apigen.ScheduledInstanceStatus{}
+	var order []uint64
 	for _, e := range entries {
-		entity, meta := e.Entity, e.Meta
+		entity, meta := e.Entity.Value, e.Meta
 		switch {
-		case entity == nil:
 		case entity.Deployment != nil:
-			deployments[pin{int32(e.EntityID), meta.Version}] = &apigen.DeploymentEvent{DeploymentID: int32(e.EntityID), Version: meta.Version, SpecVersion: meta.SpecVersion, CreatedTime: time.UnixMilli(meta.CreatedTime), Value: *entity.Deployment}
+			deployments[pin{e.EntityID, meta.Version}] = &apigen.DeploymentRecord{Deployment: *entity.Deployment, Meta: meta}
 		case entity.ScheduledInstance != nil:
 			if _, seen := instances[e.EntityID]; !seen {
 				order = append(order, e.EntityID)
@@ -200,11 +198,11 @@ func snapshotInstances(store *Service, predicate storage.ScheduledInstancePredic
 	for _, id := range order {
 		inst := instances[id]
 		st := apigen.ScheduledInstanceState{Instance: *inst}
-		if d := deployments[pin{inst.DeploymentID, inst.DeploymentVersion}]; d != nil {
+		if d := deployments[pin{inst.Deployment.DeploymentID, inst.Deployment.Version}]; d != nil {
 			st.Config = *d
 		}
 		if status := statuses[id]; status != nil {
-			st.Status = *status
+			st.Status = apigen.Some(*status)
 		}
 		if predicate == nil || predicate(st) {
 			out = append(out, st)

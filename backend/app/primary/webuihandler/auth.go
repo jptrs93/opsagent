@@ -29,7 +29,7 @@ var MasterPasswordNotConfiguredErr = apigen.NewApiErr("", "master_password_not_c
 var MasterPasswordRequiredErr = apigen.NewApiErr("Master password is required", "master_password_required", http.StatusBadRequest)
 var UsernameRequiredErr = apigen.NewApiErr("Username is required", "username_required", http.StatusBadRequest)
 
-func newLoginResponse(user *apigen.InternalUser, token string, kind apigen.UserSessionKind, expiry time.Time, sessionID string) *apigen.LoginResponse {
+func newLoginResponse(user *apigen.User, token string, kind apigen.UserSessionKind, expiry time.Time, sessionID string) *apigen.LoginResponse {
 	return &apigen.LoginResponse{
 		Token:     token,
 		UserID:    user.ID,
@@ -59,8 +59,8 @@ func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswor
 // holding cluster_admin, the same way first-time setup always has. Names are
 // compared trimmed on both sides so accounts created before trimming with
 // surrounding whitespace still resolve.
-func (h *Handler) resolveOrCreateUser(username string) (*apigen.InternalUser, error) {
-	user, err := users.Matching(h.Store.Queries(), func(u *apigen.InternalUser) bool {
+func (h *Handler) resolveOrCreateUser(username string) (*apigen.User, error) {
+	user, err := users.Matching(h.Store.Queries(), func(u *apigen.User) bool {
 		return strings.TrimSpace(u.Name) == username
 	})
 	if err == nil {
@@ -73,9 +73,10 @@ func (h *Handler) resolveOrCreateUser(username string) (*apigen.InternalUser, er
 	if err != nil {
 		return nil, err
 	}
-	user = &apigen.InternalUser{WebAuthNID: webAuthNID, Name: username}
+	user = &apigen.User{Authentication: apigen.UserAuthentication{WebAuthnID: webAuthNID}, Name: username}
 	users.Write(h.Store, user)
-	if _, err := h.Authz.CreateGrant(&apigen.AuthzGrant{UserID: int64(user.ID), TemplateID: authz.ClusterAdminTemplateID, Spec: &apigen.AuthzGrantSpec{}}, 0); err != nil {
+	grant := &apigen.AuthzGrant{UserID: user.ID, Grant: apigen.AuthzGrantSource{Value: apigen.AuthzGrantSourceValueOneof{Template: &apigen.AuthzTemplateGrant{TemplateID: authz.ClusterAdminTemplateID}}}}
+	if _, err := h.Authz.CreateGrant(grant, 0); err != nil {
 		return nil, err
 	}
 	return user, nil
@@ -146,7 +147,7 @@ func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResp
 // approved-and-collected session carries a working token: pending, rejected,
 // revoked, and expired rows all fail here, and the hash check ties the token
 // to the exact row so a reused id cannot ride another session.
-func (h *Handler) resolveAgentSession(sessionID, token string, now time.Time) (*apigen.InternalUser, agentsessions.Record, error) {
+func (h *Handler) resolveAgentSession(sessionID, token string, now time.Time) (*apigen.User, agentsessions.Record, error) {
 	rec, err := h.agentSessions().FetchAgentSession(sessionID)
 	if errors.Is(err, agentsessions.ErrNotFound) {
 		return nil, rec, InvalidAuthTokenErr
@@ -154,7 +155,7 @@ func (h *Handler) resolveAgentSession(sessionID, token string, now time.Time) (*
 	if err != nil {
 		return nil, rec, fmt.Errorf("fetching agent session: %w", err)
 	}
-	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_APPROVED || !rec.Collected() || !now.Before(rec.ExpiresAt) {
+	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED || !rec.Collected() || !now.Before(rec.ExpiresAt) {
 		return nil, rec, InvalidAuthTokenErr
 	}
 	if subtle.ConstantTimeCompare(rec.TokenHash, hashToken(token)) != 1 {
@@ -167,13 +168,7 @@ func (h *Handler) resolveAgentSession(sessionID, token string, now time.Time) (*
 	if err != nil {
 		return nil, rec, fmt.Errorf("fetching session user: %w", err)
 	}
-	// Agent-session tokens act with delegated authority: authz rules without
-	// DelegationAllowed will not match them. Set on a copy, since ByID hands
-	// back a decoded record no one else holds but that is its contract, not
-	// this call site's to assume.
-	delegated := *user
-	delegated.Delegated = true
-	return &delegated, rec, nil
+	return user, rec, nil
 }
 
 // VerifyAuth is the package-level function expected by the generated mux. A
@@ -209,13 +204,15 @@ func (h *Handler) VerifyAuth(ctx context.Context, _ http.ResponseWriter, r *http
 		if err != nil {
 			return res, err
 		}
-		res.User, res.SessionKind, res.SessionExpiresAt = user, apigen.UserSessionKind_USER_SESSION_KIND_FULL, rec.ExpiresAt
+		// Agent-session tokens act with delegated authority: authz rules without
+		// DelegationAllowed will not match them.
+		res.User, res.Delegated, res.SessionKind, res.SessionExpiresAt = user, true, apigen.UserSessionKind_USER_SESSION_KIND_FULL, rec.ExpiresAt
 	default:
 		return res, InvalidAuthTokenErr
 	}
 	res.SessionID = sessionID
 	res.Token = tokenString
-	res.Ctx = logu.AddKV(res.Ctx, "user", strconv.FormatInt(int64(res.User.ID), 10))
+	res.Ctx = logu.AddKV(res.Ctx, "user", strconv.FormatUint(res.User.ID, 10))
 	if err := policy.CanAccess(res.SessionKind); err != nil {
 		return res, err
 	}

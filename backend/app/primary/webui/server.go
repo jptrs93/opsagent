@@ -148,8 +148,8 @@ func selfManagedWebUITLSConfig(store *secrets.Manager, loader systemconfig.Loade
 }
 
 func webUITLSBundle(store *secrets.Manager, loader systemconfig.Loader, cfg *apigen.ClusterSettings) ([]byte, error) {
-	if ref := cfg.HttpsWeb.TlsCertPem.Ref; ref.Valid() {
-		value, err := store.RevealByRef(ref)
+	if ref := cfg.HttpsWeb.TlsCertPem; ref.Present && ref.Value.Valid() {
+		value, err := store.RevealByRef(ref.Value.Ref())
 		if err != nil {
 			return nil, err
 		}

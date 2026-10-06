@@ -21,7 +21,7 @@ import (
 
 // newAuthTestHandler builds a Handler with just enough wiring to mint and
 // verify session tokens against a throwaway store.
-func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
+func newAuthTestHandler(t *testing.T) (*Handler, *apigen.User) {
 	t.Helper()
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "primary.db"))
@@ -32,7 +32,7 @@ func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	// InitializeService rather than NewService: nothing has written a primary
 	// config into this throwaway store, and NewService pointedly refuses to
 	// invent one.
-	configService, err := systemconfig.InitializeService(store, apigen.SystemConfig{})
+	configService, err := systemconfig.InitializeService(store, *systemconfig.Default(systemconfig.DefaultInitial()))
 	if err != nil {
 		t.Fatalf("systemconfig.InitializeService: %v", err)
 	}
@@ -41,7 +41,7 @@ func newAuthTestHandler(t *testing.T) (*Handler, *apigen.InternalUser) {
 	if err != nil {
 		t.Fatalf("GenerateWebAuthnID: %v", err)
 	}
-	user := &apigen.InternalUser{ID: 1, WebAuthNID: webAuthNID, Name: "operator"}
+	user := &apigen.User{ID: 1, Authentication: apigen.UserAuthentication{WebAuthnID: webAuthNID}, Name: "operator"}
 	users.Write(store, user)
 	return h, user
 }
@@ -57,7 +57,7 @@ const (
 
 // mustToken opens a user session of the given kind and lifetime and returns
 // its bearer token. A negative ttl yields an already-expired session.
-func (h *Handler) mustToken(t *testing.T, userID int32, kind apigen.UserSessionKind, ttl time.Duration) string {
+func (h *Handler) mustToken(t *testing.T, userID uint64, kind apigen.UserSessionKind, ttl time.Duration) string {
 	t.Helper()
 	user, err := users.ByID(h.Store.Queries(), userID)
 	if err != nil {
@@ -98,8 +98,8 @@ func TestPostV1AgentSessionsCreateMintsShortLivedToken(t *testing.T) {
 	}
 
 	wantExpiry := before.Add(agentSessionTTL)
-	if res.Session.ExpiresAt.Before(wantExpiry.Add(-time.Minute)) || res.Session.ExpiresAt.After(wantExpiry.Add(time.Minute)) {
-		t.Errorf("expiry = %v, want ~%v", res.Session.ExpiresAt, wantExpiry)
+	if res.Session.Token.Value.ExpiresAt.Before(wantExpiry.Add(-time.Minute)) || res.Session.Token.Value.ExpiresAt.After(wantExpiry.Add(time.Minute)) {
+		t.Errorf("expiry = %v, want ~%v", res.Session.Token.Value.ExpiresAt, wantExpiry)
 	}
 	// The reported expiry must match what the server enforces, or the UI
 	// would show a lifetime the server does not honour.
@@ -107,8 +107,8 @@ func TestPostV1AgentSessionsCreateMintsShortLivedToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("minted token does not verify: %v", err)
 	}
-	if diff := verified.SessionExpiresAt.Sub(res.Session.ExpiresAt); diff > time.Minute || diff < -time.Minute {
-		t.Errorf("enforced expiry %v disagrees with reported expiry %v", verified.SessionExpiresAt, res.Session.ExpiresAt)
+	if diff := verified.SessionExpiresAt.Sub(res.Session.Token.Value.ExpiresAt); diff > time.Minute || diff < -time.Minute {
+		t.Errorf("enforced expiry %v disagrees with reported expiry %v", verified.SessionExpiresAt, res.Session.Token.Value.ExpiresAt)
 	}
 }
 
@@ -128,7 +128,7 @@ func TestVerifyAuthRejectsBadTokens(t *testing.T) {
 		"kind swapped":     agentTokenKind + strings.TrimPrefix(good, userTokenKind),
 		"no separator":     userTokenKind + id,
 		"expired":          h.mustToken(t, user.ID, fullSession, -time.Minute),
-		"pending agent id": agentTokenKind + h.mustRequestStart(t, user.ID).ID + ".secret",
+		"pending agent id": agentTokenKind + h.mustRequestStart(t, user.ID).SessionID + ".secret",
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := h.verifyToken(token); err == nil {
@@ -151,7 +151,7 @@ func TestRevokedUserSessionTokenFailsVerifyAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("VerifyAuth: %v", err)
 	}
-	if err := h.PostV1UserSessionsRevoke(ctx, &apigen.UserSessionRevokeRequest{ID: ctx.SessionID}); err != nil {
+	if err := h.PostV1UserSessionsRevoke(ctx, &apigen.UserSessionRevokeRequest{SessionID: ctx.SessionID}); err != nil {
 		t.Fatalf("PostV1UserSessionsRevoke: %v", err)
 	}
 	if _, err := h.verifyToken(first); err == nil {
@@ -231,11 +231,11 @@ func TestGeneratedTokenAuthenticatesRequests(t *testing.T) {
 	}
 	// Agent tokens resolve a delegated user; the plain browser session must
 	// not.
-	if !authCtx.User.Delegated {
+	if !authCtx.Delegated {
 		t.Fatal("agent-session token should resolve a delegated user")
 	}
-	if authCtx.SessionID != res.Session.ID {
-		t.Fatalf("resolved session id %q, want %q", authCtx.SessionID, res.Session.ID)
+	if authCtx.SessionID != res.Session.SessionID {
+		t.Fatalf("resolved session id %q, want %q", authCtx.SessionID, res.Session.SessionID)
 	}
 	r = httptest.NewRequest(http.MethodGet, "/v1/anything", nil)
 	r.Header.Set("Authorization", "Bearer "+session.Token)
@@ -243,7 +243,7 @@ func TestGeneratedTokenAuthenticatesRequests(t *testing.T) {
 	if err != nil {
 		t.Fatalf("session token failed VerifyAuth: %v", err)
 	}
-	if sessionCtx.User == nil || sessionCtx.User.Delegated {
+	if sessionCtx.User == nil || sessionCtx.Delegated {
 		t.Fatalf("browser session token must not resolve a delegated user: %#v", sessionCtx.User)
 	}
 }
@@ -256,7 +256,7 @@ func TestAgentSessionStoresOnlyTokenHash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsCreate: %v", err)
 	}
-	rec, err := h.agentSessions().FetchAgentSession(res.Session.ID)
+	rec, err := h.agentSessions().FetchAgentSession(res.Session.SessionID)
 	if err != nil {
 		t.Fatalf("FetchAgentSession: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestAgentSessionStoresOnlyTokenHash(t *testing.T) {
 
 func TestAgentSessionsListReturnsOnlyTheCallersSessions(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
+	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: "other"}
 	users.Write(h.Store, other)
 
 	mine, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, user))
@@ -296,7 +296,7 @@ func TestAgentSessionsListReturnsOnlyTheCallersSessions(t *testing.T) {
 		t.Fatalf("list = %#v, want only the caller's own session", list.Items)
 	}
 	// The list is metadata only; the token never reappears.
-	if list.Items[0].TokenPrefix == mine.Token {
+	if list.Items[0].Token.Value.Prefix == mine.Token {
 		t.Fatal("list exposed the full token")
 	}
 }
@@ -322,7 +322,7 @@ func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
 	}
 	if err := h.PostV1AgentSessionsRevoke(
 		apigen.Context{Ctx: context.Background(), User: user},
-		&apigen.AgentSessionRevokeRequest{ID: res.Session.ID},
+		&apigen.AgentSessionRevokeRequest{SessionID: res.Session.SessionID},
 	); err != nil {
 		t.Fatalf("PostV1AgentSessionsRevoke: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsList: %v", err)
 	}
-	if len(list.Items) != 1 || list.Items[0].Status != apigen.AgentSessionStatus_AGENT_SESSION_REVOKED {
+	if len(list.Items) != 1 || list.Items[0].Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REVOKED {
 		t.Fatalf("list = %#v, want the session marked revoked", list.Items)
 	}
 }
@@ -342,7 +342,7 @@ func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
 // One operator must not be able to revoke another's session by guessing its id.
 func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
+	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: "other"}
 	users.Write(h.Store, other)
 
 	res, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, user))
@@ -352,16 +352,16 @@ func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
 
 	err = h.PostV1AgentSessionsRevoke(
 		apigen.Context{Ctx: context.Background(), User: other},
-		&apigen.AgentSessionRevokeRequest{ID: res.Session.ID},
+		&apigen.AgentSessionRevokeRequest{SessionID: res.Session.SessionID},
 	)
 	if err == nil {
 		t.Fatal("expected another user's revoke to fail")
 	}
-	rec, fetchErr := h.agentSessions().FetchAgentSession(res.Session.ID)
+	rec, fetchErr := h.agentSessions().FetchAgentSession(res.Session.SessionID)
 	if fetchErr != nil {
 		t.Fatalf("FetchAgentSession: %v", fetchErr)
 	}
-	if rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_REVOKED || rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_REJECTED {
+	if rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REVOKED || rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED {
 		t.Fatal("session was revoked by a different user")
 	}
 }

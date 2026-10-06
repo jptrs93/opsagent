@@ -137,29 +137,29 @@ func (s *dnsServer) lookupAAAA(name string) (answers []string, known bool) {
 	if len(parts) < 3 || parts[len(parts)-1] != "internal" {
 		return nil, false
 	}
-	ordinal := int32(-1)
+	ordinal := -1
 	servicePart := 0
 	if len(parts) == 4 {
 		var parsed int
 		if _, err := fmt.Sscanf(parts[0], "%d", &parsed); err != nil {
 			return nil, false
 		}
-		ordinal = int32(parsed)
+		ordinal = parsed
 		servicePart = 1
 	} else if len(parts) != 3 {
 		return nil, false
 	}
 	serviceName, env := parts[servicePart], parts[servicePart+1]
 	for _, svc := range state.DnsServices {
-		if svc == nil || svc.Name != serviceName || svc.Environment != env {
+		if svc.Name != serviceName || svc.Environment != env {
 			continue
 		}
 		known = true
 		for _, ep := range svc.Endpoints {
-			if ep == nil || ep.State != apigen.EndpointState_ENDPOINT_READY {
+			if ep.State != apigen.EndpointState_ENDPOINT_STATE_READY {
 				continue
 			}
-			if ordinal >= 0 && ep.Ordinal != ordinal {
+			if ordinal >= 0 && ep.Ordinal != uint32(ordinal) {
 				continue
 			}
 			answers = append(answers, ep.Address)

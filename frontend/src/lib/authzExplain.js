@@ -3,7 +3,7 @@
 // definition pane, and folds one or more rules into one action × resource
 // grid per space for the access table, with the pairs the API actually
 // checks. No van and no DOM; unit tested in authzExplain.test.js.
-import {ENTITY_TYPES, VERBS, positionValueName, templateArguments} from "./authz.js";
+import {ENTITY_TYPES, VERBS, bindingValues, grantRule, grantTemplateId, positionValueName, readSelector, ruleEffect, templateArguments} from "./authz.js";
 
 // What each verb lets a caller do, in the words the popover uses.
 export const VERB_GLOSS = {
@@ -83,10 +83,13 @@ const typePlural = (name) => name === "access" ? name : `${name}s`;
 // argument reads as its bound values when bindings are supplied (explaining a
 // grant) and as an open argument otherwise (explaining the role itself).
 export function resolveSelector(sel, kind, {names, universe = null, argNames, bindings} = {}) {
-    const item = (v) => ({id: Number(v), name: names(v)});
+    // Entity refs have no numeric identity of their own, so their display
+    // name doubles as the id the matrix compares.
+    const item = (v) => ({id: typeof v === "object" && v !== null ? names(v) : Number(v), name: names(v)});
     const res = {mode: "none", include: [], exclude: [], arg: null, bound: false, tokens: null};
-    if (sel?.argumentId) {
-        const id = Number(sel.argumentId);
+    const view = readSelector(sel, kind);
+    if (view.mode === "arg") {
+        const id = view.argumentId;
         res.arg = {id, name: argNames?.get?.(id) || `arg_${id}`};
         const values = bindings?.get?.(id);
         if (values) {
@@ -96,13 +99,12 @@ export function resolveSelector(sel, kind, {names, universe = null, argNames, bi
         } else {
             res.mode = "arg";
         }
-    } else if (sel?.wildcard) {
-        res.exclude = (sel.exclude || []).map(item);
-        res.mode = res.exclude.length ? "allExcept" : "all";
-    } else if ((sel?.include || []).length) {
-        const excluded = new Set((sel.exclude || []).map(Number));
-        res.include = sel.include.map(item).filter((i) => !excluded.has(i.id));
-        res.mode = res.include.length ? "list" : "none";
+    } else if (view.mode === "all" || view.mode === "allExcept") {
+        res.exclude = view.values.map(item);
+        res.mode = view.mode;
+    } else if (view.mode === "list") {
+        res.include = view.values.map(item);
+        res.mode = "list";
     }
     if (universe) {
         const on = new Set(res.include.map((i) => i.id));
@@ -124,14 +126,16 @@ export function resolveSelector(sel, kind, {names, universe = null, argNames, bi
 // substituted when explaining a grant), and the sessions the rule reaches.
 export function ruleDefinition(rule, {spaceNames, spaces = [], argNames, bindings} = {}) {
     const opts = {argNames, bindings};
+    const effect = ruleEffect(rule);
+    const sel = rule.selector || {};
     return {
-        deny: !!rule.deny,
-        actions: resolveSelector(rule.permissions, "permissions", {...opts, names: (v) => positionValueName("permissions", v), universe: VERBS}),
-        types: resolveSelector(rule.entityTypes, "entityTypes", {...opts, names: (v) => positionValueName("entityTypes", v), universe: ENTITY_TYPES}),
-        refs: resolveSelector(rule.entityRefs, "entityRefs", {...opts, names: (v) => String(v)}),
-        spaces: resolveSelector(rule.spaces, "spaces", {...opts, names: (v) => positionValueName("spaces", v, spaceNames), universe: spaces}),
-        users: rule.deny ? !rule.delegatedOnly : true,
-        agents: rule.deny ? true : !!rule.delegationAllowed,
+        deny: effect.deny,
+        actions: resolveSelector(sel.permissions, "permissions", {...opts, names: (v) => positionValueName("permissions", v), universe: VERBS}),
+        types: resolveSelector(sel.entityTypes, "entityTypes", {...opts, names: (v) => positionValueName("entityTypes", v), universe: ENTITY_TYPES}),
+        refs: resolveSelector(sel.entityRefs, "entityRefs", {...opts, names: (v) => positionValueName("entityRefs", v)}),
+        spaces: resolveSelector(sel.spaces, "spaces", {...opts, names: (v) => positionValueName("spaces", v, spaceNames), universe: spaces}),
+        users: effect.deny ? !effect.delegatedOnly : true,
+        agents: effect.deny ? true : effect.delegationAllowed,
     };
 }
 
@@ -140,12 +144,12 @@ export function ruleDefinition(rule, {spaceNames, spaces = [], argNames, binding
 // from an open argument), or the direct rule alone.
 export function grantSubject(record, {templatesById, spaceNames, spaces}) {
     const base = {spaceNames, spaces};
-    const templateId = Number(record?.templateId || 0);
+    const templateId = grantTemplateId(record);
     if (templateId) {
         const template = templatesById?.get?.(templateId);
         if (!template) return {...base, subtitle: "This role no longer exists.", rules: []};
         const args = templateArguments(template.spec);
-        const bindings = new Map((record?.spec?.args || []).map((b) => [Number(b.argumentId), (b.values || []).map(Number)]));
+        const bindings = new Map((record?.grant?.value?.template?.args || []).map((b) => [Number(b.argumentId), bindingValues(b)]));
         const argNames = new Map(args.map((a) => [a.id, a.name]));
         const bound = args.map((a) => `\${${a.name}} = ${(bindings.get(a.id) || []).map((v) => positionValueName(a.kind, v, spaceNames)).join(", ") || "nothing"}`);
         return {
@@ -156,7 +160,7 @@ export function grantSubject(record, {templatesById, spaceNames, spaces}) {
             argNames,
         };
     }
-    const rule = record?.spec?.rule;
+    const rule = grantRule(record);
     return {
         ...base,
         subtitle: "A single rule granted directly, not through a role.",
@@ -258,13 +262,16 @@ const nonEmpty = (res) => res.mode === "none" ? false : res.mode === "arg" ? nul
 // contributes says whether a rule reaches a block: every allow rule reaches
 // the user in person and, when delegable, agent sessions; a deny reaches
 // agents always and people only when it is not agent-only.
-const contributes = (rule, who) => rule.deny
-    ? (who === "agents" || !rule.delegatedOnly)
-    : (who === "user" || !!rule.delegationAllowed);
+const contributes = (rule, who) => {
+    const effect = ruleEffect(rule);
+    return effect.deny
+        ? (who === "agents" || !effect.delegatedOnly)
+        : (who === "user" || effect.delegationAllowed);
+};
 
 const refsScope = (refs) => {
-    if (refs.mode === "list") return `only ${refs.include.map((i) => `#${i.id}`).join(", ")}`;
-    if (refs.mode === "allExcept") return `except ${refs.exclude.map((i) => `#${i.id}`).join(", ")}`;
+    if (refs.mode === "list") return `only ${refs.include.map((i) => i.name).join(", ")}`;
+    if (refs.mode === "allExcept") return `except ${refs.exclude.map((i) => i.name).join(", ")}`;
     if (refs.mode === "arg") return `only the items chosen when the role is granted`;
     return "";
 };
@@ -284,12 +291,12 @@ export function explainMatrix(rules, {spaceNames, spaces = [], argNames, binding
     const opts = {argNames, bindings};
     const resolved = rules.map((rule) => ({
         rule,
-        actions: resolveSelector(rule.permissions, "permissions", {...opts, names: (v) => positionValueName("permissions", v), universe: VERBS}),
-        types: resolveSelector(rule.entityTypes, "entityTypes", {...opts, names: (v) => positionValueName("entityTypes", v), universe: ENTITY_TYPES}),
-        refs: resolveSelector(rule.entityRefs, "entityRefs", {...opts, names: (v) => String(v)}),
-        spacesRes: resolveSelector(rule.spaces, "spaces", {...opts, names: (v) => positionValueName("spaces", v, spaceNames), universe: spaces}),
+        actions: resolveSelector(rule.selector?.permissions, "permissions", {...opts, names: (v) => positionValueName("permissions", v), universe: VERBS}),
+        types: resolveSelector(rule.selector?.entityTypes, "entityTypes", {...opts, names: (v) => positionValueName("entityTypes", v), universe: ENTITY_TYPES}),
+        refs: resolveSelector(rule.selector?.entityRefs, "entityRefs", {...opts, names: (v) => positionValueName("entityRefs", v)}),
+        spacesRes: resolveSelector(rule.selector?.spaces, "spaces", {...opts, names: (v) => positionValueName("spaces", v, spaceNames), universe: spaces}),
     }));
-    const deny = rules.some((r) => r.deny);
+    const deny = rules.some((r) => ruleEffect(r).deny);
 
     // inSpace says whether a rule applies in the tab's space: a concrete id,
     // or "arg" for the open-argument tab, where wildcard rules apply too.

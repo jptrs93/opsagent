@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"io"
 	"log/slog"
@@ -28,7 +29,7 @@ var (
 
 // uniqueAssetName suffixes name until it is free among the assets of the
 // target directory (0 = spaceID's root).
-func (h *Handler) uniqueAssetName(name string, spaceID, directoryID int32) string {
+func (h *Handler) uniqueAssetName(name string, spaceID, directoryID uint64) string {
 	if _, ok := assets.GetAssetInDirectory(h.Store.Queries(), spaceID, directoryID, name); !ok {
 		return name
 	}
@@ -65,31 +66,31 @@ func mapAssetStoreErr(err error) error {
 	return err
 }
 
-func requestUserID(ctx apigen.Context) int32 {
+func requestUserID(ctx apigen.Context) int64 {
 	return ctx.AttributionUserID()
 }
 
-func (h *Handler) requireAssetAccess(ctx apigen.Context, verb apigen.AuthzVerb, assetID int32) error {
+func (h *Handler) requireAssetAccess(ctx apigen.Context, verb apigen.AuthzVerb, assetID uint64) error {
 	asset, ok := assets.GetAsset(h.Store.Queries(), assetID)
 	if !ok {
 		return AssetNotFoundErr
 	}
-	return h.requireEntityAccess(ctx, verb, eAsset, int64(asset.SpaceID()), int64(asset.AssetID), AssetNotFoundErr)
+	return h.requireEntityAccess(ctx, verb, eAsset, asset.SpaceID(), asset.AssetID, AssetNotFoundErr)
 }
 
 // GetV1AssetsContent streams the raw bytes of one content version
 // (?asset_id=N&version=V). Metadata travels on the asset shapes; this route is
 // the only way content leaves the server on the web API.
 func (h *Handler) GetV1AssetsContent(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
-	assetID, err := strconv.ParseInt(strings.TrimSpace(request.URL.Query().Get("asset_id")), 10, 32)
-	if err != nil || assetID <= 0 {
+	assetID, err := strconv.ParseUint(strings.TrimSpace(request.URL.Query().Get("asset_id")), 10, 64)
+	if err != nil || assetID == 0 {
 		return apigen.NewApiErr("Asset id is required", "asset_id_required", http.StatusBadRequest)
 	}
-	version, err := strconv.ParseInt(strings.TrimSpace(request.URL.Query().Get("version")), 10, 32)
-	if err != nil || version <= 0 {
+	version, err := strconv.ParseUint(strings.TrimSpace(request.URL.Query().Get("version")), 10, 32)
+	if err != nil || version == 0 {
 		return apigen.NewApiErr("Asset version is required", "asset_version_required", http.StatusBadRequest)
 	}
-	ref := apigen.ValueRef{ID: int32(assetID), Version: int32(version)}
+	ref := apigen.ValueRef{ID: assetID, Version: uint32(version)}
 	if _, ok := assets.GetAssetValueJoined(h.Store.Queries(), ref); !ok {
 		return AssetNotFoundErr
 	}
@@ -132,14 +133,14 @@ func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*pq.As
 	}
 
 	if rawAssetID := strings.TrimSpace(query.Get("asset_id")); rawAssetID != "" {
-		parsed, parseErr := strconv.ParseInt(rawAssetID, 10, 32)
-		if parseErr != nil || parsed <= 0 {
+		parsed, parseErr := strconv.ParseUint(rawAssetID, 10, 64)
+		if parseErr != nil || parsed == 0 {
 			return nil, apigen.NewApiErr("Asset id is invalid", "asset_id_invalid", http.StatusBadRequest)
 		}
-		if err := h.requireAssetAccess(ctx, vUpdate, int32(parsed)); err != nil {
+		if err := h.requireAssetAccess(ctx, vUpdate, parsed); err != nil {
 			return nil, err
 		}
-		asset, err := h.Assets.AppendAssetVersionFromReader(ctx, int32(parsed), requestUserID(ctx), request.ContentLength, request.Body)
+		asset, err := h.Assets.AppendAssetVersionFromReader(ctx, parsed, requestUserID(ctx), request.ContentLength, request.Body)
 		if err != nil {
 			return nil, mapAssetStoreErr(err)
 		}
@@ -153,21 +154,21 @@ func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*pq.As
 	if !assets.ValidAssetKey(key) {
 		return nil, AssetKeyInvalidErr
 	}
-	var spaceID int32
+	var spaceID uint64
 	if rawSpaceID := strings.TrimSpace(query.Get("space_id")); rawSpaceID != "" {
-		parsed, parseErr := strconv.ParseInt(rawSpaceID, 10, 32)
+		parsed, parseErr := strconv.ParseUint(rawSpaceID, 10, 64)
 		if parseErr != nil {
 			return nil, apigen.NewApiErr("Asset space ID is invalid", "asset_space_id_invalid", http.StatusBadRequest)
 		}
-		spaceID = int32(parsed)
+		spaceID = parsed
 	}
-	var directoryID int32
+	var directoryID uint64
 	if rawDirectoryID := strings.TrimSpace(query.Get("directory_id")); rawDirectoryID != "" {
-		parsed, parseErr := strconv.ParseInt(rawDirectoryID, 10, 32)
-		if parseErr != nil || parsed < 0 {
+		parsed, parseErr := strconv.ParseUint(rawDirectoryID, 10, 64)
+		if parseErr != nil {
 			return nil, apigen.NewApiErr("Asset directory ID is invalid", "asset_directory_id_invalid", http.StatusBadRequest)
 		}
-		directoryID = int32(parsed)
+		directoryID = parsed
 	}
 	if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(spaceID), 0); err != nil {
 		return nil, err
@@ -183,7 +184,7 @@ func (h *Handler) uploadAsset(ctx apigen.Context, request *http.Request) (*pq.As
 }
 
 func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRenameRequest) (*apigen.CoreWriteUpdate, error) {
-	if req.AssetID <= 0 {
+	if req.AssetID == 0 {
 		return nil, AssetIDRequiredErr
 	}
 	newKey := strings.TrimSpace(req.NewKey)
@@ -206,21 +207,21 @@ func (h *Handler) PostV1AssetsRename(ctx apigen.Context, req *apigen.AssetRename
 // allowed only while no deployment outside the destination space references
 // the asset.
 func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (*apigen.CoreWriteUpdate, error) {
-	if req.AssetID <= 0 {
+	if req.AssetID == 0 {
 		return nil, AssetIDRequiredErr
 	}
 	existing, ok := assets.GetAsset(h.Store.Queries(), req.AssetID)
 	if !ok {
 		return nil, AssetNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eAsset, int64(existing.SpaceID()), int64(existing.AssetID), AssetNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eAsset, existing.SpaceID(), existing.AssetID, AssetNotFoundErr); err != nil {
 		return nil, err
 	}
-	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID)
-	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID()
+	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID.Value)
+	spaceChanging := req.SpaceID.Present && destSpace != existing.SpaceID()
 	// Moving into another space also needs the right to create an asset there.
 	if spaceChanging {
-		if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID), 0); err != nil {
+		if err := h.requireAccess(ctx, vCreate, eAsset, valueSpace(req.SpaceID.Value), 0); err != nil {
 			return nil, err
 		}
 	}
@@ -233,15 +234,15 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 			if err != nil {
 				return err
 			}
-			if deployments.ReferencesOutsideSpace(live, deployments.Int32Set([]int32{req.AssetID}), deployments.AssetRefIDs, destSpace) {
+			if deployments.ReferencesOutsideSpace(live, deployments.IDSet([]uint64{req.AssetID}), deployments.AssetRefIDs, destSpace) {
 				return deployments.MoveReferencesOutsideSpaceErr
 			}
 			return nil
 		}
-		if err := assets.MoveAssetSpace(h.Store, req.AssetID, req.SpaceID, req.AssetDirectoryID, ctx.AttributionUserID(), validate); err != nil {
+		if err := assets.MoveAssetSpace(h.Store, req.AssetID, req.SpaceID.Value, values.DirectoryID(req.AssetDirectoryID), ctx.AttributionUserID(), validate); err != nil {
 			return nil, mapAssetStoreErr(err)
 		}
-	} else if err := assets.MoveAssetDirectory(h.Store, req.AssetID, req.AssetDirectoryID); err != nil {
+	} else if err := assets.MoveAssetDirectory(h.Store, req.AssetID, values.DirectoryID(req.AssetDirectoryID)); err != nil {
 		return nil, mapAssetStoreErr(err)
 	}
 	asset, ok := assets.GetAsset(h.Store.Queries(), req.AssetID)
@@ -253,7 +254,7 @@ func (h *Handler) PostV1AssetsMove(ctx apigen.Context, req *apigen.AssetMoveRequ
 }
 
 func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDeleteRequest) error {
-	if req.AssetID <= 0 {
+	if req.AssetID == 0 {
 		return AssetIDRequiredErr
 	}
 	if err := h.requireAssetAccess(ctx, vDelete, req.AssetID); err != nil {
@@ -270,7 +271,7 @@ func (h *Handler) PostV1AssetsDelete(ctx apigen.Context, req *apigen.AssetDelete
 		if err != nil {
 			return err
 		}
-		if details := deployments.RefDetails(ctx, q, live, deployments.Int32Set([]int32{req.AssetID}), deployments.AssetRefIDs); len(details) > 0 {
+		if details := deployments.RefDetails(ctx, q, live, deployments.IDSet([]uint64{req.AssetID}), deployments.AssetRefIDs); len(details) > 0 {
 			return deployments.ReferenceInUseDetailErr("Asset", details)
 		}
 		return nil

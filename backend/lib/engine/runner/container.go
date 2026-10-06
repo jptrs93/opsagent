@@ -54,26 +54,26 @@ type containerRunner struct {
 
 	store               storage.OperatorStore
 	runtimeInputs       *runtimeinputs.RuntimeInputs
-	scheduledInstanceID int32
-	deploymentID        int32
-	spaceID             int32
+	scheduledInstanceID uint64
+	deploymentID        uint64
+	spaceID             uint64
 	deploymentName      string
-	nodeID              int32
+	nodeID              uint64
 	containerFamily     string
 	containerID         string
 
 	// derived from the deployment spec version; not part of RunnerStatus.
 	user              string
-	envVars           map[string]*apigen.EnvVarValue // resolved to "KEY=VALUE" entries at start
-	command           []string                       // argv override; empty = image default
-	cwd               string                         // process cwd; empty = image default
+	envVars           map[string]apigen.EnvVar // resolved to "KEY=VALUE" entries at start
+	command           []string                 // argv override; empty = image default
+	cwd               string                   // process cwd; empty = image default
 	mounts            []ctrd.Mount
 	issuedTLSMount    *apigen.IssuedTLSMount
 	devShmSizeKB      int64
 	fileDescLimit     int64
-	configVersion     int32
-	deploymentVersion int32
-	latestVersion     int32
+	configVersion     uint32
+	deploymentVersion uint32
+	latestVersion     uint32
 	dataVolumeHost    string // host dir to create+chown for the default data volume ("" = disabled)
 	dataVolumeUser    string // user the data volume should be owned by
 	readiness         *readinessConfig
@@ -128,27 +128,27 @@ const (
 // containerFamily names every container a placement of one deployment spec
 // version creates on this node; containerID appends the run number, so each
 // run (and, through containerd's default cgroup path, each cgroup) is unique.
-func containerFamily(deploymentID, configVersion, instanceID int32) string {
+func containerFamily(deploymentID uint64, configVersion uint32, instanceID uint64) string {
 	return fmt.Sprintf("opendeploy-%d-%d-%d", deploymentID, configVersion, instanceID)
 }
 
-func containerID(family string, runNumber int32) string {
+func containerID(family string, runNumber uint32) string {
 	return fmt.Sprintf("%s-%d", family, runNumber)
 }
 
-func parseContainerRun(id, family string) (int32, bool) {
+func parseContainerRun(id, family string) (uint32, bool) {
 	rest, ok := strings.CutPrefix(id, family+"-")
-	if !ok {
+	if !ok || rest == "" || rest[0] == '+' || rest[0] == '-' {
 		return 0, false
 	}
-	n, err := strconv.ParseInt(rest, 10, 32)
-	if err != nil || n <= 0 {
+	n, err := strconv.ParseUint(rest, 10, 32)
+	if err != nil || n == 0 {
 		return 0, false
 	}
-	return int32(n), true
+	return uint32(n), true
 }
 
-func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID uint64, dep *apigen.DeploymentRecord, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentSpecVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, nodeID, dep, configVersion)
@@ -157,7 +157,7 @@ func newContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.Runti
 	return r
 }
 
-func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *containerRunner {
+func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID uint64, dep *apigen.DeploymentRecord, preparerStatus apigen.PreparerStatus) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	configVersion := preparerStatus.DeploymentSpecVersion
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, nodeID, dep, configVersion)
@@ -174,9 +174,9 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 // Suppressing its writes is what used to make a candidate that crashed during
 // startup invisible: nothing was recorded, so nothing was notified, so the
 // operator never woke to build a replacement and the rollout stalled in silence.
-func (r *containerRunner) initFreshRun(dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus, candidate bool) {
+func (r *containerRunner) initFreshRun(dep *apigen.DeploymentRecord, preparerStatus apigen.PreparerStatus, candidate bool) {
 	if candidate {
-		timeout := containerReadinessTimeout(dep.Value.Spec.Container().ReadinessSignal)
+		timeout := containerReadinessTimeout(dep.Deployment.Spec.Container().ReadinessSignal)
 		r.readiness = &readinessConfig{timeout: timeout}
 		r.readinessDeadline = time.Now().Add(timeout)
 		r.readinessPending.Store(true)
@@ -185,13 +185,13 @@ func (r *containerRunner) initFreshRun(dep *apigen.DeploymentEvent, preparerStat
 	r.status = apigen.RunnerStatus{
 		DeploymentSpecVersion: preparerStatus.DeploymentSpecVersion,
 		RunningArtifact:       preparerStatus.Artifact,
-		Status:                apigen.RunningStatus_STARTING,
-		LastRestartAt:         time.Now(),
+		Status:                apigen.RunningStatus_RUNNING_STATUS_STARTING,
+		LastRestartAt:         apigen.Some(time.Now()),
 	}
 	r.writeStatus()
 }
 
-func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID uint64, dep *apigen.DeploymentRecord, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, nodeID, dep, prev.DeploymentSpecVersion)
 	r.status = prev
@@ -200,16 +200,16 @@ func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.
 	return r
 }
 
-func containerReadinessTimeout(sig *apigen.ContainerReadinessSignal) time.Duration {
-	if sig != nil && sig.TimeoutSeconds > 0 {
-		return time.Duration(sig.TimeoutSeconds) * time.Second
+func containerReadinessTimeout(sig apigen.Maybe[apigen.ContainerReadinessSignal]) time.Duration {
+	if sig.Present && sig.Value.TimeoutSeconds.Present && sig.Value.TimeoutSeconds.Value > 0 {
+		return time.Duration(sig.Value.TimeoutSeconds.Value) * time.Second
 	}
 	return containerReadinessDefaultTimeout
 }
 
-func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID int32, dep *apigen.DeploymentEvent, configVersion int32) *containerRunner {
-	cfg := dep.Value.Spec.Container().Runtime
-	family := containerFamily(dep.DeploymentID, configVersion, instanceID)
+func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID uint64, dep *apigen.DeploymentRecord, configVersion uint32) *containerRunner {
+	cfg := dep.Deployment.Spec.Container().Runtime
+	family := containerFamily(dep.Deployment.ID, configVersion, instanceID)
 	// Layering the container family onto the cancellation context keeps it on
 	// every log line without repeating it per call; cancel() still reaches the child.
 	ctx = logu.AddKV(ctx, "container", family)
@@ -221,39 +221,46 @@ func buildContainerRunner(ctx context.Context, cancel context.CancelFunc, store 
 		store:               store,
 		runtimeInputs:       inputs,
 		scheduledInstanceID: instanceID,
-		deploymentID:        dep.DeploymentID,
-		spaceID:             dep.Value.SpaceID,
+		deploymentID:        dep.Deployment.ID,
+		spaceID:             dep.Deployment.SpaceID,
 		deploymentName:      containerDeploymentName(dep),
 		nodeID:              nodeID,
 		containerFamily:     family,
 		configVersion:       configVersion,
-		deploymentVersion:   dep.Version,
+		deploymentVersion:   dep.Meta.Version,
 		user:                cfg.User,
 		envVars:             cfg.EnvVars,
 		command:             cfg.OverrideCommand,
 		cwd:                 cfg.OverrideWorkingDir,
-		networking:          dep.Value.Spec.Networking,
-		latestVersion:       dep.SpecVersion,
+		networking:          dep.Deployment.Spec.Networking,
+		latestVersion:       dep.Meta.SpecVersion,
 	}
 	r.mounts, r.dataVolumeHost = containerMounts(dep)
-	r.issuedTLSMount = cfg.IssuedTlsMount
-	r.devShmSizeKB = int64(cfg.DevShmSizeKb)
-	r.fileDescLimit = int64(cfg.FileDescriptorLimit)
+	if cfg.IssuedTlsMount.Present {
+		mount := cfg.IssuedTlsMount.Value
+		r.issuedTLSMount = &mount
+	}
+	if cfg.DevShmSizeKb.Present {
+		r.devShmSizeKB = int64(cfg.DevShmSizeKb.Value)
+	}
+	if cfg.FileDescriptorLimit.Present {
+		r.fileDescLimit = int64(cfg.FileDescriptorLimit.Value)
+	}
 	r.dataVolumeUser = cfg.User
 	return r
 }
 
-func containerDeploymentName(dep *apigen.DeploymentEvent) string {
+func containerDeploymentName(dep *apigen.DeploymentRecord) string {
 	if dep == nil {
 		return "<nil>"
 	}
-	if dep.Value.Name != "" {
-		return fmt.Sprintf("%d:%d:%s", dep.Value.SpaceID, dep.Value.PlacementNodeID(), dep.Value.Name)
+	if dep.Deployment.Name != "" {
+		return fmt.Sprintf("%d:%d:%s", dep.Deployment.SpaceID, dep.Deployment.PlacementNodeID(), dep.Deployment.Name)
 	}
-	return fmt.Sprintf("id=%d", dep.DeploymentID)
+	return fmt.Sprintf("id=%d", dep.Deployment.ID)
 }
 
-func (r *containerRunner) SpecVersion() int32 { return r.status.DeploymentSpecVersion }
+func (r *containerRunner) SpecVersion() uint32 { return r.status.DeploymentSpecVersion }
 
 func (r *containerRunner) ArtifactMissing() <-chan struct{} { return r.artifactMissing }
 
@@ -282,7 +289,7 @@ func (r *containerRunner) Serve() error {
 // claim against the placement's current target. Both role stores provide it
 // through the shared instance cache; test fakes without it skip the check.
 type instanceTargetReader interface {
-	FetchScheduledInstance(instanceID int32) *apigen.ScheduledInstance
+	FetchScheduledInstance(instanceID uint64) *apigen.ScheduledInstance
 }
 
 // placementIsServing re-reads this placement's target at claim time. The
@@ -315,7 +322,7 @@ func (r *containerRunner) claimInboundAddressLocked(cn *network.ContainerNet) er
 	if !r.placementIsServing() {
 		return nil
 	}
-	old := network.Default.CurrentNet(r.deploymentID)
+	old := network.Default.CurrentNet(int32(r.deploymentID))
 	if old != nil && old.ContainerID == cn.ContainerID {
 		return nil
 	}
@@ -407,7 +414,7 @@ func (r *containerRunner) run() {
 				r.stopAdoptedTask(task)
 				r.cleanupDeploymentNetState()
 				if r.shouldPublishStopped() {
-					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 				}
 				return
 			}
@@ -416,11 +423,11 @@ func (r *containerRunner) run() {
 				r.stopAdoptedTask(task)
 				r.cleanupDeploymentNetState()
 				hadProcess = true
-				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 			} else {
 				r.registerSampling(task, r.currentRunNumber())
 				if r.usesLatestNetworkConfig() {
-					r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
+					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, int(task.Pid()))
 				}
 				r.status.ExitCode = r.monitorTask(task)
 				r.deleteTask(task)
@@ -428,7 +435,7 @@ func (r *containerRunner) run() {
 				r.cleanupContainerNetState()
 				hadProcess = true
 				if !r.stopping.Load() {
-					r.updateStatus(apigen.RunningStatus_CRASHED, int32(task.Pid()))
+					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, int(task.Pid()))
 				}
 			}
 		} else {
@@ -436,19 +443,19 @@ func (r *containerRunner) run() {
 			r.cleanupDeploymentNetState()
 			if r.startupMode == containerStartupReattachStopped {
 				if r.shouldPublishStopped() {
-					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 				}
 				return
 			}
-			hadProcess = r.status.RunningPid != 0 ||
-				r.status.Status == apigen.RunningStatus_RUNNING ||
-				r.status.Status == apigen.RunningStatus_STARTING
+			hadProcess = r.status.RunningPid.Present ||
+				r.status.Status == apigen.RunningStatus_RUNNING_STATUS_RUNNING ||
+				r.status.Status == apigen.RunningStatus_RUNNING_STATUS_STARTING
 		}
 	}
 
 	for {
 		if r.stopping.Load() {
-			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 			return
 		}
 		// Every respawn path loops back through here, so this is what bounds a
@@ -463,18 +470,18 @@ func (r *containerRunner) run() {
 			r.status.NumberOfRestarts++
 		}
 		hadProcess = true
-		r.status.LastRestartAt = time.Now()
-		r.status.ExitCode = nil
+		r.status.LastRestartAt = apigen.Some(time.Now())
+		r.status.ExitCode = apigen.Maybe[int32]{}
 
 		// Resolve typed env references at spawn time (values not persisted/logged;
 		// updates picked up on respawn).
 		env, err := resolveEnv(r.runtimeInputs, r.envVars)
 		if err != nil {
 			slog.ErrorContext(r.ctx, "resolving env references failed", "err", err)
-			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
-				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 				return
 			}
 			continue
@@ -482,10 +489,10 @@ func (r *containerRunner) run() {
 		r.ensureDataVolume()
 		if err := r.ensureIssuedTLS(); err != nil {
 			slog.ErrorContext(r.ctx, "materializing issued TLS failed", "err", err)
-			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
-				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 				return
 			}
 			continue
@@ -496,10 +503,10 @@ func (r *containerRunner) run() {
 		logDir := apigen.LogWALDeploymentDir(r.deploymentID)
 		if mkdirErr := os.MkdirAll(logDir, 0o750); mkdirErr != nil {
 			slog.ErrorContext(r.ctx, fmt.Sprintf("creating log wal dir %s failed", logDir), "err", mkdirErr)
-			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
-				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 				return
 			}
 			continue
@@ -515,10 +522,10 @@ func (r *containerRunner) run() {
 			listener, listenerErr := r.startReadinessListener(runNumber)
 			if listenerErr != nil {
 				slog.ErrorContext(r.ctx, "starting readiness listener failed", "err", listenerErr)
-				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 				crashCount++
 				if !r.sleepBackoff(crashCount) {
-					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 					return
 				}
 				continue
@@ -531,10 +538,10 @@ func (r *containerRunner) run() {
 		cn, resolvConfPath, err = r.setupContainerNet(runNumber)
 		if err != nil {
 			slog.ErrorContext(r.ctx, "setting up container network failed", "err", err)
-			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
-				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 				return
 			}
 			continue
@@ -551,12 +558,12 @@ func (r *containerRunner) run() {
 			FileDescLimit:  r.fileDescLimit,
 			Mounts:         mounts,
 			LogDir:         logDir,
-			LogVersion:     r.deploymentVersion,
-			LogRun:         runNumber,
+			LogVersion:     int32(r.deploymentVersion),
+			LogRun:         int32(runNumber),
 			ResolvConfPath: resolvConfPath,
 
-			LogDeployment: r.deploymentID,
-			LogNode:       r.nodeID,
+			LogDeployment: int32(r.deploymentID),
+			LogNode:       int32(r.nodeID),
 			LogOrdinal:    containerInstanceOrdinal,
 		}
 		if cn != nil {
@@ -569,7 +576,7 @@ func (r *containerRunner) run() {
 			}
 			r.cleanupContainerNet(cn)
 			slog.ErrorContext(r.ctx, fmt.Sprintf("starting container failed image=%q", spec.Image), "err", err)
-			r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 			if errors.Is(err, ctrd.ErrImageUnavailable) {
 				r.notifyArtifactMissing()
 				if readinessActive {
@@ -581,7 +588,7 @@ func (r *containerRunner) run() {
 			}
 			crashCount++
 			if !r.sleepBackoff(crashCount) {
-				r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 				return
 			}
 			continue
@@ -598,10 +605,10 @@ func (r *containerRunner) run() {
 				_ = task.Kill(context.Background(), syscall.SIGTERM)
 				r.deleteTask(task)
 				r.cleanupContainerNet(cn)
-				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 				crashCount++
 				if !r.sleepBackoff(crashCount) {
-					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 					return
 				}
 				continue
@@ -612,13 +619,13 @@ func (r *containerRunner) run() {
 		// publish it before the container has said it is ready — that would hand
 		// over the instance address with the readiness gate still closed.
 		if readinessActive {
-			r.updateStatus(apigen.RunningStatus_STARTING, int32(task.Pid()))
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STARTING, int(task.Pid()))
 		} else {
-			r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, int(task.Pid()))
 		}
 		startedAt := time.Now()
 
-		var exitCode *int32
+		var exitCode apigen.Maybe[int32]
 		exitDone := make(chan struct{})
 		go func() {
 			exitCode = r.monitorTask(task)
@@ -630,7 +637,7 @@ func (r *containerRunner) run() {
 			if outcome == readinessSignalled {
 				r.readinessPending.Store(false)
 				r.notifyReady(nil)
-				r.updateStatus(apigen.RunningStatus_RUNNING, int32(task.Pid()))
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, int(task.Pid()))
 			} else {
 				slog.WarnContext(r.ctx, "rollover candidate did not report ready", "err", readyErr)
 				if !taskExited {
@@ -647,13 +654,13 @@ func (r *containerRunner) run() {
 				// it, back off, and try again. The operator is told nothing yet, so
 				// it keeps waiting on this candidate rather than building a second.
 				if r.stopping.Load() {
-					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 					return
 				}
 				crashCount++
-				r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 				if !r.sleepBackoff(crashCount) {
-					r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 					return
 				}
 				continue
@@ -668,7 +675,7 @@ func (r *containerRunner) run() {
 
 		if r.stopping.Load() {
 			// Stop() owns the kill + delete; just record STOPPED and exit.
-			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 			r.cleanupContainerNet(cn)
 			return
 		}
@@ -677,12 +684,12 @@ func (r *containerRunner) run() {
 			crashCount = 0
 		}
 		crashCount++
-		r.updateStatus(apigen.RunningStatus_CRASHED, int32(task.Pid()))
+		r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, int(task.Pid()))
 		r.deleteTask(task)
 		r.cleanupContainerNet(cn)
 
 		if !r.sleepBackoff(crashCount) {
-			r.updateStatus(apigen.RunningStatus_STOPPED, 0)
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 			return
 		}
 	}
@@ -695,7 +702,7 @@ func (r *containerRunner) notifyArtifactMissing() {
 	}
 }
 
-func (r *containerRunner) monitorTask(task *ctrd.Task) *int32 {
+func (r *containerRunner) monitorTask(task *ctrd.Task) apigen.Maybe[int32] {
 	return waitTaskExit(r.ctx, task)
 }
 
@@ -709,33 +716,31 @@ var (
 	taskRecheckWindow   = time.Minute
 )
 
-func waitTaskExit(ctx context.Context, task taskWaiter) *int32 {
+func waitTaskExit(ctx context.Context, task taskWaiter) apigen.Maybe[int32] {
 	for {
 		exitCh, err := task.Wait(ctx)
 		if err == nil {
 			select {
 			case es := <-exitCh:
 				if es.Err == nil {
-					code := int32(es.Code)
-					return &code
+					return apigen.Some(int32(es.Code))
 				}
 				err = es.Err
 			case <-ctx.Done():
-				return nil
+				return apigen.Maybe[int32]{}
 			}
 		}
 		if ctx.Err() != nil {
-			return nil
+			return apigen.Maybe[int32]{}
 		}
 		slog.WarnContext(ctx, "container exit stream lost, re-checking task", "err", err)
 		st, ok := recheckTask(ctx, task)
 		if !ok {
-			return nil
+			return apigen.Maybe[int32]{}
 		}
 		if st.Stopped {
 			slog.InfoContext(ctx, "container exited while its exit stream was down")
-			code := int32(st.ExitCode)
-			return &code
+			return apigen.Some(int32(st.ExitCode))
 		}
 		slog.InfoContext(ctx, "container task still running, resuming exit wait")
 	}
@@ -794,14 +799,14 @@ func (r *containerRunner) stopAdoptedTask(task *ctrd.Task) {
 
 func (r *containerRunner) shouldPublishStopped() bool {
 	switch r.status.Status {
-	case apigen.RunningStatus_STOPPED, apigen.RunningStatus_NO_DEPLOYMENT:
-		return r.status.RunningPid != 0
+	case apigen.RunningStatus_RUNNING_STATUS_STOPPED, apigen.RunningStatus_RUNNING_STATUS_NO_DEPLOYMENT:
+		return r.status.RunningPid.Present
 	default:
 		return true
 	}
 }
 
-func (r *containerRunner) logContainerEvent(action string, runNumber int32, mounts []ctrd.Mount) {
+func (r *containerRunner) logContainerEvent(action string, runNumber uint32, mounts []ctrd.Mount) {
 	counts := countEnvVars(r.envVars)
 	slog.InfoContext(r.ctx, fmt.Sprintf(
 		"container %s deployment='%s' config_version=%d run_number=%d mount_paths='%s' dev_shm_size_kb=%d file_descriptor_limit=%d env_plain_count=%d env_config_count=%d env_secret_count=%d env_asset_count=%d",
@@ -819,7 +824,7 @@ func (r *containerRunner) logContainerEvent(action string, runNumber int32, moun
 	))
 }
 
-func (r *containerRunner) currentRunNumber() int32 {
+func (r *containerRunner) currentRunNumber() uint32 {
 	return r.status.NumberOfRestarts + 1
 }
 
@@ -834,7 +839,7 @@ func (r *containerRunner) adoptTask() (*ctrd.Task, error) {
 	if err != nil {
 		slog.WarnContext(r.ctx, "listing containers for adoption failed", "err", err)
 	}
-	best, bestRun := "", int32(0)
+	best, bestRun := "", uint32(0)
 	for _, id := range ids {
 		if run, ok := parseContainerRun(id, r.containerFamily); ok && run > bestRun {
 			best, bestRun = id, run
@@ -876,14 +881,14 @@ func (r *containerRunner) removeStaleContainers() {
 	}
 }
 
-func (r *containerRunner) registerSampling(task *ctrd.Task, runNumber int32) {
+func (r *containerRunner) registerSampling(task *ctrd.Task, runNumber uint32) {
 	reg := metrics.Default.Register(r.ctx, metrics.TargetSpec{
 		Key: metrics.TargetKey{
-			DeploymentID:        r.deploymentID,
-			ScheduledInstanceID: r.scheduledInstanceID,
+			DeploymentID:        int32(r.deploymentID),
+			ScheduledInstanceID: int32(r.scheduledInstanceID),
 			Ordinal:             containerInstanceOrdinal,
-			DeploymentVersion:   r.deploymentVersion,
-			Run:                 runNumber,
+			DeploymentVersion:   int32(r.deploymentVersion),
+			Run:                 int32(runNumber),
 		},
 		PID:         task.Pid(),
 		CgroupsPath: task.CgroupsPath(),
@@ -923,22 +928,19 @@ type envVarCounts struct {
 	asset  int
 }
 
-func countEnvVars(env map[string]*apigen.EnvVarValue) envVarCounts {
+func countEnvVars(env map[string]apigen.EnvVar) envVarCounts {
 	var counts envVarCounts
 	for _, value := range env {
-		if value == nil {
-			continue
-		}
-		if value.Value != nil {
+		if value.Value.Literal != nil {
 			counts.plain++
 		}
-		if value.Config != nil {
+		if value.Value.Config != nil {
 			counts.config++
 		}
-		if value.Secret != nil {
+		if value.Value.Secret != nil {
 			counts.secret++
 		}
-		if value.Asset != "" {
+		if value.Value.Asset != nil {
 			counts.asset++
 		}
 	}
@@ -977,8 +979,8 @@ type readinessListener struct {
 	close func()
 }
 
-func (r *containerRunner) startReadinessListener(runNumber int32) (*readinessListener, error) {
-	dir := filepath.Join(ainit.StaticConfig.ReadinessDir, strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.status.DeploymentSpecVersion)), strconv.Itoa(int(runNumber)))
+func (r *containerRunner) startReadinessListener(runNumber uint32) (*readinessListener, error) {
+	dir := filepath.Join(ainit.StaticConfig.ReadinessDir, strconv.FormatUint(r.deploymentID, 10), strconv.FormatUint(uint64(r.status.DeploymentSpecVersion), 10), strconv.FormatUint(uint64(runNumber), 10))
 	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
@@ -1082,11 +1084,11 @@ func (r *containerRunner) waitForReadiness(ready <-chan error, closeReady func()
 func (r *containerRunner) failReadiness(err error) {
 	r.readinessPending.Store(false)
 	r.notifyReady(err)
-	want := apigen.RunningStatus_CRASHED
+	want := apigen.RunningStatus_RUNNING_STATUS_CRASHED
 	if r.stopping.Load() {
-		want = apigen.RunningStatus_STOPPED
+		want = apigen.RunningStatus_RUNNING_STATUS_STOPPED
 	}
-	if r.status.Status == want && r.status.RunningPid == 0 {
+	if r.status.Status == want && !r.status.RunningPid.Present {
 		return
 	}
 	r.updateStatus(want, 0)
@@ -1221,10 +1223,10 @@ func (r *containerRunner) inboundAddr() (netip.Addr, error) {
 	if !ok {
 		return netip.Addr{}, fmt.Errorf("virtual network prefix is not known")
 	}
-	return prefix.InboundAddr(r.spaceID, r.deploymentID, 0)
+	return prefix.InboundAddr(int32(r.spaceID), int32(r.deploymentID), 0)
 }
 
-func (r *containerRunner) setupContainerNet(runNumber int32) (*network.ContainerNet, string, error) {
+func (r *containerRunner) setupContainerNet(runNumber uint32) (*network.ContainerNet, string, error) {
 	if !r.virtualNetwork() {
 		return nil, "", nil
 	}
@@ -1238,11 +1240,11 @@ func (r *containerRunner) setupContainerNet(runNumber int32) (*network.Container
 	}
 	cn, err := network.Default.SetupContainerNet(network.ContainerNetSpec{
 		ContainerID:              r.containerID,
-		DeploymentID:             r.deploymentID,
+		DeploymentID:             int32(r.deploymentID),
 		InboundAddr:              inboundAddr,
 		OutboundAddr:             outboundAddr,
 		UnprivilegedPortStart:    0,
-		SetUnprivilegedPortStart: network.Default.IsNetproxyDeployment(r.deploymentID),
+		SetUnprivilegedPortStart: r.isNetproxy(),
 	})
 	if err != nil {
 		return nil, "", err
@@ -1281,14 +1283,14 @@ func (r *containerRunner) recoverContainerNet() error {
 	if !identity.IsInbound() {
 		return fmt.Errorf("derived address %s is not an inbound address", inboundAddr)
 	}
-	if identity.DeploymentID != r.deploymentID {
+	if uint64(identity.DeploymentID) != r.deploymentID {
 		return fmt.Errorf("derived inbound address %s belongs to deployment %d, not %d", inboundAddr, identity.DeploymentID, r.deploymentID)
 	}
-	outboundAddr, err := prefix.OutboundAddr(identity.SpaceID, r.deploymentID, identity.Ordinal, r.scheduledInstanceID, r.currentRunNumber())
+	outboundAddr, err := prefix.OutboundAddr(identity.SpaceID, int32(r.deploymentID), identity.Ordinal, int32(r.scheduledInstanceID), int32(r.currentRunNumber()))
 	if err != nil {
 		return err
 	}
-	cn, err := network.Default.RecoverContainerNet(r.containerID, r.deploymentID, inboundAddr, outboundAddr)
+	cn, err := network.Default.RecoverContainerNet(r.containerID, int32(r.deploymentID), inboundAddr, outboundAddr)
 	if err != nil {
 		return err
 	}
@@ -1303,34 +1305,38 @@ func (r *containerRunner) recoverContainerNet() error {
 }
 
 func (r *containerRunner) usesLatestNetworkConfig() bool {
-	return r.configVersion == r.latestVersion || network.Default.IsNetproxyDeployment(r.deploymentID)
+	return r.configVersion == r.latestVersion || r.isNetproxy()
 }
 
-func containerNetAddresses(prefix network.Prefix, spaceID, deploymentID, scheduledInstanceID, runNumber int32) (netip.Addr, netip.Addr, error) {
-	inboundAddr, err := prefix.InboundAddr(spaceID, deploymentID, 0)
+func (r *containerRunner) isNetproxy() bool {
+	return network.Default.IsNetproxyDeployment(int32(r.deploymentID))
+}
+
+func containerNetAddresses(prefix network.Prefix, spaceID, deploymentID, scheduledInstanceID uint64, runNumber uint32) (netip.Addr, netip.Addr, error) {
+	inboundAddr, err := prefix.InboundAddr(int32(spaceID), int32(deploymentID), 0)
 	if err != nil {
 		return netip.Addr{}, netip.Addr{}, err
 	}
-	outboundAddr, err := prefix.OutboundAddr(spaceID, deploymentID, 0, scheduledInstanceID, runNumber)
+	outboundAddr, err := prefix.OutboundAddr(int32(spaceID), int32(deploymentID), 0, int32(scheduledInstanceID), int32(runNumber))
 	if err != nil {
 		return netip.Addr{}, netip.Addr{}, err
 	}
 	return inboundAddr, outboundAddr, nil
 }
 
-func (r *containerRunner) writeResolvConf(runNumber int32) (string, error) {
-	if network.Default.IsNetproxyDeployment(r.deploymentID) {
+func (r *containerRunner) writeResolvConf(runNumber uint32) (string, error) {
+	if r.isNetproxy() {
 		return "", nil
 	}
 	dns, ok := network.Default.DNSAddr()
 	if !ok {
 		return "", fmt.Errorf("netproxy DNS address is not known")
 	}
-	dir := filepath.Join(ainit.StaticConfig.ResolvConfDir, strconv.Itoa(int(r.deploymentID)), strconv.Itoa(int(r.configVersion)))
+	dir := filepath.Join(ainit.StaticConfig.ResolvConfDir, strconv.FormatUint(r.deploymentID, 10), strconv.FormatUint(uint64(r.configVersion), 10))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, strconv.Itoa(int(runNumber))+".conf")
+	path := filepath.Join(dir, strconv.FormatUint(uint64(runNumber), 10)+".conf")
 	content := "nameserver " + dns.String() + "\noptions ndots:1\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", err
@@ -1342,13 +1348,13 @@ func (r *containerRunner) publishContainerNet(cn *network.ContainerNet) error {
 	if cn == nil {
 		return nil
 	}
-	if network.Default.IsNetproxyDeployment(r.deploymentID) {
+	if r.isNetproxy() {
 		return network.Default.PublishNetproxy(cn)
 	}
-	if err := network.Default.ApplyHostPorts(r.deploymentID, r.containerID, r.hostPortRules(cn)); err != nil {
+	if err := network.Default.ApplyHostPorts(int32(r.deploymentID), r.containerID, r.hostPortRules(cn)); err != nil {
 		return err
 	}
-	network.Default.SetCurrentNet(r.deploymentID, cn)
+	network.Default.SetCurrentNet(int32(r.deploymentID), cn)
 	return nil
 }
 
@@ -1358,7 +1364,7 @@ func (r *containerRunner) hostPortRules(cn *network.ContainerNet) []network.Host
 	}
 	rules := make([]network.HostPortRule, 0, len(r.networking.PortForwarding))
 	for _, pf := range r.networking.PortForwarding {
-		if pf == nil || pf.HostPort < 1 || pf.HostPort > 65535 || pf.ContainerPort < 1 || pf.ContainerPort > 65535 {
+		if pf.HostPort < 1 || pf.HostPort > 65535 || pf.ContainerPort < 1 || pf.ContainerPort > 65535 {
 			continue
 		}
 		proto, ok := portForwardProtocol(pf.Protocol)
@@ -1372,13 +1378,32 @@ func (r *containerRunner) hostPortRules(cn *network.ContainerNet) []network.Host
 			TargetV6:   cn.InboundAddr,
 			TargetV4:   cn.V4,
 		}
-		if pf.IpFilter != nil && len(pf.IpFilter.Allow) > 0 {
+		allowV4, allowV6 := allowedPrefixes(pf.IpFilter)
+		if len(allowV4)+len(allowV6) > 0 {
 			rule.Filtered = true
-			rule.AllowV4, rule.AllowV6 = network.SplitFilterPrefixes(pf.IpFilter.Allow)
+			rule.AllowV4, rule.AllowV6 = allowV4, allowV6
 		}
 		rules = append(rules, rule)
 	}
 	return rules
+}
+
+func allowedPrefixes(filters []apigen.IpFilter) (v4, v6 []netip.Prefix) {
+	for _, f := range filters {
+		if f.Mode != apigen.IpFilterMode_IP_FILTER_MODE_ALLOW {
+			continue
+		}
+		prefix := f.Prefix.Prefix()
+		if !prefix.IsValid() {
+			continue
+		}
+		if prefix.Addr().Is4() {
+			v4 = append(v4, prefix)
+		} else {
+			v6 = append(v6, prefix)
+		}
+	}
+	return v4, v6
 }
 
 func portForwardProtocol(protocol apigen.PortForwardProtocol) (uint8, bool) {
@@ -1396,10 +1421,10 @@ func (r *containerRunner) cleanupContainerNet(cn *network.ContainerNet) {
 	if cn == nil {
 		return
 	}
-	if err := network.Default.ClearHostPorts(r.deploymentID, cn.ContainerID); err != nil {
+	if err := network.Default.ClearHostPorts(int32(r.deploymentID), cn.ContainerID); err != nil {
 		slog.WarnContext(r.ctx, "clearing host ports failed", "err", err)
 	}
-	network.Default.DropCurrentNet(r.deploymentID, cn.ContainerID)
+	network.Default.DropCurrentNet(int32(r.deploymentID), cn.ContainerID)
 	network.Default.TeardownContainerNet(cn)
 	r.setContainerNet(nil)
 }
@@ -1409,20 +1434,20 @@ func (r *containerRunner) cleanupContainerNetState() {
 		r.cleanupContainerNet(cn)
 		return
 	}
-	network.Default.TeardownContainerNetState(r.containerID, r.deploymentID)
+	network.Default.TeardownContainerNetState(r.containerID, int32(r.deploymentID))
 }
 
 func (r *containerRunner) cleanupDeploymentNetState() {
 	if cn := r.getContainerNet(); cn != nil {
 		r.cleanupContainerNet(cn)
-		network.Default.CleanupContainerNets(r.deploymentID, nil)
+		network.Default.CleanupContainerNets(int32(r.deploymentID), nil)
 		return
 	}
-	if err := network.Default.ClearHostPorts(r.deploymentID, r.containerID); err != nil {
+	if err := network.Default.ClearHostPorts(int32(r.deploymentID), r.containerID); err != nil {
 		slog.WarnContext(r.ctx, "clearing host ports failed", "err", err)
 	}
-	network.Default.DropCurrentNet(r.deploymentID, r.containerID)
-	network.Default.CleanupContainerNets(r.deploymentID, nil)
+	network.Default.DropCurrentNet(int32(r.deploymentID), r.containerID)
+	network.Default.CleanupContainerNets(int32(r.deploymentID), nil)
 	r.setContainerNet(nil)
 }
 
@@ -1438,22 +1463,21 @@ func (r *containerRunner) getContainerNet() *network.ContainerNet {
 	return r.net
 }
 
-func (r *containerRunner) updateStatus(status apigen.RunningStatus, pid int32) {
+func (r *containerRunner) updateStatus(status apigen.RunningStatus, pid int) {
 	r.status.Status = status
-	r.status.RunningPid = pid
+	r.status.RunningPid = runningPid(pid)
 	r.writeStatus()
 }
 
 func (r *containerRunner) writeStatus() {
 	r.store.MustWriteScheduledInstanceStatus(r.scheduledInstanceID, func(s *apigen.ScheduledInstanceStatus) bool {
-		if !s.Runner.IsZero() && s.Runner.DeploymentSpecVersion > r.status.DeploymentSpecVersion {
+		if s.Runner.Present && s.Runner.Value.DeploymentSpecVersion > r.status.DeploymentSpecVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded container runner")
 			return false
 		}
 		s.BumpUpdatedAt()
 		s.ScheduledInstanceID = r.scheduledInstanceID
-		s.DeploymentID = r.deploymentID
-		s.Runner = r.status
+		s.Runner = apigen.Some(r.status)
 		return true
 	})
 }
@@ -1462,48 +1486,39 @@ func (r *containerRunner) writeStatus() {
 // data volume (unless disabled) followed by any configured mounts. It also
 // returns the default volume's host path (empty when disabled) so the runner can
 // create + chown it at spawn time.
-func containerMounts(dep *apigen.DeploymentEvent) ([]ctrd.Mount, string) {
-	cfg := dep.Value.Spec.Container().Runtime
+func containerMounts(dep *apigen.DeploymentRecord) ([]ctrd.Mount, string) {
+	cfg := dep.Deployment.Spec.Container().Runtime
 	var mounts []ctrd.Mount
 	var dataHost string
 	if !cfg.DefaultVolume.Disabled {
-		dataHost = defaultVolumeHostDir(dep.DeploymentID)
+		dataHost = defaultVolumeHostDir(dep.Deployment.ID)
 		mounts = append(mounts, ctrd.Mount{
 			Source: dataHost,
 			Dest:   defaultVolumeDest(cfg.DefaultVolume.ContainerPath),
 		})
 	}
 	for _, m := range cfg.CrossDeploymentMounts {
-		if m == nil {
-			continue
-		}
 		mounts = append(mounts, ctrd.Mount{
 			Source:   defaultVolumeHostDir(m.DeploymentID),
 			Dest:     m.ContainerPath,
-			ReadOnly: m.Permission != apigen.FilePermission_READ_WRITE,
+			ReadOnly: m.Permission != apigen.FilePermission_FILE_PERMISSION_READ_WRITE,
 		})
 	}
 	for _, m := range cfg.Mounts {
-		if m == nil {
-			continue
-		}
 		mounts = append(mounts, ctrd.Mount{
 			Source:   m.HostPath,
 			Dest:     m.ContainerPath,
-			ReadOnly: m.Permission != apigen.FilePermission_READ_WRITE,
+			ReadOnly: m.Permission != apigen.FilePermission_FILE_PERMISSION_READ_WRITE,
 		})
 	}
 	for _, m := range cfg.AssetMounts {
-		if m == nil {
-			continue
-		}
-		hostPath := runtimeinputs.AssetCachePathWithMode(m.Asset, m.Permission == apigen.FilePermission_READ_EXECUTE)
+		hostPath := runtimeinputs.AssetCachePathWithMode(m.Asset.Ref(), m.Permission == apigen.FilePermission_FILE_PERMISSION_READ_EXECUTE)
 		mounts = append(mounts, ctrd.Mount{Source: hostPath, Dest: m.ContainerPath, ReadOnly: true})
 	}
-	if cfg.IssuedTlsMount != nil {
+	if cfg.IssuedTlsMount.Present {
 		mounts = append(mounts, ctrd.Mount{
-			Source:   runtimeinputs.IssuedTLSHostDir(dep.DeploymentID),
-			Dest:     cfg.IssuedTlsMount.ContainerPath,
+			Source:   runtimeinputs.IssuedTLSHostDir(dep.Deployment.ID),
+			Dest:     cfg.IssuedTlsMount.Value.ContainerPath,
 			ReadOnly: true,
 		})
 	}
@@ -1515,15 +1530,16 @@ func containerMounts(dep *apigen.DeploymentEvent) ([]ctrd.Mount, string) {
 	sort.Strings(envKeys)
 	for _, key := range envKeys {
 		value := cfg.EnvVars[key]
-		if value == nil || value.AssetRef == nil {
+		if value.Value.Asset == nil {
 			continue
 		}
-		dest := implicitAssetContainerPath(*value.AssetRef)
+		ref := value.Value.Asset.Asset.Ref()
+		dest := implicitAssetContainerPath(ref)
 		if implicitMounted[dest] {
 			continue
 		}
 		implicitMounted[dest] = true
-		mounts = append(mounts, ctrd.Mount{Source: runtimeinputs.AssetCachePath(*value.AssetRef), Dest: dest, ReadOnly: true})
+		mounts = append(mounts, ctrd.Mount{Source: runtimeinputs.AssetCachePath(ref), Dest: dest, ReadOnly: true})
 	}
 	return mounts, dataHost
 }
@@ -1531,8 +1547,8 @@ func containerMounts(dep *apigen.DeploymentEvent) ([]ctrd.Mount, string) {
 // defaultVolumeHostDir is the opendeploy-owned host directory bind-mounted as the
 // container's default data volume. A sibling of the data dir (world-traversable,
 // 0755), like release artifacts, so the in-container user can reach it.
-func defaultVolumeHostDir(deploymentID int32) string {
-	return filepath.Join(ainit.StaticConfig.VolumesDir, strconv.Itoa(int(deploymentID)), "default")
+func defaultVolumeHostDir(deploymentID uint64) string {
+	return filepath.Join(ainit.StaticConfig.VolumesDir, strconv.FormatUint(deploymentID, 10), "default")
 }
 
 func defaultVolumeDest(override string) string {

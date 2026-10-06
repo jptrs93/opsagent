@@ -160,12 +160,10 @@ func isRangeOp(op string) bool {
 	return false
 }
 
-func compileFilters(fs []*apigen.LogFilter) ([]compiledFilter, error) {
+func compileFilters(fs []apigen.LogFilter) ([]compiledFilter, error) {
 	out := make([]compiledFilter, 0, len(fs))
-	for _, f := range fs {
-		if f == nil {
-			continue
-		}
+	for i := range fs {
+		f := &fs[i]
 		switch f.Op {
 		case "eq", "neq", "in", "exists", "not_exists", "contains", "not_contains", "gt", "gte", "lt", "lte":
 		default:

@@ -72,9 +72,9 @@ func TestPublishLogsAcceptedNetstateSummary(t *testing.T) {
 	state := &apigen.NetState{
 		Seq:               7,
 		NodeIdentifier:    "primary",
-		DnsServices:       []*apigen.DnsService{{Endpoints: []*apigen.Endpoint{{}, {}}}},
+		DnsServices:       []apigen.DnsService{{Endpoints: []apigen.Endpoint{{}, {}}}},
 		UpstreamResolvers: []string{"192.0.2.53"},
-		Ingress:           []*apigen.NetIngress{{}},
+		Ingress:           []apigen.NetIngress{{}},
 	}
 	w.publish(state)
 	w.publish(state)

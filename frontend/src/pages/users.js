@@ -8,9 +8,9 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {loginS} from "../state/login.js";
 import {authzGlobalRulesS, authzGrantsS, authzTemplatesS, spacesS, usersMapS} from "../state/deployments.js";
-import {describeGrant, grantRevokeBlock, groupGrantsByUser, isClusterAdminGrant, templateArguments} from "../lib/authz.js";
+import {describeGrant, grantRevokeBlock, grantTemplateId, groupGrantsByUser, isClusterAdminGrant, ruleEffect, templateArguments} from "../lib/authz.js";
 import {grantSubject} from "../lib/authzExplain.js";
-import {globalRuleOverlay, grantOverlay, ruleTemplateOverlay} from "../components/accessEditors.js";
+import {globalRuleOverlay, grantOverlay, grantTemplateOverlay} from "../components/accessEditors.js";
 import {formatDate} from "../lib/date.js";
 import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
 import {explorerBand} from "../components/sectionBand.js";
@@ -87,8 +87,8 @@ export function usersPage() {
         }));
 
     const globalRulePill = (record) => explainPill(
-        globalRuleDisplay(record.spec, {spaceNames: spaceNameMap(), titles: false}),
-        () => ({kind: "global", subtitle: `Global rule ${record.name || record.id}`, rules: [record.spec], spaceNames: spaceNameMap(), spaces: liveSpaces()}));
+        globalRuleDisplay(record.rule, {spaceNames: spaceNameMap(), titles: false}),
+        () => ({kind: "global", subtitle: `Global rule ${record.name || record.id}`, rules: [record.rule], spaceNames: spaceNameMap(), spaces: liveSpaces()}));
 
     // A role's name explains the whole role: every rule together, so the
     // access table is their union with a Rule tab per rule on the left.
@@ -147,7 +147,7 @@ export function usersPage() {
         if (!active) return "";
         const close = () => { overlayS.val = null; };
         const shared = {spaces: liveSpaces, spaceNames: spaceNameMap, onClose: close};
-        if (active.type === "template") return ruleTemplateOverlay({record: active.record, ...shared});
+        if (active.type === "template") return grantTemplateOverlay({record: active.record, ...shared});
         if (active.type === "grant") return grantOverlay({user: active.user, templates: () => authzTemplatesS.val, ...shared});
         if (active.type === "globalRule") return globalRuleOverlay(shared);
         if (active.type === "newUser") return newUserOverlay();
@@ -327,7 +327,7 @@ export function usersPage() {
     const usedBy = (templateId) => {
         const names = new Set();
         for (const grant of authzGrantsS.val || []) {
-            if (Number(grant.templateId) !== Number(templateId)) continue;
+            if (grantTemplateId(grant) !== Number(templateId)) continue;
             const user = usersMapS.val.get(Number(grant.userId));
             names.add(user?.name || `user ${grant.userId}`);
         }
@@ -367,7 +367,7 @@ export function usersPage() {
                                 body: holders.length
                                     ? `The role ${record.name} is granted to ${holders.join(", ")}. Revoke those grants first; roles referenced by grants cannot be deleted.`
                                     : `Delete the role ${record.name}?`,
-                                onConfirm: () => capi.postV1AccessRuleTemplatesDelete({id: record.id}),
+                                onConfirm: () => capi.postV1AccessGrantTemplatesDelete({id: record.id}),
                             };
                         }, "hover:text-red-400"))),
         );
@@ -395,7 +395,7 @@ export function usersPage() {
                     overlayS.val = {
                         type: "confirm",
                         title: "Delete global rule",
-                        body: record.spec?.deny
+                        body: ruleEffect(record.rule).deny
                             ? `Delete the global rule ${record.name || record.id}? Requests it denied become subject to user grants again.`
                             : `Delete the global rule ${record.name || record.id}? Everyone loses what it allowed unless their own grants cover it.`,
                         onConfirm: () => capi.postV1AccessGlobalRulesDelete({id: record.id}),

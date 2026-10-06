@@ -34,15 +34,15 @@ func (h *Handler) openSnapshot(ctx apigen.Context) (opening, error) {
 
 func openingMsg(visibility *streamVisibility, op opening) *apigen.EventStreamMsg {
 	visibility.reset()
-	snapshot := &apigen.CoreSnapshot{Seq: op.seq, Entities: visibility.visibleSnapshot(op.entities)}
-	return &apigen.EventStreamMsg{Seq: op.seq, Synced: true, Snapshot: snapshot}
+	snapshot := apigen.CoreSnapshot{Seq: op.seq, Entities: visibility.visibleSnapshot(op.entities)}
+	return &apigen.EventStreamMsg{Seq: op.seq, Synced: true, Snapshot: apigen.Some(snapshot)}
 }
 
 func (h *Handler) sidecarMsg(ctx apigen.Context, secrets apigen.SecretsStatusResponse, backup apigen.BackupStatus, diagnostics *apigen.IngressDiagnosticList) *apigen.EventStreamMsg {
 	if !h.canAccess(ctx, vView, eCluster, 0, 0) {
 		backup = apigen.BackupStatus{}
 	}
-	return &apigen.EventStreamMsg{SecretsStatus: &secrets, BackupStatus: &backup, IngressDiagnostics: h.filterIngressDiagnostics(ctx, diagnostics)}
+	return &apigen.EventStreamMsg{SecretsStatus: apigen.Some(secrets), BackupStatus: apigen.Some(backup), IngressDiagnostics: h.filterIngressDiagnostics(ctx, diagnostics)}
 }
 
 func (h *Handler) PostV1GlobalEvents(ctx apigen.Context, req *apigen.EventStreamRequest) (*apigen.EventStreamMsg, error) {
@@ -141,7 +141,7 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 				return true
 			}
 			seq = update.Seq
-			if visible := visibility.visibleUpdate(&update); visible != nil && !yield(&apigen.EventStreamMsg{Seq: seq, Events: []*apigen.CoreWriteUpdate{visible}}, nil) {
+			if visible := visibility.visibleUpdate(&update); visible != nil && !yield(&apigen.EventStreamMsg{Seq: seq, Events: []apigen.CoreWriteUpdate{*visible}}, nil) {
 				return false
 			}
 			return true
@@ -159,7 +159,7 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 					return
 				}
 				backupStatus = status
-				if h.canAccess(ctx, vView, eCluster, 0, 0) && !yield(&apigen.EventStreamMsg{BackupStatus: &status}, nil) {
+				if h.canAccess(ctx, vView, eCluster, 0, 0) && !yield(&apigen.EventStreamMsg{BackupStatus: apigen.Some(status)}, nil) {
 					return
 				}
 			case status, ok := <-secretSub.Ch:
@@ -167,7 +167,7 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 					return
 				}
 				secretsStatus = status
-				if !yield(&apigen.EventStreamMsg{SecretsStatus: &status}, nil) {
+				if !yield(&apigen.EventStreamMsg{SecretsStatus: apigen.Some(status)}, nil) {
 					return
 				}
 			case next, ok := <-diagnosticsCh:

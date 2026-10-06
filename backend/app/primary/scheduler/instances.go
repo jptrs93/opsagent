@@ -15,12 +15,12 @@ import (
 
 type schedulingInstance struct {
 	Event  pq.ScheduledInstanceEvent
-	Config apigen.DeploymentEvent
+	Config apigen.DeploymentRecord
 	Status apigen.ScheduledInstanceStatus
 }
 
-func readSchedulingState(ctx context.Context, q *pq.Queries, deploymentID int32) (*apigen.DeploymentEvent, []schedulingInstance, error) {
-	cfg, err := q.GetLatestDeploymentEvent(ctx, int64(deploymentID))
+func readSchedulingState(ctx context.Context, q *pq.Queries, deploymentID uint64) (*apigen.DeploymentRecord, []schedulingInstance, error) {
+	cfg, err := q.GetLatestDeployment(ctx, deploymentID)
 	if errors.Is(err, sql.ErrNoRows) {
 		cfg = nil
 	} else if err != nil {
@@ -32,7 +32,7 @@ func readSchedulingState(ctx context.Context, q *pq.Queries, deploymentID int32)
 	}
 	out := make([]schedulingInstance, 0, len(events))
 	for _, event := range events {
-		pinned, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(event.Value.DeploymentID), Version: int64(event.Value.DeploymentVersion)})
+		pinned, err := q.GetDeploymentVersion(ctx, event.Value.Deployment.DeploymentID, event.Value.Deployment.Version)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -49,16 +49,22 @@ func readSchedulingState(ctx context.Context, q *pq.Queries, deploymentID int32)
 	return cfg, out, nil
 }
 
-func newInstance(ctx context.Context, q *pq.Queries, seq int64, cfg *apigen.DeploymentEvent, ordinal int32, target apigen.ScheduledInstanceTarget, at time.Time) (*pq.ScheduledInstanceEvent, error) {
+func newInstance(ctx context.Context, q *pq.Queries, seq int64, cfg *apigen.DeploymentRecord, ordinal uint32, target apigen.ScheduledInstanceTarget, at time.Time) (*pq.ScheduledInstanceEvent, error) {
 	id, err := q.NextScheduledInstanceID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	inst := &apigen.ScheduledInstance{ID: id, DeploymentID: cfg.DeploymentID, DeploymentVersion: cfg.Version, DeploymentSpecVersion: cfg.SpecVersion, NodeID: cfg.Value.PlacementNodeID(), InstanceOrdinal: ordinal, SpaceID: cfg.Value.SpaceID}
+	inst := &apigen.ScheduledInstance{
+		ID:              id,
+		Deployment:      apigen.DeploymentRef{DeploymentID: cfg.Deployment.ID, Version: cfg.Meta.Version},
+		NodeID:          cfg.Deployment.PlacementNodeID(),
+		InstanceOrdinal: ordinal,
+		SpaceID:         cfg.Deployment.SpaceID,
+	}
 	return pq.NewScheduledInstanceEvent(seq, inst, target, at), nil
 }
 
-func EnsureRunInstance(store *state.Service, deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, initial apigen.ScheduledInstanceTarget) (*apigen.ScheduledInstance, bool) {
+func EnsureRunInstance(store *state.Service, deploymentID uint64, deploymentVersion uint32, nodeID uint64, instanceOrdinal uint32, initial apigen.ScheduledInstanceTarget) (*apigen.ScheduledInstance, bool) {
 	ctx := context.Background()
 	if !initial.WantsRunning() {
 		panic(fmt.Sprintf("EnsureRunInstance: initial state %v is not runnable", initial))
@@ -66,11 +72,10 @@ func EnsureRunInstance(store *state.Service, deploymentID, deploymentVersion, no
 	var existing *apigen.ScheduledInstance
 	now := time.Now()
 	inst := &apigen.ScheduledInstance{
-		DeploymentID:      deploymentID,
-		DeploymentVersion: deploymentVersion,
-		NodeID:            nodeID,
-		InstanceOrdinal:   instanceOrdinal,
-		State:             initial,
+		Deployment:      apigen.DeploymentRef{DeploymentID: deploymentID, Version: deploymentVersion},
+		NodeID:          nodeID,
+		InstanceOrdinal: instanceOrdinal,
+		State:           initial,
 	}
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		events, err := q.ListNonFinalScheduledInstancesForDeployment(ctx, deploymentID)
@@ -79,17 +84,16 @@ func EnsureRunInstance(store *state.Service, deploymentID, deploymentVersion, no
 		}
 		for _, event := range events {
 			current := event.Value
-			if current.DeploymentVersion == deploymentVersion && current.NodeID == nodeID && current.InstanceOrdinal == instanceOrdinal && current.State.WantsRunning() {
+			if current.Deployment.Version == deploymentVersion && current.NodeID == nodeID && current.InstanceOrdinal == instanceOrdinal && current.State.WantsRunning() {
 				existing = &current
 				return nil, nil
 			}
 		}
-		cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(deploymentID), Version: int64(deploymentVersion)})
+		cfg, err := q.GetDeploymentVersion(ctx, deploymentID, deploymentVersion)
 		if err != nil {
 			return nil, err
 		}
-		inst.DeploymentSpecVersion = cfg.SpecVersion
-		inst.SpaceID = cfg.Value.SpaceID
+		inst.SpaceID = cfg.Deployment.SpaceID
 		inst.ID = erru.Must(q.NextScheduledInstanceID(ctx))
 		event := pq.NewScheduledInstanceEvent(seq, inst, initial, now)
 		return pq.NewUpdate(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, event)), nil

@@ -43,7 +43,7 @@ type httpsHost struct {
 
 type httpsRoute struct {
 	prefix   string
-	maxBody  int64
+	maxBody  uint64
 	proxy    *httputil.ReverseProxy
 	backends *backendPool
 }
@@ -192,7 +192,7 @@ func (s *httpsServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if route.maxBody > 0 {
-		r.Body = http.MaxBytesReader(w, r.Body, route.maxBody)
+		r.Body = http.MaxBytesReader(w, r.Body, int64(route.maxBody))
 	}
 	sw := &statusWriter{ResponseWriter: w}
 	route.proxy.ServeHTTP(sw, r)
@@ -209,7 +209,7 @@ func (s *httpsServer) logResponse(r *http.Request, status int, start time.Time) 
 func (s *httpsServer) buildRoute(route *apigen.HttpsNetIngress) *httpsRoute {
 	pool := &backendPool{}
 	for _, backend := range route.Backends {
-		if backend == nil || backend.Port < 1 || backend.Port > 65535 {
+		if backend.Port < 1 || backend.Port > 65535 {
 			continue
 		}
 		pool.backends = append(pool.backends, ingressBackend{address: backend.Address, port: uint16(backend.Port)})
@@ -274,13 +274,13 @@ func (s *httpsServer) buildState(snapshot *apigen.NetState) *httpsState {
 		challenges: map[string]string{},
 	}
 	for _, challenge := range snapshot.AcmeChallenges {
-		if challenge == nil || challenge.Token == "" {
+		if challenge.Token == "" {
 			continue
 		}
 		state.challenges[challenge.Token] = challenge.KeyAuthorization
 	}
 	for _, ingress := range snapshot.Ingress {
-		if ingress == nil || ingress.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || ingress.Https == nil {
+		if ingress.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || !ingress.Https.Present {
 			continue
 		}
 		hostname, ok := ingressHostnameForProxy(ingress.Hostname)
@@ -289,10 +289,10 @@ func (s *httpsServer) buildState(snapshot *apigen.NetState) *httpsState {
 		}
 		host := state.hosts[hostname]
 		if host == nil {
-			host = &httpsHost{certID: ingress.Https.CertID}
+			host = &httpsHost{certID: ingress.Https.Value.CertID}
 			state.hosts[hostname] = host
 		}
-		route := s.buildRoute(ingress.Https)
+		route := s.buildRoute(&ingress.Https.Value)
 		duplicate := false
 		for _, existing := range host.routes {
 			if existing.prefix == route.prefix {
@@ -359,10 +359,7 @@ func (b *requestUnblockingBody) Close() error {
 	return b.ReadCloser.Close()
 }
 
-func flushIntervalFromMs(ms int32) time.Duration {
-	if ms < 0 {
-		return -1
-	}
+func flushIntervalFromMs(ms uint32) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 

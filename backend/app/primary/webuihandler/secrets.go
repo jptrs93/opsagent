@@ -63,7 +63,7 @@ func (h *Handler) secretsStatus() apigen.SecretsStatusResponse {
 }
 
 func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCreateRequest) (*apigen.CoreWriteUpdate, error) {
-	if strings.TrimSpace(req.Name) == "" {
+	if strings.TrimSpace(req.Key) == "" {
 		return nil, SecretNameRequiredErr
 	}
 	if err := h.requireAccess(ctx, vCreate, eSecret, valueSpace(req.SpaceID), 0); err != nil {
@@ -74,7 +74,7 @@ func (h *Handler) PostV1SecretsCreate(ctx apigen.Context, req *apigen.SecretCrea
 	if err := h.requireAccess(ctx, vReveal, eSecret, valueSpace(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-	meta, err := h.Secrets.Create(req.Name, req.Value, requestUserID(ctx), req.SpaceID, req.ValueDirectoryID)
+	meta, err := h.Secrets.Create(req.Key, req.Value, requestUserID(ctx), req.SpaceID, values.DirectoryID(req.ValueDirectoryID))
 	if err != nil {
 		return nil, mapSecretErr(err)
 	}
@@ -92,7 +92,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 	}
 	if existing, ok := secrets.Get(h.Store.Queries(), req.SecretID); !ok {
 		return nil, SecretNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID()), int64(existing.SecretID), SecretNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, existing.SpaceID(), existing.SecretID, SecretNotFoundErr); err != nil {
 		return nil, err
 	}
 	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
@@ -127,7 +127,7 @@ func (h *Handler) PostV1SecretsSet(ctx apigen.Context, req *apigen.SecretSetRequ
 // mint a credential and reference it from deployment env without ever being
 // able to read one back.
 func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGenerateRequest) (*apigen.CoreWriteUpdate, error) {
-	name := strings.TrimSpace(req.Name)
+	name := strings.TrimSpace(req.Key)
 	if name == "" {
 		return nil, SecretNameRequiredErr
 	}
@@ -148,7 +148,7 @@ func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGe
 	}
 	defer secrets.Zero(value)
 
-	meta, err := h.Secrets.Create(name, value, requestUserID(ctx), req.SpaceID, 0)
+	meta, err := h.Secrets.Create(name, value, requestUserID(ctx), req.SpaceID, values.DirectoryID(req.ValueDirectoryID))
 	if err != nil {
 		return nil, mapSecretErr(err)
 	}
@@ -166,8 +166,8 @@ func (h *Handler) PostV1SecretsGenerate(ctx apigen.Context, req *apigen.SecretGe
 // request itself.
 func generateSecretValue(req *apigen.SecretGenerateRequest) ([]byte, error) {
 	switch {
-	case req.Password != nil:
-		value, err := secrets.GeneratePassword(int(req.Password.Length), req.Password.IncludeSymbols)
+	case req.Spec.Password != nil:
+		value, err := secrets.GeneratePassword(int(req.Spec.Password.Length), req.Spec.Password.IncludeSymbols)
 		if err != nil {
 			if errors.Is(err, secrets.ErrPasswordLength) {
 				return nil, SecretPasswordLengthErr
@@ -184,15 +184,15 @@ func (h *Handler) PostV1SecretsRename(ctx apigen.Context, req *apigen.SecretRena
 	if req.SecretID == 0 {
 		return nil, SecretIDRequiredErr
 	}
-	if strings.TrimSpace(req.NewName) == "" {
+	if strings.TrimSpace(req.NewKey) == "" {
 		return nil, SecretNameRequiredErr
 	}
 	if existing, ok := secrets.Get(h.Store.Queries(), req.SecretID); !ok {
 		return nil, SecretNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(existing.SpaceID()), int64(existing.SecretID), SecretNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eSecret, existing.SpaceID(), existing.SecretID, SecretNotFoundErr); err != nil {
 		return nil, err
 	}
-	if err := h.Secrets.Rename(req.SecretID, req.NewName); err != nil {
+	if err := h.Secrets.Rename(req.SecretID, req.NewKey); err != nil {
 		return nil, mapSecretErr(err)
 	}
 	proto, ok := secrets.Get(h.Store.Queries(), req.SecretID)
@@ -220,18 +220,18 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eSecret, int64(sec.SpaceID()), int64(sec.SecretID), SecretNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eSecret, sec.SpaceID(), sec.SecretID, SecretNotFoundErr); err != nil {
 		return nil, err
 	}
-	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID)
-	spaceChanging := req.SpaceID != 0 && destSpace != sec.SpaceID()
+	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID.Value)
+	spaceChanging := req.SpaceID.Present && destSpace != sec.SpaceID()
 	// Moving into another space also needs the right to create a secret there.
 	if spaceChanging {
-		if err := h.requireAccess(ctx, vCreate, eSecret, valueSpace(req.SpaceID), 0); err != nil {
+		if err := h.requireAccess(ctx, vCreate, eSecret, valueSpace(req.SpaceID.Value), 0); err != nil {
 			return nil, err
 		}
 	}
-	if isReservedSecretMetaName(sec.Value.Fs.Name) {
+	if isReservedSecretMetaName(sec.Value.Fs.Key) {
 		return nil, SecretReservedNameErr
 	}
 	if spaceChanging {
@@ -239,7 +239,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 			if destSpace == nodes.DefaultSpaceID {
 				return nil
 			}
-			ids := deployments.Int32Set([]int32{req.SecretID})
+			ids := deployments.IDSet([]uint64{req.SecretID})
 			if h.settingsUseSecretID(ids) {
 				return deployments.MoveReferencesOutsideSpaceErr
 			}
@@ -252,7 +252,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 			}
 			return nil
 		}
-		if err := h.Secrets.MoveSpace(req.SecretID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID(), validate); err != nil {
+		if err := h.Secrets.MoveSpace(req.SecretID, req.SpaceID.Value, values.DirectoryID(req.ValueDirectoryID), ctx.AttributionUserID(), validate); err != nil {
 			return nil, mapSecretErr(err)
 		}
 		// Clients that saw the old space but cannot see the new one would
@@ -260,7 +260,7 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 		// dropped, and nothing else says "gone". The tombstone speaks to them;
 		// the update below re-adds the row for everyone who sees the destination.
 
-	} else if err := secrets.MoveDirectory(h.Store, req.SecretID, req.ValueDirectoryID); err != nil {
+	} else if err := secrets.MoveDirectory(h.Store, req.SecretID, values.DirectoryID(req.ValueDirectoryID)); err != nil {
 		return nil, mapSecretErr(err)
 	}
 	proto, ok := secrets.Get(h.Store.Queries(), req.SecretID)
@@ -272,14 +272,14 @@ func (h *Handler) PostV1SecretsMove(ctx apigen.Context, req *apigen.SecretMoveRe
 }
 
 func (h *Handler) PostV1SecretsReveal(ctx apigen.Context, req *apigen.SecretRevealRequest) (*apigen.SecretRevealResponse, error) {
-	if req.SecretID == 0 || req.Version <= 0 {
+	if req.SecretID == 0 || req.Version == 0 {
 		return nil, SecretIDRequiredErr
 	}
 	sec, ok := secrets.Get(h.Store.Queries(), req.SecretID)
 	if !ok {
 		return nil, SecretNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vReveal, eSecret, int64(sec.SpaceID()), int64(sec.SecretID), SecretNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vReveal, eSecret, sec.SpaceID(), sec.SecretID, SecretNotFoundErr); err != nil {
 		return nil, err
 	}
 	value, err := h.Secrets.RevealByRef(apigen.ValueRef{ID: req.SecretID, Version: req.Version})
@@ -297,14 +297,14 @@ func (h *Handler) PostV1SecretsDelete(ctx apigen.Context, req *apigen.SecretDele
 	if !ok {
 		return SecretNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vDelete, eSecret, int64(sec.SpaceID()), int64(sec.SecretID), SecretNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vDelete, eSecret, sec.SpaceID(), sec.SecretID, SecretNotFoundErr); err != nil {
 		return err
 	}
-	if isReservedSecretMetaName(sec.Value.Fs.Name) {
+	if isReservedSecretMetaName(sec.Value.Fs.Key) {
 		return SecretReservedNameErr
 	}
 	validate := func(q *pq.Queries) error {
-		ids := deployments.Int32Set([]int32{req.SecretID})
+		ids := deployments.IDSet([]uint64{req.SecretID})
 		live, err := nodes.ReadLiveState(ctx, q)
 		if err != nil {
 			return err

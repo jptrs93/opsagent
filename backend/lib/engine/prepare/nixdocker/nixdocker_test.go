@@ -92,7 +92,7 @@ func TestNeedsCredentials(t *testing.T) {
 }
 
 func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
-	nix := &apigen.NixDockerBuild{
+	nix := &apigen.NixImageBuild{
 		Repo:   "github.com/acme/platform",
 		Flake:  "services/api/flake.nix",
 		Target: ".#apiImage",
@@ -105,7 +105,7 @@ func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
 		t.Fatalf("image ref = %q, want lowercase commit tag", ref)
 	}
 
-	same := imageRef(&apigen.NixDockerBuild{
+	same := imageRef(&apigen.NixImageBuild{
 		Repo:   nix.Repo,
 		Flake:  nix.Flake,
 		Target: nix.Target,
@@ -114,7 +114,7 @@ func TestImageRefUsesBuildInputsAndCommit(t *testing.T) {
 		t.Fatalf("equivalent build ref = %q, want %q", same, ref)
 	}
 
-	changes := []*apigen.NixDockerBuild{
+	changes := []*apigen.NixImageBuild{
 		{Repo: "github.com/acme/other", Flake: nix.Flake, Target: nix.Target},
 		{Repo: nix.Repo, Flake: "services/secondary/flake.nix", Target: nix.Target},
 		{Repo: nix.Repo, Flake: nix.Flake, Target: ".#workerImage"},
@@ -144,8 +144,8 @@ func TestPrepareReusesReadyImageBeforeCheckout(t *testing.T) {
 		return nil
 	}
 	artifact, status := p.Prepare(context.Background(), dep, log)
-	wantRef := imageRef(dep.Value.Spec.Container().Source.NixDockerBuild, dep.WorkloadVersion())
-	if status != apigen.ImageStatus_IMAGE_READY {
+	wantRef := imageRef(dep.Deployment.Spec.Container().Source.Value.NixImageBuild, dep.WorkloadVersion())
+	if status != apigen.ImageStatus_IMAGE_STATUS_READY {
 		t.Fatalf("status = %v, want READY", status)
 	}
 	if artifact != wantRef || checkedRef != wantRef {
@@ -164,16 +164,15 @@ func TestPrepareFailsOnContainerdCacheCheckError(t *testing.T) {
 	p := New(nil)
 	p.imageReady = func(context.Context, string) error { return errors.New("containerd unavailable") }
 	artifact, status := p.Prepare(context.Background(), dep, log)
-	if status != apigen.ImageStatus_IMAGE_FAILED || artifact != "" {
+	if status != apigen.ImageStatus_IMAGE_STATUS_FAILED || artifact != "" {
 		t.Fatalf("artifact/status = %q/%v, want empty/FAILED", artifact, status)
 	}
 }
 
-func testNixDeployment() *apigen.DeploymentEvent {
-	return &apigen.DeploymentEvent{
-		DeploymentID: 987654,
-		SpecVersion:  3,
-		Value:        apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/platform", Flake: "services/api/flake.nix", Target: ".#apiImage"}}, Version: testCommit}}},
+func testNixDeployment() *apigen.DeploymentRecord {
+	return &apigen.DeploymentRecord{
+		Deployment: apigen.Deployment{ID: 987654, Spec: apigen.DeploymentSpec{Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{Source: apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{NixImageBuild: &apigen.NixImageBuild{Repo: "github.com/acme/platform", Flake: "services/api/flake.nix", Target: ".#apiImage"}}}, Version: testCommit}}}}},
+		Meta:       apigen.EntityMeta{SpecVersion: 3},
 	}
 }
 

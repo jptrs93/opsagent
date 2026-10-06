@@ -3,16 +3,25 @@
 package apigen
 
 import (
+	"encoding/json"
 	"time"
 )
 
-type EventType int32
+type FilePermission int32
 
 const (
-	EventType_EVENT_TYPE_UNSPECIFIED EventType = 0
-	EventType_EVENT_TYPE_CREATE      EventType = 1
-	EventType_EVENT_TYPE_UPDATE      EventType = 2
-	EventType_EVENT_TYPE_DELETE      EventType = 3
+	FilePermission_FILE_PERMISSION_UNSPECIFIED  FilePermission = 0
+	FilePermission_FILE_PERMISSION_READ_WRITE   FilePermission = 1
+	FilePermission_FILE_PERMISSION_READ_ONLY    FilePermission = 2
+	FilePermission_FILE_PERMISSION_READ_EXECUTE FilePermission = 3
+)
+
+type ContainerUpgradeStrategy int32
+
+const (
+	ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED ContainerUpgradeStrategy = 0
+	ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE    ContainerUpgradeStrategy = 1
+	ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_ROLLOVER    ContainerUpgradeStrategy = 2
 )
 
 type NetworkingMode int32
@@ -23,22 +32,6 @@ const (
 	NetworkingMode_NETWORKING_MODE_HOST        NetworkingMode = 2
 )
 
-type AddressFamily int32
-
-const (
-	AddressFamily_ADDRESS_FAMILY_ANY  AddressFamily = 0
-	AddressFamily_ADDRESS_FAMILY_IPV4 AddressFamily = 1
-	AddressFamily_ADDRESS_FAMILY_IPV6 AddressFamily = 2
-)
-
-type ContainerUpgradeStrategy int32
-
-const (
-	ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED ContainerUpgradeStrategy = 0
-	ContainerUpgradeStrategy_RECREATE                               ContainerUpgradeStrategy = 1
-	ContainerUpgradeStrategy_ROLLOVER                               ContainerUpgradeStrategy = 2
-)
-
 type PortForwardProtocol int32
 
 const (
@@ -47,12 +40,12 @@ const (
 	PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP         PortForwardProtocol = 2
 )
 
-type IngressKind int32
+type IpFilterMode int32
 
 const (
-	IngressKind_INGRESS_KIND_UNSPECIFIED     IngressKind = 0
-	IngressKind_INGRESS_KIND_TLS_PASSTHROUGH IngressKind = 1
-	IngressKind_INGRESS_KIND_HTTPS           IngressKind = 2
+	IpFilterMode_IP_FILTER_MODE_UNSPECIFIED IpFilterMode = 0
+	IpFilterMode_IP_FILTER_MODE_ALLOW       IpFilterMode = 1
+	IpFilterMode_IP_FILTER_MODE_DENY        IpFilterMode = 2
 )
 
 type HttpBackendProtocol int32
@@ -60,15 +53,7 @@ type HttpBackendProtocol int32
 const (
 	HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_UNSPECIFIED HttpBackendProtocol = 0
 	HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_H2C         HttpBackendProtocol = 1
-)
-
-type FilePermission int32
-
-const (
-	FilePermission_FILE_PERMISSION_UNSPECIFIED FilePermission = 0
-	FilePermission_READ_WRITE                  FilePermission = 1
-	FilePermission_READ_ONLY                   FilePermission = 2
-	FilePermission_READ_EXECUTE                FilePermission = 3
+	HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_HTTP1       HttpBackendProtocol = 2
 )
 
 type AcmeChallenge int32
@@ -81,45 +66,56 @@ const (
 type RunningStatus int32
 
 const (
-	RunningStatus_DEPLOYMENT_STATUS_UNKNOWN RunningStatus = 0
-	RunningStatus_NO_DEPLOYMENT             RunningStatus = 1
-	RunningStatus_RUNNING                   RunningStatus = 2
-	RunningStatus_STOPPED                   RunningStatus = 3
-	RunningStatus_STARTING                  RunningStatus = 4
-	RunningStatus_CRASHED                   RunningStatus = 5
+	RunningStatus_RUNNING_STATUS_UNSPECIFIED   RunningStatus = 0
+	RunningStatus_RUNNING_STATUS_NO_DEPLOYMENT RunningStatus = 1
+	RunningStatus_RUNNING_STATUS_RUNNING       RunningStatus = 2
+	RunningStatus_RUNNING_STATUS_STOPPED       RunningStatus = 3
+	RunningStatus_RUNNING_STATUS_STARTING      RunningStatus = 4
+	RunningStatus_RUNNING_STATUS_CRASHED       RunningStatus = 5
 )
 
+// PreparationStatus is the rollup across both preparation stages and gates
+// runner start. It is derived from InputsStatus and ImageStatus by
+// PreparerStatus.Rollup() and never stored or sent.
 type PreparationStatus int32
 
 const (
-	PreparationStatus_PREPARATION_STATUS_UNKNOWN PreparationStatus = 0
-	PreparationStatus_PREPARING                  PreparationStatus = 2
-	PreparationStatus_DOWNLOADING                PreparationStatus = 3
-	PreparationStatus_READY                      PreparationStatus = 4
-	PreparationStatus_FAILED                     PreparationStatus = 5
-	PreparationStatus_PULLING                    PreparationStatus = 6
+	PreparationStatus_PREPARATION_STATUS_UNSPECIFIED PreparationStatus = 0
+	PreparationStatus_PREPARATION_STATUS_PREPARING   PreparationStatus = 1
+	PreparationStatus_PREPARATION_STATUS_DOWNLOADING PreparationStatus = 2
+	PreparationStatus_PREPARATION_STATUS_READY       PreparationStatus = 3
+	PreparationStatus_PREPARATION_STATUS_FAILED      PreparationStatus = 4
+	PreparationStatus_PREPARATION_STATUS_PULLING     PreparationStatus = 5
 )
 
+// InputsStatus is stage 1: resolving the assets, secrets, and configs the
+// workload needs at spawn.
 type InputsStatus int32
 
 const (
-	InputsStatus_INPUTS_STATUS_UNKNOWN InputsStatus = 0
-	InputsStatus_INPUTS_RESOLVING      InputsStatus = 1
-	InputsStatus_INPUTS_READY          InputsStatus = 2
-	InputsStatus_INPUTS_FAILED         InputsStatus = 3
+	InputsStatus_INPUTS_STATUS_UNSPECIFIED InputsStatus = 0
+	InputsStatus_INPUTS_STATUS_RESOLVING   InputsStatus = 1
+	InputsStatus_INPUTS_STATUS_READY       InputsStatus = 2
+	InputsStatus_INPUTS_STATUS_FAILED      InputsStatus = 3
 )
 
+// ImageStatus is stage 2: producing the runtime artifact. The self-deployment
+// reaches DOWNLOADING and READY for an executable rather than an image.
 type ImageStatus int32
 
 const (
-	ImageStatus_IMAGE_STATUS_UNKNOWN ImageStatus = 0
-	ImageStatus_IMAGE_BUILDING       ImageStatus = 1
-	ImageStatus_IMAGE_PULLING        ImageStatus = 2
-	ImageStatus_IMAGE_DOWNLOADING    ImageStatus = 3
-	ImageStatus_IMAGE_READY          ImageStatus = 4
-	ImageStatus_IMAGE_FAILED         ImageStatus = 5
+	ImageStatus_IMAGE_STATUS_UNSPECIFIED ImageStatus = 0
+	ImageStatus_IMAGE_STATUS_BUILDING    ImageStatus = 1
+	ImageStatus_IMAGE_STATUS_PULLING     ImageStatus = 2
+	ImageStatus_IMAGE_STATUS_DOWNLOADING ImageStatus = 3
+	ImageStatus_IMAGE_STATUS_READY       ImageStatus = 4
+	ImageStatus_IMAGE_STATUS_FAILED      ImageStatus = 5
 )
 
+// ScheduledInstanceTarget is the primary-controlled desired state of one
+// placement. The three RUN_* states are identical to the node: all three mean
+// run this placement. They differ only in what the network state derives from
+// them. Exactly one placement per (deployment, ordinal) is RUN_SERVING.
 type ScheduledInstanceTarget int32
 
 const (
@@ -130,22 +126,14 @@ const (
 	ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING ScheduledInstanceTarget = 4
 )
 
-type SecretKeyslotKind int32
-
-const (
-	SecretKeyslotKind_SECRET_KEYSLOT_KIND_UNSPECIFIED SecretKeyslotKind = 0
-	SecretKeyslotKind_SECRET_KEYSLOT_MACHINE          SecretKeyslotKind = 1
-	SecretKeyslotKind_SECRET_KEYSLOT_RECOVERY         SecretKeyslotKind = 2
-)
-
 type AgentSessionStatus int32
 
 const (
-	AgentSessionStatus_AGENT_SESSION_STATUS_UNKNOWN AgentSessionStatus = 0
-	AgentSessionStatus_AGENT_SESSION_PENDING        AgentSessionStatus = 1
-	AgentSessionStatus_AGENT_SESSION_APPROVED       AgentSessionStatus = 2
-	AgentSessionStatus_AGENT_SESSION_REJECTED       AgentSessionStatus = 3
-	AgentSessionStatus_AGENT_SESSION_REVOKED        AgentSessionStatus = 4
+	AgentSessionStatus_AGENT_SESSION_STATUS_UNSPECIFIED AgentSessionStatus = 0
+	AgentSessionStatus_AGENT_SESSION_STATUS_PENDING     AgentSessionStatus = 1
+	AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED    AgentSessionStatus = 2
+	AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED    AgentSessionStatus = 3
+	AgentSessionStatus_AGENT_SESSION_STATUS_REVOKED     AgentSessionStatus = 4
 )
 
 type UserSessionKind int32
@@ -158,7 +146,7 @@ const (
 type AuthzVerb int32
 
 const (
-	AuthzVerb_AUTHZ_VERB_UNKNOWN          AuthzVerb = 0
+	AuthzVerb_AUTHZ_VERB_UNSPECIFIED      AuthzVerb = 0
 	AuthzVerb_AUTHZ_VERB_CREATE           AuthzVerb = 1
 	AuthzVerb_AUTHZ_VERB_UPDATE           AuthzVerb = 2
 	AuthzVerb_AUTHZ_VERB_DELETE           AuthzVerb = 3
@@ -169,33 +157,74 @@ const (
 	AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK AuthzVerb = 8
 )
 
-type AuthzEntity int32
+type AuthzEntityKind int32
 
 const (
-	AuthzEntity_AUTHZ_ENTITY_UNKNOWN    AuthzEntity = 0
-	AuthzEntity_AUTHZ_ENTITY_SPACE      AuthzEntity = 1
-	AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT AuthzEntity = 2
-	AuthzEntity_AUTHZ_ENTITY_SECRET     AuthzEntity = 3
-	AuthzEntity_AUTHZ_ENTITY_CONFIG     AuthzEntity = 4
-	AuthzEntity_AUTHZ_ENTITY_ASSET      AuthzEntity = 5
-	AuthzEntity_AUTHZ_ENTITY_NODE       AuthzEntity = 6
-	AuthzEntity_AUTHZ_ENTITY_CLUSTER    AuthzEntity = 7
-	AuthzEntity_AUTHZ_ENTITY_USER       AuthzEntity = 8
-	AuthzEntity_AUTHZ_ENTITY_ACCESS     AuthzEntity = 9
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_UNSPECIFIED AuthzEntityKind = 0
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_SPACE       AuthzEntityKind = 1
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT  AuthzEntityKind = 2
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET      AuthzEntityKind = 3
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_CONFIG      AuthzEntityKind = 4
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_ASSET       AuthzEntityKind = 5
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_NODE        AuthzEntityKind = 6
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_CLUSTER     AuthzEntityKind = 7
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_USER        AuthzEntityKind = 8
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS      AuthzEntityKind = 9
+)
+
+type AuthzArgumentKind int32
+
+const (
+	AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_UNSPECIFIED AuthzArgumentKind = 0
+	AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_PERMISSION  AuthzArgumentKind = 1
+	AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_SPACE       AuthzArgumentKind = 2
+	AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_ENTITY_TYPE AuthzArgumentKind = 3
+	AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_ENTITY_REF  AuthzArgumentKind = 4
 )
 
 type NodeLifecycleStatus int32
 
 const (
-	NodeLifecycleStatus_NODE_STATUS_UNKNOWN             NodeLifecycleStatus = 0
-	NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED       NodeLifecycleStatus = 1
-	NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED       NodeLifecycleStatus = 2
-	NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED NodeLifecycleStatus = 3
-	NodeLifecycleStatus_NODE_MEMBER_NORMAL              NodeLifecycleStatus = 4
-	NodeLifecycleStatus_NODE_MEMBER_UNHEALTHY           NodeLifecycleStatus = 5
-	NodeLifecycleStatus_NODE_MEMBER_DRAINING            NodeLifecycleStatus = 6
-	NodeLifecycleStatus_NODE_MEMBER_MISSING             NodeLifecycleStatus = 7
-	NodeLifecycleStatus_NODE_MEMBER_EVICTED             NodeLifecycleStatus = 8
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_UNSPECIFIED                NodeLifecycleStatus = 0
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUESTED       NodeLifecycleStatus = 1
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_CANCELLED       NodeLifecycleStatus = 2
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUEST_EXPIRED NodeLifecycleStatus = 3
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL              NodeLifecycleStatus = 4
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_UNHEALTHY           NodeLifecycleStatus = 5
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_DRAINING            NodeLifecycleStatus = 6
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_MISSING             NodeLifecycleStatus = 7
+	NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED             NodeLifecycleStatus = 8
+)
+
+type NodeRole int32
+
+const (
+	NodeRole_NODE_ROLE_PRIMARY   NodeRole = 0
+	NodeRole_NODE_ROLE_SECONDARY NodeRole = 1
+)
+
+type EndpointState int32
+
+const (
+	EndpointState_ENDPOINT_STATE_UNSPECIFIED EndpointState = 0
+	EndpointState_ENDPOINT_STATE_READY       EndpointState = 1
+	EndpointState_ENDPOINT_STATE_DRAINING    EndpointState = 2
+	EndpointState_ENDPOINT_STATE_DOWN        EndpointState = 3
+)
+
+type IngressKind int32
+
+const (
+	IngressKind_INGRESS_KIND_UNSPECIFIED     IngressKind = 0
+	IngressKind_INGRESS_KIND_TLS_PASSTHROUGH IngressKind = 1
+	IngressKind_INGRESS_KIND_HTTPS           IngressKind = 2
+)
+
+type NetworkPolicyAction int32
+
+const (
+	NetworkPolicyAction_NETWORK_POLICY_ACTION_UNSPECIFIED NetworkPolicyAction = 0
+	NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW       NetworkPolicyAction = 1
 )
 
 type NetProtocol int32
@@ -204,31 +233,6 @@ const (
 	NetProtocol_NET_PROTOCOL_UNSPECIFIED NetProtocol = 0
 	NetProtocol_NET_PROTOCOL_TCP         NetProtocol = 1
 	NetProtocol_NET_PROTOCOL_UDP         NetProtocol = 2
-)
-
-type EndpointState int32
-
-const (
-	EndpointState_ENDPOINT_STATE_UNSPECIFIED EndpointState = 0
-	EndpointState_ENDPOINT_READY             EndpointState = 1
-	EndpointState_ENDPOINT_DRAINING          EndpointState = 2
-	EndpointState_ENDPOINT_DOWN              EndpointState = 3
-)
-
-type NetworkPolicyAction int32
-
-const (
-	NetworkPolicyAction_NETWORK_POLICY_ACTION_UNSPECIFIED NetworkPolicyAction = 0
-	NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW       NetworkPolicyAction = 1
-	NetworkPolicyAction_NETWORK_POLICY_ACTION_DENY        NetworkPolicyAction = 2
-)
-
-type NetworkPolicyPeerKind int32
-
-const (
-	NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_UNSPECIFIED NetworkPolicyPeerKind = 0
-	NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE       NetworkPolicyPeerKind = 1
-	NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT  NetworkPolicyPeerKind = 2
 )
 
 type CoreEntityType int32
@@ -246,7 +250,7 @@ const (
 	CoreEntityType_CORE_ENTITY_USER                      CoreEntityType = 9
 	CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY           CoreEntityType = 10
 	CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY           CoreEntityType = 11
-	CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE       CoreEntityType = 12
+	CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE      CoreEntityType = 12
 	CoreEntityType_CORE_ENTITY_AUTHZ_GRANT               CoreEntityType = 13
 	CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE         CoreEntityType = 14
 	CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG             CoreEntityType = 15
@@ -267,370 +271,555 @@ const (
 	AccessPolicyType_ANY_OF                         AccessPolicyType = 3
 )
 
+type IPv4Address struct {
+	unknownFields []byte
+	Octets        []byte `json:"octets"`
+}
+
+type IPv6Address struct {
+	unknownFields []byte
+	Octets        []byte `json:"octets"`
+}
+
+type IpAddress struct {
+	unknownFields []byte
+	Value         IpAddressValueOneof `json:"value"`
+}
+
+type IPv4Prefix struct {
+	unknownFields []byte
+	Address       IPv4Address `json:"address"`
+	PrefixLength  uint32      `json:"prefix_length"`
+}
+
+type IPv6Prefix struct {
+	unknownFields []byte
+	Address       IPv6Address `json:"address"`
+	PrefixLength  uint32      `json:"prefix_length"`
+}
+
+type IpPrefix struct {
+	unknownFields []byte
+	Value         IpPrefixValueOneof `json:"value"`
+}
+
+// SecretRef pins one immutable value of a secret: the entity id and the value
+// version of the write that set it. ConfigRef and AssetRef do the same.
+type SecretRef struct {
+	unknownFields []byte
+	SecretID      uint64 `json:"secret_id"`
+	Version       uint32 `json:"version"`
+}
+
+type ConfigRef struct {
+	unknownFields []byte
+	ConfigID      uint64 `json:"config_id"`
+	Version       uint32 `json:"version"`
+}
+
+type AssetRef struct {
+	unknownFields []byte
+	AssetID       uint64 `json:"asset_id"`
+	Version       uint32 `json:"version"`
+}
+
+type Space struct {
+	unknownFields []byte
+	ID            uint64 `json:"id"`
+	Name          string `json:"name,omitempty"`
+}
+
 type Deployment struct {
-	Spec       DeploymentSpec `json:"spec"`
-	SpaceID    int32          `json:"space_id"`
-	Name       string         `json:"name,omitempty"`
-	Scheduling Scheduling     `json:"scheduling"`
-	ID         int32          `json:"id"`
-}
-
-type Scheduling struct {
-	Running        bool                      `json:"running"`
-	DedicatedNodes *DedicatedNodesScheduling `json:"dedicated_nodes"`
-	Generation     int32                     `json:"generation"`
-}
-
-type DedicatedNodesScheduling struct {
-	Nodes []int32 `json:"nodes,omitempty"`
-}
-
-type DeploymentEvent struct {
-	DeploymentID int32      `json:"deployment_id"`
-	Version      int32      `json:"version"`
-	Seq          int64      `json:"seq"`
-	Author       int32      `json:"author"`
-	EventType    EventType  `json:"event_type"`
-	CreatedTime  time.Time  `json:"created_time"`
-	EventTime    time.Time  `json:"event_time"`
-	SpecVersion  int32      `json:"spec_version"`
-	Value        Deployment `json:"value"`
+	unknownFields []byte
+	ID            uint64         `json:"id"`
+	Name          string         `json:"name,omitempty"`
+	SpaceID       uint64         `json:"space_id"`
+	Spec          DeploymentSpec `json:"spec"`
+	Scheduling    Scheduling     `json:"scheduling"`
 }
 
 type DeploymentSpec struct {
-	Networking     NetworkingConfig `json:"networking"`
-	Container1Spec *ContainerSpec   `json:"container1_spec"`
-	Container2Spec *ContainerSpec   `json:"container2_spec"`
-	Container3Spec *ContainerSpec   `json:"container3_spec"`
-	OpendeploySpec *OpendeploySpec  `json:"opendeploy_spec"`
+	unknownFields []byte
+	Workload      Workload         `json:"workload"`
+	Networking    NetworkingConfig `json:"networking"`
 }
 
-type NetworkingConfig struct {
-	Mode           NetworkingMode `json:"mode"`
-	PortForwarding []*PortForward `json:"port_forwarding,omitempty"`
-	Ingress        []*Ingress     `json:"ingress,omitempty"`
+type Workload struct {
+	unknownFields []byte
+	Value         WorkloadValueOneof `json:"value"`
 }
 
 type ContainerSpec struct {
-	Source          ContainerBundleSource     `json:"source"`
-	Runtime         ContainerRuntime          `json:"runtime"`
-	Version         string                    `json:"version,omitempty"`
-	UpgradeStrategy ContainerUpgradeStrategy  `json:"upgrade_strategy"`
-	ReadinessSignal *ContainerReadinessSignal `json:"readiness_signal"`
+	unknownFields   []byte
+	Source          ContainerSource                 `json:"source"`
+	Runtime         ContainerRuntime                `json:"runtime"`
+	Version         string                          `json:"version,omitempty"`
+	UpgradeStrategy ContainerUpgradeStrategy        `json:"upgrade_strategy"`
+	ReadinessSignal Maybe[ContainerReadinessSignal] `json:"readiness_signal,omitzero"`
 }
 
-type OpendeploySpec struct {
-	Version string `json:"version,omitempty"`
+type ContainerSource struct {
+	unknownFields []byte
+	Value         ContainerSourceValueOneof `json:"value"`
 }
 
-type PortForward struct {
-	Protocol      PortForwardProtocol `json:"protocol"`
-	HostPort      int32               `json:"host_port"`
-	ContainerPort int32               `json:"container_port"`
-	IpFilter      *IpFilter           `json:"ip_filter"`
+type NixImageBuild struct {
+	unknownFields []byte
+	Repo          string `json:"repo,omitempty"`
+	Flake         string `json:"flake,omitempty"`
+	Target        string `json:"target,omitempty"`
 }
 
-type Ingress struct {
-	Kind                 IngressKind           `json:"kind"`
-	Hostname             string                `json:"hostname,omitempty"`
-	TlsPassthroughConfig *TlsPassthroughConfig `json:"tls_passthrough_config"`
-	HttpsConfig          *HttpsConfig          `json:"https_config"`
-	Listen               []*IngressListen      `json:"listen,omitempty"`
-}
-
-type IngressListen struct {
-	Node    *NodeSelector    `json:"node"`
-	Address *AddressSelector `json:"address"`
-}
-
-type NodeSelector struct {
-	Any    bool  `json:"any"`
-	NodeID int32 `json:"node_id"`
-}
-
-type AddressSelector struct {
-	Family   AddressFamily `json:"family"`
-	Prefixes []string      `json:"prefixes,omitempty"`
-}
-
-type ContainerBundleSource struct {
-	NixDockerBuild *NixDockerBuild    `json:"nix_docker_build"`
-	RemoteImage    *RemoteDockerImage `json:"remote_image"`
+type RemoteImage struct {
+	unknownFields []byte
+	Image         string `json:"image,omitempty"`
 }
 
 type ContainerRuntime struct {
-	User                  string                  `json:"user,omitempty"`
-	EnvVars               map[string]*EnvVarValue `json:"env_vars,omitempty"`
-	OverrideCommand       []string                `json:"override_command,omitempty"`
-	OverrideWorkingDir    string                  `json:"override_working_dir,omitempty"`
-	DefaultVolume         DefaultVolumeMount      `json:"default_volume"`
-	CrossDeploymentMounts []*CrossDeploymentMount `json:"cross_deployment_mounts,omitempty"`
-	AssetMounts           []*AssetMount           `json:"asset_mounts,omitempty"`
-	Mounts                []*CustomHostMount      `json:"mounts,omitempty"`
-	DevShmSizeKb          int32                   `json:"dev_shm_size_kb"`
-	FileDescriptorLimit   int32                   `json:"file_descriptor_limit"`
-	IssuedTlsMount        *IssuedTLSMount         `json:"issued_tls_mount"`
+	unknownFields         []byte
+	User                  string                 `json:"user,omitempty"`
+	EnvVars               map[string]EnvVar      `json:"env_vars,omitempty"`
+	OverrideCommand       []string               `json:"override_command,omitempty"`
+	OverrideWorkingDir    string                 `json:"override_working_dir,omitempty"`
+	DefaultVolume         DefaultVolumeMount     `json:"default_volume"`
+	CrossDeploymentMounts []CrossDeploymentMount `json:"cross_deployment_mounts,omitempty"`
+	Mounts                []HostMount            `json:"mounts,omitempty"`
+	AssetMounts           []AssetMount           `json:"asset_mounts,omitempty"`
+	DevShmSizeKb          Maybe[uint32]          `json:"dev_shm_size_kb,omitzero"`
+	FileDescriptorLimit   Maybe[uint32]          `json:"file_descriptor_limit,omitzero"`
+	IssuedTlsMount        Maybe[IssuedTLSMount]  `json:"issued_tls_mount,omitzero"`
 }
 
-type ContainerReadinessSignal struct {
-	TimeoutSeconds int32 `json:"timeout_seconds"`
+type EnvVar struct {
+	unknownFields []byte
+	Value         EnvVarValueOneof `json:"value"`
 }
 
-type IpFilter struct {
-	Allow []string `json:"allow,omitempty"`
-	Deny  []string `json:"deny,omitempty"`
+type LiteralEnv struct {
+	unknownFields []byte
+	Value         string `json:"value,omitempty"`
 }
 
-type TlsPassthroughConfig struct {
-	HostPort      int32 `json:"host_port"`
-	ContainerPort int32 `json:"container_port"`
+type SecretEnv struct {
+	unknownFields []byte
+	Secret        SecretRef `json:"secret"`
 }
 
-type HttpsConfig struct {
-	ContainerPort       int32               `json:"container_port"`
-	PathPrefix          string              `json:"path_prefix,omitempty"`
-	StripPrefix         bool                `json:"strip_prefix"`
-	BackendProtocol     HttpBackendProtocol `json:"backend_protocol"`
-	MaxRequestBodyBytes int64               `json:"max_request_body_bytes"`
-	FlushIntervalMs     int32               `json:"flush_interval_ms"`
-	CertSource          *CertSource         `json:"cert_source"`
+type ConfigEnv struct {
+	unknownFields []byte
+	Config        ConfigRef `json:"config"`
 }
 
-type NixDockerBuild struct {
-	Repo   string `json:"repo,omitempty"`
-	Flake  string `json:"flake,omitempty"`
-	Target string `json:"target,omitempty"`
+type AssetEnv struct {
+	unknownFields []byte
+	Key           string   `json:"key,omitempty"`
+	Asset         AssetRef `json:"asset"`
 }
 
-type RemoteDockerImage struct {
-	Image string `json:"image,omitempty"`
-}
-
-type ValueRef struct {
-	ID      int32 `json:"id"`
-	Version int32 `json:"version"`
-}
-
-type EnvVarValue struct {
-	Value               *string   `json:"value,omitempty"`
-	Asset               string    `json:"asset,omitempty"`
-	AddressDeploymentID *int32    `json:"address_deployment_id,omitempty"`
-	AddressSpaceID      *int32    `json:"address_space_id,omitempty"`
-	Secret              *ValueRef `json:"secret"`
-	Config              *ValueRef `json:"config"`
-	AssetRef            *ValueRef `json:"asset_ref"`
+// AddressEnv resolves to a virtual deployment's ordinal-zero stable inbound
+// address. Both fields are set so a node derives it without deployment state.
+type AddressEnv struct {
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+	SpaceID       uint64 `json:"space_id"`
 }
 
 type DefaultVolumeMount struct {
+	unknownFields []byte
 	ContainerPath string `json:"container_path,omitempty"`
 	Disabled      bool   `json:"disabled"`
 }
 
 type CrossDeploymentMount struct {
-	DeploymentID  int32          `json:"deployment_id"`
+	unknownFields []byte
+	DeploymentID  uint64         `json:"deployment_id"`
 	ContainerPath string         `json:"container_path,omitempty"`
 	Permission    FilePermission `json:"permission"`
 }
 
-type AssetMount struct {
-	ContainerPath string         `json:"container_path,omitempty"`
-	Permission    FilePermission `json:"permission"`
-	Asset         ValueRef       `json:"asset"`
-}
-
-type CustomHostMount struct {
+type HostMount struct {
+	unknownFields []byte
 	HostPath      string         `json:"host_path,omitempty"`
 	ContainerPath string         `json:"container_path,omitempty"`
 	Permission    FilePermission `json:"permission"`
 }
 
+type AssetMount struct {
+	unknownFields []byte
+	Asset         AssetRef       `json:"asset"`
+	ContainerPath string         `json:"container_path,omitempty"`
+	Permission    FilePermission `json:"permission"`
+}
+
 type IssuedTLSMount struct {
+	unknownFields []byte
 	ContainerPath string   `json:"container_path,omitempty"`
 	ExtraNames    []string `json:"extra_names,omitempty"`
 	CaOnly        bool     `json:"ca_only"`
 }
 
+type ContainerReadinessSignal struct {
+	unknownFields  []byte
+	TimeoutSeconds Maybe[uint32] `json:"timeout_seconds,omitzero"`
+}
+
+type NetworkingConfig struct {
+	unknownFields  []byte
+	Mode           NetworkingMode `json:"mode"`
+	PortForwarding []PortForward  `json:"port_forwarding,omitempty"`
+	Ingress        []Ingress      `json:"ingress,omitempty"`
+}
+
+type PortForward struct {
+	unknownFields []byte
+	Protocol      PortForwardProtocol `json:"protocol"`
+	HostPort      uint32              `json:"host_port"`
+	ContainerPort uint32              `json:"container_port"`
+	IpFilter      []IpFilter          `json:"ip_filter,omitempty"`
+}
+
+type IpFilter struct {
+	unknownFields []byte
+	Mode          IpFilterMode `json:"mode"`
+	Prefix        IpPrefix     `json:"prefix"`
+}
+
+// Ingress is a public route declared by a workload. listen says where it is
+// published; empty publishes on every host address of the scheduled node.
+type Ingress struct {
+	unknownFields []byte
+	Hostname      string          `json:"hostname,omitempty"`
+	Listen        []IngressListen `json:"listen,omitempty"`
+	Config        IngressConfig   `json:"config"`
+}
+
+// IngressListen selects (node, host address) pairs. An absent node means the
+// scheduled node; an empty address list means every address of any family.
+type IngressListen struct {
+	unknownFields []byte
+	Node          Maybe[IngressNode] `json:"node,omitzero"`
+	Addresses     []IpPrefix         `json:"addresses,omitempty"`
+}
+
+type IngressNode struct {
+	unknownFields []byte
+	Value         IngressNodeValueOneof `json:"value"`
+}
+
+type AnyNode struct {
+	unknownFields []byte
+}
+
+type SpecificNode struct {
+	unknownFields []byte
+	NodeID        uint64 `json:"node_id"`
+}
+
+type IngressConfig struct {
+	unknownFields []byte
+	Value         IngressConfigValueOneof `json:"value"`
+}
+
+// TlsPassthroughConfig forwards a TLS connection by SNI without terminating
+// it. An absent host_port is 443.
+type TlsPassthroughConfig struct {
+	unknownFields []byte
+	HostPort      Maybe[uint32] `json:"host_port,omitzero"`
+	ContainerPort uint32        `json:"container_port"`
+}
+
+type HttpsConfig struct {
+	unknownFields       []byte
+	ContainerPort       uint32              `json:"container_port"`
+	PathPrefix          string              `json:"path_prefix,omitempty"`
+	StripPrefix         bool                `json:"strip_prefix"`
+	BackendProtocol     HttpBackendProtocol `json:"backend_protocol"`
+	MaxRequestBodyBytes Maybe[uint64]       `json:"max_request_body_bytes,omitzero"`
+	FlushIntervalMs     Maybe[uint32]       `json:"flush_interval_ms,omitzero"`
+	CertSource          Maybe[CertSource]   `json:"cert_source,omitzero"`
+}
+
 type CertSource struct {
-	Acme   *AcmeCertSource   `json:"acme"`
-	Secret *SecretCertSource `json:"secret"`
+	unknownFields []byte
+	Value         CertSourceValueOneof `json:"value"`
 }
 
 type AcmeCertSource struct {
-	Challenge AcmeChallenge `json:"challenge"`
+	unknownFields []byte
+	Challenge     AcmeChallenge `json:"challenge"`
 }
 
 type SecretCertSource struct {
-	Secret ValueRef `json:"secret"`
+	unknownFields []byte
+	Secret        SecretRef `json:"secret"`
 }
 
+// Scheduling is where and whether a deployment runs. restart_generation
+// counts operator restarts: a restart is a write that bumps it and changes
+// nothing else.
+type Scheduling struct {
+	unknownFields     []byte
+	Running           bool      `json:"running"`
+	Placement         Placement `json:"placement"`
+	RestartGeneration uint32    `json:"restart_generation"`
+}
+
+type Placement struct {
+	unknownFields []byte
+	Value         PlacementValueOneof `json:"value"`
+}
+
+// DedicatedNodesScheduling runs one instance on each hand-picked node. One
+// node is accepted until multi-node deployments land.
+type DedicatedNodesScheduling struct {
+	unknownFields []byte
+	Nodes         []uint64 `json:"nodes,omitempty"`
+}
+
+// DeploymentExpectedSeq names a deployment and the seq of its last mutation
+// the caller saw. The server rejects the write when a newer mutation exists;
+// expected_seq = 0 skips the check.
 type DeploymentExpectedSeq struct {
-	DeploymentID int32 `json:"deployment_id"`
-	ExpectedSeq  int64 `json:"expected_seq"`
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+	ExpectedSeq   int64  `json:"expected_seq"`
 }
 
+// ScheduledInstance is one placement of a deployment ordinal on a node,
+// pinned to one deployment version.
 type ScheduledInstance struct {
-	ID                    int32                   `json:"id"`
-	DeploymentID          int32                   `json:"deployment_id"`
-	NodeID                int32                   `json:"node_id"`
-	InstanceOrdinal       int32                   `json:"instance_ordinal"`
-	State                 ScheduledInstanceTarget `json:"state"`
-	DeploymentVersion     int32                   `json:"deployment_version"`
-	DeploymentSpecVersion int32                   `json:"deployment_spec_version"`
-	SpaceID               int32                   `json:"space_id"`
+	unknownFields   []byte
+	ID              uint64                  `json:"id"`
+	NodeID          uint64                  `json:"node_id"`
+	InstanceOrdinal uint32                  `json:"instance_ordinal"`
+	State           ScheduledInstanceTarget `json:"state"`
+	SpaceID         uint64                  `json:"space_id"`
+	Deployment      DeploymentRef           `json:"deployment"`
 }
 
+type DeploymentRef struct {
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+	Version       uint32 `json:"version"`
+}
+
+// ScheduledInstanceStatus is the newest observation of one placement.
+// updated_at is an HLC assigned by the owning node: max(now, prev + 1ns).
+// A half that nothing has reported yet is absent.
 type ScheduledInstanceStatus struct {
-	UpdatedAt           time.Time      `json:"updated_at"`
-	ScheduledInstanceID int32          `json:"scheduled_instance_id"`
-	DeploymentID        int32          `json:"deployment_id"`
-	Preparer            PreparerStatus `json:"preparer"`
-	Runner              RunnerStatus   `json:"runner"`
-}
-
-type ScheduledInstanceState struct {
-	Instance ScheduledInstance       `json:"instance"`
-	Config   DeploymentEvent         `json:"config"`
-	Status   ScheduledInstanceStatus `json:"status"`
-}
-
-type ScheduledInstanceSnapshot struct {
-	Items []*ScheduledInstanceState `json:"items,omitempty"`
+	unknownFields       []byte
+	ScheduledInstanceID uint64                `json:"scheduled_instance_id"`
+	UpdatedAt           Maybe[time.Time]      `json:"updated_at,omitzero"`
+	Preparer            Maybe[PreparerStatus] `json:"preparer,omitzero"`
+	Runner              Maybe[RunnerStatus]   `json:"runner,omitzero"`
 }
 
 type PreparerStatus struct {
-	DeploymentSpecVersion int32        `json:"deployment_spec_version"`
-	Artifact              string       `json:"artifact,omitempty"`
-	Inputs                InputsStatus `json:"inputs"`
-	Image                 ImageStatus  `json:"image"`
+	unknownFields         []byte
+	DeploymentSpecVersion uint32             `json:"deployment_spec_version"`
+	Artifact              string             `json:"artifact,omitempty"`
+	Inputs                InputsStatus       `json:"inputs"`
+	Image                 Maybe[ImageStatus] `json:"image,omitzero"`
 }
 
 type RunnerStatus struct {
-	DeploymentSpecVersion int32         `json:"deployment_spec_version"`
-	RunningPid            int32         `json:"running_pid"`
-	RunningArtifact       string        `json:"running_artifact,omitempty"`
-	Status                RunningStatus `json:"status"`
-	NumberOfRestarts      int32         `json:"number_of_restarts"`
-	LastRestartAt         time.Time     `json:"last_restart_at"`
-	RunningVersion        string        `json:"running_version,omitempty"`
-	NetworkDiagnostics    []string      `json:"network_diagnostics,omitempty"`
-	ExitCode              *int32        `json:"exit_code,omitempty"`
+	unknownFields         []byte
+	DeploymentSpecVersion uint32           `json:"deployment_spec_version"`
+	RunningPid            Maybe[uint32]    `json:"running_pid,omitzero"`
+	RunningArtifact       string           `json:"running_artifact,omitempty"`
+	Status                RunningStatus    `json:"status"`
+	NumberOfRestarts      uint32           `json:"number_of_restarts"`
+	LastRestartAt         Maybe[time.Time] `json:"last_restart_at,omitzero"`
+	NetworkDiagnostics    []string         `json:"network_diagnostics,omitempty"`
+	ExitCode              Maybe[int32]     `json:"exit_code,omitzero"`
 }
 
-type DeploymentUpdateRequestV2 struct {
-	DeploymentID        int32                `json:"deployment_id"`
-	ExpectedSeq         int64                `json:"expected_seq"`
-	VersionOnlyUpdate   *VersionOnlyUpdate   `json:"version_only_update"`
-	RunningOnlyUpdate   *RunningOnlyUpdate   `json:"running_only_update"`
-	SpecUpdate          *SpecUpdate          `json:"spec_update"`
-	AssignedSpaceUpdate *AssignedSpaceUpdate `json:"assigned_space_update"`
-	RestartUpdate       *RestartUpdate       `json:"restart_update"`
+// DeploymentUpdateRequest applies exactly one kind of change to a deployment,
+// guarded by the seq of the last mutation the caller saw.
+type DeploymentUpdateRequest struct {
+	unknownFields []byte
+	DeploymentID  uint64                             `json:"deployment_id"`
+	ExpectedSeq   int64                              `json:"expected_seq"`
+	Update        DeploymentUpdateRequestUpdateOneof `json:"update"`
 }
 
+// VersionOnlyUpdate deploys target_version: the workload version is set and
+// the workload is marked running, leaving the rest of the spec untouched.
 type VersionOnlyUpdate struct {
+	unknownFields []byte
 	TargetVersion string `json:"target_version,omitempty"`
 }
 
+// RunningOnlyUpdate starts or stops the workload at its current version.
 type RunningOnlyUpdate struct {
+	unknownFields  []byte
 	DesiredRunning bool `json:"desired_running"`
 }
 
+// SpecUpdate replaces the deployment spec wholesale, including the workload
+// version.
 type SpecUpdate struct {
-	Spec DeploymentSpec `json:"spec"`
+	unknownFields []byte
+	Spec          DeploymentSpec `json:"spec"`
 }
 
+// AssignedSpaceUpdate moves the deployment to another space. Validated like a
+// create into the destination space.
 type AssignedSpaceUpdate struct {
-	SpaceID int32 `json:"space_id"`
+	unknownFields []byte
+	SpaceID       uint64 `json:"space_id"`
 }
 
+// RestartUpdate replaces the running placement without changing anything:
+// only the restart generation advances. Rejected for a stopped workload.
 type RestartUpdate struct {
+	unknownFields []byte
 }
 
 type DeploymentCreateRequest struct {
-	Name       string         `json:"name,omitempty"`
-	SpaceID    int32          `json:"space_id"`
-	Spec       DeploymentSpec `json:"spec"`
-	Scheduling Scheduling     `json:"scheduling"`
+	unknownFields []byte
+	Name          string         `json:"name,omitempty"`
+	SpaceID       uint64         `json:"space_id"`
+	Spec          DeploymentSpec `json:"spec"`
+	Scheduling    Scheduling     `json:"scheduling"`
 }
 
-type DeploymentHistoryRequest struct {
-	DeploymentID int32 `json:"deployment_id"`
+type DeploymentGetRequest struct {
+	unknownFields []byte
+	ID            uint64 `json:"id"`
 }
 
-type RecentlyDeletedDeploymentsRequest struct {
-	Limit int32 `json:"limit"`
-}
-
+// DeploymentRecord is one version of a deployment as a response carries it:
+// the payload with the meta the stream would attach to it. For a deleted
+// deployment the meta is the last version's with deleted set.
 type DeploymentRecord struct {
-	Deployment *Deployment `json:"deployment"`
-	Meta       *EntityMeta `json:"meta"`
+	unknownFields []byte
+	Deployment    Deployment `json:"deployment"`
+	Meta          EntityMeta `json:"meta"`
 }
 
-type RecentlyDeletedDeployments struct {
-	Items []*DeploymentRecord `json:"items,omitempty"`
+type DeploymentGetResponse struct {
+	unknownFields      []byte
+	Deployment         DeploymentRecord          `json:"deployment"`
+	ScheduledInstances []ScheduledInstance       `json:"scheduled_instances,omitempty"`
+	InstanceStatuses   []ScheduledInstanceStatus `json:"instance_statuses,omitempty"`
 }
 
 type DeploymentDeleteRequest struct {
-	DeploymentID int32 `json:"deployment_id"`
-	ExpectedSeq  int64 `json:"expected_seq"`
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+	ExpectedSeq   int64  `json:"expected_seq"`
 }
 
+type DeploymentHistoryRequest struct {
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+}
+
+// DeploymentHistoryEntry is one row of a deployment's history: a version of
+// the deployment or an observed status.
+type DeploymentHistoryEntry struct {
+	unknownFields []byte
+	Value         DeploymentHistoryEntryValueOneof `json:"value"`
+}
+
+type DeploymentHistory struct {
+	unknownFields []byte
+	Entries       []DeploymentHistoryEntry `json:"entries,omitempty"`
+}
+
+type RecentlyDeletedDeploymentsRequest struct {
+	unknownFields []byte
+	Limit         int32 `json:"limit"`
+}
+
+// RecentlyDeletedDeployments lists the final version of each deleted
+// deployment, most recently deleted first. The spec is intact so a client can
+// seed a new deployment from one.
+type RecentlyDeletedDeployments struct {
+	unknownFields []byte
+	Items         []DeploymentRecord `json:"items,omitempty"`
+}
+
+// Version is the display shape for a deployable source item: a git commit, a
+// container tag, or a GitHub release tag.
 type Version struct {
-	ID     string    `json:"id,omitempty"`
-	Label  string    `json:"label,omitempty"`
-	Author string    `json:"author,omitempty"`
-	Time   time.Time `json:"time"`
-}
-
-type DeploymentVersions struct {
-	DeploymentID   int32                             `json:"deployment_id"`
-	NixDockerBuild *DeploymentNixDockerBuildVersions `json:"nix_docker_build"`
-	GithubRelease  *DeploymentGithubReleaseVersions  `json:"github_release"`
-	ContainerImage *DeploymentContainerImageVersions `json:"container_image"`
-}
-
-type DeploymentNixDockerBuildVersions struct {
-	Branches       []string   `json:"branches,omitempty"`
-	SelectedBranch string     `json:"selected_branch,omitempty"`
-	Commits        []*Version `json:"commits,omitempty"`
-}
-
-type DeploymentGithubReleaseVersions struct {
-	Releases []*Version `json:"releases,omitempty"`
-}
-
-type DeploymentContainerImageVersions struct {
-	Tags []*Version `json:"tags,omitempty"`
+	unknownFields []byte
+	ID            string    `json:"id,omitempty"`
+	Label         string    `json:"label,omitempty"`
+	Author        string    `json:"author,omitempty"`
+	Time          time.Time `json:"time"`
 }
 
 type DeploymentVersionsRequest struct {
-	DeploymentID   int32  `json:"deployment_id"`
+	unknownFields  []byte
+	DeploymentID   uint64 `json:"deployment_id"`
 	SelectedBranch string `json:"selected_branch,omitempty"`
 }
 
+// DeploymentVersions lists the deployable versions of one deployment's source.
+type DeploymentVersions struct {
+	unknownFields []byte
+	DeploymentID  uint64                        `json:"deployment_id"`
+	Source        DeploymentVersionsSourceOneof `json:"source"`
+}
+
+type DeploymentNixImageBuildVersions struct {
+	unknownFields  []byte
+	Branches       []string  `json:"branches,omitempty"`
+	SelectedBranch string    `json:"selected_branch,omitempty"`
+	Commits        []Version `json:"commits,omitempty"`
+}
+
+type DeploymentGithubReleaseVersions struct {
+	unknownFields []byte
+	Releases      []Version `json:"releases,omitempty"`
+}
+
+type DeploymentContainerImageVersions struct {
+	unknownFields []byte
+	Tags          []Version `json:"tags,omitempty"`
+}
+
+// RepoValidateRequest checks an image source's accessibility before a
+// deployment using it is created or updated.
 type RepoValidateRequest struct {
-	NixDockerBuild *ValidateNixDockerBuildSource `json:"nix_docker_build"`
-	ContainerImage *ValidateContainerImageSource `json:"container_image"`
+	unknownFields []byte
+	Source        RepoValidateRequestSourceOneof `json:"source"`
 }
 
-type ValidateNixDockerBuildSource struct {
-	RepoUrl                  string   `json:"repo_url,omitempty"`
-	SelectedBranch           string   `json:"selected_branch,omitempty"`
-	SelectedCommit           *Version `json:"selected_commit"`
-	SelectedFlakePath        string   `json:"selected_flake_path,omitempty"`
-	RefreshAvailableBranches bool     `json:"refresh_available_branches"`
-	RefreshAvailableCommits  bool     `json:"refresh_available_commits"`
-	CheckRepo                bool     `json:"check_repo"`
-	CheckBranch              bool     `json:"check_branch"`
-	CheckCommit              bool     `json:"check_commit"`
-	CheckFlakePath           bool     `json:"check_flake_path"`
+type ValidateNixImageBuildSource struct {
+	unknownFields            []byte
+	RepoUrl                  string         `json:"repo_url,omitempty"`
+	SelectedBranch           string         `json:"selected_branch,omitempty"`
+	SelectedCommit           Maybe[Version] `json:"selected_commit,omitzero"`
+	SelectedFlakePath        string         `json:"selected_flake_path,omitempty"`
+	RefreshAvailableBranches bool           `json:"refresh_available_branches"`
+	RefreshAvailableCommits  bool           `json:"refresh_available_commits"`
+	CheckRepo                bool           `json:"check_repo"`
+	CheckBranch              bool           `json:"check_branch"`
+	CheckCommit              bool           `json:"check_commit"`
+	CheckFlakePath           bool           `json:"check_flake_path"`
 }
 
-type ValidateNixDockerBuildSourceResponse struct {
+type ValidateContainerImageSource struct {
+	unknownFields   []byte
+	Image           string `json:"image,omitempty"`
+	RefreshVersions bool   `json:"refresh_versions"`
+}
+
+type RepoValidateResponse struct {
+	unknownFields []byte
+	Source        RepoValidateResponseSourceOneof `json:"source"`
+}
+
+type ValidateNixImageBuildSourceResponse struct {
+	unknownFields     []byte
 	CheckedRepoUrl    string            `json:"checked_repo_url,omitempty"`
 	GitRepository     ValidationResult  `json:"git_repository"`
 	CheckedBranch     string            `json:"checked_branch,omitempty"`
 	BranchCheck       ValidationResult  `json:"branch_check"`
-	CheckedCommit     *Version          `json:"checked_commit"`
+	CheckedCommit     Maybe[Version]    `json:"checked_commit,omitzero"`
 	CommitCheck       ValidationResult  `json:"commit_check"`
 	CheckedFlakePath  string            `json:"checked_flake_path,omitempty"`
 	NixFlakeFile      ValidationResult  `json:"nix_flake_file"`
@@ -638,81 +827,60 @@ type ValidateNixDockerBuildSourceResponse struct {
 	AvailableCommits  AvailableCommits  `json:"available_commits"`
 }
 
-type AvailableCommits struct {
-	Loaded       bool       `json:"loaded"`
-	Branch       string     `json:"branch,omitempty"`
-	Errormessage *string    `json:"errormessage,omitempty"`
-	Commits      []*Version `json:"commits,omitempty"`
-}
-
-type AvailableBranches struct {
-	Loaded       bool     `json:"loaded"`
-	Errormessage *string  `json:"errormessage,omitempty"`
-	Branches     []string `json:"branches,omitempty"`
+type ValidateContainerImageSourceResponse struct {
+	unknownFields []byte
+	Image         ValidationResult `json:"image"`
+	Tags          []Version        `json:"tags,omitempty"`
 }
 
 type ValidationResult struct {
-	Checked bool   `json:"checked"`
-	Ok      bool   `json:"ok"`
-	Message string `json:"message,omitempty"`
+	unknownFields []byte
+	Checked       bool   `json:"checked"`
+	Ok            bool   `json:"ok"`
+	Message       string `json:"message,omitempty"`
 }
 
-type ValidateContainerImageSource struct {
-	Image           string `json:"image,omitempty"`
-	RefreshVersions bool   `json:"refresh_versions"`
+type AvailableBranches struct {
+	unknownFields []byte
+	Loaded        bool          `json:"loaded"`
+	ErrorMessage  Maybe[string] `json:"error_message,omitzero"`
+	Branches      []string      `json:"branches,omitempty"`
 }
 
-type RepoValidateResponse struct {
-	NixDockerBuild *ValidateNixDockerBuildSourceResponse `json:"nix_docker_build"`
-	ContainerImage *ValidateContainerImageSourceResponse `json:"container_image"`
-}
-
-type ValidateContainerImageSourceResponse struct {
-	Image ValidationResult `json:"image"`
-	Tags  []*Version       `json:"tags,omitempty"`
-}
-
-type DeploymentGetRequest struct {
-	ID int32 `json:"id"`
-}
-
-type DeploymentGetResponse struct {
-	Deployment         *DeploymentRecord          `json:"deployment"`
-	ScheduledInstances []*ScheduledInstance       `json:"scheduled_instances,omitempty"`
-	InstanceStatuses   []*ScheduledInstanceStatus `json:"instance_statuses,omitempty"`
-}
-
-type DeploymentHistoryEntry struct {
-	Deployment *DeploymentRecord        `json:"deployment"`
-	Status     *ScheduledInstanceStatus `json:"status"`
-}
-
-type DeploymentHistory struct {
-	Entries []*DeploymentHistoryEntry `json:"entries,omitempty"`
+type AvailableCommits struct {
+	unknownFields []byte
+	Loaded        bool          `json:"loaded"`
+	Branch        string        `json:"branch,omitempty"`
+	ErrorMessage  Maybe[string] `json:"error_message,omitzero"`
+	Commits       []Version     `json:"commits,omitempty"`
 }
 
 type DeploymentRunReportRequest struct {
-	ScheduledInstanceID int32 `json:"scheduled_instance_id"`
-	Run                 int32 `json:"run"`
+	unknownFields       []byte
+	ScheduledInstanceID uint64 `json:"scheduled_instance_id"`
+	Run                 int32  `json:"run"`
 }
 
 type DeploymentRunReport struct {
-	DeploymentID          int32         `json:"deployment_id"`
-	DeploymentSpecVersion int32         `json:"deployment_spec_version"`
-	NodeID                int32         `json:"node_id"`
-	InstanceOrdinal       int32         `json:"instance_ordinal"`
-	Run                   int32         `json:"run"`
-	Running               bool          `json:"running"`
-	StartedAt             time.Time     `json:"started_at"`
-	StoppedAt             time.Time     `json:"stopped_at"`
-	ExitCode              *int32        `json:"exit_code,omitempty"`
-	LogLines              []string      `json:"log_lines,omitempty"`
-	Warnings              []string      `json:"warnings,omitempty"`
-	Status                RunningStatus `json:"status"`
-	DeploymentVersion     int32         `json:"deployment_version"`
+	unknownFields         []byte
+	DeploymentID          uint64           `json:"deployment_id"`
+	DeploymentVersion     uint32           `json:"deployment_version"`
+	DeploymentSpecVersion uint32           `json:"deployment_spec_version"`
+	NodeID                uint64           `json:"node_id"`
+	InstanceOrdinal       uint32           `json:"instance_ordinal"`
+	Run                   int32            `json:"run"`
+	Running               bool             `json:"running"`
+	StartedAt             time.Time        `json:"started_at"`
+	StoppedAt             Maybe[time.Time] `json:"stopped_at,omitzero"`
+	ExitCode              Maybe[int32]     `json:"exit_code,omitzero"`
+	LogLines              []string         `json:"log_lines,omitempty"`
+	Warnings              []string         `json:"warnings,omitempty"`
+	Status                RunningStatus    `json:"status"`
 }
 
+// RawLogLine is the node-local log WAL frame. Every tag is kept.
 type RawLogLine struct {
+	unknownFields   []byte
 	Time            int64  `json:"time"`
 	Version         int32  `json:"version"`
 	Run             int32  `json:"run"`
@@ -724,729 +892,1020 @@ type RawLogLine struct {
 	Seq             int64  `json:"seq"`
 }
 
+// LogRecord is one parsed log record as the structured query returns it.
 type LogRecord struct {
+	unknownFields   []byte
 	Time            int64             `json:"time"`
 	Level           string            `json:"level,omitempty"`
 	Msg             string            `json:"msg,omitempty"`
 	Fields          map[string]string `json:"fields,omitempty"`
 	Raw             []byte            `json:"raw"`
-	Version         int32             `json:"version"`
+	Version         uint32            `json:"version"`
 	Stream          int32             `json:"stream"`
 	InstanceOrdinal int32             `json:"instance_ordinal"`
 	Run             int32             `json:"run"`
-	Node            int32             `json:"node"`
+	Node            uint64            `json:"node"`
 	Seq             int64             `json:"seq"`
 }
 
 type PrepareOutputRequest struct {
-	DeploymentID int32 `json:"deployment_id"`
-	SpecVersion  int32 `json:"spec_version"`
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+	SpecVersion   uint32 `json:"spec_version"`
 }
 
 type PrepareOutputChunk struct {
-	Data []byte `json:"data"`
+	unknownFields []byte
+	Data          []byte `json:"data"`
 }
 
 type DeploymentLogRequest struct {
-	PreparerOutput *PrepareOutputRequest `json:"preparer_output"`
-	RequestID      string                `json:"request_id,omitempty"`
+	unknownFields  []byte
+	PreparerOutput Maybe[PrepareOutputRequest] `json:"preparer_output,omitzero"`
+	RequestID      string                      `json:"request_id,omitempty"`
 }
 
+// One predicate of a log query. Filters AND together. A filter with no field
+// matches against the parsed message text. Ops: eq | neq | in | exists |
+// not_exists | contains | not_contains | gt | gte | lt | lte. A value that
+// parses as a number matches int and float fields numerically and string
+// fields textually (case-insensitive); range ops match numeric fields only.
 type LogFilter struct {
-	Field  string   `json:"field,omitempty"`
-	Op     string   `json:"op,omitempty"`
-	Value  string   `json:"value,omitempty"`
-	Values []string `json:"values,omitempty"`
-	Text   bool     `json:"text"`
+	unknownFields []byte
+	Field         string   `json:"field,omitempty"`
+	Op            string   `json:"op,omitempty"`
+	Value         string   `json:"value,omitempty"`
+	Values        []string `json:"values,omitempty"`
+	Text          bool     `json:"text"`
 }
 
+// One-shot structured log query: matching records plus the aggregates the
+// logs page needs (per-level histogram over the full range, total match
+// count, per-field sampled value stats) in a single round trip. No
+// pagination.
 type LogQueryRequest struct {
-	DeploymentID      int32        `json:"deployment_id"`
-	TargetNodeID      int32        `json:"target_node_id"`
-	DeploymentVersion int32        `json:"deployment_version"`
-	TimeStart         time.Time    `json:"time_start"`
-	TimeEnd           time.Time    `json:"time_end"`
-	Filters           []*LogFilter `json:"filters,omitempty"`
-	Limit             int32        `json:"limit"`
-	HistogramBuckets  int32        `json:"histogram_buckets"`
-	IncludeRaw        bool         `json:"include_raw"`
-	Order             string       `json:"order,omitempty"`
-	RequestID         string       `json:"request_id,omitempty"`
+	unknownFields     []byte
+	DeploymentID      uint64           `json:"deployment_id"`
+	TargetNodeID      uint64           `json:"target_node_id"`
+	DeploymentVersion uint32           `json:"deployment_version"`
+	TimeStart         Maybe[time.Time] `json:"time_start,omitzero"`
+	TimeEnd           Maybe[time.Time] `json:"time_end,omitzero"`
+	Filters           []LogFilter      `json:"filters,omitempty"`
+	Limit             int32            `json:"limit"`
+	HistogramBuckets  int32            `json:"histogram_buckets"`
+	IncludeRaw        bool             `json:"include_raw"`
+	Order             string           `json:"order,omitempty"`
+	RequestID         string           `json:"request_id,omitempty"`
 }
 
 type LogQueryStats struct {
-	TimeStart    time.Time `json:"time_start"`
-	TimeEnd      time.Time `json:"time_end"`
-	ScannedRows  int64     `json:"scanned_rows"`
-	MatchedRows  int64     `json:"matched_rows"`
-	ReturnedRows int32     `json:"returned_rows"`
-	Truncated    bool      `json:"truncated"`
-	TookMs       int32     `json:"took_ms"`
-	SampledRows  int64     `json:"sampled_rows"`
+	unknownFields []byte
+	TimeStart     time.Time `json:"time_start"`
+	TimeEnd       time.Time `json:"time_end"`
+	ScannedRows   int64     `json:"scanned_rows"`
+	MatchedRows   int64     `json:"matched_rows"`
+	ReturnedRows  int32     `json:"returned_rows"`
+	Truncated     bool      `json:"truncated"`
+	TookMs        int32     `json:"took_ms"`
+	SampledRows   int64     `json:"sampled_rows"`
 }
 
 type LogHistogramSeries struct {
-	Level  string  `json:"level,omitempty"`
-	Counts []int64 `json:"counts,omitempty"`
+	unknownFields []byte
+	Level         string  `json:"level,omitempty"`
+	Counts        []int64 `json:"counts,omitempty"`
 }
 
 type LogHistogram struct {
-	BucketMs  int64                 `json:"bucket_ms"`
-	StartTime time.Time             `json:"start_time"`
-	Series    []*LogHistogramSeries `json:"series,omitempty"`
+	unknownFields []byte
+	BucketMs      int64                `json:"bucket_ms"`
+	StartTime     time.Time            `json:"start_time"`
+	Series        []LogHistogramSeries `json:"series,omitempty"`
 }
 
 type LogFieldValueCount struct {
-	Value string `json:"value,omitempty"`
-	Count int64  `json:"count"`
+	unknownFields []byte
+	Value         string `json:"value,omitempty"`
+	Count         int64  `json:"count"`
 }
 
+// Sampled value distribution for one parsed field, computed during the main
+// scan over the newest stats.sampled_rows matched records. Fields seen among
+// matched records but not within the sample carry zeroed stats.
 type LogFieldStats struct {
-	Field    string                `json:"field,omitempty"`
-	Coverage float64               `json:"coverage"`
-	Distinct int64                 `json:"distinct"`
-	Top      []*LogFieldValueCount `json:"top,omitempty"`
-	Other    int64                 `json:"other"`
+	unknownFields []byte
+	Field         string               `json:"field,omitempty"`
+	Coverage      float64              `json:"coverage"`
+	Distinct      int64                `json:"distinct"`
+	Top           []LogFieldValueCount `json:"top,omitempty"`
+	Other         int64                `json:"other"`
 }
 
 type LogQueryResponse struct {
-	Stats     *LogQueryStats   `json:"stats"`
-	Histogram *LogHistogram    `json:"histogram"`
-	Fields    []*LogFieldStats `json:"fields,omitempty"`
-	Records   []*LogRecord     `json:"records,omitempty"`
-	Warnings  []string         `json:"warnings,omitempty"`
+	unknownFields []byte
+	Stats         Maybe[LogQueryStats] `json:"stats,omitzero"`
+	Histogram     Maybe[LogHistogram]  `json:"histogram,omitzero"`
+	Fields        []LogFieldStats      `json:"fields,omitempty"`
+	Records       []LogRecord          `json:"records,omitempty"`
+	Warnings      []string             `json:"warnings,omitempty"`
 }
 
+// MetricsSample is the node-local metrics WAL payload and parquet row. Every
+// tag and type is kept.
 type MetricsSample struct {
-	Time                int64    `json:"time"`
-	DeploymentID        int32    `json:"deployment_id"`
-	ScheduledInstanceID int32    `json:"scheduled_instance_id"`
-	Ordinal             int32    `json:"ordinal"`
-	DeploymentVersion   int32    `json:"deployment_version"`
-	Run                 int32    `json:"run"`
-	NodeID              int32    `json:"node_id"`
-	Terminal            bool     `json:"terminal"`
-	CpuUsageUsec        *int64   `json:"cpu_usage_usec,omitempty"`
-	CpuUserUsec         *int64   `json:"cpu_user_usec,omitempty"`
-	CpuSystemUsec       *int64   `json:"cpu_system_usec,omitempty"`
-	CpuThrottledUsec    *int64   `json:"cpu_throttled_usec,omitempty"`
-	CpuNrThrottled      *int64   `json:"cpu_nr_throttled,omitempty"`
-	MemCurrent          *int64   `json:"mem_current,omitempty"`
-	MemPeak             *int64   `json:"mem_peak,omitempty"`
-	MemAnon             *int64   `json:"mem_anon,omitempty"`
-	MemFile             *int64   `json:"mem_file,omitempty"`
-	MemKernel           *int64   `json:"mem_kernel,omitempty"`
-	MemShmem            *int64   `json:"mem_shmem,omitempty"`
-	MemOom              *int64   `json:"mem_oom,omitempty"`
-	MemOomKill          *int64   `json:"mem_oom_kill,omitempty"`
-	IoReadBytes         *int64   `json:"io_read_bytes,omitempty"`
-	IoWriteBytes        *int64   `json:"io_write_bytes,omitempty"`
-	IoReadOps           *int64   `json:"io_read_ops,omitempty"`
-	IoWriteOps          *int64   `json:"io_write_ops,omitempty"`
-	Pids                *int64   `json:"pids,omitempty"`
-	PsiCpuSomeAvg10     *float64 `json:"psi_cpu_some_avg10,omitempty"`
-	PsiCpuSomeAvg60     *float64 `json:"psi_cpu_some_avg60,omitempty"`
-	PsiCpuSomeAvg300    *float64 `json:"psi_cpu_some_avg300,omitempty"`
-	PsiCpuSomeTotalUsec *int64   `json:"psi_cpu_some_total_usec,omitempty"`
-	PsiCpuFullAvg10     *float64 `json:"psi_cpu_full_avg10,omitempty"`
-	PsiCpuFullAvg60     *float64 `json:"psi_cpu_full_avg60,omitempty"`
-	PsiCpuFullAvg300    *float64 `json:"psi_cpu_full_avg300,omitempty"`
-	PsiCpuFullTotalUsec *int64   `json:"psi_cpu_full_total_usec,omitempty"`
-	PsiMemSomeAvg10     *float64 `json:"psi_mem_some_avg10,omitempty"`
-	PsiMemSomeAvg60     *float64 `json:"psi_mem_some_avg60,omitempty"`
-	PsiMemSomeAvg300    *float64 `json:"psi_mem_some_avg300,omitempty"`
-	PsiMemSomeTotalUsec *int64   `json:"psi_mem_some_total_usec,omitempty"`
-	PsiMemFullAvg10     *float64 `json:"psi_mem_full_avg10,omitempty"`
-	PsiMemFullAvg60     *float64 `json:"psi_mem_full_avg60,omitempty"`
-	PsiMemFullAvg300    *float64 `json:"psi_mem_full_avg300,omitempty"`
-	PsiMemFullTotalUsec *int64   `json:"psi_mem_full_total_usec,omitempty"`
-	PsiIoSomeAvg10      *float64 `json:"psi_io_some_avg10,omitempty"`
-	PsiIoSomeAvg60      *float64 `json:"psi_io_some_avg60,omitempty"`
-	PsiIoSomeAvg300     *float64 `json:"psi_io_some_avg300,omitempty"`
-	PsiIoSomeTotalUsec  *int64   `json:"psi_io_some_total_usec,omitempty"`
-	PsiIoFullAvg10      *float64 `json:"psi_io_full_avg10,omitempty"`
-	PsiIoFullAvg60      *float64 `json:"psi_io_full_avg60,omitempty"`
-	PsiIoFullAvg300     *float64 `json:"psi_io_full_avg300,omitempty"`
-	PsiIoFullTotalUsec  *int64   `json:"psi_io_full_total_usec,omitempty"`
-	NetRxBytes          *int64   `json:"net_rx_bytes,omitempty"`
-	NetRxPackets        *int64   `json:"net_rx_packets,omitempty"`
-	NetRxDropped        *int64   `json:"net_rx_dropped,omitempty"`
-	NetTxBytes          *int64   `json:"net_tx_bytes,omitempty"`
-	NetTxPackets        *int64   `json:"net_tx_packets,omitempty"`
-	NetTxDropped        *int64   `json:"net_tx_dropped,omitempty"`
-	TcpEstablished      *int64   `json:"tcp_established,omitempty"`
-	TcpListen           *int64   `json:"tcp_listen,omitempty"`
-	TcpTimeWait         *int64   `json:"tcp_time_wait,omitempty"`
-	TcpCloseWait        *int64   `json:"tcp_close_wait,omitempty"`
-	TcpOther            *int64   `json:"tcp_other,omitempty"`
-	OpenFds             *int64   `json:"open_fds,omitempty"`
+	unknownFields       []byte
+	Time                int64          `json:"time"`
+	DeploymentID        int32          `json:"deployment_id"`
+	ScheduledInstanceID int32          `json:"scheduled_instance_id"`
+	Ordinal             int32          `json:"ordinal"`
+	DeploymentVersion   int32          `json:"deployment_version"`
+	Run                 int32          `json:"run"`
+	NodeID              int32          `json:"node_id"`
+	Terminal            bool           `json:"terminal"`
+	CpuUsageUsec        Maybe[int64]   `json:"cpu_usage_usec,omitzero"`
+	CpuUserUsec         Maybe[int64]   `json:"cpu_user_usec,omitzero"`
+	CpuSystemUsec       Maybe[int64]   `json:"cpu_system_usec,omitzero"`
+	CpuThrottledUsec    Maybe[int64]   `json:"cpu_throttled_usec,omitzero"`
+	CpuNrThrottled      Maybe[int64]   `json:"cpu_nr_throttled,omitzero"`
+	MemCurrent          Maybe[int64]   `json:"mem_current,omitzero"`
+	MemPeak             Maybe[int64]   `json:"mem_peak,omitzero"`
+	MemAnon             Maybe[int64]   `json:"mem_anon,omitzero"`
+	MemFile             Maybe[int64]   `json:"mem_file,omitzero"`
+	MemKernel           Maybe[int64]   `json:"mem_kernel,omitzero"`
+	MemShmem            Maybe[int64]   `json:"mem_shmem,omitzero"`
+	MemOom              Maybe[int64]   `json:"mem_oom,omitzero"`
+	MemOomKill          Maybe[int64]   `json:"mem_oom_kill,omitzero"`
+	IoReadBytes         Maybe[int64]   `json:"io_read_bytes,omitzero"`
+	IoWriteBytes        Maybe[int64]   `json:"io_write_bytes,omitzero"`
+	IoReadOps           Maybe[int64]   `json:"io_read_ops,omitzero"`
+	IoWriteOps          Maybe[int64]   `json:"io_write_ops,omitzero"`
+	Pids                Maybe[int64]   `json:"pids,omitzero"`
+	PsiCpuSomeAvg10     Maybe[float64] `json:"psi_cpu_some_avg10,omitzero"`
+	PsiCpuSomeAvg60     Maybe[float64] `json:"psi_cpu_some_avg60,omitzero"`
+	PsiCpuSomeAvg300    Maybe[float64] `json:"psi_cpu_some_avg300,omitzero"`
+	PsiCpuSomeTotalUsec Maybe[int64]   `json:"psi_cpu_some_total_usec,omitzero"`
+	PsiCpuFullAvg10     Maybe[float64] `json:"psi_cpu_full_avg10,omitzero"`
+	PsiCpuFullAvg60     Maybe[float64] `json:"psi_cpu_full_avg60,omitzero"`
+	PsiCpuFullAvg300    Maybe[float64] `json:"psi_cpu_full_avg300,omitzero"`
+	PsiCpuFullTotalUsec Maybe[int64]   `json:"psi_cpu_full_total_usec,omitzero"`
+	PsiMemSomeAvg10     Maybe[float64] `json:"psi_mem_some_avg10,omitzero"`
+	PsiMemSomeAvg60     Maybe[float64] `json:"psi_mem_some_avg60,omitzero"`
+	PsiMemSomeAvg300    Maybe[float64] `json:"psi_mem_some_avg300,omitzero"`
+	PsiMemSomeTotalUsec Maybe[int64]   `json:"psi_mem_some_total_usec,omitzero"`
+	PsiMemFullAvg10     Maybe[float64] `json:"psi_mem_full_avg10,omitzero"`
+	PsiMemFullAvg60     Maybe[float64] `json:"psi_mem_full_avg60,omitzero"`
+	PsiMemFullAvg300    Maybe[float64] `json:"psi_mem_full_avg300,omitzero"`
+	PsiMemFullTotalUsec Maybe[int64]   `json:"psi_mem_full_total_usec,omitzero"`
+	PsiIoSomeAvg10      Maybe[float64] `json:"psi_io_some_avg10,omitzero"`
+	PsiIoSomeAvg60      Maybe[float64] `json:"psi_io_some_avg60,omitzero"`
+	PsiIoSomeAvg300     Maybe[float64] `json:"psi_io_some_avg300,omitzero"`
+	PsiIoSomeTotalUsec  Maybe[int64]   `json:"psi_io_some_total_usec,omitzero"`
+	PsiIoFullAvg10      Maybe[float64] `json:"psi_io_full_avg10,omitzero"`
+	PsiIoFullAvg60      Maybe[float64] `json:"psi_io_full_avg60,omitzero"`
+	PsiIoFullAvg300     Maybe[float64] `json:"psi_io_full_avg300,omitzero"`
+	PsiIoFullTotalUsec  Maybe[int64]   `json:"psi_io_full_total_usec,omitzero"`
+	NetRxBytes          Maybe[int64]   `json:"net_rx_bytes,omitzero"`
+	NetRxPackets        Maybe[int64]   `json:"net_rx_packets,omitzero"`
+	NetRxDropped        Maybe[int64]   `json:"net_rx_dropped,omitzero"`
+	NetTxBytes          Maybe[int64]   `json:"net_tx_bytes,omitzero"`
+	NetTxPackets        Maybe[int64]   `json:"net_tx_packets,omitzero"`
+	NetTxDropped        Maybe[int64]   `json:"net_tx_dropped,omitzero"`
+	TcpEstablished      Maybe[int64]   `json:"tcp_established,omitzero"`
+	TcpListen           Maybe[int64]   `json:"tcp_listen,omitzero"`
+	TcpTimeWait         Maybe[int64]   `json:"tcp_time_wait,omitzero"`
+	TcpCloseWait        Maybe[int64]   `json:"tcp_close_wait,omitzero"`
+	TcpOther            Maybe[int64]   `json:"tcp_other,omitzero"`
+	OpenFds             Maybe[int64]   `json:"open_fds,omitzero"`
 }
 
 type MetricsQueryRequest struct {
-	DeploymentID        int32     `json:"deployment_id"`
-	TargetNodeID        int32     `json:"target_node_id"`
-	ScheduledInstanceID int32     `json:"scheduled_instance_id"`
-	DeploymentVersion   int32     `json:"deployment_version"`
-	Run                 int32     `json:"run"`
-	TimeStart           time.Time `json:"time_start"`
-	TimeEnd             time.Time `json:"time_end"`
-	StepMs              int64     `json:"step_ms"`
-	Fields              []string  `json:"fields,omitempty"`
-	RequestID           string    `json:"request_id,omitempty"`
+	unknownFields       []byte
+	DeploymentID        uint64           `json:"deployment_id"`
+	TargetNodeID        uint64           `json:"target_node_id"`
+	ScheduledInstanceID uint64           `json:"scheduled_instance_id"`
+	DeploymentVersion   uint32           `json:"deployment_version"`
+	Run                 int32            `json:"run"`
+	TimeStart           Maybe[time.Time] `json:"time_start,omitzero"`
+	TimeEnd             Maybe[time.Time] `json:"time_end,omitzero"`
+	StepMs              int64            `json:"step_ms"`
+	Fields              []string         `json:"fields,omitempty"`
+	RequestID           string           `json:"request_id,omitempty"`
 }
 
 type MetricsSeries struct {
-	ScheduledInstanceID int32     `json:"scheduled_instance_id"`
+	unknownFields       []byte
+	ScheduledInstanceID uint64    `json:"scheduled_instance_id"`
 	Ordinal             int32     `json:"ordinal"`
-	DeploymentVersion   int32     `json:"deployment_version"`
+	DeploymentVersion   uint32    `json:"deployment_version"`
 	Run                 int32     `json:"run"`
-	NodeID              int32     `json:"node_id"`
+	NodeID              uint64    `json:"node_id"`
 	Field               string    `json:"field,omitempty"`
 	Kind                int32     `json:"kind"`
 	Values              []float64 `json:"values,omitempty"`
 }
 
 type MetricsQueryResponse struct {
-	TimeStart   time.Time        `json:"time_start"`
-	StepMs      int64            `json:"step_ms"`
-	Buckets     int32            `json:"buckets"`
-	Series      []*MetricsSeries `json:"series,omitempty"`
-	ScannedRows int64            `json:"scanned_rows"`
-	TookMs      int32            `json:"took_ms"`
-	Warnings    []string         `json:"warnings,omitempty"`
+	unknownFields []byte
+	TimeStart     time.Time       `json:"time_start"`
+	StepMs        int64           `json:"step_ms"`
+	Buckets       int32           `json:"buckets"`
+	Series        []MetricsSeries `json:"series,omitempty"`
+	ScannedRows   int64           `json:"scanned_rows"`
+	TookMs        int32           `json:"took_ms"`
+	Warnings      []string        `json:"warnings,omitempty"`
 }
 
 type MetricsLatestRequest struct {
-	RequestID string `json:"request_id,omitempty"`
+	unknownFields []byte
+	RequestID     string `json:"request_id,omitempty"`
 }
 
 type MetricsRate struct {
-	Field     string  `json:"field,omitempty"`
-	PerSecond float64 `json:"per_second"`
+	unknownFields []byte
+	Field         string  `json:"field,omitempty"`
+	PerSecond     float64 `json:"per_second"`
 }
 
 type MetricsLatestEntry struct {
-	Sample *MetricsSample `json:"sample"`
-	Rates  []*MetricsRate `json:"rates,omitempty"`
+	unknownFields []byte
+	Sample        MetricsSample `json:"sample"`
+	Rates         []MetricsRate `json:"rates,omitempty"`
 }
 
 type MetricsLatestResponse struct {
-	Entries  []*MetricsLatestEntry `json:"entries,omitempty"`
-	Warnings []string              `json:"warnings,omitempty"`
+	unknownFields []byte
+	Entries       []MetricsLatestEntry `json:"entries,omitempty"`
+	Warnings      []string             `json:"warnings,omitempty"`
 }
 
+// Secret is one stored version. sealed reaches only the replica class of the
+// event stream.
 type Secret struct {
-	Fs         *SecretFs `json:"fs"`
-	SpaceID    int32     `json:"space_id"`
-	SmkVersion int64     `json:"smk_version"`
-	Ciphertext []byte    `json:"ciphertext"`
-	Nonce      []byte    `json:"nonce"`
-	ID         int32     `json:"id"`
-}
-
-type SecretKeyslot struct {
-	Kind       SecretKeyslotKind `json:"kind"`
-	NodeID     int32             `json:"node_id"`
-	SmkVersion int64             `json:"smk_version"`
-	WrappedSmk []byte            `json:"wrapped_smk"`
-	Nonce      []byte            `json:"nonce"`
-	KdfSalt    []byte            `json:"kdf_salt"`
-	UpdatedAt  int64             `json:"updated_at"`
+	unknownFields []byte
+	ID            uint64              `json:"id"`
+	Fs            SecretFs            `json:"fs"`
+	SpaceID       uint64              `json:"space_id"`
+	Sealed        Maybe[SealedSecret] `json:"sealed,omitzero"`
 }
 
 type SecretFs struct {
-	Name        string `json:"name,omitempty"`
-	DirectoryID int32  `json:"directory_id"`
+	unknownFields []byte
+	Key           string        `json:"key,omitempty"`
+	DirectoryID   Maybe[uint64] `json:"directory_id,omitzero"`
+}
+
+type SealedSecret struct {
+	unknownFields []byte
+	SmkVersion    uint32 `json:"smk_version"`
+	Ciphertext    []byte `json:"ciphertext"`
+	Nonce         []byte `json:"nonce"`
+}
+
+// SecretKeyslot is one wrapping of the secrets master key. Replica only.
+type SecretKeyslot struct {
+	unknownFields []byte
+	ID            uint64          `json:"id"`
+	SmkVersion    uint32          `json:"smk_version"`
+	WrappedSmk    []byte          `json:"wrapped_smk"`
+	Nonce         []byte          `json:"nonce"`
+	Wrapping      KeyslotWrapping `json:"wrapping"`
+}
+
+type KeyslotWrapping struct {
+	unknownFields []byte
+	Value         KeyslotWrappingValueOneof `json:"value"`
+}
+
+type MachineKey struct {
+	unknownFields []byte
+	NodeID        uint64 `json:"node_id"`
+}
+
+type RecoveryCode struct {
+	unknownFields []byte
+	KdfSalt       []byte `json:"kdf_salt"`
 }
 
 type SecretCreateRequest struct {
-	Name             string `json:"name,omitempty"`
-	Value            []byte `json:"value"`
-	SpaceID          int32  `json:"space_id"`
-	ValueDirectoryID int32  `json:"value_directory_id"`
+	unknownFields    []byte
+	Key              string        `json:"key,omitempty"`
+	Value            []byte        `json:"value"`
+	SpaceID          uint64        `json:"space_id"`
+	ValueDirectoryID Maybe[uint64] `json:"value_directory_id,omitzero"`
 }
 
+// SecretSetRequest appends the next version of an existing secret.
 type SecretSetRequest struct {
-	SecretID                     int32                    `json:"secret_id"`
-	Value                        []byte                   `json:"value"`
-	UpdateReferencingDeployments bool                     `json:"update_referencing_deployments"`
-	ReferencingDeployments       []*DeploymentExpectedSeq `json:"referencing_deployments,omitempty"`
+	unknownFields                []byte
+	SecretID                     uint64                  `json:"secret_id"`
+	Value                        []byte                  `json:"value"`
+	UpdateReferencingDeployments bool                    `json:"update_referencing_deployments"`
+	ReferencingDeployments       []DeploymentExpectedSeq `json:"referencing_deployments,omitempty"`
 }
 
+// SecretPasswordSpec asks for a random character string. Symbols default to
+// off: the caller cannot read the value back to debug a quoting problem.
 type SecretPasswordSpec struct {
+	unknownFields  []byte
 	Length         int32 `json:"length"`
 	IncludeSymbols bool  `json:"include_symbols"`
 }
 
+// SecretGenerateRequest creates a secret whose value the caller never sees.
+// Future generators become further alternatives of the spec.
 type SecretGenerateRequest struct {
-	Name     string              `json:"name,omitempty"`
-	SpaceID  int32               `json:"space_id"`
-	Password *SecretPasswordSpec `json:"password"`
+	unknownFields    []byte
+	Key              string                         `json:"key,omitempty"`
+	SpaceID          uint64                         `json:"space_id"`
+	ValueDirectoryID Maybe[uint64]                  `json:"value_directory_id,omitzero"`
+	Spec             SecretGenerateRequestSpecOneof `json:"spec"`
 }
 
 type SecretRenameRequest struct {
-	SecretID int32  `json:"secret_id"`
-	NewName  string `json:"new_name,omitempty"`
+	unknownFields []byte
+	SecretID      uint64 `json:"secret_id"`
+	NewKey        string `json:"new_key,omitempty"`
 }
 
 type SecretMoveRequest struct {
-	SecretID         int32 `json:"secret_id"`
-	ValueDirectoryID int32 `json:"value_directory_id"`
-	SpaceID          int32 `json:"space_id"`
+	unknownFields    []byte
+	SecretID         uint64        `json:"secret_id"`
+	ValueDirectoryID Maybe[uint64] `json:"value_directory_id,omitzero"`
+	SpaceID          Maybe[uint64] `json:"space_id,omitzero"`
 }
 
 type SecretDeleteRequest struct {
-	SecretID int32 `json:"secret_id"`
+	unknownFields []byte
+	SecretID      uint64 `json:"secret_id"`
 }
 
 type SecretRevealRequest struct {
-	SecretID int32 `json:"secret_id"`
-	Version  int32 `json:"version"`
+	unknownFields []byte
+	SecretID      uint64 `json:"secret_id"`
+	Version       uint32 `json:"version"`
 }
 
 type SecretRevealResponse struct {
-	Value []byte `json:"value"`
+	unknownFields []byte
+	Value         []byte `json:"value"`
 }
 
 type SecretsStatusResponse struct {
+	unknownFields      []byte
 	Unlocked           bool `json:"unlocked"`
 	RecoveryConfigured bool `json:"recovery_configured"`
 }
 
 type SecretRecoveryCodeResponse struct {
-	Code string `json:"code,omitempty"`
+	unknownFields []byte
+	Code          string `json:"code,omitempty"`
 }
 
 type SecretUnlockRequest struct {
-	Code string `json:"code,omitempty"`
+	unknownFields []byte
+	Code          string `json:"code,omitempty"`
 }
 
 type Config struct {
-	Fs      *ConfigFs `json:"fs"`
-	SpaceID int32     `json:"space_id"`
-	Value   string    `json:"value,omitempty"`
-	ID      int32     `json:"id"`
+	unknownFields []byte
+	ID            uint64   `json:"id"`
+	Fs            ConfigFs `json:"fs"`
+	SpaceID       uint64   `json:"space_id"`
+	Value         string   `json:"value,omitempty"`
 }
 
 type ConfigFs struct {
-	Name        string `json:"name,omitempty"`
-	DirectoryID int32  `json:"directory_id"`
+	unknownFields []byte
+	Key           string        `json:"key,omitempty"`
+	DirectoryID   Maybe[uint64] `json:"directory_id,omitzero"`
 }
 
 type ValueDirectory struct {
-	ID       int32  `json:"id"`
-	SpaceID  int32  `json:"space_id"`
-	Name     string `json:"name,omitempty"`
-	ParentID int32  `json:"parent_id"`
+	unknownFields []byte
+	ID            uint64        `json:"id"`
+	SpaceID       uint64        `json:"space_id"`
+	Key           string        `json:"key,omitempty"`
+	ParentID      Maybe[uint64] `json:"parent_id,omitzero"`
 }
 
 type ConfigCreateRequest struct {
-	Name             string `json:"name,omitempty"`
-	Value            string `json:"value,omitempty"`
-	SpaceID          int32  `json:"space_id"`
-	ValueDirectoryID int32  `json:"value_directory_id"`
+	unknownFields    []byte
+	Key              string        `json:"key,omitempty"`
+	Value            string        `json:"value,omitempty"`
+	SpaceID          uint64        `json:"space_id"`
+	ValueDirectoryID Maybe[uint64] `json:"value_directory_id,omitzero"`
 }
 
+// ConfigSetRequest appends the next version of an existing config.
 type ConfigSetRequest struct {
-	ConfigID                     int32                    `json:"config_id"`
-	Value                        string                   `json:"value,omitempty"`
-	UpdateReferencingDeployments bool                     `json:"update_referencing_deployments"`
-	ReferencingDeployments       []*DeploymentExpectedSeq `json:"referencing_deployments,omitempty"`
+	unknownFields                []byte
+	ConfigID                     uint64                  `json:"config_id"`
+	Value                        string                  `json:"value,omitempty"`
+	UpdateReferencingDeployments bool                    `json:"update_referencing_deployments"`
+	ReferencingDeployments       []DeploymentExpectedSeq `json:"referencing_deployments,omitempty"`
 }
 
 type ConfigRenameRequest struct {
-	ConfigID int32  `json:"config_id"`
-	NewName  string `json:"new_name,omitempty"`
+	unknownFields []byte
+	ConfigID      uint64 `json:"config_id"`
+	NewKey        string `json:"new_key,omitempty"`
 }
 
 type ConfigDeleteRequest struct {
-	ConfigID int32 `json:"config_id"`
+	unknownFields []byte
+	ConfigID      uint64 `json:"config_id"`
 }
 
 type ConfigMoveRequest struct {
-	ConfigID         int32 `json:"config_id"`
-	ValueDirectoryID int32 `json:"value_directory_id"`
-	SpaceID          int32 `json:"space_id"`
+	unknownFields    []byte
+	ConfigID         uint64        `json:"config_id"`
+	ValueDirectoryID Maybe[uint64] `json:"value_directory_id,omitzero"`
+	SpaceID          Maybe[uint64] `json:"space_id,omitzero"`
 }
 
 type Asset struct {
-	Fs         *AssetFs `json:"fs"`
-	SpaceID    int32    `json:"space_id"`
-	Sha256     string   `json:"sha256,omitempty"`
-	SizeBytes  int64    `json:"size_bytes"`
-	StorageKey string   `json:"storage_key,omitempty"`
-	ID         int32    `json:"id"`
+	unknownFields []byte
+	ID            uint64  `json:"id"`
+	Fs            AssetFs `json:"fs"`
+	SpaceID       uint64  `json:"space_id"`
+	SizeBytes     uint64  `json:"size_bytes"`
+	Sha256        []byte  `json:"sha256"`
+	StorageKey    string  `json:"storage_key,omitempty"`
 }
 
 type AssetFs struct {
-	Key         string `json:"key,omitempty"`
-	DirectoryID int32  `json:"directory_id"`
+	unknownFields []byte
+	Key           string        `json:"key,omitempty"`
+	DirectoryID   Maybe[uint64] `json:"directory_id,omitzero"`
 }
 
 type AssetDirectory struct {
-	ID       int32  `json:"id"`
-	SpaceID  int32  `json:"space_id"`
-	Key      string `json:"key,omitempty"`
-	ParentID int32  `json:"parent_id"`
+	unknownFields []byte
+	ID            uint64        `json:"id"`
+	SpaceID       uint64        `json:"space_id"`
+	Key           string        `json:"key,omitempty"`
+	ParentID      Maybe[uint64] `json:"parent_id,omitzero"`
 }
 
 type AssetRenameRequest struct {
-	AssetID int32  `json:"asset_id"`
-	NewKey  string `json:"new_key,omitempty"`
+	unknownFields []byte
+	AssetID       uint64 `json:"asset_id"`
+	NewKey        string `json:"new_key,omitempty"`
 }
 
 type AssetDeleteRequest struct {
-	AssetID int32 `json:"asset_id"`
+	unknownFields []byte
+	AssetID       uint64 `json:"asset_id"`
 }
 
 type AssetMoveRequest struct {
-	AssetID          int32 `json:"asset_id"`
-	AssetDirectoryID int32 `json:"asset_directory_id"`
-	SpaceID          int32 `json:"space_id"`
+	unknownFields    []byte
+	AssetID          uint64        `json:"asset_id"`
+	AssetDirectoryID Maybe[uint64] `json:"asset_directory_id,omitzero"`
+	SpaceID          Maybe[uint64] `json:"space_id,omitzero"`
 }
 
 type ValueDirectoryList struct {
-	Items []*ValueDirectory `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []ValueDirectory `json:"items,omitempty"`
 }
 
 type ValueDirectoryCreateRequest struct {
-	SpaceID  int32  `json:"space_id"`
-	ParentID int32  `json:"parent_id"`
-	Name     string `json:"name,omitempty"`
+	unknownFields []byte
+	SpaceID       uint64        `json:"space_id"`
+	ParentID      Maybe[uint64] `json:"parent_id,omitzero"`
+	Key           string        `json:"key,omitempty"`
 }
 
 type ValueDirectoryMoveRequest struct {
-	DirectoryID int32 `json:"directory_id"`
-	NewParentID int32 `json:"new_parent_id"`
-	SpaceID     int32 `json:"space_id"`
+	unknownFields []byte
+	DirectoryID   uint64        `json:"directory_id"`
+	NewParentID   Maybe[uint64] `json:"new_parent_id,omitzero"`
+	SpaceID       Maybe[uint64] `json:"space_id,omitzero"`
 }
 
 type ValueDirectoryRenameRequest struct {
-	DirectoryID int32  `json:"directory_id"`
-	NewName     string `json:"new_name,omitempty"`
+	unknownFields []byte
+	DirectoryID   uint64 `json:"directory_id"`
+	NewKey        string `json:"new_key,omitempty"`
 }
 
 type ValueDirectoryDeleteRequest struct {
-	DirectoryID int32 `json:"directory_id"`
+	unknownFields []byte
+	DirectoryID   uint64 `json:"directory_id"`
 }
 
 type AssetDirectoryList struct {
-	Items []*AssetDirectory `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []AssetDirectory `json:"items,omitempty"`
 }
 
 type AssetDirectoryCreateRequest struct {
-	SpaceID  int32  `json:"space_id"`
-	ParentID int32  `json:"parent_id"`
-	Key      string `json:"key,omitempty"`
+	unknownFields []byte
+	SpaceID       uint64        `json:"space_id"`
+	ParentID      Maybe[uint64] `json:"parent_id,omitzero"`
+	Key           string        `json:"key,omitempty"`
 }
 
 type AssetDirectoryMoveRequest struct {
-	DirectoryID int32 `json:"directory_id"`
-	NewParentID int32 `json:"new_parent_id"`
-	SpaceID     int32 `json:"space_id"`
+	unknownFields []byte
+	DirectoryID   uint64        `json:"directory_id"`
+	NewParentID   Maybe[uint64] `json:"new_parent_id,omitzero"`
+	SpaceID       Maybe[uint64] `json:"space_id,omitzero"`
 }
 
 type AssetDirectoryRenameRequest struct {
-	DirectoryID int32  `json:"directory_id"`
-	NewKey      string `json:"new_key,omitempty"`
+	unknownFields []byte
+	DirectoryID   uint64 `json:"directory_id"`
+	NewKey        string `json:"new_key,omitempty"`
 }
 
 type AssetDirectoryDeleteRequest struct {
-	DirectoryID int32 `json:"directory_id"`
-}
-
-type Space struct {
-	ID   int32  `json:"id"`
-	Name string `json:"name,omitempty"`
+	unknownFields []byte
+	DirectoryID   uint64 `json:"directory_id"`
 }
 
 type SpaceList struct {
-	Items []*Space `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []Space `json:"items,omitempty"`
 }
 
 type SpaceSetRequest struct {
-	ID   int32  `json:"id"`
-	Name string `json:"name,omitempty"`
+	unknownFields []byte
+	ID            uint64 `json:"id"`
+	Name          string `json:"name,omitempty"`
 }
 
 type SpaceDeleteRequest struct {
-	ID int32 `json:"id"`
+	unknownFields []byte
+	ID            uint64 `json:"id"`
 }
 
 type User struct {
-	ID          int32  `json:"id"`
-	Name        string `json:"name,omitempty"`
-	Credentials []byte `json:"credentials"`
+	unknownFields  []byte
+	ID             uint64             `json:"id"`
+	Name           string             `json:"name,omitempty"`
+	Authentication UserAuthentication `json:"authentication"`
+}
+
+type UserAuthentication struct {
+	unknownFields []byte
+	WebAuthnID    []byte               `json:"web_authn_id"`
+	Credentials   []WebAuthnCredential `json:"credentials,omitempty"`
 }
 
 type WebAuthnCredential struct {
-	ID   []byte `json:"id"`
-	Data []byte `json:"data"`
-}
-
-type InternalUser struct {
-	ID          int32                 `json:"id"`
-	WebAuthNID  []byte                `json:"web_auth_n_id"`
-	Name        string                `json:"name,omitempty"`
-	Credentials []*WebAuthnCredential `json:"credentials,omitempty"`
-	Delegated   bool                  `json:"delegated"`
+	unknownFields []byte
+	ID            []byte `json:"id"`
+	Data          []byte `json:"data"`
 }
 
 type MasterPasswordRequest struct {
-	Password string `json:"password,omitempty"`
-	Username string `json:"username,omitempty"`
+	unknownFields []byte
+	Password      string `json:"password,omitempty"`
+	Username      string `json:"username,omitempty"`
 }
 
 type MasterPasswordVerifyRequest struct {
-	Password string `json:"password,omitempty"`
+	unknownFields []byte
+	Password      string `json:"password,omitempty"`
 }
 
 type MasterPasswordSaveRequest struct {
-	Password string `json:"password,omitempty"`
+	unknownFields []byte
+	Password      string `json:"password,omitempty"`
 }
 
+// PasswordLoginRequest signs in with the cluster master password. The named
+// user is created on first use.
 type PasswordLoginRequest struct {
-	Username string `json:"username,omitempty"`
-	Password string `json:"password,omitempty"`
+	unknownFields []byte
+	Username      string `json:"username,omitempty"`
+	Password      string `json:"password,omitempty"`
 }
 
+// AuthMethodsResponse tells the login page which methods the server accepts
+// and whether a locally generated Web UI CA is served at /v1/tls/ca.crt.
 type AuthMethodsResponse struct {
+	unknownFields        []byte
 	PasskeyLoginEnabled  bool `json:"passkey_login_enabled"`
 	PasswordLoginEnabled bool `json:"password_login_enabled"`
 	LocalCaAvailable     bool `json:"local_ca_available"`
 }
 
 type LoginResponse struct {
-	Token     string          `json:"token,omitempty"`
-	UserID    int32           `json:"user_id"`
-	Name      string          `json:"name,omitempty"`
-	Expiry    time.Time       `json:"expiry"`
-	SessionID string          `json:"session_id,omitempty"`
-	Kind      UserSessionKind `json:"kind"`
+	unknownFields []byte
+	Token         string          `json:"token,omitempty"`
+	UserID        uint64          `json:"user_id"`
+	Name          string          `json:"name,omitempty"`
+	Expiry        time.Time       `json:"expiry"`
+	SessionID     string          `json:"session_id,omitempty"`
+	Kind          UserSessionKind `json:"kind"`
 }
 
 type WebAuthNOptionsResponse struct {
-	SessionID   string `json:"session_id,omitempty"`
-	OptionsJson []byte `json:"options_json"`
+	unknownFields []byte
+	SessionID     string `json:"session_id,omitempty"`
+	OptionsJson   []byte `json:"options_json"`
 }
 
 type WebAuthNFinishRequest struct {
+	unknownFields  []byte
 	SessionID      string `json:"session_id,omitempty"`
 	CredentialJson []byte `json:"credential_json"`
 }
 
 type AgentSession struct {
-	UserID            int32              `json:"user_id"`
-	ID                string             `json:"id,omitempty"`
-	ExpiresAt         time.Time          `json:"expires_at"`
-	TokenPrefix       string             `json:"token_prefix,omitempty"`
+	unknownFields     []byte
+	ID                uint64             `json:"id"`
+	SessionID         string             `json:"session_id,omitempty"`
+	UserID            uint64             `json:"user_id"`
 	Status            AgentSessionStatus `json:"status"`
+	ApprovedAt        Maybe[time.Time]   `json:"approved_at,omitzero"`
 	RequestingAddress string             `json:"requesting_address,omitempty"`
-	ApprovalCode      string             `json:"approval_code,omitempty"`
-	ApprovedAt        time.Time          `json:"approved_at"`
-	TokenHash         []byte             `json:"token_hash"`
+	ApprovalCode      Maybe[string]      `json:"approval_code,omitzero"`
+	Token             Maybe[AgentToken]  `json:"token,omitzero"`
+}
+
+// AgentToken is the minted bearer token: the hash is replica class only and
+// never sent to a browser.
+type AgentToken struct {
+	unknownFields []byte
+	Hash          Maybe[[]byte] `json:"hash,omitzero"`
+	Prefix        string        `json:"prefix,omitempty"`
+	ExpiresAt     time.Time     `json:"expires_at"`
 }
 
 type UserSession struct {
-	ID                string          `json:"id,omitempty"`
-	ExpiresAt         time.Time       `json:"expires_at"`
-	RevokedAt         time.Time       `json:"revoked_at"`
-	RequestingAddress string          `json:"requesting_address,omitempty"`
-	UserAgent         string          `json:"user_agent,omitempty"`
-	UserID            int32           `json:"user_id"`
-	Kind              UserSessionKind `json:"kind"`
-	TokenHash         []byte          `json:"token_hash"`
+	unknownFields     []byte
+	ID                uint64           `json:"id"`
+	SessionID         string           `json:"session_id,omitempty"`
+	UserID            uint64           `json:"user_id"`
+	Kind              UserSessionKind  `json:"kind"`
+	ExpiresAt         time.Time        `json:"expires_at"`
+	RevokedAt         Maybe[time.Time] `json:"revoked_at,omitzero"`
+	RequestingAddress string           `json:"requesting_address,omitempty"`
+	UserAgent         string           `json:"user_agent,omitempty"`
+	TokenHash         Maybe[[]byte]    `json:"token_hash,omitzero"`
+}
+
+type AgentSessionList struct {
+	unknownFields []byte
+	Items         []AgentSession `json:"items,omitempty"`
+}
+
+// AgentSessionCreated carries the one and only delivery of a new session's
+// token. It is not a LoginResponse: the token is not a browser session.
+type AgentSessionCreated struct {
+	unknownFields []byte
+	Token         string       `json:"token,omitempty"`
+	Session       AgentSession `json:"session"`
+}
+
+type AgentSessionRevokeRequest struct {
+	unknownFields []byte
+	SessionID     string `json:"session_id,omitempty"`
+}
+
+type UserSessionList struct {
+	unknownFields []byte
+	Items         []UserSession `json:"items,omitempty"`
+}
+
+type UserSessionRevokeRequest struct {
+	unknownFields []byte
+	SessionID     string `json:"session_id,omitempty"`
+}
+
+// AgentSessionRequestStartRequest is an agent's unauthenticated opening call:
+// user_id says only whose approval queue the request lands in.
+type AgentSessionRequestStartRequest struct {
+	unknownFields []byte
+	UserID        uint64 `json:"user_id"`
 }
 
 type AgentSessionRequest struct {
-	ID               string             `json:"id,omitempty"`
+	unknownFields    []byte
+	SessionID        string             `json:"session_id,omitempty"`
 	ApprovalCode     string             `json:"approval_code,omitempty"`
 	Status           AgentSessionStatus `json:"status"`
 	RequestExpiresAt time.Time          `json:"request_expires_at"`
 }
 
-type AgentSessionList struct {
-	Items []*AgentSession `json:"items,omitempty"`
-}
-
-type AgentSessionCreated struct {
-	Token   string        `json:"token,omitempty"`
-	Session *AgentSession `json:"session"`
-}
-
-type AgentSessionRevokeRequest struct {
-	ID string `json:"id,omitempty"`
-}
-
-type UserSessionList struct {
-	Items []*UserSession `json:"items,omitempty"`
-}
-
-type UserSessionRevokeRequest struct {
-	ID string `json:"id,omitempty"`
-}
-
-type AgentSessionRequestStartRequest struct {
-	UserID int32 `json:"user_id"`
-}
-
 type AgentSessionGetRequest struct {
-	ID string `json:"id,omitempty"`
+	unknownFields []byte
+	SessionID     string `json:"session_id,omitempty"`
 }
 
+// AgentSessionPickup carries the token exactly once: on the first get-session
+// call after approval. Every later call returns status alone.
 type AgentSessionPickup struct {
-	Status    AgentSessionStatus `json:"status"`
-	Token     string             `json:"token,omitempty"`
-	ExpiresAt time.Time          `json:"expires_at"`
+	unknownFields []byte
+	Status        AgentSessionStatus `json:"status"`
+	Token         string             `json:"token,omitempty"`
+	ExpiresAt     Maybe[time.Time]   `json:"expires_at,omitzero"`
 }
 
 type AgentSessionApproveRequest struct {
-	ID string `json:"id,omitempty"`
+	unknownFields []byte
+	SessionID     string `json:"session_id,omitempty"`
+}
+
+// AuthzEntityRef names one instance of an entity kind.
+type AuthzEntityRef struct {
+	unknownFields []byte
+	Target        AuthzEntityRefTarget `json:"target"`
+}
+
+type AuthzEntityRefTarget struct {
+	unknownFields []byte
+	Value         AuthzEntityRefTargetValueOneof `json:"value"`
+}
+
+// A selector position is a record of two optional lists: exact_ lists what
+// the rule covers, all_ _excluding covers everything but the listed values,
+// where an empty list is the plain wildcard. Exactly one of the two is set.
+type AuthzPermissionSelector struct {
+	unknownFields     []byte
+	ExactVerbs        Maybe[AuthzVerbList] `json:"exact_verbs,omitzero"`
+	AllVerbsExcluding Maybe[AuthzVerbList] `json:"all_verbs_excluding,omitzero"`
+}
+
+type AuthzSpaceSelector struct {
+	unknownFields      []byte
+	ExactSpaces        Maybe[SpaceIdList] `json:"exact_spaces,omitzero"`
+	AllSpacesExcluding Maybe[SpaceIdList] `json:"all_spaces_excluding,omitzero"`
+}
+
+type AuthzEntityTypeSelector struct {
+	unknownFields           []byte
+	ExactEntityTypes        Maybe[AuthzEntityKindList] `json:"exact_entity_types,omitzero"`
+	AllEntityTypesExcluding Maybe[AuthzEntityKindList] `json:"all_entity_types_excluding,omitzero"`
+}
+
+type AuthzEntityRefSelector struct {
+	unknownFields          []byte
+	ExactEntityRefs        Maybe[AuthzEntityRefList] `json:"exact_entity_refs,omitzero"`
+	AllEntityRefsExcluding Maybe[AuthzEntityRefList] `json:"all_entity_refs_excluding,omitzero"`
+}
+
+type AuthzVerbList struct {
+	unknownFields []byte
+	Values        []AuthzVerb `json:"values,omitempty"`
+}
+
+type SpaceIdList struct {
+	unknownFields []byte
+	Values        []uint64 `json:"values,omitempty"`
+}
+
+type AuthzEntityKindList struct {
+	unknownFields []byte
+	Values        []AuthzEntityKind `json:"values,omitempty"`
+}
+
+type AuthzEntityRefList struct {
+	unknownFields []byte
+	Values        []AuthzEntityRef `json:"values,omitempty"`
 }
 
 type AuthzSelector struct {
-	Wildcard   bool    `json:"wildcard"`
-	ArgumentID int64   `json:"argument_id"`
-	Include    []int64 `json:"include,omitempty"`
-	Exclude    []int64 `json:"exclude,omitempty"`
+	unknownFields []byte
+	Permissions   AuthzPermissionSelector `json:"permissions"`
+	Spaces        AuthzSpaceSelector      `json:"spaces"`
+	EntityTypes   AuthzEntityTypeSelector `json:"entity_types"`
+	EntityRefs    AuthzEntityRefSelector  `json:"entity_refs"`
+}
+
+// AuthzArgument names the template argument that supplies a position's values.
+type AuthzArgument struct {
+	unknownFields []byte
+	ArgumentID    uint32 `json:"argument_id"`
+}
+
+type AuthzTemplatePermissionSelector struct {
+	unknownFields []byte
+	Value         AuthzTemplatePermissionSelectorValueOneof `json:"value"`
+}
+
+type AuthzTemplateSpaceSelector struct {
+	unknownFields []byte
+	Value         AuthzTemplateSpaceSelectorValueOneof `json:"value"`
+}
+
+type AuthzTemplateEntityTypeSelector struct {
+	unknownFields []byte
+	Value         AuthzTemplateEntityTypeSelectorValueOneof `json:"value"`
+}
+
+type AuthzTemplateEntityRefSelector struct {
+	unknownFields []byte
+	Value         AuthzTemplateEntityRefSelectorValueOneof `json:"value"`
+}
+
+type AuthzTemplateSelector struct {
+	unknownFields []byte
+	Permissions   AuthzTemplatePermissionSelector `json:"permissions"`
+	Spaces        AuthzTemplateSpaceSelector      `json:"spaces"`
+	EntityTypes   AuthzTemplateEntityTypeSelector `json:"entity_types"`
+	EntityRefs    AuthzTemplateEntityRefSelector  `json:"entity_refs"`
+}
+
+type AuthzAllow struct {
+	unknownFields     []byte
+	DelegationAllowed bool `json:"delegation_allowed"`
+}
+
+type AuthzDeny struct {
+	unknownFields []byte
+	DelegatedOnly bool `json:"delegated_only"`
+}
+
+type AuthzEffect struct {
+	unknownFields []byte
+	Value         AuthzEffectValueOneof `json:"value"`
 }
 
 type AuthzRule struct {
-	Permissions       *AuthzSelector `json:"permissions"`
-	Spaces            *AuthzSelector `json:"spaces"`
-	EntityTypes       *AuthzSelector `json:"entity_types"`
-	EntityRefs        *AuthzSelector `json:"entity_refs"`
-	DelegationAllowed bool           `json:"delegation_allowed"`
+	unknownFields []byte
+	Effect        AuthzEffect   `json:"effect"`
+	Selector      AuthzSelector `json:"selector"`
+}
+
+type AuthzTemplateRule struct {
+	unknownFields []byte
+	Effect        AuthzEffect           `json:"effect"`
+	Selector      AuthzTemplateSelector `json:"selector"`
 }
 
 type AuthzTemplateArgument struct {
-	ID   int64  `json:"id"`
-	Name string `json:"name,omitempty"`
+	unknownFields []byte
+	ID            uint32            `json:"id"`
+	Name          string            `json:"name,omitempty"`
+	Kind          AuthzArgumentKind `json:"kind"`
 }
 
-type AuthzRuleTemplateSpec struct {
-	Arguments []*AuthzTemplateArgument `json:"arguments,omitempty"`
-	Rules     []*AuthzRule             `json:"rules,omitempty"`
+type AuthzGrantTemplateSpec struct {
+	unknownFields []byte
+	Arguments     []AuthzTemplateArgument `json:"arguments,omitempty"`
+	Rules         []AuthzTemplateRule     `json:"rules,omitempty"`
 }
 
-type AuthzRuleTemplate struct {
-	ID      int64                  `json:"id"`
-	Name    string                 `json:"name,omitempty"`
-	Builtin bool                   `json:"builtin"`
-	Spec    *AuthzRuleTemplateSpec `json:"spec"`
+type AuthzGrantTemplate struct {
+	unknownFields []byte
+	ID            uint64                 `json:"id"`
+	Name          string                 `json:"name,omitempty"`
+	Builtin       bool                   `json:"builtin"`
+	Spec          AuthzGrantTemplateSpec `json:"spec"`
+}
+
+type AuthzPermissionValues struct {
+	unknownFields []byte
+	Values        []AuthzVerb `json:"values,omitempty"`
+}
+
+type AuthzSpaceValues struct {
+	unknownFields []byte
+	Values        []uint64 `json:"values,omitempty"`
+}
+
+type AuthzEntityValues struct {
+	unknownFields []byte
+	Values        []AuthzEntityKind `json:"values,omitempty"`
+}
+
+type AuthzReferenceValues struct {
+	unknownFields []byte
+	Values        []AuthzEntityRef `json:"values,omitempty"`
+}
+
+type AuthzArgumentValues struct {
+	unknownFields []byte
+	Value         AuthzArgumentValuesValueOneof `json:"value"`
 }
 
 type AuthzArgumentBinding struct {
-	ArgumentID int64   `json:"argument_id"`
-	Values     []int64 `json:"values,omitempty"`
+	unknownFields []byte
+	ArgumentID    uint32              `json:"argument_id"`
+	Values        AuthzArgumentValues `json:"values"`
 }
 
-type AuthzGrantSpec struct {
-	Args []*AuthzArgumentBinding `json:"args,omitempty"`
-	Rule *AuthzRule              `json:"rule"`
+type AuthzTemplateGrant struct {
+	unknownFields []byte
+	TemplateID    uint64                 `json:"template_id"`
+	Args          []AuthzArgumentBinding `json:"args,omitempty"`
+}
+
+type AuthzGrantSource struct {
+	unknownFields []byte
+	Value         AuthzGrantSourceValueOneof `json:"value"`
 }
 
 type AuthzGrant struct {
-	UserID     int64           `json:"user_id"`
-	TemplateID int64           `json:"template_id"`
-	Spec       *AuthzGrantSpec `json:"spec"`
-	ID         int64           `json:"id"`
-}
-
-type AuthzGlobalRuleSpec struct {
-	Permissions       *AuthzSelector `json:"permissions"`
-	Spaces            *AuthzSelector `json:"spaces"`
-	EntityTypes       *AuthzSelector `json:"entity_types"`
-	EntityRefs        *AuthzSelector `json:"entity_refs"`
-	DelegatedOnly     bool           `json:"delegated_only"`
-	DelegationAllowed bool           `json:"delegation_allowed"`
-	Deny              bool           `json:"deny"`
+	unknownFields []byte
+	ID            uint64           `json:"id"`
+	UserID        uint64           `json:"user_id"`
+	Grant         AuthzGrantSource `json:"grant"`
 }
 
 type AuthzGlobalRule struct {
-	ID   int64                `json:"id"`
-	Name string               `json:"name,omitempty"`
-	Spec *AuthzGlobalRuleSpec `json:"spec"`
+	unknownFields []byte
+	ID            uint64    `json:"id"`
+	Name          string    `json:"name,omitempty"`
+	Rule          AuthzRule `json:"rule"`
 }
 
-type AuthzRuleTemplateList struct {
-	Items []*AuthzRuleTemplate `json:"items,omitempty"`
+type AuthzGrantTemplateList struct {
+	unknownFields []byte
+	Items         []AuthzGrantTemplate `json:"items,omitempty"`
 }
 
-type AuthzRuleTemplateCreateRequest struct {
-	Name string                 `json:"name,omitempty"`
-	Spec *AuthzRuleTemplateSpec `json:"spec"`
+type AuthzGrantTemplateCreateRequest struct {
+	unknownFields []byte
+	Name          string                 `json:"name,omitempty"`
+	Spec          AuthzGrantTemplateSpec `json:"spec"`
 }
 
-type AuthzRuleTemplateUpdateRequest struct {
-	ID   int64                  `json:"id"`
-	Name string                 `json:"name,omitempty"`
-	Spec *AuthzRuleTemplateSpec `json:"spec"`
+type AuthzGrantTemplateUpdateRequest struct {
+	unknownFields []byte
+	ID            uint64                 `json:"id"`
+	Name          string                 `json:"name,omitempty"`
+	Spec          AuthzGrantTemplateSpec `json:"spec"`
 }
 
-type AuthzRuleTemplateDeleteRequest struct {
-	ID int64 `json:"id"`
+type AuthzGrantTemplateDeleteRequest struct {
+	unknownFields []byte
+	ID            uint64 `json:"id"`
 }
 
 type AuthzGrantCreateRequest struct {
-	UserID     int64           `json:"user_id"`
-	TemplateID int64           `json:"template_id"`
-	Spec       *AuthzGrantSpec `json:"spec"`
+	unknownFields []byte
+	UserID        uint64           `json:"user_id"`
+	Grant         AuthzGrantSource `json:"grant"`
 }
 
 type AuthzGrantDeleteRequest struct {
-	UserID int64 `json:"user_id"`
-	ID     int64 `json:"id"`
+	unknownFields []byte
+	UserID        uint64 `json:"user_id"`
+	ID            uint64 `json:"id"`
 }
 
 type AuthzGlobalRuleList struct {
-	Items []*AuthzGlobalRule `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []AuthzGlobalRule `json:"items,omitempty"`
 }
 
 type AuthzGlobalRuleCreateRequest struct {
-	Name string               `json:"name,omitempty"`
-	Spec *AuthzGlobalRuleSpec `json:"spec"`
+	unknownFields []byte
+	Name          string    `json:"name,omitempty"`
+	Rule          AuthzRule `json:"rule"`
 }
 
 type AuthzGlobalRuleDeleteRequest struct {
-	ID int64 `json:"id"`
-}
-
-type NodeReported struct {
-	Identifier           string   `json:"identifier,omitempty"`
-	UnderlayAddress      string   `json:"underlay_address,omitempty"`
-	WgPublicKey          string   `json:"wg_public_key,omitempty"`
-	HostAddresses        []string `json:"host_addresses,omitempty"`
-	HostAddressesUnknown bool     `json:"host_addresses_unknown"`
-}
-
-type NodeOperator struct {
-	Name          string  `json:"name,omitempty"`
-	Roles         []int32 `json:"roles,omitempty"`
-	AllowedSpaces []int32 `json:"allowed_spaces,omitempty"`
-	EnrolledTime  int64   `json:"enrolled_time"`
+	unknownFields []byte
+	ID            uint64 `json:"id"`
 }
 
 type Node struct {
+	unknownFields         []byte
+	ID                    uint64              `json:"id"`
 	Status                NodeLifecycleStatus `json:"status"`
-	EnrollmentRequestedAt int64               `json:"enrollment_requested_at"`
+	EnrollmentRequestedAt Maybe[time.Time]    `json:"enrollment_requested_at,omitzero"`
 	Operator              NodeOperator        `json:"operator"`
 	Reported              NodeReported        `json:"reported"`
-	ID                    int32               `json:"id"`
+}
+
+type NodeOperator struct {
+	unknownFields []byte
+	Name          string           `json:"name,omitempty"`
+	Roles         []NodeRole       `json:"roles,omitempty"`
+	AllowedSpaces []uint64         `json:"allowed_spaces,omitempty"`
+	EnrolledTime  Maybe[time.Time] `json:"enrolled_time,omitzero"`
+}
+
+type NodeReported struct {
+	unknownFields        []byte
+	Identifier           string      `json:"identifier,omitempty"`
+	UnderlayAddress      IpAddress   `json:"underlay_address"`
+	WgPublicKey          string      `json:"wg_public_key,omitempty"`
+	HostAddresses        []IpAddress `json:"host_addresses,omitempty"`
+	HostAddressesUnknown bool        `json:"host_addresses_unknown"`
 }
 
 type NodeStatus struct {
-	NodeID            int32     `json:"node_id"`
-	UpdatedAt         time.Time `json:"updated_at"`
-	IsConnected       bool      `json:"is_connected"`
-	LastConnectedAt   time.Time `json:"last_connected_at"`
-	RemoteAddress     string    `json:"remote_address,omitempty"`
-	OpendeployVersion string    `json:"opendeploy_version,omitempty"`
-	RuntimeVersions   string    `json:"runtime_versions,omitempty"`
+	unknownFields     []byte
+	NodeID            uint64           `json:"node_id"`
+	UpdatedAt         Maybe[time.Time] `json:"updated_at,omitzero"`
+	IsConnected       bool             `json:"is_connected"`
+	LastConnectedAt   Maybe[time.Time] `json:"last_connected_at,omitzero"`
+	RemoteAddress     string           `json:"remote_address,omitempty"`
+	OpendeployVersion string           `json:"opendeploy_version,omitempty"`
+	RuntimeVersions   string           `json:"runtime_versions,omitempty"`
 }
 
 type EnrollmentRequestStatus struct {
-	ID                  int32               `json:"id"`
+	unknownFields       []byte
+	ID                  uint64              `json:"id"`
 	CreatedAt           time.Time           `json:"created_at"`
 	RequestingIpAddress string              `json:"requesting_ip_address,omitempty"`
 	RequestingMachineID string              `json:"requesting_machine_id,omitempty"`
@@ -1457,569 +1916,2024 @@ type EnrollmentRequestStatus struct {
 }
 
 type NodeEnrollmentInfo struct {
+	unknownFields           []byte
 	EnrollmentTlsSpkiSha256 string `json:"enrollment_tls_spki_sha256,omitempty"`
 }
 
 type NodeRenameRequest struct {
-	Identifier string `json:"identifier,omitempty"`
-	Name       string `json:"name,omitempty"`
+	unknownFields []byte
+	Identifier    string `json:"identifier,omitempty"`
+	Name          string `json:"name,omitempty"`
 }
 
 type NodeAllowedSpacesRequest struct {
-	Identifier string  `json:"identifier,omitempty"`
-	SpaceIds   []int32 `json:"space_ids,omitempty"`
+	unknownFields []byte
+	Identifier    string   `json:"identifier,omitempty"`
+	SpaceIds      []uint64 `json:"space_ids,omitempty"`
 }
 
 type NodeDrainRequest struct {
-	Identifier string `json:"identifier,omitempty"`
-	Draining   bool   `json:"draining"`
+	unknownFields []byte
+	Identifier    string `json:"identifier,omitempty"`
+	Draining      bool   `json:"draining"`
 }
 
 type NodeEvictRequest struct {
-	Identifier  string `json:"identifier,omitempty"`
-	Force       bool   `json:"force"`
-	ExpectedSeq int64  `json:"expected_seq"`
+	unknownFields []byte
+	Identifier    string `json:"identifier,omitempty"`
+	Force         bool   `json:"force"`
+	ExpectedSeq   int64  `json:"expected_seq"`
 }
 
 type NodeExposureRequest struct {
-	Identifier string `json:"identifier,omitempty"`
+	unknownFields []byte
+	Identifier    string `json:"identifier,omitempty"`
 }
 
 type NodeExposureItem struct {
-	ID      int32  `json:"id"`
-	Name    string `json:"name,omitempty"`
-	SpaceID int32  `json:"space_id"`
-	Version int32  `json:"version"`
+	unknownFields []byte
+	ID            uint64 `json:"id"`
+	Name          string `json:"name,omitempty"`
+	SpaceID       uint64 `json:"space_id"`
+	Version       uint32 `json:"version"`
 }
 
 type NodeExposure struct {
-	NodeID               int32               `json:"node_id"`
-	Deployments          []*NodeExposureItem `json:"deployments,omitempty"`
-	Secrets              []*NodeExposureItem `json:"secrets,omitempty"`
-	Configs              []*NodeExposureItem `json:"configs,omitempty"`
-	IssuedTlsDeployments []*NodeExposureItem `json:"issued_tls_deployments,omitempty"`
-	AcmeHostnames        []string            `json:"acme_hostnames,omitempty"`
-	GithubToken          bool                `json:"github_token"`
+	unknownFields        []byte
+	NodeID               uint64             `json:"node_id"`
+	Deployments          []NodeExposureItem `json:"deployments,omitempty"`
+	Secrets              []NodeExposureItem `json:"secrets,omitempty"`
+	Configs              []NodeExposureItem `json:"configs,omitempty"`
+	IssuedTlsDeployments []NodeExposureItem `json:"issued_tls_deployments,omitempty"`
+	AcmeHostnames        []string           `json:"acme_hostnames,omitempty"`
+	GithubToken          bool               `json:"github_token"`
+}
+
+type NixStoreResetRequest struct {
+	unknownFields []byte
+	Repo          string `json:"repo,omitempty"`
 }
 
 type AcmeState struct {
-	Seq          int64                `json:"seq"`
-	CertBindings []*AcmeCertBinding   `json:"cert_bindings,omitempty"`
-	Challenges   []*AcmeHttpChallenge `json:"challenges,omitempty"`
+	unknownFields []byte
+	Seq           int64               `json:"seq"`
+	CertBindings  []AcmeCertBinding   `json:"cert_bindings,omitempty"`
+	Challenges    []AcmeHttpChallenge `json:"challenges,omitempty"`
 }
 
 type AcmeCertBinding struct {
-	Hostname string   `json:"hostname,omitempty"`
-	Secret   ValueRef `json:"secret"`
+	unknownFields []byte
+	Hostname      string    `json:"hostname,omitempty"`
+	Secret        SecretRef `json:"secret"`
 }
 
+// ClusterNetworkInfo carries the cluster-wide virtual network parameters.
+// Every address is a pure function of the ULA prefix, space, deployment,
+// ordinal, version, and run, so this is the only distributed IPAM state.
 type ClusterNetworkInfo struct {
-	UlaPrefix []byte `json:"ula_prefix"`
+	unknownFields []byte
+	UlaPrefix     []byte `json:"ula_prefix"`
 }
 
+// ClusterNetMap is a complete placement and underlay snapshot targeted to one
+// node. derived_from_seq is the primary's write seq at render time; the first
+// map accepted in a session replaces the node's cache, later ones must carry
+// a higher stamp.
 type ClusterNetMap struct {
-	TargetNodeID   int32                   `json:"target_node_id"`
-	UlaPrefix      []byte                  `json:"ula_prefix"`
-	Nodes          []*ClusterNetMapNode    `json:"nodes,omitempty"`
-	Routes         []*ClusterNetMapRoute   `json:"routes,omitempty"`
-	DerivedFromSeq int64                   `json:"derived_from_seq"`
-	PolicyRules    []*NetPolicyRule        `json:"policy_rules,omitempty"`
-	DnsServices    []*ClusterNetMapService `json:"dns_services,omitempty"`
+	unknownFields  []byte
+	TargetNodeID   uint64                 `json:"target_node_id"`
+	UlaPrefix      []byte                 `json:"ula_prefix"`
+	Nodes          []ClusterNetMapNode    `json:"nodes,omitempty"`
+	Routes         []ClusterNetMapRoute   `json:"routes,omitempty"`
+	DerivedFromSeq int64                  `json:"derived_from_seq"`
+	PolicyRules    []NetPolicyRule        `json:"policy_rules,omitempty"`
+	DnsServices    []ClusterNetMapService `json:"dns_services,omitempty"`
 }
 
 type ClusterNetMapService struct {
-	Name         string                         `json:"name,omitempty"`
-	SpaceID      int32                          `json:"space_id"`
-	DeploymentID int32                          `json:"deployment_id"`
-	Ordinals     []*ClusterNetMapServiceOrdinal `json:"ordinals,omitempty"`
+	unknownFields []byte
+	Name          string                        `json:"name,omitempty"`
+	SpaceID       uint64                        `json:"space_id"`
+	DeploymentID  uint64                        `json:"deployment_id"`
+	Ordinals      []ClusterNetMapServiceOrdinal `json:"ordinals,omitempty"`
 }
 
 type ClusterNetMapServiceOrdinal struct {
-	Ordinal int32 `json:"ordinal"`
+	unknownFields []byte
+	Ordinal       uint32 `json:"ordinal"`
 }
 
+// NetPolicyRule is one allow rule rendered from the policy table: the source
+// peer may initiate connections toward the destination peer.
 type NetPolicyRule struct {
-	Source      *NetPolicyPeer  `json:"source"`
-	Destination *NetPolicyPeer  `json:"destination"`
-	Ports       []*NetPortMatch `json:"ports,omitempty"`
+	unknownFields []byte
+	Source        NetPolicyPeer  `json:"source"`
+	Destination   NetPolicyPeer  `json:"destination"`
+	Ports         []NetPortMatch `json:"ports,omitempty"`
 }
 
 type NetPolicyPeer struct {
-	SpaceID      int32 `json:"space_id"`
-	DeploymentID int32 `json:"deployment_id"`
-}
-
-type NetPortMatch struct {
-	Protocol NetProtocol `json:"protocol"`
-	Port     int32       `json:"port"`
-	PortEnd  int32       `json:"port_end"`
+	unknownFields []byte
+	SpaceID       uint64 `json:"space_id"`
+	DeploymentID  uint64 `json:"deployment_id"`
 }
 
 type ClusterNetMapNode struct {
-	NodeID          int32             `json:"node_id"`
-	UnderlayAddress string            `json:"underlay_address,omitempty"`
-	WgPublicKey     string            `json:"wg_public_key,omitempty"`
-	WgListenPort    int32             `json:"wg_listen_port"`
-	IngressPublish  []*IngressPublish `json:"ingress_publish,omitempty"`
+	unknownFields   []byte
+	NodeID          uint64           `json:"node_id"`
+	UnderlayAddress string           `json:"underlay_address,omitempty"`
+	WgPublicKey     string           `json:"wg_public_key,omitempty"`
+	WgListenPort    uint32           `json:"wg_listen_port"`
+	IngressPublish  []IngressPublish `json:"ingress_publish,omitempty"`
 }
 
+// IngressPublish is one (host address, TCP port) the node forwards to its
+// netproxy. An empty address publishes on every local address.
 type IngressPublish struct {
-	Address string `json:"address,omitempty"`
-	Port    int32  `json:"port"`
+	unknownFields []byte
+	Address       string `json:"address,omitempty"`
+	Port          uint32 `json:"port"`
 }
 
+// IngressDiagnostic is a non-fatal finding from ingress evaluation about one
+// deployment: an excluded claim, a collision resolved against it, or a
+// host-mode deployment on a published node.
 type IngressDiagnostic struct {
-	DeploymentID int32  `json:"deployment_id"`
-	Message      string `json:"message,omitempty"`
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+	Message       string `json:"message,omitempty"`
 }
 
 type IngressDiagnosticList struct {
-	Items []*IngressDiagnostic `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []IngressDiagnostic `json:"items,omitempty"`
 }
 
+// ClusterNetMapRoute points one routed prefix at the node hosting it: the /100
+// of a (deployment, ordinal) instance or the /120 of one scheduled instance.
 type ClusterNetMapRoute struct {
+	unknownFields []byte
 	LogicalPrefix string `json:"logical_prefix,omitempty"`
-	HostingNodeID int32  `json:"hosting_node_id"`
+	HostingNodeID uint64 `json:"hosting_node_id"`
 }
 
+// NetMapStatus reports durable acceptance separately from kernel application.
+// Both fields carry a map's derived_from_seq stamp.
 type NetMapStatus struct {
+	unknownFields       []byte
 	PersistedSeq        int64  `json:"persisted_seq"`
 	AppliedSeq          int64  `json:"applied_seq"`
 	ReconciliationError string `json:"reconciliation_error,omitempty"`
 }
 
+// NetState is the file the agent writes for the per-node dataplane
+// deployment (DNS and ingress proxy). Every tag is kept: the file outlives
+// an agent upgrade.
 type NetState struct {
-	Seq               int64                `json:"seq"`
-	UlaPrefix         []byte               `json:"ula_prefix"`
-	NodeIdentifier    string               `json:"node_identifier,omitempty"`
-	DnsServices       []*DnsService        `json:"dns_services,omitempty"`
-	UpstreamResolvers []string             `json:"upstream_resolvers,omitempty"`
-	Ingress           []*NetIngress        `json:"ingress,omitempty"`
-	AcmeChallenges    []*AcmeHttpChallenge `json:"acme_challenges,omitempty"`
+	unknownFields     []byte
+	Seq               int64               `json:"seq"`
+	UlaPrefix         []byte              `json:"ula_prefix"`
+	NodeIdentifier    string              `json:"node_identifier,omitempty"`
+	DnsServices       []DnsService        `json:"dns_services,omitempty"`
+	UpstreamResolvers []string            `json:"upstream_resolvers,omitempty"`
+	Ingress           []NetIngress        `json:"ingress,omitempty"`
+	AcmeChallenges    []AcmeHttpChallenge `json:"acme_challenges,omitempty"`
 }
 
 type AcmeHttpChallenge struct {
+	unknownFields    []byte
 	Token            string `json:"token,omitempty"`
 	KeyAuthorization string `json:"key_authorization,omitempty"`
 }
 
+// DnsService is one deployment's discovery record set:
+// {name}.{environment}.internal -> established instance addresses.
 type DnsService struct {
-	Name        string      `json:"name,omitempty"`
-	Environment string      `json:"environment,omitempty"`
-	Endpoints   []*Endpoint `json:"endpoints,omitempty"`
+	unknownFields []byte
+	Name          string     `json:"name,omitempty"`
+	Environment   string     `json:"environment,omitempty"`
+	Endpoints     []Endpoint `json:"endpoints,omitempty"`
 }
 
 type Endpoint struct {
-	Ordinal int32         `json:"ordinal"`
-	Address string        `json:"address,omitempty"`
-	State   EndpointState `json:"state"`
+	unknownFields []byte
+	Ordinal       uint32        `json:"ordinal"`
+	Address       string        `json:"address,omitempty"`
+	State         EndpointState `json:"state"`
 }
 
+// NetIngress is a node-local, rendered ingress route consumed by netproxy.
 type NetIngress struct {
-	Kind           IngressKind               `json:"kind"`
-	Hostname       string                    `json:"hostname,omitempty"`
-	TlsPassthrough *TlsPassthroughNetIngress `json:"tls_passthrough"`
-	Https          *HttpsNetIngress          `json:"https"`
+	unknownFields  []byte
+	Kind           IngressKind                     `json:"kind"`
+	Hostname       string                          `json:"hostname,omitempty"`
+	TlsPassthrough Maybe[TlsPassthroughNetIngress] `json:"tls_passthrough,omitzero"`
+	Https          Maybe[HttpsNetIngress]          `json:"https,omitzero"`
 }
 
 type HttpsNetIngress struct {
+	unknownFields       []byte
 	PathPrefix          string              `json:"path_prefix,omitempty"`
 	StripPrefix         bool                `json:"strip_prefix"`
 	BackendProtocol     HttpBackendProtocol `json:"backend_protocol"`
-	MaxRequestBodyBytes int64               `json:"max_request_body_bytes"`
-	FlushIntervalMs     int32               `json:"flush_interval_ms"`
+	MaxRequestBodyBytes uint64              `json:"max_request_body_bytes"`
+	FlushIntervalMs     uint32              `json:"flush_interval_ms"`
 	CertID              string              `json:"cert_id,omitempty"`
-	Backends            []*IngressBackend   `json:"backends,omitempty"`
+	Backends            []IngressBackend    `json:"backends,omitempty"`
 }
 
+// CertBundle is the certificate file beside NetState. Every tag is kept.
 type CertBundle struct {
-	Seq   int64              `json:"seq"`
-	Certs []*CertBundleEntry `json:"certs,omitempty"`
+	unknownFields []byte
+	Seq           int64             `json:"seq"`
+	Certs         []CertBundleEntry `json:"certs,omitempty"`
 }
 
 type CertBundleEntry struct {
-	CertID string `json:"cert_id,omitempty"`
-	Pem    []byte `json:"pem"`
+	unknownFields []byte
+	CertID        string `json:"cert_id,omitempty"`
+	Pem           []byte `json:"pem"`
 }
 
 type TlsPassthroughNetIngress struct {
-	HostPort int32             `json:"host_port"`
-	Backends []*IngressBackend `json:"backends,omitempty"`
+	unknownFields []byte
+	HostPort      uint32           `json:"host_port"`
+	Backends      []IngressBackend `json:"backends,omitempty"`
 }
 
 type IngressBackend struct {
-	Address string `json:"address,omitempty"`
-	Port    int32  `json:"port"`
+	unknownFields []byte
+	Address       string `json:"address,omitempty"`
+	Port          uint32 `json:"port"`
 }
 
+// NetworkPolicy is one global override connectivity rule. A deployment peer's
+// space resolves at render time, so space moves follow automatically.
 type NetworkPolicy struct {
-	Action      NetworkPolicyAction   `json:"action"`
-	Source      *NetworkPolicyPeerRef `json:"source"`
-	Destination *NetworkPolicyPeerRef `json:"destination"`
-	Ports       []*NetPortMatch       `json:"ports,omitempty"`
-	ID          int32                 `json:"id"`
+	unknownFields []byte
+	ID            uint64              `json:"id"`
+	Action        NetworkPolicyAction `json:"action"`
+	Source        NetworkPolicyPeer   `json:"source"`
+	Destination   NetworkPolicyPeer   `json:"destination"`
+	Ports         []NetPortMatch      `json:"ports,omitempty"`
 }
 
-type NetworkPolicyPeerRef struct {
-	Kind NetworkPolicyPeerKind `json:"kind"`
-	ID   int32                 `json:"id"`
+type NetworkPolicyPeer struct {
+	unknownFields []byte
+	Target        NetworkPolicyPeerTarget `json:"target"`
+}
+
+type NetworkPolicyPeerTarget struct {
+	unknownFields []byte
+	Value         NetworkPolicyPeerTargetValueOneof `json:"value"`
+}
+
+type SpacePeer struct {
+	unknownFields []byte
+	SpaceID       uint64 `json:"space_id"`
+}
+
+type DeploymentPeer struct {
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+}
+
+type NetPortMatch struct {
+	unknownFields []byte
+	Protocol      NetProtocol `json:"protocol"`
+	Range         PortRange   `json:"range"`
+}
+
+type PortRange struct {
+	unknownFields []byte
+	Start         uint32 `json:"start"`
+	End           uint32 `json:"end"`
 }
 
 type NetworkPolicyCreateRequest struct {
-	Action      NetworkPolicyAction   `json:"action"`
-	Source      *NetworkPolicyPeerRef `json:"source"`
-	Destination *NetworkPolicyPeerRef `json:"destination"`
-	Ports       []*NetPortMatch       `json:"ports,omitempty"`
+	unknownFields []byte
+	Action        NetworkPolicyAction `json:"action"`
+	Source        NetworkPolicyPeer   `json:"source"`
+	Destination   NetworkPolicyPeer   `json:"destination"`
+	Ports         []NetPortMatch      `json:"ports,omitempty"`
 }
 
 type NetworkPolicyUpdateRequest struct {
-	ID          int32                 `json:"id"`
-	ExpectedSeq int64                 `json:"expected_seq"`
-	Action      NetworkPolicyAction   `json:"action"`
-	Source      *NetworkPolicyPeerRef `json:"source"`
-	Destination *NetworkPolicyPeerRef `json:"destination"`
-	Ports       []*NetPortMatch       `json:"ports,omitempty"`
+	unknownFields []byte
+	ID            uint64              `json:"id"`
+	ExpectedSeq   int64               `json:"expected_seq"`
+	Action        NetworkPolicyAction `json:"action"`
+	Source        NetworkPolicyPeer   `json:"source"`
+	Destination   NetworkPolicyPeer   `json:"destination"`
+	Ports         []NetPortMatch      `json:"ports,omitempty"`
 }
 
 type NetworkPolicyDeleteRequest struct {
-	ID int32 `json:"id"`
+	unknownFields []byte
+	ID            uint64 `json:"id"`
 }
 
 type GithubCredentials struct {
-	Token     string    `json:"token,omitempty"`
-	ChangedAt time.Time `json:"changed_at"`
+	unknownFields []byte
+	Token         string    `json:"token,omitempty"`
+	ChangedAt     time.Time `json:"changed_at"`
 }
 
+// Primary and secondary communicate over an HTTP/2 mTLS protobuf stream.
+// Each frame carries one field. cluster_protocol_version keeps tag 9 so a
+// node on the previous contract still reads the refusal.
 type MsgToSecondary struct {
-	ScheduledInstancesSnapshot *ScheduledInstanceSnapshot `json:"scheduled_instances_snapshot"`
-	ScheduledInstanceUpdate    *ScheduledInstanceState    `json:"scheduled_instance_update"`
-	DeploymentLogRequest       *DeploymentLogRequest      `json:"deployment_log_request"`
-	StopLogRequestID           string                     `json:"stop_log_request_id,omitempty"`
-	ClusterNetwork             *ClusterNetworkInfo        `json:"cluster_network"`
-	ClusterNetMap              *ClusterNetMap             `json:"cluster_net_map"`
-	ClusterProtocolVersion     int32                      `json:"cluster_protocol_version"`
-	AcmeState                  *AcmeState                 `json:"acme_state"`
-	LogQueryRequest            *LogQueryRequest           `json:"log_query_request"`
-	MetricsQueryRequest        *MetricsQueryRequest       `json:"metrics_query_request"`
-	MetricsLatestRequest       *MetricsLatestRequest      `json:"metrics_latest_request"`
-	NixStoreResets             *NixStoreResets            `json:"nix_store_resets"`
-	Evicted                    bool                       `json:"evicted"`
+	unknownFields              []byte
+	ScheduledInstancesSnapshot Maybe[ScheduledInstanceSnapshot] `json:"scheduled_instances_snapshot,omitzero"`
+	ScheduledInstanceUpdate    Maybe[ScheduledInstanceState]    `json:"scheduled_instance_update,omitzero"`
+	DeploymentLogRequest       Maybe[DeploymentLogRequest]      `json:"deployment_log_request,omitzero"`
+	StopLogRequestID           Maybe[string]                    `json:"stop_log_request_id,omitzero"`
+	ClusterNetwork             Maybe[ClusterNetworkInfo]        `json:"cluster_network,omitzero"`
+	ClusterNetMap              Maybe[ClusterNetMap]             `json:"cluster_net_map,omitzero"`
+	AcmeState                  Maybe[AcmeState]                 `json:"acme_state,omitzero"`
+	LogQueryRequest            Maybe[LogQueryRequest]           `json:"log_query_request,omitzero"`
+	ClusterProtocolVersion     uint32                           `json:"cluster_protocol_version"`
+	MetricsQueryRequest        Maybe[MetricsQueryRequest]       `json:"metrics_query_request,omitzero"`
+	MetricsLatestRequest       Maybe[MetricsLatestRequest]      `json:"metrics_latest_request,omitzero"`
+	NixStoreResets             Maybe[NixStoreResets]            `json:"nix_store_resets,omitzero"`
+	Evicted                    Maybe[bool]                      `json:"evicted,omitzero"`
 }
 
-type NixStoreReset struct {
-	Repo        string `json:"repo,omitempty"`
-	RequestedAt int64  `json:"requested_at"`
+type NixStoreResetItem struct {
+	unknownFields []byte
+	Repo          string    `json:"repo,omitempty"`
+	RequestedAt   time.Time `json:"requested_at"`
 }
 
 type NixStoreResets struct {
-	Items []*NixStoreReset `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []NixStoreResetItem `json:"items,omitempty"`
 }
 
-type NixStoreResetRequest struct {
-	Repo string `json:"repo,omitempty"`
-}
-
+// ClusterHello is the first frame a secondary sends on each authenticated
+// cluster session. cluster_protocol_version keeps tag 2.
 type ClusterHello struct {
-	OpendeployVersion      string        `json:"opendeploy_version,omitempty"`
-	RuntimeVersions        string        `json:"runtime_versions,omitempty"`
-	Reported               *NodeReported `json:"reported"`
-	ClusterProtocolVersion int32         `json:"cluster_protocol_version"`
+	unknownFields          []byte
+	OpendeployVersion      string       `json:"opendeploy_version,omitempty"`
+	ClusterProtocolVersion uint32       `json:"cluster_protocol_version"`
+	RuntimeVersions        string       `json:"runtime_versions,omitempty"`
+	Reported               NodeReported `json:"reported"`
 }
 
+// MsgToPrimary frames carry one field each. cluster_hello keeps tag 6.
 type MsgToPrimary struct {
-	StatusWrite           *ScheduledInstanceStatus `json:"status_write"`
-	LogData               []byte                   `json:"log_data"`
-	LogEnd                bool                     `json:"log_end"`
-	LogRequestID          string                   `json:"log_request_id,omitempty"`
-	NetMapStatus          *NetMapStatus            `json:"net_map_status"`
-	ClusterHello          *ClusterHello            `json:"cluster_hello"`
-	LogQueryResponse      *LogQueryResponse        `json:"log_query_response"`
-	LogQueryError         string                   `json:"log_query_error,omitempty"`
-	MetricsQueryResponse  *MetricsQueryResponse    `json:"metrics_query_response"`
-	MetricsLatestResponse *MetricsLatestResponse   `json:"metrics_latest_response"`
+	unknownFields         []byte
+	StatusWrite           Maybe[ScheduledInstanceStatus] `json:"status_write,omitzero"`
+	LogData               Maybe[[]byte]                  `json:"log_data,omitzero"`
+	LogEnd                Maybe[bool]                    `json:"log_end,omitzero"`
+	LogRequestID          Maybe[string]                  `json:"log_request_id,omitzero"`
+	NetMapStatus          Maybe[NetMapStatus]            `json:"net_map_status,omitzero"`
+	ClusterHello          Maybe[ClusterHello]            `json:"cluster_hello,omitzero"`
+	LogQueryResponse      Maybe[LogQueryResponse]        `json:"log_query_response,omitzero"`
+	LogQueryError         Maybe[string]                  `json:"log_query_error,omitzero"`
+	MetricsQueryResponse  Maybe[MetricsQueryResponse]    `json:"metrics_query_response,omitzero"`
+	MetricsLatestResponse Maybe[MetricsLatestResponse]   `json:"metrics_latest_response,omitzero"`
+}
+
+// ScheduledInstanceState is the authoritative runtime assignment view: the
+// schedule row, the deployment version it pins, and the latest observed status.
+type ScheduledInstanceState struct {
+	unknownFields []byte
+	Instance      ScheduledInstance              `json:"instance"`
+	Config        DeploymentRecord               `json:"config"`
+	Status        Maybe[ScheduledInstanceStatus] `json:"status,omitzero"`
+}
+
+type ScheduledInstanceSnapshot struct {
+	unknownFields []byte
+	Items         []ScheduledInstanceState `json:"items,omitempty"`
 }
 
 type ClusterSecretsRequest struct {
-	Refs []*ValueRef `json:"refs,omitempty"`
+	unknownFields []byte
+	Refs          []SecretRef `json:"refs,omitempty"`
 }
 
 type ClusterSecretValue struct {
-	Ref   ValueRef `json:"ref"`
-	Value []byte   `json:"value"`
+	unknownFields []byte
+	Ref           SecretRef `json:"ref"`
+	Value         []byte    `json:"value"`
 }
 
 type ClusterSecretsResponse struct {
-	Items []*ClusterSecretValue `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []ClusterSecretValue `json:"items,omitempty"`
 }
 
 type ClusterConfigsRequest struct {
-	Refs []*ValueRef `json:"refs,omitempty"`
+	unknownFields []byte
+	Refs          []ConfigRef `json:"refs,omitempty"`
 }
 
 type ClusterConfigValue struct {
-	Ref   ValueRef `json:"ref"`
-	Value string   `json:"value,omitempty"`
+	unknownFields []byte
+	Ref           ConfigRef `json:"ref"`
+	Value         string    `json:"value,omitempty"`
 }
 
 type ClusterConfigsResponse struct {
-	Items []*ClusterConfigValue `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []ClusterConfigValue `json:"items,omitempty"`
 }
 
 type ClusterIssuedTLSRequest struct {
-	DeploymentID          int32 `json:"deployment_id"`
-	DeploymentSpecVersion int32 `json:"deployment_spec_version"`
+	unknownFields         []byte
+	DeploymentID          uint64 `json:"deployment_id"`
+	DeploymentSpecVersion uint32 `json:"deployment_spec_version"`
 }
 
 type ClusterIssuedTLSResponse struct {
-	CertPem   []byte `json:"cert_pem"`
-	KeyPem    []byte `json:"key_pem"`
-	CaCertPem []byte `json:"ca_cert_pem"`
-	IssuedAt  int64  `json:"issued_at"`
-	NotAfter  int64  `json:"not_after"`
+	unknownFields []byte
+	CertPem       []byte `json:"cert_pem"`
+	KeyPem        []byte `json:"key_pem"`
+	CaCertPem     []byte `json:"ca_cert_pem"`
+	IssuedAt      int64  `json:"issued_at"`
+	NotAfter      int64  `json:"not_after"`
 }
 
 type ClusterRenewCertificateResponse struct {
-	CertPem   []byte `json:"cert_pem"`
-	CaCertPem []byte `json:"ca_cert_pem"`
-	NotAfter  int64  `json:"not_after"`
+	unknownFields []byte
+	CertPem       []byte `json:"cert_pem"`
+	CaCertPem     []byte `json:"ca_cert_pem"`
+	NotAfter      int64  `json:"not_after"`
 }
 
 type EnrollmentSecondaryMsg struct {
-	Hello *EnrollmentHello `json:"hello"`
+	unknownFields []byte
+	Hello         Maybe[EnrollmentHello] `json:"hello,omitzero"`
 }
 
 type EnrollmentHello struct {
-	Reported                    *NodeReported `json:"reported"`
-	SecondaryCertificateRequest []byte        `json:"secondary_certificate_request"`
-	OpendeployVersion           string        `json:"opendeploy_version,omitempty"`
+	unknownFields               []byte
+	Reported                    NodeReported `json:"reported"`
+	SecondaryCertificateRequest []byte       `json:"secondary_certificate_request"`
+	OpendeployVersion           string       `json:"opendeploy_version,omitempty"`
+	ClusterProtocolVersion      uint32       `json:"cluster_protocol_version"`
 }
 
 type EnrollmentPrimaryMsg struct {
-	RequestStatus *EnrollmentRequestStatus `json:"request_status"`
-	Accepted      *EnrollmentAccepted      `json:"accepted"`
+	unknownFields []byte
+	RequestStatus Maybe[EnrollmentRequestStatus] `json:"request_status,omitzero"`
+	Accepted      Maybe[EnrollmentAccepted]      `json:"accepted,omitzero"`
 }
 
 type EnrollmentRequestList struct {
-	Items []*EnrollmentRequestStatus `json:"items,omitempty"`
+	unknownFields []byte
+	Items         []EnrollmentRequestStatus `json:"items,omitempty"`
 }
 
 type EnrollmentAcceptRequest struct {
-	ID          int32  `json:"id"`
-	NodeName    string `json:"node_name,omitempty"`
-	ExpectedSeq int64  `json:"expected_seq"`
+	unknownFields []byte
+	ID            uint64 `json:"id"`
+	NodeName      string `json:"node_name,omitempty"`
+	ExpectedSeq   int64  `json:"expected_seq"`
 }
 
 type EnrollmentAccepted struct {
-	ID                   int32                   `json:"id"`
-	NodeName             string                  `json:"node_name,omitempty"`
-	CaCertificate        []byte                  `json:"ca_certificate"`
-	SecondaryCertificate []byte                  `json:"secondary_certificate"`
-	ClusterNetwork       *ClusterNetworkInfo     `json:"cluster_network"`
-	NodeDeployment       *ScheduledInstanceState `json:"node_deployment"`
-	NodeNetDeployment    *ScheduledInstanceState `json:"node_net_deployment"`
-	ClusterNetMap        *ClusterNetMap          `json:"cluster_net_map"`
-}
-
-type SecretRef struct {
-	Ref ValueRef `json:"ref"`
-}
-
-type ConfigRef struct {
-	Ref ValueRef `json:"ref"`
+	unknownFields        []byte
+	ID                   uint64                 `json:"id"`
+	NodeName             string                 `json:"node_name,omitempty"`
+	CaCertificate        []byte                 `json:"ca_certificate"`
+	SecondaryCertificate []byte                 `json:"secondary_certificate"`
+	ClusterNetwork       ClusterNetworkInfo     `json:"cluster_network"`
+	NodeDeployment       ScheduledInstanceState `json:"node_deployment"`
+	NodeNetDeployment    ScheduledInstanceState `json:"node_net_deployment"`
+	ClusterNetMap        ClusterNetMap          `json:"cluster_net_map"`
 }
 
 type StringSetting struct {
-	Value     string    `json:"value,omitempty"`
-	ConfigRef ConfigRef `json:"config_ref"`
+	unknownFields []byte
+	Value         StringSettingValue `json:"value"`
+}
+
+type StringSettingValue struct {
+	unknownFields []byte
+	Value         StringSettingValueValueOneof `json:"value"`
 }
 
 type BoolSetting struct {
-	Value     bool      `json:"value"`
-	ConfigRef ConfigRef `json:"config_ref"`
+	unknownFields []byte
+	Value         BoolSettingValue `json:"value"`
 }
 
+type BoolSettingValue struct {
+	unknownFields []byte
+	Value         BoolSettingValueValueOneof `json:"value"`
+}
+
+// SystemConfig is the cluster singleton with id 1.
 type SystemConfig struct {
+	unknownFields      []byte
+	ID                 uint32          `json:"id"`
 	Settings           ClusterSettings `json:"settings"`
-	MasterPasswordHash string          `json:"master_password_hash,omitempty"`
+	MasterPasswordHash Maybe[string]   `json:"master_password_hash,omitzero"`
 	NetworkUlaPrefix   []byte          `json:"network_ula_prefix"`
 }
 
 type ClusterSettings struct {
-	HttpWeb     HttpWebSettings       `json:"http_web"`
-	HttpsWeb    HttpsWebSettings      `json:"https_web"`
-	Cluster     ClusterListenSettings `json:"cluster"`
-	Repo        RepoSettings          `json:"repo"`
-	Backup      BackupSettings        `json:"backup"`
-	LargeAssets LargeAssetsSettings   `json:"large_assets"`
-	Auth        AuthSettings          `json:"auth"`
+	unknownFields []byte
+	HttpWeb       HttpWebSettings       `json:"http_web"`
+	HttpsWeb      HttpsWebSettings      `json:"https_web"`
+	Cluster       ClusterListenSettings `json:"cluster"`
+	Repo          RepoSettings          `json:"repo"`
+	Backup        BackupSettings        `json:"backup"`
+	LargeAssets   LargeAssetsSettings   `json:"large_assets"`
+	Auth          AuthSettings          `json:"auth"`
 }
 
 type HttpWebSettings struct {
-	Enabled BoolSetting   `json:"enabled"`
-	Listen  StringSetting `json:"listen"`
+	unknownFields []byte
+	Enabled       BoolSetting   `json:"enabled"`
+	Listen        StringSetting `json:"listen"`
 }
 
 type HttpsWebSettings struct {
-	Enabled        BoolSetting   `json:"enabled"`
-	Listen         StringSetting `json:"listen"`
-	TlsSelfManaged BoolSetting   `json:"tls_self_managed"`
-	TlsCertPem     SecretRef     `json:"tls_cert_pem"`
-	AcmeHosts      StringSetting `json:"acme_hosts"`
-	AcmeEmail      StringSetting `json:"acme_email"`
-}
-
-type AuthSettings struct {
-	PasswordLoginEnabled BoolSetting `json:"password_login_enabled"`
+	unknownFields  []byte
+	Enabled        BoolSetting      `json:"enabled"`
+	Listen         StringSetting    `json:"listen"`
+	TlsSelfManaged BoolSetting      `json:"tls_self_managed"`
+	TlsCertPem     Maybe[SecretRef] `json:"tls_cert_pem,omitzero"`
+	AcmeHosts      StringSetting    `json:"acme_hosts"`
+	AcmeEmail      StringSetting    `json:"acme_email"`
 }
 
 type ClusterListenSettings struct {
+	unknownFields    []byte
 	Listen           StringSetting `json:"listen"`
 	EnrollmentListen StringSetting `json:"enrollment_listen"`
 }
 
 type RepoSettings struct {
-	GithubToken SecretRef `json:"github_token"`
+	unknownFields []byte
+	GithubToken   Maybe[SecretRef] `json:"github_token,omitzero"`
 }
 
 type BackupSettings struct {
-	Enabled           BoolSetting   `json:"enabled"`
-	S3AccessKeyID     StringSetting `json:"s3_access_key_id"`
-	S3SecretAccessKey SecretRef     `json:"s3_secret_access_key"`
-	S3Bucket          StringSetting `json:"s3_bucket"`
-	S3Path            StringSetting `json:"s3_path"`
-	S3Region          StringSetting `json:"s3_region"`
-	S3Endpoint        StringSetting `json:"s3_endpoint"`
+	unknownFields     []byte
+	Enabled           BoolSetting      `json:"enabled"`
+	S3AccessKeyID     StringSetting    `json:"s3_access_key_id"`
+	S3SecretAccessKey Maybe[SecretRef] `json:"s3_secret_access_key,omitzero"`
+	S3Bucket          StringSetting    `json:"s3_bucket"`
+	S3Path            StringSetting    `json:"s3_path"`
+	S3Region          StringSetting    `json:"s3_region"`
+	S3Endpoint        StringSetting    `json:"s3_endpoint"`
 }
 
 type LargeAssetsSettings struct {
-	UseSeparateS3     BoolSetting   `json:"use_separate_s3"`
-	S3AccessKeyID     StringSetting `json:"s3_access_key_id"`
-	S3SecretAccessKey SecretRef     `json:"s3_secret_access_key"`
-	S3Bucket          StringSetting `json:"s3_bucket"`
-	S3Path            StringSetting `json:"s3_path"`
-	S3Region          StringSetting `json:"s3_region"`
-	S3Endpoint        StringSetting `json:"s3_endpoint"`
-	KeepLocalCopy     BoolSetting   `json:"keep_local_copy"`
+	unknownFields     []byte
+	UseSeparateS3     BoolSetting      `json:"use_separate_s3"`
+	S3AccessKeyID     StringSetting    `json:"s3_access_key_id"`
+	S3SecretAccessKey Maybe[SecretRef] `json:"s3_secret_access_key,omitzero"`
+	S3Bucket          StringSetting    `json:"s3_bucket"`
+	S3Path            StringSetting    `json:"s3_path"`
+	S3Region          StringSetting    `json:"s3_region"`
+	S3Endpoint        StringSetting    `json:"s3_endpoint"`
+	KeepLocalCopy     BoolSetting      `json:"keep_local_copy"`
+}
+
+// AuthSettings controls which login methods the Web UI offers. Passkeys are
+// always available; password login lets the master password open a full
+// session directly.
+type AuthSettings struct {
+	unknownFields        []byte
+	PasswordLoginEnabled BoolSetting `json:"password_login_enabled"`
+}
+
+// NixStoreReset asks every node to reseed its Nix build store for one
+// repository before the next build that starts after the request.
+type NixStoreReset struct {
+	unknownFields []byte
+	ID            uint64 `json:"id"`
+	Repo          string `json:"repo,omitempty"`
 }
 
 type ExportedConfigBlob struct {
-	Blob []byte `json:"blob"`
+	unknownFields []byte
+	Blob          []byte `json:"blob"`
 }
 
 type BackupStatus struct {
-	Configured           bool      `json:"configured"`
-	Running              bool      `json:"running"`
-	InSync               bool      `json:"in_sync"`
-	LocalTxid            uint64    `json:"local_txid"`
-	RemoteTxid           uint64    `json:"remote_txid"`
-	LastSuccessfulSyncAt time.Time `json:"last_successful_sync_at"`
-	Error                string    `json:"error,omitempty"`
-	AssetPending         uint32    `json:"asset_pending"`
-	AssetTargetS3        bool      `json:"asset_target_s3"`
-	AssetError           string    `json:"asset_error,omitempty"`
-	AssetKeepLocal       bool      `json:"asset_keep_local"`
+	unknownFields        []byte
+	Configured           bool             `json:"configured"`
+	Running              bool             `json:"running"`
+	InSync               bool             `json:"in_sync"`
+	LocalTxid            uint64           `json:"local_txid"`
+	RemoteTxid           uint64           `json:"remote_txid"`
+	LastSuccessfulSyncAt Maybe[time.Time] `json:"last_successful_sync_at,omitzero"`
+	Error                string           `json:"error,omitempty"`
+	AssetPending         uint32           `json:"asset_pending"`
+	AssetTargetS3        bool             `json:"asset_target_s3"`
+	AssetError           string           `json:"asset_error,omitempty"`
+	AssetKeepLocal       bool             `json:"asset_keep_local"`
 }
 
+// CoreWriteUpdate is one commit: every row it wrote, as mutations over
+// entities, under one seq, one clock reading, and one actor.
 type CoreWriteUpdate struct {
-	Seq       int64           `json:"seq"`
-	Time      int64           `json:"time"`
-	Actor     int32           `json:"actor"`
-	Mutations []*CoreMutation `json:"mutations,omitempty"`
+	unknownFields []byte
+	Seq           int64          `json:"seq"`
+	Time          int64          `json:"time"`
+	Actor         int64          `json:"actor"`
+	Mutations     []CoreMutation `json:"mutations,omitempty"`
 }
 
 type CoreMutation struct {
-	Create *CreateMutation `json:"create"`
-	Update *UpdateMutation `json:"update"`
-	Delete *DeleteMutation `json:"delete"`
+	unknownFields []byte
+	Value         CoreMutationValueOneof `json:"value"`
 }
 
 type CreateMutation struct {
-	EntityType CoreEntityType `json:"entity_type"`
-	EntityID   int64          `json:"entity_id"`
-	Entity     *CoreEntity    `json:"entity"`
-	Meta       *EntityMeta    `json:"meta"`
+	unknownFields []byte
+	EntityType    CoreEntityType    `json:"entity_type"`
+	EntityID      uint64            `json:"entity_id"`
+	Entity        CoreEntity        `json:"entity"`
+	Meta          Maybe[EntityMeta] `json:"meta,omitzero"`
 }
 
 type UpdateMutation struct {
-	EntityType CoreEntityType `json:"entity_type"`
-	EntityID   int64          `json:"entity_id"`
-	Entity     *CoreEntity    `json:"entity"`
-	Meta       *EntityMeta    `json:"meta"`
-}
-
-type EntityMeta struct {
-	CreatedTime  int64 `json:"created_time"`
-	UpdatedTime  int64 `json:"updated_time"`
-	UpdatedSeq   int64 `json:"updated_seq"`
-	UpdatedActor int32 `json:"updated_actor"`
-	Version      int32 `json:"version"`
-	SpecVersion  int32 `json:"spec_version"`
-	ValueVersion int32 `json:"value_version"`
-	Deleted      bool  `json:"deleted"`
-}
-
-type MaterialisedEntity struct {
-	EntityType CoreEntityType `json:"entity_type"`
-	EntityID   int64          `json:"entity_id"`
-	Entity     *CoreEntity    `json:"entity"`
-	Meta       *EntityMeta    `json:"meta"`
-}
-
-type CoreSnapshot struct {
-	Seq      int64                 `json:"seq"`
-	Entities []*MaterialisedEntity `json:"entities,omitempty"`
+	unknownFields []byte
+	EntityType    CoreEntityType    `json:"entity_type"`
+	EntityID      uint64            `json:"entity_id"`
+	Entity        CoreEntity        `json:"entity"`
+	Meta          Maybe[EntityMeta] `json:"meta,omitzero"`
 }
 
 type DeleteMutation struct {
-	EntityType CoreEntityType `json:"entity_type"`
-	EntityID   int64          `json:"entity_id"`
+	unknownFields []byte
+	EntityType    CoreEntityType `json:"entity_type"`
+	EntityID      uint64         `json:"entity_id"`
+}
+
+// EntityMeta is what the write log says about an entity besides its payload,
+// derived by the reducer and never stored in the entity: when it was first
+// written, the commit that last wrote it, whether it has since been deleted,
+// and the counters that number its versions.
+type EntityMeta struct {
+	unknownFields []byte
+	CreatedTime   int64  `json:"created_time"`
+	UpdatedTime   int64  `json:"updated_time"`
+	UpdatedSeq    int64  `json:"updated_seq"`
+	UpdatedActor  int64  `json:"updated_actor"`
+	Version       uint32 `json:"version"`
+	SpecVersion   uint32 `json:"spec_version"`
+	ValueVersion  uint32 `json:"value_version"`
+	Deleted       bool   `json:"deleted"`
+}
+
+// MaterialisedEntity is one entry of a snapshot: an entity as the tables
+// hold it with its meta. A deployment or value appears once per retained
+// version, in version order.
+type MaterialisedEntity struct {
+	unknownFields []byte
+	EntityType    CoreEntityType `json:"entity_type"`
+	EntityID      uint64         `json:"entity_id"`
+	Entity        CoreEntity     `json:"entity"`
+	Meta          EntityMeta     `json:"meta"`
+}
+
+// CoreSnapshot is the materialised state at seq: what a client starts from
+// before folding the commits after it.
+type CoreSnapshot struct {
+	unknownFields []byte
+	Seq           int64                `json:"seq"`
+	Entities      []MaterialisedEntity `json:"entities,omitempty"`
 }
 
 type CoreEntity struct {
-	Deployment              *Deployment              `json:"deployment"`
-	ScheduledInstance       *ScheduledInstance       `json:"scheduled_instance"`
-	Node                    *Node                    `json:"node"`
-	Secret                  *Secret                  `json:"secret"`
-	Config                  *Config                  `json:"config"`
-	Asset                   *Asset                   `json:"asset"`
-	NetworkPolicy           *NetworkPolicy           `json:"network_policy"`
-	Space                   *Space                   `json:"space"`
-	User                    *User                    `json:"user"`
-	ValueDirectory          *ValueDirectory          `json:"value_directory"`
-	AssetDirectory          *AssetDirectory          `json:"asset_directory"`
-	AuthzRuleTemplate       *AuthzRuleTemplate       `json:"authz_rule_template"`
-	AuthzGrant              *AuthzGrant              `json:"authz_grant"`
-	AuthzGlobalRule         *AuthzGlobalRule         `json:"authz_global_rule"`
-	SystemConfig            *SystemConfig            `json:"system_config"`
-	ScheduledInstanceStatus *ScheduledInstanceStatus `json:"scheduled_instance_status"`
-	NodeStatus              *NodeStatus              `json:"node_status"`
-	AgentSession            *AgentSession            `json:"agent_session"`
-	UserSession             *UserSession             `json:"user_session"`
-	NixStoreReset           *NixStoreReset           `json:"nix_store_reset"`
-	SecretKeyslot           *SecretKeyslot           `json:"secret_keyslot"`
+	unknownFields []byte
+	Value         CoreEntityValueOneof `json:"value"`
 }
 
+// EventStreamRequest opens the stream. Every opening is a snapshot followed
+// by the live commits after it.
 type EventStreamRequest struct {
+	unknownFields []byte
 }
 
+// EventStreamMsg is one frame of the event stream. A snapshot replaces the
+// client's tree with the materialised state at its seq; events carry commits
+// in seq order; synced marks the snapshot frame. The sidecars are
+// replace-style values that ride the same connection without a seq.
 type EventStreamMsg struct {
-	Events             []*CoreWriteUpdate     `json:"events,omitempty"`
-	Snapshot           *CoreSnapshot          `json:"snapshot"`
-	Synced             bool                   `json:"synced"`
-	Heartbeat          bool                   `json:"heartbeat"`
-	BackupStatus       *BackupStatus          `json:"backup_status"`
-	IngressDiagnostics *IngressDiagnosticList `json:"ingress_diagnostics"`
-	SecretsStatus      *SecretsStatusResponse `json:"secrets_status"`
-	Seq                int64                  `json:"seq"`
+	unknownFields      []byte
+	Events             []CoreWriteUpdate            `json:"events,omitempty"`
+	Snapshot           Maybe[CoreSnapshot]          `json:"snapshot,omitzero"`
+	Synced             bool                         `json:"synced"`
+	Heartbeat          bool                         `json:"heartbeat"`
+	BackupStatus       Maybe[BackupStatus]          `json:"backup_status,omitzero"`
+	IngressDiagnostics Maybe[IngressDiagnosticList] `json:"ingress_diagnostics,omitzero"`
+	SecretsStatus      Maybe[SecretsStatusResponse] `json:"secrets_status,omitzero"`
+	Seq                int64                        `json:"seq"`
 }
 
 type AccessPolicy struct {
-	PolicyType AccessPolicyType `json:"policy_type"`
-	Scopes     []string         `json:"scopes,omitempty"`
+	unknownFields []byte
+	PolicyType    AccessPolicyType `json:"policy_type"`
+	Scopes        []string         `json:"scopes,omitempty"`
 }
 
 type ApiErr struct {
-	Code        int32  `json:"code"`
-	DisplayErr  string `json:"display_err,omitempty"`
-	InternalErr string `json:"-"`
+	unknownFields []byte
+	Code          int32  `json:"code"`
+	DisplayErr    string `json:"display_err,omitempty"`
+	InternalErr   string `json:"-"`
+}
+
+type IpAddressValueOneof struct {
+	Ipv4 *IPv4Address `json:"ipv4,omitempty"`
+	Ipv6 *IPv6Address `json:"ipv6,omitempty"`
+}
+
+func (v IpAddressValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Ipv4 != nil {
+		if err := v.Ipv4.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Ipv6 != nil {
+		if err := v.Ipv6.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue IpAddressValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v IpAddressValueOneof) Validate() error {
+	selected := 0
+	if v.Ipv4 != nil {
+		selected++
+	}
+	if v.Ipv6 != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type IpPrefixValueOneof struct {
+	Ipv4 *IPv4Prefix `json:"ipv4,omitempty"`
+	Ipv6 *IPv6Prefix `json:"ipv6,omitempty"`
+}
+
+func (v IpPrefixValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Ipv4 != nil {
+		if err := v.Ipv4.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Ipv6 != nil {
+		if err := v.Ipv6.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue IpPrefixValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v IpPrefixValueOneof) Validate() error {
+	selected := 0
+	if v.Ipv4 != nil {
+		selected++
+	}
+	if v.Ipv6 != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type WorkloadValueOneof struct {
+	Container *ContainerSpec `json:"container,omitempty"`
+}
+
+func (v WorkloadValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Container != nil {
+		if err := v.Container.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue WorkloadValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v WorkloadValueOneof) Validate() error {
+	selected := 0
+	if v.Container != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type ContainerSourceValueOneof struct {
+	NixImageBuild *NixImageBuild `json:"nix_image_build,omitempty"`
+	RemoteImage   *RemoteImage   `json:"remote_image,omitempty"`
+}
+
+func (v ContainerSourceValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.NixImageBuild != nil {
+		if err := v.NixImageBuild.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.RemoteImage != nil {
+		if err := v.RemoteImage.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue ContainerSourceValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v ContainerSourceValueOneof) Validate() error {
+	selected := 0
+	if v.NixImageBuild != nil {
+		selected++
+	}
+	if v.RemoteImage != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type EnvVarValueOneof struct {
+	Literal *LiteralEnv `json:"literal,omitempty"`
+	Secret  *SecretEnv  `json:"secret,omitempty"`
+	Config  *ConfigEnv  `json:"config,omitempty"`
+	Asset   *AssetEnv   `json:"asset,omitempty"`
+	Address *AddressEnv `json:"address,omitempty"`
+}
+
+func (v EnvVarValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Literal != nil {
+		if err := v.Literal.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Secret != nil {
+		if err := v.Secret.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Config != nil {
+		if err := v.Config.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Asset != nil {
+		if err := v.Asset.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Address != nil {
+		if err := v.Address.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue EnvVarValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v EnvVarValueOneof) Validate() error {
+	selected := 0
+	if v.Literal != nil {
+		selected++
+	}
+	if v.Secret != nil {
+		selected++
+	}
+	if v.Config != nil {
+		selected++
+	}
+	if v.Asset != nil {
+		selected++
+	}
+	if v.Address != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type IngressNodeValueOneof struct {
+	Any      *AnyNode      `json:"any,omitempty"`
+	Specific *SpecificNode `json:"specific,omitempty"`
+}
+
+func (v IngressNodeValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Any != nil {
+		if err := v.Any.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Specific != nil {
+		if err := v.Specific.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue IngressNodeValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v IngressNodeValueOneof) Validate() error {
+	selected := 0
+	if v.Any != nil {
+		selected++
+	}
+	if v.Specific != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type IngressConfigValueOneof struct {
+	TlsPassthrough *TlsPassthroughConfig `json:"tls_passthrough,omitempty"`
+	Https          *HttpsConfig          `json:"https,omitempty"`
+}
+
+func (v IngressConfigValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.TlsPassthrough != nil {
+		if err := v.TlsPassthrough.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Https != nil {
+		if err := v.Https.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue IngressConfigValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v IngressConfigValueOneof) Validate() error {
+	selected := 0
+	if v.TlsPassthrough != nil {
+		selected++
+	}
+	if v.Https != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type CertSourceValueOneof struct {
+	Acme   *AcmeCertSource   `json:"acme,omitempty"`
+	Secret *SecretCertSource `json:"secret,omitempty"`
+}
+
+func (v CertSourceValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Acme != nil {
+		if err := v.Acme.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Secret != nil {
+		if err := v.Secret.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue CertSourceValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v CertSourceValueOneof) Validate() error {
+	selected := 0
+	if v.Acme != nil {
+		selected++
+	}
+	if v.Secret != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type PlacementValueOneof struct {
+	DedicatedNodes *DedicatedNodesScheduling `json:"dedicated_nodes,omitempty"`
+}
+
+func (v PlacementValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.DedicatedNodes != nil {
+		if err := v.DedicatedNodes.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue PlacementValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v PlacementValueOneof) Validate() error {
+	selected := 0
+	if v.DedicatedNodes != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type DeploymentUpdateRequestUpdateOneof struct {
+	VersionOnly   *VersionOnlyUpdate   `json:"version_only,omitempty"`
+	RunningOnly   *RunningOnlyUpdate   `json:"running_only,omitempty"`
+	Spec          *SpecUpdate          `json:"spec,omitempty"`
+	AssignedSpace *AssignedSpaceUpdate `json:"assigned_space,omitempty"`
+	Restart       *RestartUpdate       `json:"restart,omitempty"`
+}
+
+func (v DeploymentUpdateRequestUpdateOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.VersionOnly != nil {
+		if err := v.VersionOnly.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.RunningOnly != nil {
+		if err := v.RunningOnly.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Spec != nil {
+		if err := v.Spec.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.AssignedSpace != nil {
+		if err := v.AssignedSpace.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Restart != nil {
+		if err := v.Restart.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue DeploymentUpdateRequestUpdateOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v DeploymentUpdateRequestUpdateOneof) Validate() error {
+	selected := 0
+	if v.VersionOnly != nil {
+		selected++
+	}
+	if v.RunningOnly != nil {
+		selected++
+	}
+	if v.Spec != nil {
+		selected++
+	}
+	if v.AssignedSpace != nil {
+		selected++
+	}
+	if v.Restart != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type DeploymentHistoryEntryValueOneof struct {
+	Deployment *DeploymentRecord        `json:"deployment,omitempty"`
+	Status     *ScheduledInstanceStatus `json:"status,omitempty"`
+}
+
+func (v DeploymentHistoryEntryValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Deployment != nil {
+		if err := v.Deployment.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Status != nil {
+		if err := v.Status.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue DeploymentHistoryEntryValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v DeploymentHistoryEntryValueOneof) Validate() error {
+	selected := 0
+	if v.Deployment != nil {
+		selected++
+	}
+	if v.Status != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type DeploymentVersionsSourceOneof struct {
+	NixImageBuild  *DeploymentNixImageBuildVersions  `json:"nix_image_build,omitempty"`
+	GithubRelease  *DeploymentGithubReleaseVersions  `json:"github_release,omitempty"`
+	ContainerImage *DeploymentContainerImageVersions `json:"container_image,omitempty"`
+}
+
+func (v DeploymentVersionsSourceOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.NixImageBuild != nil {
+		if err := v.NixImageBuild.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.GithubRelease != nil {
+		if err := v.GithubRelease.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.ContainerImage != nil {
+		if err := v.ContainerImage.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue DeploymentVersionsSourceOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v DeploymentVersionsSourceOneof) Validate() error {
+	selected := 0
+	if v.NixImageBuild != nil {
+		selected++
+	}
+	if v.GithubRelease != nil {
+		selected++
+	}
+	if v.ContainerImage != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type RepoValidateRequestSourceOneof struct {
+	NixImageBuild  *ValidateNixImageBuildSource  `json:"nix_image_build,omitempty"`
+	ContainerImage *ValidateContainerImageSource `json:"container_image,omitempty"`
+}
+
+func (v RepoValidateRequestSourceOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.NixImageBuild != nil {
+		if err := v.NixImageBuild.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.ContainerImage != nil {
+		if err := v.ContainerImage.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue RepoValidateRequestSourceOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v RepoValidateRequestSourceOneof) Validate() error {
+	selected := 0
+	if v.NixImageBuild != nil {
+		selected++
+	}
+	if v.ContainerImage != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type RepoValidateResponseSourceOneof struct {
+	NixImageBuild  *ValidateNixImageBuildSourceResponse  `json:"nix_image_build,omitempty"`
+	ContainerImage *ValidateContainerImageSourceResponse `json:"container_image,omitempty"`
+}
+
+func (v RepoValidateResponseSourceOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.NixImageBuild != nil {
+		if err := v.NixImageBuild.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.ContainerImage != nil {
+		if err := v.ContainerImage.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue RepoValidateResponseSourceOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v RepoValidateResponseSourceOneof) Validate() error {
+	selected := 0
+	if v.NixImageBuild != nil {
+		selected++
+	}
+	if v.ContainerImage != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type KeyslotWrappingValueOneof struct {
+	MachineKey   *MachineKey   `json:"machine_key,omitempty"`
+	RecoveryCode *RecoveryCode `json:"recovery_code,omitempty"`
+}
+
+func (v KeyslotWrappingValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.MachineKey != nil {
+		if err := v.MachineKey.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.RecoveryCode != nil {
+		if err := v.RecoveryCode.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue KeyslotWrappingValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v KeyslotWrappingValueOneof) Validate() error {
+	selected := 0
+	if v.MachineKey != nil {
+		selected++
+	}
+	if v.RecoveryCode != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type SecretGenerateRequestSpecOneof struct {
+	Password *SecretPasswordSpec `json:"password,omitempty"`
+}
+
+func (v SecretGenerateRequestSpecOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Password != nil {
+		if err := v.Password.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue SecretGenerateRequestSpecOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v SecretGenerateRequestSpecOneof) Validate() error {
+	selected := 0
+	if v.Password != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type AuthzEntityRefTargetValueOneof struct {
+	Space              *uint64 `json:"space,omitempty"`
+	Deployment         *uint64 `json:"deployment,omitempty"`
+	Secret             *uint64 `json:"secret,omitempty"`
+	Config             *uint64 `json:"config,omitempty"`
+	Asset              *uint64 `json:"asset,omitempty"`
+	Node               *uint64 `json:"node,omitempty"`
+	SystemConfig       *uint64 `json:"system_config,omitempty"`
+	User               *uint64 `json:"user,omitempty"`
+	AuthzGrantTemplate *uint64 `json:"authz_grant_template,omitempty"`
+	AuthzGrant         *uint64 `json:"authz_grant,omitempty"`
+	AuthzGlobalRule    *uint64 `json:"authz_global_rule,omitempty"`
+}
+
+func (v AuthzEntityRefTargetValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	type jsonValue AuthzEntityRefTargetValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v AuthzEntityRefTargetValueOneof) Validate() error {
+	selected := 0
+	if v.Space != nil {
+		selected++
+	}
+	if v.Deployment != nil {
+		selected++
+	}
+	if v.Secret != nil {
+		selected++
+	}
+	if v.Config != nil {
+		selected++
+	}
+	if v.Asset != nil {
+		selected++
+	}
+	if v.Node != nil {
+		selected++
+	}
+	if v.SystemConfig != nil {
+		selected++
+	}
+	if v.User != nil {
+		selected++
+	}
+	if v.AuthzGrantTemplate != nil {
+		selected++
+	}
+	if v.AuthzGrant != nil {
+		selected++
+	}
+	if v.AuthzGlobalRule != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type AuthzTemplatePermissionSelectorValueOneof struct {
+	Argument *AuthzArgument           `json:"argument,omitempty"`
+	Selector *AuthzPermissionSelector `json:"selector,omitempty"`
+}
+
+func (v AuthzTemplatePermissionSelectorValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Argument != nil {
+		if err := v.Argument.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Selector != nil {
+		if err := v.Selector.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue AuthzTemplatePermissionSelectorValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v AuthzTemplatePermissionSelectorValueOneof) Validate() error {
+	selected := 0
+	if v.Argument != nil {
+		selected++
+	}
+	if v.Selector != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type AuthzTemplateSpaceSelectorValueOneof struct {
+	Argument *AuthzArgument      `json:"argument,omitempty"`
+	Selector *AuthzSpaceSelector `json:"selector,omitempty"`
+}
+
+func (v AuthzTemplateSpaceSelectorValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Argument != nil {
+		if err := v.Argument.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Selector != nil {
+		if err := v.Selector.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue AuthzTemplateSpaceSelectorValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v AuthzTemplateSpaceSelectorValueOneof) Validate() error {
+	selected := 0
+	if v.Argument != nil {
+		selected++
+	}
+	if v.Selector != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type AuthzTemplateEntityTypeSelectorValueOneof struct {
+	Argument *AuthzArgument           `json:"argument,omitempty"`
+	Selector *AuthzEntityTypeSelector `json:"selector,omitempty"`
+}
+
+func (v AuthzTemplateEntityTypeSelectorValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Argument != nil {
+		if err := v.Argument.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Selector != nil {
+		if err := v.Selector.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue AuthzTemplateEntityTypeSelectorValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v AuthzTemplateEntityTypeSelectorValueOneof) Validate() error {
+	selected := 0
+	if v.Argument != nil {
+		selected++
+	}
+	if v.Selector != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type AuthzTemplateEntityRefSelectorValueOneof struct {
+	Argument *AuthzArgument          `json:"argument,omitempty"`
+	Selector *AuthzEntityRefSelector `json:"selector,omitempty"`
+}
+
+func (v AuthzTemplateEntityRefSelectorValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Argument != nil {
+		if err := v.Argument.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Selector != nil {
+		if err := v.Selector.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue AuthzTemplateEntityRefSelectorValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v AuthzTemplateEntityRefSelectorValueOneof) Validate() error {
+	selected := 0
+	if v.Argument != nil {
+		selected++
+	}
+	if v.Selector != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type AuthzEffectValueOneof struct {
+	Allow *AuthzAllow `json:"allow,omitempty"`
+	Deny  *AuthzDeny  `json:"deny,omitempty"`
+}
+
+func (v AuthzEffectValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Allow != nil {
+		if err := v.Allow.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Deny != nil {
+		if err := v.Deny.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue AuthzEffectValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v AuthzEffectValueOneof) Validate() error {
+	selected := 0
+	if v.Allow != nil {
+		selected++
+	}
+	if v.Deny != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type AuthzArgumentValuesValueOneof struct {
+	Permissions *AuthzPermissionValues `json:"permissions,omitempty"`
+	Spaces      *AuthzSpaceValues      `json:"spaces,omitempty"`
+	EntityTypes *AuthzEntityValues     `json:"entity_types,omitempty"`
+	EntityRefs  *AuthzReferenceValues  `json:"entity_refs,omitempty"`
+}
+
+func (v AuthzArgumentValuesValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Permissions != nil {
+		if err := v.Permissions.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Spaces != nil {
+		if err := v.Spaces.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.EntityTypes != nil {
+		if err := v.EntityTypes.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.EntityRefs != nil {
+		if err := v.EntityRefs.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue AuthzArgumentValuesValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v AuthzArgumentValuesValueOneof) Validate() error {
+	selected := 0
+	if v.Permissions != nil {
+		selected++
+	}
+	if v.Spaces != nil {
+		selected++
+	}
+	if v.EntityTypes != nil {
+		selected++
+	}
+	if v.EntityRefs != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type AuthzGrantSourceValueOneof struct {
+	Rule     *AuthzRule          `json:"rule,omitempty"`
+	Template *AuthzTemplateGrant `json:"template,omitempty"`
+}
+
+func (v AuthzGrantSourceValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Rule != nil {
+		if err := v.Rule.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Template != nil {
+		if err := v.Template.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue AuthzGrantSourceValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v AuthzGrantSourceValueOneof) Validate() error {
+	selected := 0
+	if v.Rule != nil {
+		selected++
+	}
+	if v.Template != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type NetworkPolicyPeerTargetValueOneof struct {
+	Space      *SpacePeer      `json:"space,omitempty"`
+	Deployment *DeploymentPeer `json:"deployment,omitempty"`
+}
+
+func (v NetworkPolicyPeerTargetValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Space != nil {
+		if err := v.Space.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Deployment != nil {
+		if err := v.Deployment.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue NetworkPolicyPeerTargetValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v NetworkPolicyPeerTargetValueOneof) Validate() error {
+	selected := 0
+	if v.Space != nil {
+		selected++
+	}
+	if v.Deployment != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type StringSettingValueValueOneof struct {
+	Literal   *string    `json:"literal,omitempty"`
+	ConfigRef *ConfigRef `json:"config_ref,omitempty"`
+}
+
+func (v StringSettingValueValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.ConfigRef != nil {
+		if err := v.ConfigRef.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue StringSettingValueValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v StringSettingValueValueOneof) Validate() error {
+	selected := 0
+	if v.Literal != nil {
+		selected++
+	}
+	if v.ConfigRef != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type BoolSettingValueValueOneof struct {
+	Literal   *bool      `json:"literal,omitempty"`
+	ConfigRef *ConfigRef `json:"config_ref,omitempty"`
+}
+
+func (v BoolSettingValueValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.ConfigRef != nil {
+		if err := v.ConfigRef.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue BoolSettingValueValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v BoolSettingValueValueOneof) Validate() error {
+	selected := 0
+	if v.Literal != nil {
+		selected++
+	}
+	if v.ConfigRef != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type CoreMutationValueOneof struct {
+	Create *CreateMutation `json:"create,omitempty"`
+	Update *UpdateMutation `json:"update,omitempty"`
+	Delete *DeleteMutation `json:"delete,omitempty"`
+}
+
+func (v CoreMutationValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Create != nil {
+		if err := v.Create.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Update != nil {
+		if err := v.Update.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Delete != nil {
+		if err := v.Delete.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue CoreMutationValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v CoreMutationValueOneof) Validate() error {
+	selected := 0
+	if v.Create != nil {
+		selected++
+	}
+	if v.Update != nil {
+		selected++
+	}
+	if v.Delete != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type CoreEntityValueOneof struct {
+	Deployment              *Deployment              `json:"deployment,omitempty"`
+	ScheduledInstance       *ScheduledInstance       `json:"scheduled_instance,omitempty"`
+	Node                    *Node                    `json:"node,omitempty"`
+	Secret                  *Secret                  `json:"secret,omitempty"`
+	Config                  *Config                  `json:"config,omitempty"`
+	Asset                   *Asset                   `json:"asset,omitempty"`
+	NetworkPolicy           *NetworkPolicy           `json:"network_policy,omitempty"`
+	Space                   *Space                   `json:"space,omitempty"`
+	User                    *User                    `json:"user,omitempty"`
+	ValueDirectory          *ValueDirectory          `json:"value_directory,omitempty"`
+	AssetDirectory          *AssetDirectory          `json:"asset_directory,omitempty"`
+	AuthzGrantTemplate      *AuthzGrantTemplate      `json:"authz_grant_template,omitempty"`
+	AuthzGrant              *AuthzGrant              `json:"authz_grant,omitempty"`
+	AuthzGlobalRule         *AuthzGlobalRule         `json:"authz_global_rule,omitempty"`
+	SystemConfig            *SystemConfig            `json:"system_config,omitempty"`
+	ScheduledInstanceStatus *ScheduledInstanceStatus `json:"scheduled_instance_status,omitempty"`
+	NodeStatus              *NodeStatus              `json:"node_status,omitempty"`
+	AgentSession            *AgentSession            `json:"agent_session,omitempty"`
+	UserSession             *UserSession             `json:"user_session,omitempty"`
+	NixStoreReset           *NixStoreReset           `json:"nix_store_reset,omitempty"`
+	SecretKeyslot           *SecretKeyslot           `json:"secret_keyslot,omitempty"`
+}
+
+func (v CoreEntityValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Deployment != nil {
+		if err := v.Deployment.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.ScheduledInstance != nil {
+		if err := v.ScheduledInstance.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Node != nil {
+		if err := v.Node.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Secret != nil {
+		if err := v.Secret.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Config != nil {
+		if err := v.Config.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Asset != nil {
+		if err := v.Asset.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.NetworkPolicy != nil {
+		if err := v.NetworkPolicy.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Space != nil {
+		if err := v.Space.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.User != nil {
+		if err := v.User.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.ValueDirectory != nil {
+		if err := v.ValueDirectory.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.AssetDirectory != nil {
+		if err := v.AssetDirectory.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.AuthzGrantTemplate != nil {
+		if err := v.AuthzGrantTemplate.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.AuthzGrant != nil {
+		if err := v.AuthzGrant.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.AuthzGlobalRule != nil {
+		if err := v.AuthzGlobalRule.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.SystemConfig != nil {
+		if err := v.SystemConfig.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.ScheduledInstanceStatus != nil {
+		if err := v.ScheduledInstanceStatus.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.NodeStatus != nil {
+		if err := v.NodeStatus.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.AgentSession != nil {
+		if err := v.AgentSession.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.UserSession != nil {
+		if err := v.UserSession.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.NixStoreReset != nil {
+		if err := v.NixStoreReset.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.SecretKeyslot != nil {
+		if err := v.SecretKeyslot.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue CoreEntityValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v CoreEntityValueOneof) Validate() error {
+	selected := 0
+	if v.Deployment != nil {
+		selected++
+	}
+	if v.ScheduledInstance != nil {
+		selected++
+	}
+	if v.Node != nil {
+		selected++
+	}
+	if v.Secret != nil {
+		selected++
+	}
+	if v.Config != nil {
+		selected++
+	}
+	if v.Asset != nil {
+		selected++
+	}
+	if v.NetworkPolicy != nil {
+		selected++
+	}
+	if v.Space != nil {
+		selected++
+	}
+	if v.User != nil {
+		selected++
+	}
+	if v.ValueDirectory != nil {
+		selected++
+	}
+	if v.AssetDirectory != nil {
+		selected++
+	}
+	if v.AuthzGrantTemplate != nil {
+		selected++
+	}
+	if v.AuthzGrant != nil {
+		selected++
+	}
+	if v.AuthzGlobalRule != nil {
+		selected++
+	}
+	if v.SystemConfig != nil {
+		selected++
+	}
+	if v.ScheduledInstanceStatus != nil {
+		selected++
+	}
+	if v.NodeStatus != nil {
+		selected++
+	}
+	if v.AgentSession != nil {
+		selected++
+	}
+	if v.UserSession != nil {
+		selected++
+	}
+	if v.NixStoreReset != nil {
+		selected++
+	}
+	if v.SecretKeyslot != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
 }

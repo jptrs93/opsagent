@@ -6,7 +6,7 @@ Assets are versioned user-managed file blobs intended for config files that can 
 
 - Storage tables: `assets` holds one row per live asset (`key`, `directory_id`, `space_id`, the newest `value_version`, the envelope `seq`/`event_time`/`author` of the last write, `created_time`) and `asset_versions` one row per immutable content version keyed by `(asset_id, value_version)` with `size_bytes`, `sha256`, `storage_key` (the name of the content's physical copies) and the envelope of the write that created it. `asset_keys` (primary key `(space_id, parent_id, key)`, unique `(kind, id)`) makes key uniqueness across assets and directories a constraint. All three are materialised from the write log by `pq.Reduce` (see `api.md`, The write log); a delete removes the identity, its versions, and its key, the log keeps the history, and the content stays until the reconciler finds its store row unreferenced. `asset_store` is this primary's placement record per content blob: keyed by the storage key (a uuidv7) with a unique `sha256`, `size_bytes`, and `local_status`/`remote_status` flags saying which storage side holds a durable copy; only those flags are node-local knowledge. `asset_directory_event_log` holds the per-space folder tree (`parent_id`, `0` = the implicit root). Event rows carry `author`, the acting user id, `0` for migrated or system rows.
 - **Content is deduplicated by hash and named by key.** A version row names its bytes by `storage_key`; an upload whose `sha256` already exists links the existing key, so identical content — across versions, assets, and spaces — shares one store row and one copy in storage. Deleting an asset removes its version rows, so content no other live version shares becomes unreferenced and the reconciler's sweep reclaims the store row and its local file (at startup, or after the 24h grace period at runtime); the write log keeps the sha and storage key of every version ever written. S3 objects are never eagerly deleted (see retention). The storage key names the physical copies: `LargeAssetsDir/<key>` locally, `<s3-path>/<key>` in S3; the key is stored bare and the S3 path prefix stays a setting.
-- **Two id spaces.** `asset_id` is the stable asset id: it survives renames, moves, and new versions, and is what the write API targets. Deployment configs pin `ValueRef{id, version}` pairs of `asset_id` and `value_version` (`assetRef` on env vars, `asset` on mounts), and workers fetch and cache by that pair, which is the primary key of `asset_versions`. There is no per-version row id any more. `asset_directory_event_log` became `asset_directories`, one row per live directory, in the same move.
+- **Two id spaces.** `asset_id` is the stable asset id: it survives renames, moves, and new versions, and is what the write API targets. Deployment configs pin `AssetRef{asset_id, version}` pairs of the asset id and `value_version` (`asset.asset` on env vars, `asset` on mounts), and workers fetch and cache by that pair, which is the primary key of `asset_versions`. There is no per-version row id any more. `asset_directory_event_log` became `asset_directories`, one row per live directory, in the same move.
 - Each space is an independent file system. Sibling keys must be unique per `(space_id, asset_directory_id)` across **both** assets and directories; that spans two tables, so it is enforced by the storage layer's mutex-guarded create/rename ops, not by a SQL constraint. Keys must be valid file names (no `/`, `\`, NUL, `.`, `..`, ≤255 chars).
 - Content version rows are immutable. Appending targets the stable asset id and writes the next integer version. Renaming appends an event that changes only the key — content version rows, ids, and content are untouched, and pinned deployment references keep working.
 - **Uploads land content before identity.** Every upload, whatever its size, picks a fresh storage key, inserts a staging `asset_store` row (empty sha, both statuses 0), streams to `LargeAssetsDir/<key>` while hashing, and only after the content is durable (local fsync or S3 put) marks the row complete and commits the asset mutation — which is pure SQLite, so an identity can never point at content that failed to land. If the computed sha already exists, the staged copy is discarded and the version links the existing key. The identity write checks that the key names a completed row holding that sha. A crash leaves at worst an unreferenced store row: nothing references it, and the reconciler's sweep reclaims unreferenced rows — immediately at startup, after a 24h grace period at runtime (the grace leaves room for future upload-then-confirm flows).
@@ -89,21 +89,22 @@ The 2026-09 change (v0.0.614) put `storage_key` on every `asset_event_log` row, 
 
 ## Container mounts
 
-Asset mounts are defined under `container1Spec.runtime`, separate from raw host mounts:
+Asset mounts are defined under `workload.container.runtime`, separate from raw host mounts:
 
 ```yaml
-container1Spec:
-  runtime:
-    assetMounts:
-      - asset: {id: 4, version: 2}
-        containerPath: /etc/nginx/nginx.conf
-        permission: READ_ONLY
-      - asset: {id: 9, version: 1}
-        containerPath: /etc/nginx/conf.d/site.conf
-        permission: READ_ONLY
-      - asset: {id: 15, version: 3}
-        containerPath: /docker-entrypoint-initdb.d/init.sh
-        permission: READ_EXECUTE
+workload:
+  container:
+    runtime:
+      asset_mounts:
+        - asset: {asset_id: 4, version: 2}
+          container_path: /etc/nginx/nginx.conf
+          permission: READ_ONLY
+        - asset: {asset_id: 9, version: 1}
+          container_path: /etc/nginx/conf.d/site.conf
+          permission: READ_ONLY
+        - asset: {asset_id: 15, version: 3}
+          container_path: /docker-entrypoint-initdb.d/init.sh
+          permission: READ_EXECUTE
 ```
 
 Current semantics:
@@ -117,5 +118,5 @@ Current semantics:
 - Mount materialized files read-only into the container. Explicit asset mounts may use `READ_EXECUTE` to enable execute bits; implicit env asset mounts are always read-only/non-executable.
 - Reject paths that are empty, relative, directories, or dangerous container destinations.
 - Fail deployment preparation if a pinned asset version no longer exists.
-- Keep `container1Spec.runtime.mounts` for raw host bind mounts; use `assetMounts` only for OpenDeploy-managed config files.
+- Keep `workload.container.runtime.mounts` (`HostMount`) for raw host bind mounts; use `asset_mounts` only for OpenDeploy-managed config files.
 - In the UI, use the compact Assets section under environment variables to select key/path/mode or create a new asset in the side pane.

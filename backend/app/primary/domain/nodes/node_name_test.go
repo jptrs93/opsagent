@@ -13,8 +13,8 @@ import (
 func TestNodeNameUniquenessEnforcedInGo(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id")
-	EnsurePrimaryNode(store, "worker", "worker-id")
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	EnsurePrimaryNode(store, "worker", "worker-id", testUnderlay)
 
 	if _, err := RenameNode(store, "worker-id", "primary"); !errors.Is(err, ErrDuplicateNodeName) {
 		t.Fatalf("rename collision error = %v, want ErrDuplicateNodeName", err)
@@ -26,7 +26,7 @@ func TestNodeNameUniquenessEnforcedInGo(t *testing.T) {
 		t.Fatalf("missing node rename error = %v, want sql.ErrNoRows", err)
 	}
 
-	req, expectedVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v1", apigen.NodeReported{Identifier: "new-id", UnderlayAddress: "10.0.0.9", WgPublicKey: ""})
+	req, expectedVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v1", apigen.NodeReported{Identifier: "new-id", UnderlayAddress: mustAddr("10.0.0.9"), WgPublicKey: ""})
 	if _, err := AcceptEnrollmentRequest(store, req.ID, "primary", req.RequestingMachineID, expectedVersion); !errors.Is(err, ErrDuplicateNodeName) {
 		t.Fatalf("accept collision error = %v, want ErrDuplicateNodeName", err)
 	}

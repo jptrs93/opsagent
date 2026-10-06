@@ -1,6 +1,5 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentFromRecord} from "../state/tree.js";
 import {machinesS, spacesS} from "../state/deployments.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {resolveUserDisplayName} from "../lib/users.js";
@@ -15,8 +14,8 @@ const spaceName = (spaceId) => {
 };
 
 const sourceLabel = (config) => {
-    const source = deploymentWorkload(config)?.source;
-    return source?.nixDockerBuild?.repo || source?.remoteImage?.image || '';
+    const source = deploymentWorkload(config)?.source?.value;
+    return source?.nixImageBuild?.repo || source?.remoteImage?.image || '';
 };
 
 /**
@@ -28,7 +27,7 @@ const sourceLabel = (config) => {
  * silently re-attach all of that, so a recovered deployment is a new deployment
  * seeded from the old config — which is what the create path already does.
  *
- * @param {(config: object) => void} onFork called with the deleted config to seed a new deployment
+ * @param {(record: object) => void} onFork called with the deleted DeploymentRecord to seed a new deployment
  * @param {() => void} onClose
  */
 export function recentlyDeletedOverlay(onFork, onClose) {
@@ -38,7 +37,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
     const load = async () => {
         try {
             const decoded = await capi.postV1DeploymentsRecentlyDeleted({});
-            items.val = (decoded?.items || []).map(deploymentFromRecord).filter(Boolean);
+            items.val = (decoded?.items || []).filter(record => record?.deployment);
         } catch (e) {
             error.val = e?.message || 'Loading deleted deployments failed.';
             items.val = [];
@@ -54,19 +53,19 @@ export function recentlyDeletedOverlay(onFork, onClose) {
     const row = (config) => tr(
         {
             class: "border-b border-gray-800 last:border-0",
-            "data-testid": `recently-deleted-row-${config.deploymentId}`,
+            "data-testid": `recently-deleted-row-${config.deployment.id}`,
         },
         td({class: "px-3 py-2 text-gray-200"},
-            div(config.value?.name || `#${config.deploymentId}`),
+            div(config.deployment.name || `#${config.deployment.id}`),
             () => {
                 const source = sourceLabel(config);
                 return source ? div({class: "text-xs text-gray-500 truncate"}, source) : '';
             },
         ),
-        td({class: "px-3 py-2 text-gray-400"}, spaceName(config.value?.spaceId)),
+        td({class: "px-3 py-2 text-gray-400"}, spaceName(config.deployment.spaceId)),
         td({class: "px-3 py-2 text-gray-400"}, nodeDisplayName(placementNodeId(config), machinesS.val) || '—'),
-        td({class: "px-3 py-2 text-gray-400 whitespace-nowrap"}, formatHistoryTime(config.eventTime) || '—'),
-        td({class: "px-3 py-2 text-gray-400"}, resolveUserDisplayName(config.author) || '—'),
+        td({class: "px-3 py-2 text-gray-400 whitespace-nowrap"}, formatHistoryTime(new Date(Number(config.meta?.updatedTime || 0))) || '—'),
+        td({class: "px-3 py-2 text-gray-400"}, resolveUserDisplayName(Number(config.meta?.updatedActor || 0)) || '—'),
         td({class: "px-3 py-2 text-right"},
             button({
                 type: "button",

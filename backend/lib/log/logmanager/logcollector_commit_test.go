@@ -13,6 +13,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/logdb"
@@ -50,13 +51,15 @@ func (f *fakeInstanceStore) set(items ...apigen.ScheduledInstanceState) {
 	}
 }
 
-func instanceState(instanceID, deploymentID int32, status apigen.RunningStatus, opendeploy bool) apigen.ScheduledInstanceState {
+func instanceState(instanceID, deploymentID uint64, status apigen.RunningStatus, opendeploy bool) apigen.ScheduledInstanceState {
 	var st apigen.ScheduledInstanceState
 	st.Instance.ID = instanceID
-	st.Instance.DeploymentID = deploymentID
-	st.Status.Runner.Status = status
+	st.Instance.Deployment.DeploymentID = deploymentID
+	st.Status = apigen.Some(apigen.ScheduledInstanceStatus{Runner: apigen.Some(apigen.RunnerStatus{Status: status})})
 	if opendeploy {
-		st.Config.Value.Spec.OpendeploySpec = &apigen.OpendeploySpec{}
+		st.Config.Deployment.SpaceID = internaldeploy.SpaceID
+		st.Config.Deployment.Name = internaldeploy.SelfName
+		st.Config.Deployment.Spec = *internaldeploy.SelfSpec()
 	}
 	return st
 }
@@ -145,9 +148,9 @@ func runWideQuery(t *testing.T, c *LogStreamCollector, n int) *apigen.LogQueryRe
 func managerQueryLines(t *testing.T, m *Manager, deploymentID int32) []string {
 	t.Helper()
 	resp, err := m.Query(context.Background(), &apigen.LogQueryRequest{
-		DeploymentID: deploymentID,
-		TimeStart:    mustTime(t, "2000-01-01T00:00:00Z"),
-		TimeEnd:      mustTime(t, "2100-01-01T00:00:00Z"),
+		DeploymentID: uint64(deploymentID),
+		TimeStart:    apigen.TimeOf(mustTime(t, "2000-01-01T00:00:00Z")),
+		TimeEnd:      apigen.TimeOf(mustTime(t, "2100-01-01T00:00:00Z")),
 		IncludeRaw:   true,
 	})
 	if err != nil {
@@ -773,10 +776,10 @@ func TestManagerAlignsCollectorsFromInstanceStream(t *testing.T) {
 
 	fake := &fakeInstanceStore{}
 	fake.set(
-		instanceState(1, testDeploymentID, apigen.RunningStatus_RUNNING, false),
-		instanceState(2, testDeploymentID, apigen.RunningStatus_STARTING, false),
-		instanceState(3, 43, apigen.RunningStatus_RUNNING, true),
-		instanceState(4, 44, apigen.RunningStatus_STOPPED, false),
+		instanceState(1, testDeploymentID, apigen.RunningStatus_RUNNING_STATUS_RUNNING, false),
+		instanceState(2, testDeploymentID, apigen.RunningStatus_RUNNING_STATUS_STARTING, false),
+		instanceState(3, 43, apigen.RunningStatus_RUNNING_STATUS_RUNNING, true),
+		instanceState(4, 44, apigen.RunningStatus_RUNNING_STATUS_STOPPED, false),
 	)
 	ctx, cancel := context.WithCancel(context.Background())
 	m := StartManager(ctx, fake, nil)
@@ -809,8 +812,8 @@ func TestManagerAlignsCollectorsFromInstanceStream(t *testing.T) {
 	})
 
 	fake.set(
-		instanceState(1, testDeploymentID, apigen.RunningStatus_STOPPED, false),
-		instanceState(2, testDeploymentID, apigen.RunningStatus_CRASHED, false),
+		instanceState(1, testDeploymentID, apigen.RunningStatus_RUNNING_STATUS_STOPPED, false),
+		instanceState(2, testDeploymentID, apigen.RunningStatus_RUNNING_STATUS_CRASHED, false),
 	)
 	waitFor(t, "count dropped to one with crashed instance still producing", func() bool {
 		c := m.collector(testDeploymentID)
@@ -820,7 +823,7 @@ func TestManagerAlignsCollectorsFromInstanceStream(t *testing.T) {
 	})
 
 	fake.set(
-		instanceState(2, testDeploymentID, apigen.RunningStatus_STOPPED, false),
+		instanceState(2, testDeploymentID, apigen.RunningStatus_RUNNING_STATUS_STOPPED, false),
 	)
 	waitCollectorStopped(t, m.collector(testDeploymentID))
 	files := listFiles(t, db)
@@ -846,7 +849,7 @@ func TestManagerStartupArmsRunningInstancesBeforeDirScan(t *testing.T) {
 	)
 
 	fake := &fakeInstanceStore{}
-	fake.set(instanceState(1, testDeploymentID, apigen.RunningStatus_RUNNING, false))
+	fake.set(instanceState(1, testDeploymentID, apigen.RunningStatus_RUNNING_STATUS_RUNNING, false))
 	ctx, cancel := context.WithCancel(context.Background())
 	m := StartManager(ctx, fake, nil)
 	t.Cleanup(func() {
@@ -870,7 +873,7 @@ func TestManagerStartupArmsRunningInstancesBeforeDirScan(t *testing.T) {
 		t.Fatalf("dir scan committed WAL of a running deployment, files = %+v", files)
 	}
 
-	fake.set(instanceState(1, testDeploymentID, apigen.RunningStatus_STOPPED, false))
+	fake.set(instanceState(1, testDeploymentID, apigen.RunningStatus_RUNNING_STATUS_STOPPED, false))
 	waitCollectorStopped(t, c)
 }
 

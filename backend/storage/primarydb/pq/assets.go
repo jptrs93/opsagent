@@ -3,19 +3,21 @@ package pq
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
 // AssetRow is a live asset identity: its placement, key, newest content
-// version, and the envelope of its last write.
+// version, and the envelope of its last write. DirectoryID 0 is the space
+// root.
 type AssetRow struct {
-	ID           int64
-	SpaceID      int64
-	DirectoryID  int64
+	ID           uint64
+	SpaceID      uint64
+	DirectoryID  uint64
 	Key          string
-	ValueVersion int64
+	ValueVersion uint32
 	Seq          int64
 	EventTime    int64
 	Author       int64
@@ -23,10 +25,11 @@ type AssetRow struct {
 }
 
 // AssetVersionRow is one content version of a live asset with the envelope
-// of the write that produced it.
+// of the write that produced it. Sha256 is the hex digest, the form the
+// store rows and S3 names use.
 type AssetVersionRow struct {
-	AssetID      int64
-	ValueVersion int64
+	AssetID      uint64
+	ValueVersion uint32
 	Seq          int64
 	EventTime    int64
 	Author       int64
@@ -52,11 +55,11 @@ type AssetVersionJoined struct {
 }
 
 type AssetKey struct {
-	SpaceID  int64
-	ParentID int64
+	SpaceID  uint64
+	ParentID uint64
 	Key      string
 	Kind     apigen.CoreEntityType
-	ID       int64
+	ID       uint64
 }
 
 const assetColumns = `id, space_id, directory_id, key, value_version, seq, event_time, author, created_time`
@@ -74,7 +77,7 @@ func scanAssetVersionRow(row scanner) (AssetVersionRow, error) {
 	return r, err
 }
 
-func (q *Queries) GetAssetRowByID(ctx context.Context, id int64) (AssetRow, error) {
+func (q *Queries) GetAssetRowByID(ctx context.Context, id uint64) (AssetRow, error) {
 	return scanAssetRow(q.db.QueryRowContext(ctx, `SELECT `+assetColumns+` FROM assets WHERE id = ?`, id))
 }
 
@@ -102,7 +105,7 @@ WHERE v.asset_id = ? AND v.value_version = ?`, ref.ID, ref.Version).Scan(
 	if err != nil {
 		return j, err
 	}
-	j.Asset, err = q.GetAssetRowByID(ctx, int64(ref.ID))
+	j.Asset, err = q.GetAssetRowByID(ctx, ref.ID)
 	return j, err
 }
 
@@ -112,7 +115,7 @@ func (q *Queries) CountAssetVersionsBySha(ctx context.Context, sha256 string) (i
 	return n, err
 }
 
-func (q *Queries) LookupAssetKey(ctx context.Context, spaceID, parentID int64, key string) (AssetKey, error) {
+func (q *Queries) LookupAssetKey(ctx context.Context, spaceID, parentID uint64, key string) (AssetKey, error) {
 	k := AssetKey{SpaceID: spaceID, ParentID: parentID, Key: key}
 	var kind int64
 	err := q.db.QueryRowContext(ctx, `SELECT kind, id FROM asset_keys WHERE space_id = ? AND parent_id = ? AND key = ?`, spaceID, parentID, key).Scan(&kind, &k.ID)
@@ -120,7 +123,7 @@ func (q *Queries) LookupAssetKey(ctx context.Context, spaceID, parentID int64, k
 	return k, err
 }
 
-func (q *Queries) AssetKeyTaken(ctx context.Context, spaceID, parentID int64, key string, self apigen.CoreEntityType, selfID int64) (bool, error) {
+func (q *Queries) AssetKeyTaken(ctx context.Context, spaceID, parentID uint64, key string, self apigen.CoreEntityType, selfID uint64) (bool, error) {
 	k, err := q.LookupAssetKey(ctx, spaceID, parentID, key)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
@@ -131,16 +134,26 @@ func (q *Queries) AssetKeyTaken(ctx context.Context, spaceID, parentID int64, ke
 	return k.Kind != self || k.ID != selfID, nil
 }
 
-func (q *Queries) CountAssetKeysUnder(ctx context.Context, directoryID int64) (int64, error) {
+func (q *Queries) CountAssetKeysUnder(ctx context.Context, directoryID uint64) (int64, error) {
 	var n int64
 	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM asset_keys WHERE parent_id = ?`, directoryID).Scan(&n)
 	return n, err
 }
 
+// Sha256Bytes is the raw digest of a hex sha256 column; a malformed column
+// decodes to nil.
+func Sha256Bytes(hexDigest string) []byte {
+	b, err := hex.DecodeString(hexDigest)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
 func AssetEntity(a AssetRow, v AssetVersionRow) apigen.Asset {
 	return apigen.Asset{
-		ID: int32(a.ID), Fs: &apigen.AssetFs{Key: a.Key, DirectoryID: int32(a.DirectoryID)}, SpaceID: int32(a.SpaceID),
-		Sha256: v.Sha256, SizeBytes: v.SizeBytes, StorageKey: v.StorageKey,
+		ID: a.ID, Fs: apigen.AssetFs{Key: a.Key, DirectoryID: directoryRef(a.DirectoryID)}, SpaceID: a.SpaceID,
+		Sha256: Sha256Bytes(v.Sha256), SizeBytes: uint64(v.SizeBytes), StorageKey: v.StorageKey,
 	}
 }
 
@@ -153,17 +166,17 @@ func AssetEventOf(a AssetRow, v AssetVersionRow) *AssetEvent {
 		seq, author, eventTime = v.Seq, v.Author, v.EventTime
 	}
 	return &AssetEvent{
-		AssetID: int32(a.ID), Seq: seq, Author: int32(author), CreatedTime: a.CreatedTime, EventTime: eventTime, ValueVersion: int32(v.ValueVersion),
+		AssetID: a.ID, Seq: seq, Author: author, CreatedTime: a.CreatedTime, EventTime: eventTime, ValueVersion: v.ValueVersion,
 		Value: AssetEntity(a, v),
 	}
 }
 
-func (q *Queries) GetAssetEvent(ctx context.Context, id int64) (*AssetEvent, error) {
+func (q *Queries) GetAssetEvent(ctx context.Context, id uint64) (*AssetEvent, error) {
 	a, err := q.GetAssetRowByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	v, err := q.GetAssetVersion(ctx, apigen.ValueRef{ID: int32(a.ID), Version: int32(a.ValueVersion)})
+	v, err := q.GetAssetVersion(ctx, apigen.ValueRef{ID: a.ID, Version: a.ValueVersion})
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +190,7 @@ func (q *Queries) ListAssetEvents(ctx context.Context) ([]*AssetEvent, error) {
 	}
 	out := make([]*AssetEvent, 0, len(assets))
 	for _, a := range assets {
-		v, err := q.GetAssetVersion(ctx, apigen.ValueRef{ID: int32(a.ID), Version: int32(a.ValueVersion)})
+		v, err := q.GetAssetVersion(ctx, apigen.ValueRef{ID: a.ID, Version: a.ValueVersion})
 		if err != nil {
 			return nil, err
 		}

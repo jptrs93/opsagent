@@ -115,7 +115,7 @@ function versionSummarySection(args) {
     const explicitVersion = update.explicitImageVersion();
     const selected = update.selectedTargetVersion();
     const entry = update.versionEntry();
-    const branch = update.isImage() ? '' : update.nixDockerBuild.selectedBranch.val;
+    const branch = update.isImage() ? '' : update.nixImageBuild.selectedBranch.val;
     const shortID = selected.length > 7 && /^[0-9a-f]+$/i.test(selected) ? selected.slice(0, 7) : selected;
     const date = entry?.time instanceof Date && entry.time.getTime() > 0 ? entry.time.toISOString().slice(0, 10) : '';
     const parts = [];

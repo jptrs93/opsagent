@@ -9,7 +9,7 @@ import (
 
 const Validity = 10 * 365 * 24 * time.Hour
 
-func ValueFromResponse(res *apigen.ClusterIssuedTLSResponse, specVersion int32) *runtimeinputs.IssuedTLSValue {
+func ValueFromResponse(res *apigen.ClusterIssuedTLSResponse, specVersion uint32) *runtimeinputs.IssuedTLSValue {
 	return &runtimeinputs.IssuedTLSValue{
 		CertPEM:     res.CertPem,
 		KeyPEM:      res.KeyPem,

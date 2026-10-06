@@ -16,7 +16,7 @@ import (
 
 func acceptSecondary(t *testing.T, store *state.Service, identifier string) *Node {
 	t.Helper()
-	req, version := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: identifier, UnderlayAddress: "10.0.0.2", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
+	req, version := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: identifier, UnderlayAddress: mustAddr("10.0.0.2"), WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
 	if _, err := AcceptEnrollmentRequest(store, req.ID, identifier, identifier, version); err != nil {
 		t.Fatalf("AcceptEnrollmentRequest: %v", err)
 	}
@@ -41,20 +41,20 @@ func nodeRow(t *testing.T, store *state.Service, identifier string) *Node {
 func TestEvictNodeRefusesPinnedDeploymentsWithoutForce(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id")
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	node := acceptSecondary(t, store, "secondary-id")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "web", node.ID, statetest.SpecWithVersion("v1"))
-	statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
 	_, err := EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Seq, false)
 	var hasDeployments *ErrNodeHasDeployments
 	if !errors.As(err, &hasDeployments) || hasDeployments.Count != 1 {
 		t.Fatalf("evict with pinned deployment: got %v, want ErrNodeHasDeployments{1}", err)
 	}
-	if got := nodeRow(t, store, node.Identifier).Status; got != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL {
+	if got := nodeRow(t, store, node.Identifier).Status; got != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL {
 		t.Fatalf("refused eviction changed status to %v", got)
 	}
-	if len(statetest.NonFinalInstances(store, cfg.DeploymentID)) != 1 {
+	if len(statetest.NonFinalInstances(store, cfg.Deployment.ID)) != 1 {
 		t.Fatal("refused eviction finalized the placement")
 	}
 }
@@ -62,15 +62,15 @@ func TestEvictNodeRefusesPinnedDeploymentsWithoutForce(t *testing.T) {
 func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id")
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	web := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "web", node.ID, statetest.SpecWithVersion("v1"))
-	webInst := statetest.CreateScheduledInstance(store, web.DeploymentID, web.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	webInst := statetest.CreateScheduledInstance(store, web.Deployment.ID, web.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	netproxy := statetest.MustCreateDeploymentForNode(store, ctx, internaldeploy.SpaceID, internaldeploy.NetproxyName, node.ID, internaldeploy.NetproxySpec())
-	statetest.CreateScheduledInstance(store, netproxy.DeploymentID, netproxy.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	statetest.CreateScheduledInstance(store, netproxy.Deployment.ID, netproxy.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		st := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: webInst.ID, DeploymentID: web.DeploymentID, Runner: apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING}}
+		st := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: webInst.ID, Runner: apigen.Some(apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING_STATUS_RUNNING})}
 		st.BumpUpdatedAt()
 		return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, time.Now().UnixMilli(), st)), nil
 	}); err != nil {
@@ -85,10 +85,10 @@ func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing
 	if err != nil {
 		t.Fatalf("EvictNode: %v", err)
 	}
-	if event.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED || event.NodeID != node.ID {
+	if event.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED || event.NodeID != node.ID {
 		t.Fatalf("evict event = %+v, want evicted node %d", event, node.ID)
 	}
-	if len(statetest.NonFinalInstances(store, web.DeploymentID)) != 0 || len(statetest.NonFinalInstances(store, netproxy.DeploymentID)) != 0 {
+	if len(statetest.NonFinalInstances(store, web.Deployment.ID)) != 0 || len(statetest.NonFinalInstances(store, netproxy.Deployment.ID)) != 0 {
 		t.Fatal("eviction left live placements on the node")
 	}
 	active, err := store.Queries().ListActiveDeployments(context.Background())
@@ -97,13 +97,13 @@ func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing
 	}
 	var webActive, netproxyActive bool
 	for _, cfg := range active {
-		webActive = webActive || cfg.DeploymentID == web.DeploymentID
-		netproxyActive = netproxyActive || cfg.DeploymentID == netproxy.DeploymentID
+		webActive = webActive || cfg.Deployment.ID == web.Deployment.ID
+		netproxyActive = netproxyActive || cfg.Deployment.ID == netproxy.Deployment.ID
 	}
 	if !webActive || netproxyActive {
 		t.Fatalf("active after eviction: web=%v netproxy=%v, want web kept and netproxy deleted", webActive, netproxyActive)
 	}
-	if status, err := store.Queries().GetLatestScheduledInstanceStatus(context.Background(), webInst.ID); err != nil || status.Runner.Status != apigen.RunningStatus_DEPLOYMENT_STATUS_UNKNOWN {
+	if status, err := store.Queries().GetLatestScheduledInstanceStatus(context.Background(), webInst.ID); err != nil || status.Runner.Present {
 		t.Fatalf("instance status after eviction = %+v (%v), want tombstone", status, err)
 	}
 	if status, err := store.Queries().GetLatestNodeStatus(context.Background(), node.ID); err != nil || status.IsConnected {
@@ -128,7 +128,7 @@ func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing
 func TestEvictNodeRefusesPrimaryAndStaleSeq(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	primary := EnsurePrimaryNode(store, "primary", "primary-id")
+	primary := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	if _, err := EvictNode(ctx, store, primary.Identifier, primary.Seq, true); !errors.Is(err, ErrNodeIsPrimary) {
@@ -145,19 +145,19 @@ func TestEvictNodeRefusesPrimaryAndStaleSeq(t *testing.T) {
 func TestEvictedIdentifierCanNeverReenroll(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id")
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	node := acceptSecondary(t, store, "secondary-id")
 	if _, err := EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Seq, false); err != nil {
 		t.Fatalf("EvictNode: %v", err)
 	}
-	_, _, err := UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.2", apigen.NodeReported{Identifier: node.Identifier})
+	_, _, err := UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.2", apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: mustAddr("10.0.0.2")})
 	if !errors.Is(err, ErrEnrollmentIdentifierEvicted) {
 		t.Fatalf("re-enrollment of evicted identifier: got %v, want ErrEnrollmentIdentifierEvicted", err)
 	}
-	if got := nodeRow(t, store, node.Identifier).Status; got != apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
+	if got := nodeRow(t, store, node.Identifier).Status; got != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED {
 		t.Fatalf("status after refused re-enrollment = %v, want evicted", got)
 	}
-	if _, _, err := UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.2", apigen.NodeReported{Identifier: "fresh-id"}); err != nil {
+	if _, _, err := UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.2", apigen.NodeReported{Identifier: "fresh-id", UnderlayAddress: mustAddr("10.0.0.3")}); err != nil {
 		t.Fatalf("fresh identifier enrollment: %v", err)
 	}
 }
@@ -165,18 +165,18 @@ func TestEvictedIdentifierCanNeverReenroll(t *testing.T) {
 func TestSetNodeDrainingTogglesCordon(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id")
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	event, err := SetNodeDraining(ctx, store, node.Identifier, true)
-	if err != nil || event.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING {
+	if err != nil || event.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_DRAINING {
 		t.Fatalf("drain: event=%+v err=%v", event, err)
 	}
 	if _, err := MemberNodeIDByIdentifier(store.Queries(), node.Identifier); err != nil {
 		t.Fatalf("draining node must stay a member: %v", err)
 	}
 	event, err = SetNodeDraining(ctx, store, node.Identifier, false)
-	if err != nil || event.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL {
+	if err != nil || event.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL {
 		t.Fatalf("undrain: event=%+v err=%v", event, err)
 	}
 }
@@ -184,13 +184,13 @@ func TestSetNodeDrainingTogglesCordon(t *testing.T) {
 func TestNodeExposureListsDeliveredData(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id")
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	cfg := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "web", node.ID, statetest.EnvRefSpec(map[string]apigen.ValueRef{"CONF": {ID: 9, Version: 2}}, map[string]apigen.ValueRef{"SECRET": {ID: 7, Version: 3}}))
-	statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	other := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "elsewhere", node.ID+1, statetest.EnvRefSpec(map[string]apigen.ValueRef{"CONF": {ID: 10, Version: 1}}, nil))
-	statetest.CreateScheduledInstance(store, other.DeploymentID, other.Version, node.ID+1, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	statetest.CreateScheduledInstance(store, other.Deployment.ID, other.Meta.Version, node.ID+1, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	if _, err := EvictNode(ctx, store, node.Identifier, node.Seq, true); err != nil {
 		t.Fatalf("EvictNode: %v", err)
 	}
@@ -198,8 +198,8 @@ func TestNodeExposureListsDeliveredData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NodeExposure: %v", err)
 	}
-	if len(exposure.Deployments) != 1 || exposure.Deployments[0].DeploymentID != cfg.DeploymentID {
-		t.Fatalf("exposed deployments = %+v, want only %d", exposure.Deployments, cfg.DeploymentID)
+	if len(exposure.Deployments) != 1 || exposure.Deployments[0].Deployment.ID != cfg.Deployment.ID {
+		t.Fatalf("exposed deployments = %+v, want only %d", exposure.Deployments, cfg.Deployment.ID)
 	}
 	if len(exposure.Secrets) != 1 || exposure.Secrets[0] != (apigen.ValueRef{ID: 7, Version: 3}) {
 		t.Fatalf("exposed secrets = %v, want [7@3]", exposure.Secrets)

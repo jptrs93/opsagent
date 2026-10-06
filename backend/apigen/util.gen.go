@@ -617,9 +617,6 @@ func EncodeZigZag(x int64) uint64 {
 }
 
 func EncodeTimestamp(t time.Time) []byte {
-	if t.IsZero() {
-		return nil
-	}
 	var b []byte
 	seconds := t.Unix()
 	nanos := int32(t.Nanosecond())
@@ -1042,6 +1039,13 @@ func ConsumeRepeatedElement[T any](b []byte, typ Type, consume func([]byte, Type
 }
 
 func ConsumeRepeatedCompact[T any](b []byte, typ Type, elemTyp Type, consume func([]byte, Type) ([]byte, T, error)) ([]byte, []T, error) {
+	if typ == elemTyp {
+		rest, value, err := consume(b, typ)
+		if err != nil {
+			return nil, nil, err
+		}
+		return rest, []T{value}, nil
+	}
 	if typ != BytesType || elemTyp == BytesType {
 		return nil, nil, errInvalidWireType
 	}
@@ -1618,6 +1622,13 @@ func AppendSfixed64Compact(b []byte, v int64) []byte {
 	return AppendFixed64(b, uint64(v))
 }
 
+func encodeChecked(value Encodable) ([]byte, error) {
+	if checked, ok := value.(interface{ EncodeChecked() ([]byte, error) }); ok {
+		return checked.EncodeChecked()
+	}
+	return value.Encode(), nil
+}
+
 type Encodable interface {
 	Encode() []byte
 }
@@ -1689,4 +1700,56 @@ func lessMapKey[K comparable](a, b K) bool {
 	default:
 		return false
 	}
+}
+
+// ValidationError represents a buf.validate constraint failure on a request payload.
+// The Path slice records the path to the offending field, joined with dots when
+// rendered (e.g. "user.email" or "items[3].name").
+type ValidationError struct {
+	Path   []string
+	Reason string
+}
+
+func (e *ValidationError) Error() string {
+	return joinValidationPath(e.Path) + ": " + e.Reason
+}
+
+func joinValidationPath(parts []string) string {
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	}
+	n := len(parts) - 1
+	for _, p := range parts {
+		n += len(p)
+	}
+	out := make([]byte, 0, n)
+	for i, p := range parts {
+		if i > 0 && len(p) > 0 && p[0] != '[' {
+			out = append(out, '.')
+		}
+		out = append(out, p...)
+	}
+	return string(out)
+}
+
+func newValidationError(path []string, reason string) *ValidationError {
+	return &ValidationError{Path: path, Reason: reason}
+}
+
+func wrapValidationError(err error, segment string) error {
+	if err == nil {
+		return nil
+	}
+	var ve *ValidationError
+	if errors.As(err, &ve) {
+		path := make([]string, 0, len(ve.Path)+1)
+		path = append(path, segment)
+		path = append(path, ve.Path...)
+		ve.Path = path
+		return ve
+	}
+	return err
 }

@@ -21,8 +21,9 @@ placement) derived purely from scheduled-instance assignments, which removed
 the earlier plan's need for runner-status-derived routes and worker
 candidate-route reports.
 
-The target is the first production-capable implementation for clusters of at
-most approximately 100 nodes. It uses one fixed IP-in-IP tunnel per remote node
+The target is the first production-capable implementation. Its scale ceiling
+is accepted in the medium term; the product target is parity with Kubernetes
+(see `networking.md`). It uses one fixed IP-in-IP tunnel per remote node
 and direct logical workload routes. Larger-scale tunnel topology, NAT
 traversal, and encrypted transport are outside this plan.
 
@@ -156,11 +157,12 @@ unchanged because they refer to node identity rather than outer addresses.
   routing each remote node's underlay address through WireGuard, which leaves
   tunnel interfaces and workload routes unchanged).
 - Flow-based single-tunnel dataplanes.
-- Bounded-degree gateway topology for clusters materially above 100 nodes.
-- Incremental or sharded network-map distribution.
-- Route pruning by policy-derived reachability, and the rollover barrier
-  refinements that build on it (progress-based membership, reachability-scoped
-  membership); see the open items in `networking.md`.
+- Bounded-degree gateway topology in place of the full mesh.
+- Per-node network maps scoped by policy-derived reachability (routes, peers,
+  and DNS catalog pruned by one set, per-node stamps, affected-node rendering
+  per commit), and the rollover barrier refinements that build on it
+  (progress-based membership, reachability-scoped membership); the agreed
+  design is in the open items of `networking.md`.
 - Full workload egress policy and exfiltration controls.
 - Cross-node scheduling and movement automation.
 

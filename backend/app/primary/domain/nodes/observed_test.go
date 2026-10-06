@@ -19,7 +19,7 @@ func TestNodeObservationHistorySurvivesRestartAndClockRegression(t *testing.T) {
 	node := testNode(s, "primary")
 	future := time.Now().Add(24 * time.Hour).UnixNano()
 	if err := s.Commit(context.Background(), nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		return pq.NewUpdate(pq.NodeStatusMutation(seq, time.Now().UnixMilli(), &apigen.NodeStatus{NodeID: node.ID, UpdatedAt: time.Unix(0, future), IsConnected: true})), nil
+		return pq.NewUpdate(pq.NodeStatusMutation(seq, time.Now().UnixMilli(), &apigen.NodeStatus{NodeID: node.ID, UpdatedAt: apigen.TimeOf(time.Unix(0, future)), IsConnected: true})), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestNodeObservationHistorySurvivesRestartAndClockRegression(t *testing.T) {
 		t.Fatalf("connection history = %+v", history)
 	}
 	for i, status := range history {
-		if status.UpdatedAt.UnixNano() != future+int64(i) {
+		if status.UpdatedAt.Value.UnixNano() != future+int64(i) {
 			t.Fatalf("clock %d = %v", i, status.UpdatedAt)
 		}
 	}
@@ -44,7 +44,7 @@ func TestNodeObservationHistorySurvivesRestartAndClockRegression(t *testing.T) {
 	if globalSeq(t, s) != seq+2 || len(latest) != 1 || !bytes.Equal(latest[0].Encode(), history[2].Encode()) {
 		t.Fatalf("latest observation = %+v", latest)
 	}
-	if got := erru.Must(s.Queries().ListNodeStatusHistorySince(context.Background(), node.ID, history[0].UpdatedAt)); len(got) != 2 {
+	if got := erru.Must(s.Queries().ListNodeStatusHistorySince(context.Background(), node.ID, history[0].UpdatedAt.Value)); len(got) != 2 {
 		t.Fatalf("history since = %+v", got)
 	}
 }

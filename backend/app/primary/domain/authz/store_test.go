@@ -10,6 +10,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
+func minimalTemplateSpec() *apigen.AuthzGrantTemplateSpec {
+	return &apigen.AuthzGrantTemplateSpec{Rules: []apigen.AuthzTemplateRule{templateRule(allow(false), anyTemplateSelector())}}
+}
+
 func TestAuthzStoreRoundTrip(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
@@ -18,43 +22,28 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("authz.Open: %v", err)
 	}
-	created, err := svc.CreateRuleTemplate("deployer", &apigen.AuthzRuleTemplateSpec{
-		Arguments: []*apigen.AuthzTemplateArgument{{ID: 1, Name: "spaces"}},
-		Rules: []*apigen.AuthzRule{{
-			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-			Spaces:      &apigen.AuthzSelector{ArgumentID: 1},
-			EntityTypes: &apigen.AuthzSelector{Wildcard: true},
-			EntityRefs:  &apigen.AuthzSelector{Wildcard: true},
-		}},
-	}, 1)
+	viewSel := spacesArgTemplateSelector(1)
+	viewSel.Permissions = templatePermissions(exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW))
+	created, err := svc.CreateGrantTemplate("deployer", spacesTemplate(1, templateRule(allow(false), viewSel)), 1)
 	if err != nil {
-		t.Fatalf("CreateRuleTemplate: %v", err)
+		t.Fatalf("CreateGrantTemplate: %v", err)
 	}
 	if created.ID <= SpaceAdminTemplateID {
 		t.Fatalf("custom template id %d should follow the seeded builtins", created.ID)
 	}
-	grant, err := svc.CreateGrant(&apigen.AuthzGrant{
-		UserID:     7,
-		TemplateID: created.ID,
-		Spec:       &apigen.AuthzGrantSpec{Args: []*apigen.AuthzArgumentBinding{{ArgumentID: 1, Values: []int64{2}}}},
-	}, 1)
+	grant, err := svc.CreateGrant(templateGrant(7, created.ID, spaceBinding(1, 2)), 1)
 	if err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
-	if _, err := svc.CreateGrant(&apigen.AuthzGrant{
-		UserID:     8,
-		TemplateID: ClusterAdminTemplateID,
-		Spec:       &apigen.AuthzGrantSpec{},
-	}, 1); err != nil {
+	if _, err := svc.CreateGrant(templateGrant(8, ClusterAdminTemplateID), 1); err != nil {
 		t.Fatalf("CreateGrant builtin: %v", err)
 	}
-	rule, err := svc.CreateGlobalRule("no_reveal_space_2", &apigen.AuthzGlobalRuleSpec{
-		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
-		Spaces:      &apigen.AuthzSelector{Include: []int64{2}},
-		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
-		EntityRefs:  &apigen.AuthzSelector{Wildcard: true},
-		Deny:        true,
-	}, 1)
+	rule, err := svc.CreateGlobalRule("no_reveal_space_2", denyRule(false, apigen.AuthzSelector{
+		Permissions: exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_REVEAL),
+		Spaces:      exactSpaces(2),
+		EntityTypes: exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET),
+		EntityRefs:  allEntityRefs(),
+	}), 1)
 	if err != nil {
 		t.Fatalf("CreateGlobalRule: %v", err)
 	}
@@ -71,7 +60,7 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 	req := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW,
 		SpaceID:    2,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT,
 		EntityID:   4,
 	}
 	if !svc.HasAccess(7, req) {
@@ -88,7 +77,7 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 	reveal := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_REVEAL,
 		SpaceID:    2,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SECRET,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET,
 		EntityID:   4,
 	}
 	if svc.HasAccess(8, reveal) {
@@ -104,11 +93,11 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Grant: %v", err)
 	}
-	if got.UserID != 7 || got.TemplateID != created.ID || len(got.Spec.Args) != 1 {
+	if tg := got.Grant.Value.Template; got.UserID != 7 || tg == nil || tg.TemplateID != created.ID || len(tg.Args) != 1 {
 		t.Fatalf("unexpected grant after reopen: %+v", got)
 	}
-	if row, err := store.Queries().GetAuthzGrant(t.Context(), grant.ID); err != nil || row.Author != 1 {
-		t.Fatalf("grant row author = %d, %v, want the creating operator", row.Author, err)
+	if row, err := store.Queries().GetAuthzGrant(t.Context(), grant.ID); err != nil || row.Author != 1 || row.TemplateID != created.ID {
+		t.Fatalf("grant row = %+v, %v, want the creating operator and the template id", row, err)
 	}
 	if err := svc.DeleteGrant(7, grant.ID, 0); err != nil {
 		t.Fatalf("DeleteGrant: %v", err)
@@ -116,45 +105,38 @@ func TestAuthzStoreRoundTrip(t *testing.T) {
 	if svc.HasAccess(7, req) {
 		t.Fatal("deleted grant should drop access")
 	}
-	if err := svc.DeleteRuleTemplate(created.ID, 0); err != nil {
-		t.Fatalf("DeleteRuleTemplate: %v", err)
+	if err := svc.DeleteGrantTemplate(created.ID, 0); err != nil {
+		t.Fatalf("DeleteGrantTemplate: %v", err)
 	}
-	if _, err := svc.CreateRuleTemplate("deployer", &apigen.AuthzRuleTemplateSpec{
-		Rules: []*apigen.AuthzRule{{
-			Permissions: &apigen.AuthzSelector{Wildcard: true},
-			Spaces:      &apigen.AuthzSelector{Wildcard: true},
-			EntityTypes: &apigen.AuthzSelector{Wildcard: true},
-			EntityRefs:  &apigen.AuthzSelector{Wildcard: true},
-		}},
-	}, 1); err != nil {
+	if _, err := svc.CreateGrantTemplate("deployer", minimalTemplateSpec(), 1); err != nil {
 		t.Fatalf("name should be reusable after delete: %v", err)
 	}
 }
 
-func TestDeleteAuthzRowsWithEmptyBlobs(t *testing.T) {
+func TestDeleteAuthzRowsThroughStore(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 
-	grantID, err := insertGrant(store, GrantRow{UserID: 7, TemplateID: 1, CreatedAt: 1000})
+	templateID, err := insertGrantTemplate(store, GrantTemplateRow{Name: "plain", CreatedAt: 1000, Blob: minimalTemplateSpec().Encode()})
 	if err != nil {
-		t.Fatalf("InsertAuthzGrant: %v", err)
+		t.Fatalf("insertGrantTemplate: %v", err)
+	}
+	grantID, err := insertGrant(store, GrantRow{UserID: 7, CreatedAt: 1000, Blob: sourceBlob(templateSource(templateID))})
+	if err != nil {
+		t.Fatalf("insertGrant: %v", err)
 	}
 	if err := deleteGrant(store, grantID, 0); err != nil {
-		t.Fatalf("DeleteAuthzGrant with empty blob: %v", err)
+		t.Fatalf("deleteGrant: %v", err)
 	}
-	templateID, err := insertRuleTemplate(store, RuleTemplateRow{Name: "empty", CreatedAt: 1000})
+	if err := deleteGrantTemplate(store, templateID, 0); err != nil {
+		t.Fatalf("deleteGrantTemplate: %v", err)
+	}
+	ruleID, err := insertGlobalRule(store, GlobalRuleRow{Name: "plain", CreatedAt: 1000, Blob: allowRule(false, anySelector()).Encode()})
 	if err != nil {
-		t.Fatalf("InsertAuthzRuleTemplate: %v", err)
-	}
-	if err := deleteRuleTemplate(store, templateID, 0); err != nil {
-		t.Fatalf("DeleteAuthzRuleTemplate with empty blob: %v", err)
-	}
-	ruleID, err := insertGlobalRule(store, GlobalRuleRow{Name: "empty", CreatedAt: 1000})
-	if err != nil {
-		t.Fatalf("InsertAuthzGlobalRule: %v", err)
+		t.Fatalf("insertGlobalRule: %v", err)
 	}
 	if err := deleteGlobalRule(store, ruleID, 0); err != nil {
-		t.Fatalf("DeleteAuthzGlobalRule with empty blob: %v", err)
+		t.Fatalf("deleteGlobalRule: %v", err)
 	}
 }
 
@@ -165,11 +147,11 @@ func TestDeletedSeededGlobalRuleStaysDeleted(t *testing.T) {
 	if _, err := Open(store); err != nil {
 		t.Fatalf("authz.Open: %v", err)
 	}
-	rules, err := listGlobalRules(store.Queries())
+	rules, err := store.Queries().ListAuthzGlobalRules(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
-	var seededID int64
+	var seededID uint64
 	for _, rule := range rules {
 		if rule.Name == DefaultUserVisibilityRuleName {
 			seededID = rule.ID
@@ -190,7 +172,7 @@ func TestDeletedSeededGlobalRuleStaysDeleted(t *testing.T) {
 	if _, err := Open(store); err != nil {
 		t.Fatalf("authz.Open after delete: %v", err)
 	}
-	rules, err = listGlobalRules(store.Queries())
+	rules, err = store.Queries().ListAuthzGlobalRules(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,14 +206,14 @@ func TestAuthzWriterPublicationMatchesPersistedRows(t *testing.T) {
 		}
 		statetest.AssertUpdateMatchesRows(t, s, <-sub)
 	}
-	id, err := insertRuleTemplate(s, RuleTemplateRow{Name: "template", Blob: (&apigen.AuthzRuleTemplateSpec{}).Encode()})
+	id, err := insertGrantTemplate(s, GrantTemplateRow{Name: "template", Blob: minimalTemplateSpec().Encode()})
 	check(err)
-	check(updateRuleTemplate(s, id, "renamed", (&apigen.AuthzRuleTemplateSpec{}).Encode(), 1, 10))
-	grant, err := insertGrant(s, GrantRow{UserID: 7, TemplateID: id, Blob: (&apigen.AuthzGrantSpec{}).Encode()})
+	check(updateGrantTemplate(s, id, "renamed", minimalTemplateSpec().Encode(), 1, 10))
+	grant, err := insertGrant(s, GrantRow{UserID: 7, Blob: sourceBlob(templateSource(id))})
 	check(err)
 	check(deleteGrant(s, grant, 0))
-	check(deleteRuleTemplate(s, id, 0))
-	rule, err := insertGlobalRule(s, GlobalRuleRow{Name: "global", Blob: (&apigen.AuthzGlobalRuleSpec{}).Encode()})
+	check(deleteGrantTemplate(s, id, 0))
+	rule, err := insertGlobalRule(s, GlobalRuleRow{Name: "global", Blob: allowRule(false, anySelector()).Encode()})
 	check(err)
 	check(deleteGlobalRule(s, rule, 0))
 }

@@ -50,6 +50,3 @@ export function makeAssetItems(assets) {
         }];
     });
 }
-
-// Asset directories carry `key`; the shared explorer helpers expect `name`.
-export const assetDirsAsNamed = (dirs) => (dirs || []).map((d) => ({...d, name: d.key || ""}));

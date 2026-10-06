@@ -2,6 +2,7 @@ package installer
 
 import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"net/netip"
 	"path/filepath"
 	"testing"
 
@@ -18,7 +19,7 @@ func TestApplyRestoredSystemConfigOverrides(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	settings.HttpWeb.Listen.Value = "10.0.0.1:443"
+	settings.HttpWeb.Listen = systemconfig.StringLiteral("10.0.0.1:443")
 	if updateErr := service.UpdateSettings(*settings, 0, nil); updateErr != nil {
 		t.Fatalf("seed web listen: %v", updateErr)
 	}
@@ -49,22 +50,22 @@ func TestApplyRestoredSystemConfigOverrides(t *testing.T) {
 		t.Fatalf("NewService reopen: %v", err)
 	}
 	cfg := service.Snapshot()
-	if got := cfg.Settings.HttpWeb.Listen.Value; got != ":8443" {
+	if got := service.MustLoadStringSetting(cfg.Settings.HttpWeb.Listen); got != ":8443" {
 		t.Fatalf("WebHTTP.Listen = %q, want :8443", got)
 	}
-	if !cfg.Settings.HttpWeb.Enabled.Value {
+	if !service.MustLoadBoolSetting(cfg.Settings.HttpWeb.Enabled) {
 		t.Fatal("WebHTTP.Enabled = false, want true")
 	}
-	if cfg.Settings.HttpsWeb.Enabled.Value {
+	if service.MustLoadBoolSetting(cfg.Settings.HttpsWeb.Enabled) {
 		t.Fatal("WebHTTPS.Enabled = true, want false")
 	}
-	if got := cfg.Settings.Cluster.Listen.Value; got != ":9443" {
+	if got := service.MustLoadStringSetting(cfg.Settings.Cluster.Listen); got != ":9443" {
 		t.Fatalf("ClusterListen = %q, want :9443", got)
 	}
-	if got := cfg.Settings.Cluster.EnrollmentListen.Value; got != ":9444" {
+	if got := service.MustLoadStringSetting(cfg.Settings.Cluster.EnrollmentListen); got != ":9444" {
 		t.Fatalf("EnrollmentListen = %q, want :9444", got)
 	}
-	if got := stringu.ParseStringList(cfg.Settings.HttpsWeb.AcmeHosts.Value); len(got) != 1 || got[0] != "new.example.com" {
+	if got := stringu.ParseStringList(service.MustLoadStringSetting(cfg.Settings.HttpsWeb.AcmeHosts)); len(got) != 1 || got[0] != "new.example.com" {
 		t.Fatalf("AcmeHosts = %#v, want [new.example.com]", got)
 	}
 }
@@ -72,7 +73,7 @@ func TestApplyRestoredSystemConfigOverrides(t *testing.T) {
 func TestInvalidateRestoredPrimaryRuntimeState(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
-	nodes.EnsurePrimaryNode(store, "primary", "primary-id")
+	nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("192.0.2.1"))
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}

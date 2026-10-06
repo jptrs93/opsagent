@@ -15,9 +15,9 @@ import (
 func testPolicy() *apigen.NetworkPolicy {
 	return &apigen.NetworkPolicy{
 		Action:      apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW,
-		Source:      &apigen.NetworkPolicyPeerRef{Kind: apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE, ID: 2},
-		Destination: &apigen.NetworkPolicyPeerRef{Kind: apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT, ID: 7},
-		Ports:       []*apigen.NetPortMatch{{Protocol: apigen.NetProtocol_NET_PROTOCOL_TCP, Port: 8080}},
+		Source:      apigen.NetworkPolicyPeer{Target: apigen.NetworkPolicyPeerTarget{Value: apigen.NetworkPolicyPeerTargetValueOneof{Space: &apigen.SpacePeer{SpaceID: 2}}}},
+		Destination: apigen.NetworkPolicyPeer{Target: apigen.NetworkPolicyPeerTarget{Value: apigen.NetworkPolicyPeerTargetValueOneof{Deployment: &apigen.DeploymentPeer{DeploymentID: 7}}}},
+		Ports:       []apigen.NetPortMatch{{Protocol: apigen.NetProtocol_NET_PROTOCOL_TCP, Range: apigen.PortRange{Start: 8080, End: 8080}}},
 	}
 }
 
@@ -34,7 +34,7 @@ func TestNetworkPolicyMapInputsIncludeActivePolicies(t *testing.T) {
 	}
 }
 
-func createNetworkPolicyForTest(s *state.Service, policy *apigen.NetworkPolicy, author int32) *pq.NetworkPolicyEvent {
+func createNetworkPolicyForTest(s *state.Service, policy *apigen.NetworkPolicy, author int64) *pq.NetworkPolicyEvent {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	var event *pq.NetworkPolicyEvent
@@ -44,8 +44,8 @@ func createNetworkPolicyForTest(s *state.Service, policy *apigen.NetworkPolicy, 
 			return nil, err
 		}
 		value := *policy
-		event = &pq.NetworkPolicyEvent{Seq: seq, EventTime: now, CreatedTime: now, Author: author, NetworkPolicyID: int32(id), Value: value}
-		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
+		event = &pq.NetworkPolicyEvent{Seq: seq, EventTime: now, CreatedTime: now, Author: author, NetworkPolicyID: id, Value: value}
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: author, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
 		return pq.NewUpdate(pq.NetworkPolicyMutation(meta, id, value)), nil
 	}))
 	return event

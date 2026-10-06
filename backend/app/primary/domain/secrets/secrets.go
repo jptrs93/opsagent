@@ -49,10 +49,14 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-const (
-	slotMachine  = apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE
-	slotRecovery = apigen.SecretKeyslotKind_SECRET_KEYSLOT_RECOVERY
+type slotKind uint8
 
+const (
+	slotMachine slotKind = iota + 1
+	slotRecovery
+)
+
+const (
 	TLSCertPEMSecretName = "opendeploy.tls.pem"
 
 	keyLen               = machinekey.KeyLen // 32
@@ -80,43 +84,44 @@ var ErrNotFound = errors.New("secret not found")
 // reserved internal secret namespace.
 var ErrReservedName = errors.New("secret name is reserved for internal use")
 
-// Keyslot is a wrapped copy of the SMK as persisted in secret_keyslots.
+// Keyslot is a wrapped copy of the SMK as persisted in secret_keyslots. ID is
+// the keyslot entity id, 0 before the slot is first written.
 type Keyslot struct {
-	Kind       apigen.SecretKeyslotKind
-	NodeID     int32 // machine slots: the node whose machine key wraps it; 0 for the recovery slot
-	SMKVersion int32
+	ID         uint64
+	Kind       slotKind
+	NodeID     uint64 // machine slots: the node whose machine key wraps it; 0 for the recovery slot
+	SMKVersion uint32
 	WrappedSMK []byte
 	Nonce      []byte
 	KDFSalt    []byte // recovery slot only; nil for the machine slot
-	CreatedAt  int64  // epoch ms
 }
 
 // Record is an encrypted secret version row as persisted in secret_versions,
 // joined with its owning identity's name and space for metadata.
 type Record struct {
-	SecretID   int32 // stable identity id
-	Name       string
-	Version    int32
-	SpaceID    int32
-	SMKVersion int32
+	SecretID   uint64 // stable identity id
+	Key        string
+	Version    uint32
+	SpaceID    uint64
+	SMKVersion uint32
 	Ciphertext []byte
 	Nonce      []byte
 	CreatedAt  int64 // epoch ms
-	Author     int32
+	Author     int64
 }
 
 // Meta describes a secret version WITHOUT its value.
 type Meta struct {
-	SecretID  int32
-	Name      string
-	Version   int32
-	SpaceID   int32
+	SecretID  uint64
+	Key       string
+	Version   uint32
+	SpaceID   uint64
 	CreatedAt time.Time
-	Author    int32
+	Author    int64
 }
 
 type SealedValue struct {
-	SMKVersion int32
+	SMKVersion uint32
 	Ciphertext []byte
 	Nonce      []byte
 }
@@ -124,11 +129,11 @@ type SealedValue struct {
 // SealFunc seals a plaintext for the given identity id. The store calls it
 // inside the write transaction, once the id is known — the AAD binds it, so
 // the ciphertext cannot exist earlier.
-type SealFunc func(secretID int32) (SealedValue, error)
+type SealFunc func(secretID uint64) (SealedValue, error)
 
 const (
-	defaultUserSpaceID int32 = 1
-	systemSpaceID      int32 = 0
+	defaultUserSpaceID uint64 = 1
+	systemSpaceID      uint64 = 0
 )
 
 // Manager owns the in-memory SMK and a cache of encrypted version records. It
@@ -142,12 +147,12 @@ type Manager struct {
 	ctx        context.Context
 	store      *state.Service
 	q          *pq.Queries
-	nodeID     int32
+	nodeID     uint64
 	machineKey machinekey.Provider
 
 	mu      sync.RWMutex
 	smk     []byte // nil => locked
-	version int32
+	version uint32
 	cache   map[apigen.ValueRef]Record // (secret id, value version) -> immutable version row (ciphertext)
 }
 
@@ -244,7 +249,7 @@ func (m *Manager) Resolve(ref apigen.ValueRef) (string, bool) {
 	}
 	pt, err := m.openRecordLocked(rec)
 	if err != nil {
-		slog.ErrorContext(m.ctx, fmt.Sprintf("decrypting secret %s name=%s failed", ref, rec.Name), "err", err)
+		slog.ErrorContext(m.ctx, fmt.Sprintf("decrypting secret %s key=%s failed", ref, rec.Key), "err", err)
 		return "", false
 	}
 	return string(pt), true
@@ -324,11 +329,11 @@ func (m *Manager) LatestMetaByName(name string) (Meta, bool) {
 	return rec.meta(), true
 }
 
-func (m *Manager) latestRecordByNameLocked(spaceID int32, name string) (Record, bool) {
+func (m *Manager) latestRecordByNameLocked(spaceID uint64, name string) (Record, bool) {
 	var best Record
 	found := false
 	for _, rec := range m.cache {
-		if rec.Name != name || rec.SpaceID != spaceID {
+		if rec.Key != name || rec.SpaceID != spaceID {
 			continue
 		}
 		if !found || rec.Version > best.Version {
@@ -342,11 +347,11 @@ func (m *Manager) latestRecordByNameLocked(spaceID int32, name string) (Record, 
 // Create creates a new secret with its first version in directoryID (0 = the
 // space root) of spaceID (0 = the default space). value is encrypted under the
 // SMK before it touches disk. Returns the version's metadata (never its value).
-func (m *Manager) Create(name string, value []byte, author, spaceID, directoryID int32) (Meta, error) {
+func (m *Manager) Create(name string, value []byte, author int64, spaceID, directoryID uint64) (Meta, error) {
 	return m.createLocked(name, value, author, spaceID, directoryID)
 }
 
-func (m *Manager) createLocked(name string, value []byte, author, spaceID, directoryID int32) (Meta, error) {
+func (m *Manager) createLocked(name string, value []byte, author int64, spaceID, directoryID uint64) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return Meta{}, errors.New("secret name is required")
@@ -354,7 +359,7 @@ func (m *Manager) createLocked(name string, value []byte, author, spaceID, direc
 	if isReservedInternalName(name) {
 		return Meta{}, ErrReservedName
 	}
-	if spaceID <= 0 {
+	if spaceID == 0 {
 		spaceID = defaultUserSpaceID
 	}
 	m.mu.Lock()
@@ -374,7 +379,7 @@ func (m *Manager) createLocked(name string, value []byte, author, spaceID, direc
 // version if the name already exists there. Used by install/restore flows that
 // provision well-known secrets; interactive callers go through Create/Set with
 // explicit ids.
-func (m *Manager) SetByName(name string, value []byte, author int32) (Meta, error) {
+func (m *Manager) SetByName(name string, value []byte, author int64) (Meta, error) {
 	name = strings.TrimSpace(name)
 	if id, ok := IDByName(m.q, defaultUserSpaceID, name); ok {
 		return m.SetWithDeploymentUpdates(id, value, author, false, nil, nil)
@@ -384,7 +389,7 @@ func (m *Manager) SetByName(name string, value []byte, author int32) (Meta, erro
 
 // SetWithDeploymentUpdates appends an immutable secret version and optionally
 // rolls the caller-asserted deployment references to the new row atomically.
-func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author int32, updateDeployments bool, deployments []*apigen.DeploymentExpectedSeq, onCommit func(Meta)) (Meta, error) {
+func (m *Manager) SetWithDeploymentUpdates(secretID uint64, value []byte, author int64, updateDeployments bool, deployments []apigen.DeploymentExpectedSeq, onCommit func(Meta)) (Meta, error) {
 	if secretID == 0 {
 		return Meta{}, ErrNotFound
 	}
@@ -409,7 +414,7 @@ func (m *Manager) SetWithDeploymentUpdates(secretID int32, value []byte, author 
 // Caller must hold m.mu with m.smk set; the store invokes the callback inside
 // its write transaction while that lock is still held.
 func (m *Manager) sealFuncLocked(value []byte) SealFunc {
-	return func(secretID int32) (SealedValue, error) {
+	return func(secretID uint64) (SealedValue, error) {
 		ct, nonce, err := aeadSeal(m.smk, value, secretAAD(secretID))
 		if err != nil {
 			return SealedValue{}, err
@@ -450,7 +455,7 @@ func (m *Manager) setInternalLocked(name string, value []byte) error {
 
 // Rename renames the stable secret identity. The AAD binds the identity id,
 // not the name, so no re-encryption happens.
-func (m *Manager) Rename(secretID int32, newName string) error {
+func (m *Manager) Rename(secretID uint64, newName string) error {
 	newName = strings.TrimSpace(newName)
 	if newName == "" {
 		return errors.New("secret name is required")
@@ -468,7 +473,7 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 	}
 	for ref, rec := range m.cache {
 		if rec.SecretID == secretID {
-			rec.Name = newName
+			rec.Key = newName
 			m.cache[ref] = rec
 		}
 	}
@@ -481,8 +486,8 @@ func (m *Manager) Rename(secretID int32, newName string) error {
 // identity id, not the space, so no re-encryption happens — but cached version
 // records denormalize the space, and authz decisions read it, so the cache is
 // fixed up here. Safe to call while locked (no decryption needed).
-func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID, author int32, inlockValidate func(*pq.Queries) error) error {
-	if newSpaceID <= 0 {
+func (m *Manager) MoveSpace(secretID, newSpaceID, directoryID uint64, author int64, inlockValidate func(*pq.Queries) error) error {
+	if newSpaceID == 0 {
 		newSpaceID = defaultUserSpaceID
 	}
 	m.mu.Lock()
@@ -521,7 +526,7 @@ func (m *Manager) RevealInternal(name string) ([]byte, error) {
 
 // Delete removes a user secret with all its versions. Safe to call while
 // locked (no decryption needed).
-func (m *Manager) Delete(secretID int32, inlockValidate func(*pq.Queries) error) error {
+func (m *Manager) Delete(secretID uint64, inlockValidate func(*pq.Queries) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := deleteSecret(m.store, secretID, inlockValidate); err != nil {
@@ -546,7 +551,7 @@ func (m *Manager) Status() (unlocked, recoveryConfigured bool) {
 // GenerateRecoveryCode creates (or rotates) the recovery keyslot and returns
 // the new break-glass code. The code is returned exactly once and is never
 // stored — only its Argon2id-wrapped SMK is persisted.
-func (m *Manager) GenerateRecoveryCode(author int32) (string, error) {
+func (m *Manager) GenerateRecoveryCode(author int64) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.smk == nil {
@@ -571,7 +576,6 @@ func (m *Manager) GenerateRecoveryCode(author int32) (string, error) {
 		WrappedSMK: wrapped,
 		Nonce:      nonce,
 		KDFSalt:    salt,
-		CreatedAt:  nowMs(),
 	}, author); err != nil {
 		return "", err
 	}
@@ -581,7 +585,7 @@ func (m *Manager) GenerateRecoveryCode(author int32) (string, error) {
 // Unlock recovers a locked store using the recovery code, then re-establishes a
 // fresh local machine key (and machine keyslot) so subsequent boots are
 // unattended again.
-func (m *Manager) Unlock(code string, author int32) error {
+func (m *Manager) Unlock(code string, author int64) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	rec, ok := findSlot(listKeyslots(m.q), slotRecovery, 0)
@@ -615,7 +619,7 @@ func (m *Manager) initFirstRun() error {
 	return nil
 }
 
-func (m *Manager) rewriteMachineSlot(smk []byte, version int32, author int32) error {
+func (m *Manager) rewriteMachineSlot(smk []byte, version uint32, author int64) error {
 	machineKey, err := m.machineKey.Establish()
 	if err != nil {
 		return err
@@ -630,7 +634,6 @@ func (m *Manager) rewriteMachineSlot(smk []byte, version int32, author int32) er
 		SMKVersion: version,
 		WrappedSMK: wrapped,
 		Nonce:      nonce,
-		CreatedAt:  nowMs(),
 	}, author)
 }
 
@@ -660,7 +663,7 @@ func aeadOpen(key, ciphertext, nonce, aad []byte) ([]byte, error) {
 	return machinekey.Open(key, ciphertext, nonce, aad)
 }
 
-func slotAAD(kind apigen.SecretKeyslotKind) []byte {
+func slotAAD(kind slotKind) []byte {
 	if kind == slotMachine {
 		return []byte("opendeploy-keyslot:machine")
 	}
@@ -670,7 +673,7 @@ func slotAAD(kind apigen.SecretKeyslotKind) []byte {
 // secretAAD binds a ciphertext to its secret's stable identity id, which is
 // known before the row is inserted, so renames, moves, and later versions
 // never re-encrypt, while a ciphertext cannot be moved to another secret.
-func secretAAD(secretID int32) []byte {
+func secretAAD(secretID uint64) []byte {
 	return []byte(fmt.Sprintf("opendeploy-secret:s%d", secretID))
 }
 
@@ -709,7 +712,7 @@ func normalizeCode(s string) string {
 	return s
 }
 
-func findSlot(slots []Keyslot, kind apigen.SecretKeyslotKind, nodeID int32) (Keyslot, bool) {
+func findSlot(slots []Keyslot, kind slotKind, nodeID uint64) (Keyslot, bool) {
 	for _, s := range slots {
 		if s.Kind == kind && s.NodeID == nodeID {
 			return s, true
@@ -717,8 +720,6 @@ func findSlot(slots []Keyslot, kind apigen.SecretKeyslotKind, nodeID int32) (Key
 	}
 	return Keyslot{}, false
 }
-
-func nowMs() int64 { return time.Now().UnixMilli() }
 
 func (r Record) ref() apigen.ValueRef {
 	return apigen.ValueRef{ID: r.SecretID, Version: r.Version}
@@ -732,7 +733,7 @@ func (m Meta) Ref() apigen.ValueRef {
 func (r Record) meta() Meta {
 	return Meta{
 		SecretID:  r.SecretID,
-		Name:      r.Name,
+		Key:       r.Key,
 		Version:   r.Version,
 		SpaceID:   r.SpaceID,
 		CreatedAt: time.UnixMilli(r.CreatedAt),

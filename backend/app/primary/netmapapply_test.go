@@ -19,13 +19,13 @@ func testNetMapApplier(t *testing.T, reconcile func(network.Topology) error) (*n
 	return &netMapApplier{
 		nodeID: 1,
 		prefix: prefix,
-		snapshotAndSubscribe: func(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
+		snapshotAndSubscribe: func(nodeID uint64) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
 			if nodeID != 1 {
 				t.Errorf("subscribed as node %d, want 1", nodeID)
 			}
 			return targetedNetMap(prefix, 1, 5), updates, func() {}
 		},
-		recordApplied: func(nodeID int32, appliedSeq int64) {
+		recordApplied: func(nodeID uint64, appliedSeq int64) {
 			if nodeID != 1 {
 				t.Errorf("recorded applied for node %d, want 1", nodeID)
 			}
@@ -38,11 +38,11 @@ func testNetMapApplier(t *testing.T, reconcile func(network.Topology) error) (*n
 	}, updates, applied
 }
 
-func targetedNetMap(prefix network.Prefix, nodeID int32, seq int64) *apigen.ClusterNetMap {
+func targetedNetMap(prefix network.Prefix, nodeID uint64, seq int64) *apigen.ClusterNetMap {
 	return &apigen.ClusterNetMap{
 		TargetNodeID:   nodeID,
 		UlaPrefix:      prefix.Bytes(),
-		Nodes:          []*apigen.ClusterNetMapNode{{NodeID: nodeID, UnderlayAddress: "192.0.2.1", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", WgListenPort: 51833}},
+		Nodes:          []apigen.ClusterNetMapNode{{NodeID: nodeID, UnderlayAddress: "192.0.2.1", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", WgListenPort: 51833}},
 		DerivedFromSeq: seq,
 	}
 }
@@ -106,10 +106,10 @@ func TestNetMapApplierAppliesPolicyRules(t *testing.T) {
 
 	waitApplied(t, applied, 5)
 	next := targetedNetMap(applier.prefix, 1, 9)
-	next.PolicyRules = []*apigen.NetPolicyRule{{
-		Source:      &apigen.NetPolicyPeer{SpaceID: 2},
-		Destination: &apigen.NetPolicyPeer{SpaceID: 3, DeploymentID: 7},
-		Ports:       []*apigen.NetPortMatch{{Protocol: apigen.NetProtocol_NET_PROTOCOL_TCP, Port: 443}},
+	next.PolicyRules = []apigen.NetPolicyRule{{
+		Source:      apigen.NetPolicyPeer{SpaceID: 2},
+		Destination: apigen.NetPolicyPeer{SpaceID: 3, DeploymentID: 7},
+		Ports:       []apigen.NetPortMatch{{Protocol: apigen.NetProtocol_NET_PROTOCOL_TCP, Range: apigen.PortRange{Start: 443, End: 443}}},
 	}}
 	updates <- next
 	waitApplied(t, applied, 9)

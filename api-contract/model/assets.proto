@@ -2,31 +2,29 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/deployments.proto";
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message Asset {
-  AssetFs fs = 1;
-  int32 space_id = 2;
-  string sha256 = 3;
-  int64 size_bytes = 4;
-  string storage_key = 5;  // physical name of the content: LargeAssetsDir/<key> locally, <s3-path>/<key> in S3
-  reserved 6, 7;           // value_version, created_time: EntityMeta on the mutation
-  int32 id = 8;
+  uint64 id = 1 [(cp.js_type) = "number"];
+  AssetFs fs = 2 [(cp.go_value) = true];
+  uint64 space_id = 3 [(cp.js_type) = "number"];
+  uint64 size_bytes = 4 [(cp.js_type) = "number"];
+  bytes sha256 = 5 [(buf.validate.field).bytes.len = 32];
+  string storage_key = 6 [(buf.validate.field).string.min_len = 1]; // content name under the large-asset root and the S3 prefix
 }
 
 message AssetFs {
-  string key = 1;
-  int32 directory_id = 2; // 0 = the implicit space root
+  string key = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  optional uint64 directory_id = 2 [(cp.js_type) = "number"]; // absent = the space root
 }
 
 message AssetDirectory {
-  int32 id = 1;
-  int32 space_id = 2;
-  string key = 3;
-  int32 parent_id = 4;     // 0 = the implicit root
-  reserved 5, 6;           // created_at, author: EntityMeta on the mutation
-  reserved 7;              // deleted: a delete mutation on the event stream
+  uint64 id = 1 [(cp.js_type) = "number"];
+  uint64 space_id = 2 [(cp.js_type) = "number"];
+  string key = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  optional uint64 parent_id = 4 [(cp.js_type) = "number"]; // absent = the space root
 }

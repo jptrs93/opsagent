@@ -5,17 +5,17 @@ import {referenceUsageOverlay} from "../components/referenceUsageOverlay.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {valueOverlay} from "../components/valueOverlay.js";
 import {formatDate, formatDateTime} from "../lib/date.js";
-import {containerWorkload, deploymentDeleted} from "../lib/deployment.js";
+import {containerWorkload, deploymentDeleted, deploymentId, deploymentSeq} from "../lib/deployment.js";
 import {
     caretRightIcon, checkIcon, chevronDownIcon, closeIcon, columnsIcon, configSlidersIcon,
     copyIcon, editIcon, eyeOpenIcon, folderIcon, plusIcon, searchIcon, secretKeyIcon,
     sortArrowIcon,
 } from "../lib/icons.js";
 import {selectableSpaces} from "../lib/nodeSpaces.js";
-import {deploymentUsages, deploymentUsesEnvReferences} from "../lib/referenceUsage.js";
+import {deploymentUsages} from "../lib/referenceUsage.js";
 import {
     ALL_COLUMNS, DEFAULT_COLUMNS, DEFAULT_COLUMN_WIDTHS, DEFAULT_TYPES,
-    buildRows, checkDrop, dirsById, dirPathSegments, dragSource, dropDestination,
+    buildRows, checkDrop, dirIdForWire, dirsById, dirPathSegments, dragSource, dropDestination,
     emptySpaceIds, flexColumnKey, folderOptions, itemKey, itemPathSegments, makeItems,
     metaVersions, sameSet, spaceHue,
 } from "../lib/valueExplorer.js";
@@ -44,36 +44,46 @@ const loadView = () => {
 // Settings references, labelled for the usage overlay. These mirror the typed
 // secret/config refs the primary configuration can pin.
 const settingConfigRefs = (settings) => [
-    ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.configRef?.ref?.id],
-    ["Web UI HTTP listen", settings?.httpWeb?.listen?.configRef?.ref?.id],
-    ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.configRef?.ref?.id],
-    ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.configRef?.ref?.id],
-    ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.configRef?.ref?.id],
-    ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.configRef?.ref?.id],
-    ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.configRef?.ref?.id],
-    ["Cluster listen", settings?.cluster?.listen?.configRef?.ref?.id],
-    ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.configRef?.ref?.id],
-    ["Backup enabled", settings?.backup?.enabled?.configRef?.ref?.id],
-    ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.configRef?.ref?.id],
-    ["Backup S3 bucket", settings?.backup?.s3Bucket?.configRef?.ref?.id],
-    ["Backup S3 path", settings?.backup?.s3Path?.configRef?.ref?.id],
-    ["Backup S3 region", settings?.backup?.s3Region?.configRef?.ref?.id],
-    ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.configRef?.ref?.id],
-    ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.configRef?.ref?.id],
-    ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.configRef?.ref?.id],
-    ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.configRef?.ref?.id],
-    ["Large asset S3 path", settings?.largeAssets?.s3Path?.configRef?.ref?.id],
-    ["Large asset S3 region", settings?.largeAssets?.s3Region?.configRef?.ref?.id],
-    ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.configRef?.ref?.id],
-    ["Keep local copies of large assets", settings?.largeAssets?.keepLocalCopy?.configRef?.ref?.id],
+    ["Web UI HTTP enabled", settings?.httpWeb?.enabled?.value?.value?.configRef?.configId],
+    ["Web UI HTTP listen", settings?.httpWeb?.listen?.value?.value?.configRef?.configId],
+    ["Web UI HTTPS enabled", settings?.httpsWeb?.enabled?.value?.value?.configRef?.configId],
+    ["Web UI HTTPS listen", settings?.httpsWeb?.listen?.value?.value?.configRef?.configId],
+    ["Web UI use self managed TLS cert", settings?.httpsWeb?.tlsSelfManaged?.value?.value?.configRef?.configId],
+    ["Web UI ACME hosts", settings?.httpsWeb?.acmeHosts?.value?.value?.configRef?.configId],
+    ["Web UI ACME email", settings?.httpsWeb?.acmeEmail?.value?.value?.configRef?.configId],
+    ["Cluster listen", settings?.cluster?.listen?.value?.value?.configRef?.configId],
+    ["Cluster enrollment listen", settings?.cluster?.enrollmentListen?.value?.value?.configRef?.configId],
+    ["Backup enabled", settings?.backup?.enabled?.value?.value?.configRef?.configId],
+    ["Backup S3 access key ID", settings?.backup?.s3AccessKeyId?.value?.value?.configRef?.configId],
+    ["Backup S3 bucket", settings?.backup?.s3Bucket?.value?.value?.configRef?.configId],
+    ["Backup S3 path", settings?.backup?.s3Path?.value?.value?.configRef?.configId],
+    ["Backup S3 region", settings?.backup?.s3Region?.value?.value?.configRef?.configId],
+    ["Backup S3 endpoint", settings?.backup?.s3Endpoint?.value?.value?.configRef?.configId],
+    ["Use separate large assets S3", settings?.largeAssets?.useSeparateS3?.value?.value?.configRef?.configId],
+    ["Large asset S3 access key ID", settings?.largeAssets?.s3AccessKeyId?.value?.value?.configRef?.configId],
+    ["Large asset S3 bucket", settings?.largeAssets?.s3Bucket?.value?.value?.configRef?.configId],
+    ["Large asset S3 path", settings?.largeAssets?.s3Path?.value?.value?.configRef?.configId],
+    ["Large asset S3 region", settings?.largeAssets?.s3Region?.value?.value?.configRef?.configId],
+    ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.value?.value?.configRef?.configId],
+    ["Keep local copies of large assets", settings?.largeAssets?.keepLocalCopy?.value?.value?.configRef?.configId],
 ].map(([label, id]) => ({label, id: Number(id || 0)})).filter((ref) => ref.id);
 
 const settingSecretRefs = (settings) => [
-    ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.ref?.id],
-    ["GitHub token", settings?.repo?.githubToken?.ref?.id],
-    ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.ref?.id],
-    ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.ref?.id],
+    ["Web UI TLS cert PEM", settings?.httpsWeb?.tlsCertPem?.secretId],
+    ["GitHub token", settings?.repo?.githubToken?.secretId],
+    ["Backup S3 secret access key", settings?.backup?.s3SecretAccessKey?.secretId],
+    ["Large asset S3 secret access key", settings?.largeAssets?.s3SecretAccessKey?.secretId],
 ].map(([label, id]) => ({label, id: Number(id || 0)})).filter((ref) => ref.id);
+
+// envReferenceId reads the secret or config id an env var points at, across
+// the typed `secret: {secret: SecretRef}` / `config: {config: ConfigRef}`
+// alternatives; 0 for any other kind of value.
+const envReferenceId = (envVar, kind) => Number((kind === "secret"
+    ? envVar?.value?.secret?.secret?.secretId
+    : envVar?.value?.config?.config?.configId) || 0);
+
+const deploymentReferences = (cfg, kind, entityID) => Object.values(containerWorkload(cfg)?.runtime?.envVars || {})
+    .some((envVar) => envReferenceId(envVar, kind) === Number(entityID));
 
 export function secretsPage() {
     const saved = loadView();
@@ -165,20 +175,17 @@ export function secretsPage() {
             ? settingSecretRefs(systemConfigS.val?.settings)
             : settingConfigRefs(systemConfigS.val?.settings)
         ).filter((ref) => ref.id === entityID);
-        const referenceKey = item.kind === "secret" ? "secret" : "config";
         const deployments = deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (deployment) => {
             const cfg = deployment?.config;
-            if (!cfg || deploymentDeleted(cfg)) return false;
-            const envVars = containerWorkload(cfg)?.runtime?.envVars || {};
-            return Object.values(envVars).some((value) => Number(value?.[referenceKey]?.id || 0) === entityID);
+            return Boolean(cfg) && !deploymentDeleted(cfg) && deploymentReferences(cfg, item.kind, entityID);
         });
         return {deployments, settings};
     };
 
     const referencingDeploymentVersions = (item) => {
         return (deploymentsS.val || []).map((deployment) => deployment?.config).filter((cfg) =>
-            cfg && !deploymentDeleted(cfg) && deploymentUsesEnvReferences(cfg, item.kind, item.meta.id),
-        ).map((cfg) => ({deploymentId: cfg.deploymentId, expectedSeq: Number(cfg.seq || 0)}));
+            cfg && !deploymentDeleted(cfg) && deploymentReferences(cfg, item.kind, item.meta.id),
+        ).map((cfg) => ({deploymentId: deploymentId(cfg), expectedSeq: deploymentSeq(cfg)}));
     };
 
     const resolveSelection = () => {
@@ -333,9 +340,10 @@ export function secretsPage() {
     const createResource = async (type, value, name) => {
         const {spaceId, directoryId} = createDest.val;
         error.val = null;
+        const request = {key: name, spaceId, valueDirectoryId: dirIdForWire(directoryId)};
         const meta = type === "secret"
-            ? await capi.postV1SecretsCreate({name, value: new TextEncoder().encode(value), spaceId, valueDirectoryId: directoryId})
-            : await capi.postV1ConfigsCreate({name, value, spaceId, valueDirectoryId: directoryId});
+            ? await capi.postV1SecretsCreate({...request, value: new TextEncoder().encode(value)})
+            : await capi.postV1ConfigsCreate({...request, value});
         // A create while the filter hides its type would vanish on save, so the
         // filter opens back up and the tree walks to the new row.
         if (!types.val.has(type)) {
@@ -359,7 +367,7 @@ export function secretsPage() {
         dialogSaving.val = true;
         try {
             error.val = null;
-            const dir = await capi.postV1ValueDirectoriesCreate({spaceId, parentId: directoryId, name});
+            const dir = await capi.postV1ValueDirectoriesCreate({spaceId, parentId: dirIdForWire(directoryId), key: name});
             folderDialog.val = null;
             expandTo(spaceId, dir.id);
             selectedKey.val = `dir:${dir.id}`;
@@ -385,11 +393,11 @@ export function secretsPage() {
         try {
             error.val = null;
             if (sel.type === "dir") {
-                await capi.postV1ValueDirectoriesRename({directoryId: Number(sel.dir.id), newName: name});
+                await capi.postV1ValueDirectoriesRename({directoryId: Number(sel.dir.id), newKey: name});
             } else if (sel.type === "item" && sel.item.kind === "secret") {
-                await capi.postV1SecretsRename({secretId: sel.item.id, newName: name});
+                await capi.postV1SecretsRename({secretId: sel.item.id, newKey: name});
             } else if (sel.type === "item") {
-                await capi.postV1ConfigsRename({configId: sel.item.id, newName: name});
+                await capi.postV1ConfigsRename({configId: sel.item.id, newKey: name});
             }
             renameState.val = null;
         } catch (e) {
@@ -405,11 +413,11 @@ export function secretsPage() {
             // unsupported on the server.
             const dir = sel.dir;
             moveDialog.val = {
-                label: `Move ${dir.name}`,
+                label: `Move ${dir.key}`,
                 options: () => folderOptions(currentDirs(), dir.spaceId, Number(dir.id)),
                 currentId: () => Number(dir.parentId || 0),
                 apply: async (destination) => {
-                    await capi.postV1ValueDirectoriesMove({directoryId: Number(dir.id), newParentId: destination});
+                    await capi.postV1ValueDirectoriesMove({directoryId: Number(dir.id), newParentId: dirIdForWire(destination)});
                     expandTo(Number(dir.spaceId), destination);
                 },
             };
@@ -426,7 +434,7 @@ export function secretsPage() {
             options: () => folderOptions(currentDirs(), spaceId.val),
             currentId: () => (spaceId.val === Number(item.spaceId) ? item.directoryId : null),
             apply: async (destination) => {
-                const request = {valueDirectoryId: destination};
+                const request = {valueDirectoryId: dirIdForWire(destination)};
                 if (spaceId.val !== Number(item.spaceId)) request.spaceId = spaceId.val;
                 if (item.kind === "secret") await capi.postV1SecretsMove({secretId: item.id, ...request});
                 else await capi.postV1ConfigsMove({configId: item.id, ...request});
@@ -453,7 +461,7 @@ export function secretsPage() {
     const openDelete = (sel) => {
         if (sel.type === "dir") {
             deleteTarget.val = {
-                label: `folder ${sel.dir.name}`,
+                label: `folder ${sel.dir.key}`,
                 apply: async () => {
                     await capi.postV1ValueDirectoriesDelete({directoryId: Number(sel.dir.id)});
                     selectedKey.val = null;
@@ -870,15 +878,15 @@ export function secretsPage() {
         try {
             if (drag.type === "dir") {
                 await capi.postV1ValueDirectoriesMove({
-                    directoryId: drag.id, newParentId: destination.directoryId, spaceId: destination.spaceId,
+                    directoryId: drag.id, newParentId: dirIdForWire(destination.directoryId), spaceId: destination.spaceId,
                 });
             } else if (drag.kind === "secret") {
                 await capi.postV1SecretsMove({
-                    secretId: drag.id, valueDirectoryId: destination.directoryId, spaceId: destination.spaceId,
+                    secretId: drag.id, valueDirectoryId: dirIdForWire(destination.directoryId), spaceId: destination.spaceId,
                 });
             } else {
                 await capi.postV1ConfigsMove({
-                    configId: drag.id, valueDirectoryId: destination.directoryId, spaceId: destination.spaceId,
+                    configId: drag.id, valueDirectoryId: dirIdForWire(destination.directoryId), spaceId: destination.spaceId,
                 });
             }
             expandTo(destination.spaceId, destination.directoryId);
@@ -1072,7 +1080,7 @@ export function secretsPage() {
                         return groupRow(row, columns,
                             disclosure(row.expanded, row.key),
                             folderIcon({class: "w-[13px] h-[13px] flex-none text-slate-400"}),
-                            nameText(row.dir.name),
+                            nameText(row.dir.key),
                             countTag(row.count));
                     }
                     return itemRow(row, columns, usesMap);
@@ -1273,7 +1281,7 @@ export function secretsPage() {
             : null;
         return [
             div({class: "flex flex-none flex-col gap-2 border-b border-gray-800 py-2.5 pl-3 pr-9"},
-                inspectorTitle(sel, isSpace ? sel.space.name : sel.dir.name),
+                inspectorTitle(sel, isSpace ? sel.space.name : sel.dir.key),
                 div({class: "flex items-center gap-2"},
                     badge(isSpace ? "Space" : "Folder", "bg-slate-500/15 text-slate-300"),
                     isSpace ? "" : inspectorSpaceTag(spaceId))),
@@ -1288,7 +1296,7 @@ export function secretsPage() {
                 actionButton("New secret here", () => { if (secretsUnlocked()) openCreate("secret"); }, "bg-gray-700 text-gray-200 hover:bg-gray-600", {disabledWhen: () => !secretsUnlocked()}),
                 actionButton("New config here", () => openCreate("config")),
                 ...(isSpace ? [actionButton("New folder here", openNewFolder)] : [
-                    actionButton("Rename", () => startRename(selectedKey.val, sel.dir.name)),
+                    actionButton("Rename", () => startRename(selectedKey.val, sel.dir.key)),
                     actionButton("Move", () => openMoveDialog(sel)),
                     actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white"),
                 ])),

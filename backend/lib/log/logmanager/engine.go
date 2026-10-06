@@ -67,13 +67,13 @@ type queryParams struct {
 	filters           []compiledFilter
 }
 
-func resolveQueryScope(timeStart, timeEnd time.Time) (from, till time.Time, err error) {
-	till = timeEnd
-	if till.IsZero() {
+func resolveQueryScope(timeStart, timeEnd apigen.Maybe[time.Time]) (from, till time.Time, err error) {
+	till = timeEnd.Value
+	if !timeEnd.Present || till.IsZero() {
 		till = clock()
 	}
-	from = timeStart
-	if from.IsZero() {
+	from = timeStart.Value
+	if !timeStart.Present || from.IsZero() {
 		from = till.Add(-defaultSearchWindow)
 	}
 	if !from.Before(till) {
@@ -107,8 +107,8 @@ func planBuckets(buckets int, fromN, tillN int64) bucketPlan {
 	return bucketPlan{fromN: from, stepN: step, ms: ms, n: int((tillN - from + step - 1) / step)}
 }
 
-func buildHistogram(b bucketPlan, counts [][]int64) *apigen.LogHistogram {
-	h := &apigen.LogHistogram{BucketMs: b.ms, StartTime: time.Unix(0, b.fromN).UTC()}
+func buildHistogram(b bucketPlan, counts [][]int64) apigen.LogHistogram {
+	h := apigen.LogHistogram{BucketMs: b.ms, StartTime: time.Unix(0, b.fromN).UTC()}
 	for li, level := range levelOrder {
 		if li >= levelOtherIndex && counts[li] == nil {
 			continue // no other-level or unleveled lines: omit that series entirely
@@ -117,7 +117,7 @@ func buildHistogram(b bucketPlan, counts [][]int64) *apigen.LogHistogram {
 		if c == nil {
 			c = make([]int64, b.n)
 		}
-		h.Series = append(h.Series, &apigen.LogHistogramSeries{Level: level, Counts: c})
+		h.Series = append(h.Series, apigen.LogHistogramSeries{Level: level, Counts: c})
 	}
 	return h
 }
@@ -231,9 +231,9 @@ func (h *retainHeap) sorted() []retainedRec {
 	return recs
 }
 
-func queryResponse(q *queryParams, start time.Time, scanned, matched, sampled int64, records []*apigen.LogRecord, fieldAccums map[string]*fieldAccum, warnings []string, b bucketPlan, counts [][]int64) *apigen.LogQueryResponse {
+func queryResponse(q *queryParams, start time.Time, scanned, matched, sampled int64, records []apigen.LogRecord, fieldAccums map[string]*fieldAccum, warnings []string, b bucketPlan, counts [][]int64) *apigen.LogQueryResponse {
 	resp := &apigen.LogQueryResponse{
-		Stats: &apigen.LogQueryStats{
+		Stats: apigen.Some(apigen.LogQueryStats{
 			TimeStart:    q.from,
 			TimeEnd:      q.till,
 			ScannedRows:  scanned,
@@ -242,13 +242,13 @@ func queryResponse(q *queryParams, start time.Time, scanned, matched, sampled in
 			Truncated:    matched > int64(len(records)),
 			TookMs:       int32(clock().Sub(start).Milliseconds()),
 			SampledRows:  sampled,
-		},
+		}),
 		Fields:   fieldStatsList(fieldAccums, sampled),
 		Records:  records,
 		Warnings: warnings,
 	}
 	if b.n > 0 {
-		resp.Histogram = buildHistogram(b, counts)
+		resp.Histogram = apigen.Some(buildHistogram(b, counts))
 	}
 	return resp
 }
@@ -293,7 +293,7 @@ func accumFields(m map[string]*fieldAccum, fields []shredField, inSample bool) {
 	}
 }
 
-func fieldStatsList(m map[string]*fieldAccum, sampled int64) []*apigen.LogFieldStats {
+func fieldStatsList(m map[string]*fieldAccum, sampled int64) []apigen.LogFieldStats {
 	names := make([]string, 0, len(m))
 	for k := range m {
 		names = append(names, k)
@@ -303,10 +303,10 @@ func fieldStatsList(m map[string]*fieldAccum, sampled int64) []*apigen.LogFieldS
 		value string
 		count int64
 	}
-	out := make([]*apigen.LogFieldStats, 0, len(names))
+	out := make([]apigen.LogFieldStats, 0, len(names))
 	for _, name := range names {
 		acc := m[name]
-		fs := &apigen.LogFieldStats{Field: name, Distinct: int64(len(acc.values))}
+		fs := apigen.LogFieldStats{Field: name, Distinct: int64(len(acc.values))}
 		if sampled > 0 {
 			fs.Coverage = float64(acc.withField) / float64(sampled)
 		}
@@ -328,7 +328,7 @@ func fieldStatsList(m map[string]*fieldAccum, sampled int64) []*apigen.LogFieldS
 			other += v.count
 		}
 		for idx := 0; idx < len(all) && idx < fieldStatsTopN; idx++ {
-			fs.Top = append(fs.Top, &apigen.LogFieldValueCount{Value: all[idx].value, Count: all[idx].count})
+			fs.Top = append(fs.Top, apigen.LogFieldValueCount{Value: all[idx].value, Count: all[idx].count})
 			other -= all[idx].count
 		}
 		fs.Other = other

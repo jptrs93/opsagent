@@ -29,7 +29,7 @@ func SweepForeignContainers(ctx context.Context, store storage.OperatorStore, pr
 	unsubscribe()
 	known := make(map[placement]struct{}, len(states))
 	for _, s := range states {
-		known[placement{s.Instance.DeploymentID, s.Instance.ID}] = struct{}{}
+		known[placement{s.Instance.Deployment.DeploymentID, s.Instance.ID}] = struct{}{}
 	}
 	containers, err := ctrd.Default.ListContainerStates(ctx)
 	if err != nil {
@@ -57,8 +57,8 @@ func SweepForeignContainers(ctx context.Context, store storage.OperatorStore, pr
 }
 
 type placement struct {
-	deploymentID int32
-	instanceID   int32
+	deploymentID uint64
+	instanceID   uint64
 }
 
 // foreignContainer reports whether a container id belongs to no known
@@ -74,18 +74,25 @@ func foreignContainer(id string, known map[placement]struct{}) bool {
 
 // parseContainerID splits opendeploy-<dep>-<version>-<si>-<run> into its
 // parts. Every component must be a positive integer.
-func parseContainerID(id string) (deploymentID, version, instanceID, run int32, ok bool) {
+func parseContainerID(id string) (deploymentID uint64, version uint32, instanceID uint64, run uint32, ok bool) {
 	parts := strings.Split(id, "-")
 	if len(parts) != 5 || parts[0] != "opendeploy" {
 		return 0, 0, 0, 0, false
 	}
-	var nums [4]int32
+	var nums [4]uint64
 	for i, p := range parts[1:] {
-		n, err := strconv.ParseInt(p, 10, 32)
-		if err != nil || n <= 0 {
+		bits := 64
+		if i == 1 || i == 3 {
+			bits = 32
+		}
+		if p == "" || p[0] == '+' || p[0] == '-' {
 			return 0, 0, 0, 0, false
 		}
-		nums[i] = int32(n)
+		n, err := strconv.ParseUint(p, 10, bits)
+		if err != nil || n == 0 {
+			return 0, 0, 0, 0, false
+		}
+		nums[i] = n
 	}
-	return nums[0], nums[1], nums[2], nums[3], true
+	return nums[0], uint32(nums[1]), nums[2], uint32(nums[3]), true
 }

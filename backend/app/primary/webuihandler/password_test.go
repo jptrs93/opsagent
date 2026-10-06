@@ -16,7 +16,7 @@ const testMasterPassword = "opendeploy-test-master-password"
 func enablePasswordLogin(t *testing.T, h *Handler) {
 	t.Helper()
 	settings := systemconfig.DefaultSettings(systemconfig.DefaultInitial())
-	settings.Auth.PasswordLoginEnabled = apigen.BoolSetting{Value: true}
+	settings.Auth.PasswordLoginEnabled = systemconfig.BoolLiteral(true)
 	if err := h.SystemConfig.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestPasswordLoginUsesMasterPasswordAndCreatesUsers(t *testing.T) {
 	enablePasswordLogin(t, h)
 
 	// Existing user, padded stored name, padded input: both sides trim.
-	users.UpdateMatching(h.Store, func(u *apigen.InternalUser) bool { return u.ID == user.ID }, func(u *apigen.InternalUser) {
+	users.UpdateMatching(h.Store, func(u *apigen.User) bool { return u.ID == user.ID }, func(u *apigen.User) {
 		u.Name = " operator "
 	})
 	res, err := h.PostV1AuthPasswordLogin(apigen.Context{}, &apigen.PasswordLoginRequest{Username: " operator ", Password: testMasterPassword})
@@ -80,8 +80,8 @@ func TestPasswordLoginUsesMasterPasswordAndCreatesUsers(t *testing.T) {
 	if err != nil || created.Name != "newcomer" {
 		t.Fatalf("created user = %+v, err %v", created, err)
 	}
-	grants := h.Authz.GrantsForUser(int64(created.ID))
-	if len(grants) != 1 || grants[0].TemplateID != authz.ClusterAdminTemplateID {
+	grants := h.Authz.GrantsForUser(created.ID)
+	if len(grants) != 1 || grants[0].Grant.Value.Template == nil || grants[0].Grant.Value.Template.TemplateID != authz.ClusterAdminTemplateID {
 		t.Fatalf("grants for new user = %+v; want one cluster_admin grant", grants)
 	}
 

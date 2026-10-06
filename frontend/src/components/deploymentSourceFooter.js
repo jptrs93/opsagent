@@ -47,7 +47,7 @@ export function selectionLabel(model) {
     const entry = model.versionEntry();
     if (model.isImage()) return entry ? [entry.id, dateOf(entry)].filter(Boolean).join(" · ") : id;
     return entry
-        ? [model.nixDockerBuild.selectedBranch.val, shortID(id), entry.label].filter(Boolean).join(" · ")
+        ? [model.nixImageBuild.selectedBranch.val, shortID(id), entry.label].filter(Boolean).join(" · ")
         : shortID(id);
 }
 
@@ -120,7 +120,7 @@ export function sourceFooterWidgets({deploymentUpdate: model, onSelectVersion}) 
         const deployed = model.deployedVersion();
         if (versions.loading) return [p({class: "px-2 py-2 text-gray-500"}, "Loading versions...")];
         if (versions.error) return [p({class: "px-2 py-2 text-red-300"}, versions.error)];
-        const items = model.isImage() ? model.containerImage.tags.val : model.nixDockerBuild.commits.val;
+        const items = model.isImage() ? model.containerImage.tags.val : model.nixImageBuild.commits.val;
         const rows = items
             .filter(item => !query || `${item.id} ${item.label || ""}`.toLowerCase().includes(query))
             .map(item => button({
@@ -155,7 +155,7 @@ export function sourceFooterWidgets({deploymentUpdate: model, onSelectVersion}) 
                 "aria-label": "Branch",
                 disabled: () => model.versions.val.loading,
                 onchange: event => { void model.selectBranch(event.target.value); },
-            }, () => div({class: "contents"}, ...model.nixDockerBuild.branches.val.map(name => option({value: name, selected: name === model.nixDockerBuild.selectedBranch.val}, name)))) : "",
+            }, () => div({class: "contents"}, ...model.nixImageBuild.branches.val.map(name => option({value: name, selected: name === model.nixImageBuild.selectedBranch.val}, name)))) : "",
             div({class: "relative flex-1"},
                 searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-500"}),
                 input({

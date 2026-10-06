@@ -10,12 +10,26 @@ and supervises running containers with automatic crash recovery.
 
 ## Deployment config
 
-Each deployment currently has exactly one workload. Public deployments use
-`spec.container1Spec`, which contains one artifact `source`, its `runtime`
-configuration, and the workload-local desired `version`. Where and whether
-the deployment runs is `scheduling`: `running` applies to every scheduling
-variant, and `dedicatedNodes.nodes` hand-picks the nodes it runs on (exactly
-one today). An auto-scheduled variant will sit beside `dedicatedNodes` later.
+Each deployment has exactly one workload, the `spec.workload` oneof. Its
+only alternative today is `container`, a `ContainerSpec` with one artifact
+`source` (the `nixImageBuild` or `remoteImage` oneof), its `runtime`
+configuration, the workload-local desired `version`, the `upgradeStrategy`,
+and the `readinessSignal` a rollover waits for. Where and whether the
+deployment runs is `scheduling`: `running` applies to every placement
+variant, `placement` is a oneof whose only alternative, `dedicatedNodes`,
+hand-picks the nodes it runs on (exactly one today), and `restartGeneration`
+counts forced restarts. An auto-scheduled variant will sit beside
+`dedicatedNodes` later.
+
+The API hands a deployment out as a `DeploymentRecord {deployment, meta}`:
+`deployment` is the document above with its `id`, `name`, and `spaceId`, and
+`meta` is the shared `EntityMeta` (`version`, `specVersion`, `updatedSeq`,
+`updatedTime`, `updatedActor`, `createdTime`, and `deleted` on a retained
+version of a deleted deployment). The state stream, the history, and the
+recently-deleted view all carry records; nothing else is stored on the
+envelope. Zero-valued numerics are absent on the wire, so an omitted
+`hostPort`, `devShmSizeKb`, or `flushIntervalMs` means the default, and
+every enum must be set to a defined non-zero value.
 
 A deployment is created by posting a `DeploymentCreateRequest` to
 `POST /v1/deployments/create`:
@@ -24,39 +38,50 @@ A deployment is created by posting a `DeploymentCreateRequest` to
 {
   "name": "coflip_server",
   "spaceId": 1,
-  "scheduling": {"running": true, "dedicatedNodes": {"nodes": [1]}},
+  "scheduling": {"running": true, "placement": {"dedicatedNodes": {"nodes": [1]}}},
   "spec": {
     "networking": {"mode": 1},
-    "container1Spec": {
-      "source": {
-        "nixDockerBuild": {
-          "repo": "github.com/org/repo",
-          "flake": "nix/server/flake.nix"
-        }
-      },
-      "runtime": {
-        "user": "1000",
-        "envVars": {
-          "LOG_LEVEL": {"value": "info"},
-          "DATABASE_URL": {"config": {"id": 12, "version": 3}},
-          "DB_PASSWORD": {"secret": {"id": 7, "version": 2}}
+    "workload": {
+      "container": {
+        "source": {
+          "nixImageBuild": {
+            "repo": "github.com/org/repo",
+            "flake": "nix/server/flake.nix"
+          }
         },
-        "devShmSizeKb": 65536,
-        "mounts": [{"hostPath": "/home/ubuntu/coflip-server/data", "containerPath": "/data", "permission": 1}]
-      },
-      "version": "0123456789abcdef0123456789abcdef01234567"
+        "runtime": {
+          "user": "1000",
+          "envVars": {
+            "LOG_LEVEL": {"literal": {"value": "info"}},
+            "DATABASE_URL": {"config": {"config": {"configId": 12, "version": 3}}},
+            "DB_PASSWORD": {"secret": {"secret": {"secretId": 7, "version": 2}}},
+            "CONFIG_FILE": {"asset": {"key": "server/config.toml", "asset": {"assetId": 3, "version": 1}}},
+            "DB_ADDR": {"address": {"deploymentId": 4, "spaceId": 1}}
+          },
+          "devShmSizeKb": 65536,
+          "mounts": [{"hostPath": "/home/ubuntu/coflip-server/data", "containerPath": "/data", "permission": 1}]
+        },
+        "version": "0123456789abcdef0123456789abcdef01234567",
+        "upgradeStrategy": 1
+      }
     }
   }
 }
 ```
 
-The spec of an existing deployment is updated by posting a `spec_update` in
-`POST /v2/deployments/update`. Its name and node placement are fixed at
-creation; its space can be changed through the same endpoint's
-`assigned_space_update` kind, and its running state through
-`running_only_update` (see Config versioning).
+(The example writes each oneof as its alternative's name; the generated JS
+client reads and writes them as `{value: {alternative}}`, so the workload is
+`spec.workload.value.container` and an env var is `envVar.value.literal`.)
 
-`scheduling.dedicatedNodes.nodes` is the required canonical placement and
+The spec of an existing deployment is updated by posting a
+`DeploymentUpdateRequest` to `POST /v1/deployments/update` whose `update`
+oneof is `spec`. Its name and node placement are fixed at creation; its space
+can be changed through the same endpoint's `assigned_space` kind, its running
+state through `running_only`, its version alone through `version_only`, and
+a forced restart is the `restart` kind (see Config versioning). Every kind
+carries the `expected_seq` the caller observed; 0 skips the check.
+
+`scheduling.placement.dedicatedNodes.nodes` is the required canonical placement and
 references the node's entity id; validation accepts exactly one positive node id
 until multi-node deployments land. Deployment history entries carry the
 deployment's current identity and node placement as display metadata.
@@ -65,7 +90,7 @@ deployment's current identity and node placement as display metadata.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `nixDockerBuild` | `repo`, `flake`, optional `target` | Uses a full commit hash as the desired version. `flake` must be a safe repository-relative path whose basename is `flake.nix` and whose entry at that exact commit is a regular Git file. Before a running config is saved, the primary contacts the remote and verifies the exact repository-wide commit and flake entry. The preparer checks out the commit, rechecks the file, and runs `nix build` without updating the lock file inside a one-shot build container on the node, with a Nix store private to the repository. The selected output must be a `nix2container.buildImage` image description (the flake's `nix2container` input, typically with `inputs.nixpkgs.follows = "nixpkgs"`); executable image streams such as `pkgs.dockerTools.streamLayeredImage` are rejected as "output is not a nix2container image". An empty target builds the default output; a local selector such as `.#radkitRpaClientImage` selects a named flake output. The build receives no credentials, so flake inputs must be vendored or publicly fetchable. The described layers are generated by the agent from the repository store, imported into OpenDeploy's bundled containerd and returned as a local image ref. Nodes need no Nix install; the build image is pulled on first use. Must be paired with the `container` runner. Design: [containerized Nix builds](../future-work/containerized-nix-builds.md). |
+| `nixImageBuild` | `repo`, `flake`, optional `target` | Uses a full commit hash as the desired version. `flake` must be a safe repository-relative path whose basename is `flake.nix` and whose entry at that exact commit is a regular Git file. Before a running config is saved, the primary contacts the remote and verifies the exact repository-wide commit and flake entry. The preparer checks out the commit, rechecks the file, and runs `nix build` without updating the lock file inside a one-shot build container on the node, with a Nix store private to the repository. The selected output must be a `nix2container.buildImage` image description (the flake's `nix2container` input, typically with `inputs.nixpkgs.follows = "nixpkgs"`); executable image streams such as `pkgs.dockerTools.streamLayeredImage` are rejected as "output is not a nix2container image". An empty target builds the default output; a local selector such as `.#radkitRpaClientImage` selects a named flake output. The build receives no credentials, so flake inputs must be vendored or publicly fetchable. The described layers are generated by the agent from the repository store, imported into OpenDeploy's bundled containerd and returned as a local image ref. Nodes need no Nix install; the build image is pulled on first use. Must be paired with the `container` runner. Design: [containerized Nix builds](../future-work/containerized-nix-builds.md). |
 | `remoteImage` | `image` | Pulls `image:version` (version is the workload's desired tag/digest) into containerd's content store and unpacks it. GHCR images (`ghcr.io/owner/image`) use the configured GitHub token for validation, tag discovery, and pulls on primary and secondary nodes. Other registries use anonymous access. |
 
 For private GHCR images, configure the GitHub token in Settings with a classic personal access token that has `read:packages` and access to the package (authorize organization SSO where required). No separate registry credential is needed. Without a configured token, GHCR requests are anonymous. Token changes apply to the next validation or pull. See [GitHub’s container registry authentication documentation](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry#authenticating-to-the-container-registry).
@@ -77,7 +102,7 @@ self-deployment. Public create/update validation rejects it.
 
 | Variant | Fields | Description |
 |---|---|---|
-| `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` contains typed literal, pinned secret/config, asset, or address references. A deployment may reference secrets only from its own space or the global space; creates, updates, and space moves reject other pins with `secret_reference_outside_space`, and the editor's HCL references are fully qualified as `secret("space", "folder/name"[, version])`, `config(...)`, and `asset("space", "folder/key"[, version])`, where the space must be one of those two (the server enforces own-or-global locality for secret, config, and asset pins). `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch. Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. Upgrade strategy and readiness are fields on `container1Spec`. Linux only. |
+| `runtime` | `user`, `envVars`, `overrideCommand`, `overrideWorkingDir`, `defaultVolume`, `crossDeploymentMounts`, `mounts`, `assetMounts`, `devShmSizeKb`, `fileDescriptorLimit` | Runs the selected source as a container via containerd with OpenDeploy-supervised crash/backoff. Networking is controlled by `spec.networking`. `envVars` maps a name to an `EnvVar` whose `value` oneof is `literal {value}`, `secret {secret: SecretRef{secretId, version}}`, `config {config: ConfigRef{configId, version}}`, `asset {key, asset: AssetRef{assetId, version}}`, or `address {deploymentId, spaceId}`. A deployment may reference secrets only from its own space or the global space; creates, updates, and space moves reject other pins with `secret_reference_outside_space`, and the editor's HCL references are fully qualified as `secret("space", "folder/name"[, version])`, `config(...)`, and `asset("space", "folder/key"[, version])`, where the space must be one of those two (the server enforces own-or-global locality for secret, config, and asset pins). `defaultVolume` controls the per-deployment data volume. `crossDeploymentMounts` references another same-node deployment by ID; `mounts` is the raw host-path escape hatch (`HostMount {hostPath, containerPath, permission}`). Mount permissions are explicit `READ_WRITE`, `READ_ONLY`, or, where supported, `READ_EXECUTE`. `upgradeStrategy` (`RECREATE` or `ROLLOVER`, never unspecified) and `readinessSignal` (`{timeoutSeconds}`, or empty for the default wait; required by ROLLOVER) are fields on `ContainerSpec`. Linux only. |
 
 `issuedTlsMount` (HCL `mount(issued_tls({ extra_names = [...] }), path)`)
 places a certificate issued by the cluster's workload CA at `path`. The
@@ -88,10 +113,12 @@ deployment's own space zone and a cluster-prefix address must be the
 deployment's own; creates, updates, space moves, and issuance reject anything
 else, so a workload cannot obtain a certificate for another space's identity.
 
-`opendeploySpec` remains an internal-only workload for the `OPENDEPLOY`
-self-deployment. It carries only the desired release version; public
-create/update validation rejects it, and the self-deployment cannot be
-stopped.
+The `opendeploy` self-deployment in space 0 is a container spec in shape
+only: its source is the remote image name `opendeploy` and its version is
+the desired release. The identity (space 0, name `opendeploy`), not the
+spec, selects the release-binary preparer and the systemd runner, the same
+way `opendeploy-net` is recognised. Public create/update validation refuses
+the internal identities, and the self-deployment cannot be stopped.
 
 ### Networking
 
@@ -100,15 +127,15 @@ stopped.
 - An unspecified networking mode defaults to `VIRTUAL` during validation.
 - `HOST` joins the host network namespace and requires `use_host_network` when creating or updating the deployment.
 - `VIRTUAL` creates a per-run network namespace with stable inbound IPv6 address `I`, run-scoped preferred outbound IPv6 address `O`, and a machine-local IPv4 egress address. Both IPv6 addresses are preassigned; `I` is non-preferred and routed only to the current run, while `O` remains preferred and routed for that run's full lifetime.
-- `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`.
-- `ingress` accepts `TLS_PASSTHROUGH` and `HTTPS` routes in virtual mode. A passthrough route has a hostname and `tlsPassthroughConfig: {hostPort, containerPort}` (`hostPort: 0` defaults to `443`); netproxy selects by TLS SNI and relays the original TCP stream to a READY backend without termination. An HTTPS route is terminated by netproxy and routed by hostname and path prefix. Every route carries `listen` selectors (node and address) choosing which node addresses it is published on; empty means every address of the node the deployment is scheduled on, and `any_node()` opts into every node that can reach the backend. The primary Web UI's listener is a reserved claim: routes that would land on it are excluded (wildcard selectors) or rejected (literal selectors).
+- `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`. Its `ipFilter` is a list of `{mode: ALLOW | DENY, prefix: IpPrefix}` entries; a bare address is a host prefix. The HCL form writes them as `allow = [...]` and `deny = [...]` lists, and the UI form edits the allow list and carries deny entries through unchanged.
+- `ingress` accepts passthrough and HTTPS routes in virtual mode; the route's `config` oneof is `tlsPassthrough {hostPort, containerPort}` (an absent `hostPort` means `443`) or `https {containerPort, pathPrefix, stripPrefix, backendProtocol, maxRequestBodyBytes, flushIntervalMs, certSource}`. Netproxy selects a passthrough route by TLS SNI and relays the original TCP stream to a READY backend without termination; an HTTPS route is terminated by netproxy and routed by hostname and path prefix, with `certSource` either `acme {challenge: HTTP_01}` or `secret {secret: SecretRef}`. Every route carries `listen` entries `{node: any | specific {nodeId}, addresses: IpPrefix[]}` choosing which node addresses it is published on; no entries means every address of the node the deployment is scheduled on, an empty `addresses` list means every address of the selected node, and the whole-family prefixes `0.0.0.0/0` and `::/0` (HCL `ipv4()` and `ipv6()`) select one family. `any_node()` opts into every node that can reach the backend. The primary Web UI's listener is a reserved claim: routes that would land on it are excluded (wildcard selectors) or rejected (literal selectors).
 - Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
 - An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable inbound IPv6 address `I` when it starts; run-scoped `O` is never exposed through Address refs. A target cannot be deleted, changed out of virtual networking, or moved to another space while Address references remain (see Config versioning).
 - Workers reconcile cross-machine fixed tunnels and workload routes. Equivalent primary-node remote routing, unpublished candidate `O` distribution, policy, and public ingress remain incomplete.
 
 ### Host access permissions
 
-Custom host mounts (`container1Spec.runtime.mounts`) require `use_host_mounts`.
+Custom host mounts (`spec.workload.container.runtime.mounts`) require `use_host_mounts`.
 Host networking requires `use_host_network`. These permissions are additional
 to normal deployment create/update permissions. A deployment using both
 features requires both permissions. Managed default volumes, cross-deployment
@@ -144,13 +171,11 @@ underlying node; it does not confine host access to that space.
 
 ### Config versioning
 
-A deployment is versioned at two levels. `Deployment.version` is the
-top-level version: a per-deployment monotonically increasing integer that
-bumps on every change of any kind. Sub-parts with their own operations are
-tracked beneath it: `Deployment.specVersion` bumps only when the spec bytes
-change, `Deployment.spaceVersion` only when the space assignment changes,
-and `Deployment.schedulingVersion` only when the placement or desired
-running state changes, so a stop or start never re-keys the spec. Log
+A deployment is versioned at two levels, both on the record's `meta`.
+`version` is the top-level version: a per-deployment monotonically
+increasing integer that bumps on every change of any kind. Beneath it,
+`specVersion` bumps only when the spec bytes change, so a stop, start, space
+move, or restart never re-keys the spec. Log
 records, metrics samples and the log and metrics queries use the top-level
 version: a placement runs exactly one top-level version and each bump
 creates a new placement, so the version together with node, instance and
@@ -160,7 +185,7 @@ and the run report.
 Storage is the write log plus two materialised tables: `deployments`
 holds the current row of every live deployment (`version`, `spec_version`,
 `space_id`, `name`, `created_time`) and `deployment_versions` holds each
-retained version with its full `Deployment` snapshot (`value`), keyed by
+retained version with its full `Deployment` snapshot, keyed by
 `(deployment_id, version)`. A version is retained while it is current or a
 retained scheduled instance pins it. Every change is one logged mutation
 carrying the whole document, and the UI reconstructs the sequence of
@@ -169,16 +194,16 @@ changes from the deployment's logged history.
 Deleting is its own event, `POST /v1/deployments/delete`, guarded by the
 `expected_seq` the caller observed. It changes no version: the delete is a
 delete mutation in the log, and the history and the recently-deleted view
-render it as the last document under `eventType` delete. Delete is
+render it as a last record whose `meta.deleted` is set. Delete is
 terminal: the current row goes, the versions a live instance still pins
 stay until that instance is finalized, and any further write attempt finds
 no current row.
 
-A space move is its own update kind, `assigned_space_update` in
-`POST /v2/deployments/update`, guarded like every update kind by the
-top-level version the caller observed (the request's `expectedVersion` must
-equal the current one + 1), so a stale client cannot silently move a
-deployment back. The space
+A space move is its own update kind, `assigned_space` in
+`POST /v1/deployments/update`, guarded like every update kind by the
+`expected_seq` the caller observed (the write is refused when the
+deployment's `updatedSeq` has moved past it), so a stale client cannot
+silently move a deployment back. The space
 feeds the workload's derived inbound address, DNS name, and issued TLS
 identity, so a live placement is never mutated by a move: each scheduled
 instance snapshots the deployment's space at scheduling time
@@ -195,17 +220,17 @@ references to the moved deployment. Space 0 (the internal opendeploy space)
 is excluded from moves in both directions: the destination must be between 1
 and the maximum space ID, and a deployment in space 0 cannot be moved out.
 
-A forced restart is the `restart_update` kind of `POST /v2/deployments/update`.
-It appends an event carrying the previous definition byte for byte, so only
-the top-level version advances and `specVersion`, `spaceVersion`,
-`nameVersion` and `schedulingVersion` stay put. The scheduler keys placements on the top-level
+A forced restart is the `restart` kind of `POST /v1/deployments/update`.
+It increments `scheduling.restartGeneration` and leaves everything else as
+it was, so only the top-level version advances and `specVersion` stays put.
+The scheduler keys placements on the top-level
 version, so the running placement is superseded exactly as it would be by a
 spec change and replaced under the deployment's upgrade strategy: RECREATE
 stops it and starts a replacement, ROLLOVER warms a replacement and promotes
 it on readiness. The replacement prepares again, which for a Nix build is an
 image-cache hit and for a remote image is a fresh pull of the same reference.
-Nothing marks the event beyond its unchanged facets: an update whose facets
-did not move is a restart by definition, and the history view labels it
+Nothing else marks the write: an update that moved the restart generation
+and nothing else is a restart by definition, and the history view labels it
 `restarted` on that basis. The request is rejected while the workload is
 stopped and for the opendeploy self-deployment. The Web UI exposes it as the
 Restart action in a running deployment's inspector and as a Restart button in
@@ -222,11 +247,11 @@ Each deployment's runtime state is structured into sections owned by different c
 
 ### Workload desired state
 
-Set by user actions (deploy or stop). The selected `ContainerSpec` or
-`OpendeploySpec` contains the target `version`; `scheduling.running` is the
-desired running state, and the opendeploy self-deployment is always running.
-Audit fields (`event_time`, `author`) and the version counters live on the
-`DeploymentEvent` envelope.
+Set by user actions (deploy or stop). The `ContainerSpec` contains the
+target `version`; `scheduling.running` is the desired running state, and
+the opendeploy self-deployment is always running.
+Audit fields (`updatedTime`, `updatedActor`) and the version counters live
+on the record's `EntityMeta`.
 
 Nix desired versions, when set, are full immutable commit hashes. Branch selection and the 25 most recent commits are discovery aids and are not persisted as source authority. Creating a running Nix deployment, starting one, changing its target commit, or changing its Nix source while it remains running performs synchronous remote commit and flake verification before persistence. Stopped Nix deployments still require structurally valid source fields but may omit the desired version and do not require remote accessibility until they transition to running; a stopped deployment may also retarget its version for its next start.
 
@@ -268,13 +293,13 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 ## Deployment identification
 
-Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{scheduling.dedicatedNodes.nodes[0], spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the identity lives inside the event snapshots, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
+Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{scheduling.placement.dedicatedNodes.nodes[0], spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the identity lives inside the event snapshots, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
 
 Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
 ### Node space policy
 
-Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentsCreate` and the `assigned_space_update` kind of `PostV2DeploymentsUpdate`. There is no third — no update kind carries a node field, so a deployment never moves nodes after creation.
+Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentsCreate` and the `assigned_space` kind of `PostV1DeploymentsUpdate`. There is no third — no update kind carries a node field, so a deployment never moves nodes after creation.
 
 **The policy defaults fully open and only ever narrows deliberately.** A new node is inserted allowing every space that exists at the time, and creating a space opens it on every existing node (`AllowSpaceOnAllNodes`). Without that second half the list would be a snapshot taken at enrolment, and the first deployment into a newly created space would fail on every node with nothing to explain why. Deleting a space strips it from every list, so ids of spaces that no longer exist do not accumulate.
 
@@ -339,8 +364,13 @@ document; Code is the default and the last choice is remembered per browser.
 In HCL, `name` and `space` sit directly in the `deployment` block; the
 `scheduling` block mirrors the API (`running = true` and
 `dedicated_nodes { nodes = [node("name")] }`), and the version sits in
-the source block: a Nix commit beside its repository, or the tag or digest of
-the container image reference itself.
+the source block, `nix_image_build { repo, flake, commit }` or
+`remote_image { image = "repository:tag" }`: a Nix commit beside its
+repository, or the tag or digest of the container image reference itself.
+The older `nix_docker_build` and `container_image` block names are rejected
+with a rename hint. Port forwards write their filters as `allow` and `deny`
+prefix lists, and ingress routes write `listen` entries with `ipv4()`,
+`ipv6()`, or literal prefixes (`any_address()` is the empty list).
 
 ## Source validation and versions
 
@@ -367,12 +397,12 @@ stopped requires only well-formed fields.
    repository or flake path requires Validate before the deployment can be
    saved running.
 2. The user picks a version (and optionally edits the deployment spec) and submits.
-3. The frontend calls `POST /v2/deployments/update` — a `version_only_update`
-   carrying the target version (which also marks the deployment running), or
-   a `spec_update` with the new typed `spec` (which carries the workload
-   version inside it) if the spec was edited. A spec update never changes
-   the running state; when the toggle moved as well, a `running_only_update`
-   follows as a second request.
+3. The frontend calls `POST /v1/deployments/update` — a `version_only`
+   update carrying the target version (which also marks the deployment
+   running), or a `spec` update with the new typed `spec` (which carries the
+   workload version inside it) if the spec was edited. A spec update never
+   changes the running state; when the toggle moved as well, a `running_only`
+   update follows as a second request.
 4. For an effective running Nix transition, the backend verifies the exact remote commit and regular `flake.nix` tree entry, then writes the spec with the selected workload's version and `scheduling.running=true`, and bumps `Deployment.Version`. Verification failure writes nothing.
 5. The operator's reconciliation loop picks up the change and starts a
    preparer.

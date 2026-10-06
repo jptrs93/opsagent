@@ -19,19 +19,18 @@ type nodeStatusEnvelope struct {
 }
 
 func scanNodeStatusInto(st *apigen.NodeStatus, extra []any, row scanner) error {
-	var nodeID, updatedAt, connected, connectedAt int64
-	dest := []any{&nodeID, &updatedAt, &connected, &connectedAt, &st.OpendeployVersion, &st.RemoteAddress, &st.RuntimeVersions}
+	var updatedAt, connected, connectedAt int64
+	dest := []any{&st.NodeID, &updatedAt, &connected, &connectedAt, &st.OpendeployVersion, &st.RemoteAddress, &st.RuntimeVersions}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return err
 	}
-	st.NodeID = int32(nodeID)
 	st.UpdatedAt = nanosToClock(updatedAt)
 	st.IsConnected = connected != 0
 	st.LastConnectedAt = millisToTime(connectedAt)
 	return nil
 }
 
-func (q *Queries) GetLatestNodeStatus(ctx context.Context, nodeID int32) (*apigen.NodeStatus, error) {
+func (q *Queries) GetLatestNodeStatus(ctx context.Context, nodeID uint64) (*apigen.NodeStatus, error) {
 	var st apigen.NodeStatus
 	if err := scanNodeStatusInto(&st, nil, q.db.QueryRowContext(ctx, `SELECT `+nodeStatusColumns+` FROM node_status WHERE node_id = ?`, nodeID)); err != nil {
 		return nil, err
@@ -71,9 +70,9 @@ func (q *Queries) ListLatestNodeStatuses(ctx context.Context) ([]*apigen.NodeSta
 
 // ListNodeStatusHistorySince is a node's observed history after since,
 // oldest first, read from the write log.
-func (q *Queries) ListNodeStatusHistorySince(ctx context.Context, nodeID int32, since time.Time) ([]*apigen.NodeStatus, error) {
+func (q *Queries) ListNodeStatusHistorySince(ctx context.Context, nodeID uint64, since time.Time) ([]*apigen.NodeStatus, error) {
 	rows, err := q.db.QueryContext(ctx, `SELECT payload FROM write_event_mutations WHERE entity_type = ? AND entity_id = ? AND op != ? ORDER BY seq, idx`,
-		int64(apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS), int64(nodeID), int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE))
+		int64(apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS), nodeID, int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE))
 	if err != nil {
 		return nil, err
 	}
@@ -85,21 +84,22 @@ func (q *Queries) ListNodeStatusHistorySince(ctx context.Context, nodeID int32, 
 			return nil, err
 		}
 		entity, err := apigen.DecodeCoreEntity(payload)
-		if err != nil || entity.NodeStatus == nil {
+		if err != nil || entity.Value.NodeStatus == nil {
 			return nil, fmt.Errorf("node %d status: %v", nodeID, err)
 		}
-		if st := entity.NodeStatus; st.UpdatedAt.After(since) {
+		if st := entity.Value.NodeStatus; st.UpdatedAt.Value.After(since) {
+			st.NodeID = nodeID
 			out = append(out, st)
 		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt.Before(out[j].UpdatedAt) })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].UpdatedAt.Value.Before(out[j].UpdatedAt.Value) })
 	return out, nil
 }
 
-func (q *Queries) latestNodeStatusOrEmpty(ctx context.Context, nodeID int32) (*apigen.NodeStatus, error) {
+func (q *Queries) latestNodeStatusOrEmpty(ctx context.Context, nodeID uint64) (*apigen.NodeStatus, error) {
 	st, err := q.GetLatestNodeStatus(ctx, nodeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return &apigen.NodeStatus{NodeID: nodeID}, nil
@@ -114,33 +114,33 @@ func (q *Queries) NodeConnectionStatus(ctx context.Context, identifier string, c
 	if err != nil {
 		return nil, err
 	}
-	st, err := q.latestNodeStatusOrEmpty(ctx, int32(nodeID))
+	st, err := q.latestNodeStatusOrEmpty(ctx, nodeID)
 	if err != nil {
 		return nil, err
 	}
 	st.BumpUpdatedAt()
 	st.IsConnected = connected
 	if connected {
-		st.LastConnectedAt = connectedAt
+		st.LastConnectedAt = apigen.TimeOf(connectedAt)
 	}
 	return st, nil
 }
 
 // NodeObservedMetaStatus is the node's status after a hello: connected now,
 // with the version and address it reported. Nothing is written.
-func (q *Queries) NodeObservedMetaStatus(ctx context.Context, nodeID int32, connectedAt time.Time, opendeployVersion, remoteAddress string) (*apigen.NodeStatus, error) {
+func (q *Queries) NodeObservedMetaStatus(ctx context.Context, nodeID uint64, connectedAt time.Time, opendeployVersion, remoteAddress string) (*apigen.NodeStatus, error) {
 	previous, err := q.latestNodeStatusOrEmpty(ctx, nodeID)
 	if err != nil {
 		return nil, err
 	}
-	st := &apigen.NodeStatus{NodeID: nodeID, UpdatedAt: previous.UpdatedAt, LastConnectedAt: connectedAt, IsConnected: true, OpendeployVersion: opendeployVersion, RemoteAddress: remoteAddress, RuntimeVersions: previous.RuntimeVersions}
+	st := &apigen.NodeStatus{NodeID: nodeID, UpdatedAt: previous.UpdatedAt, LastConnectedAt: apigen.TimeOf(connectedAt), IsConnected: true, OpendeployVersion: opendeployVersion, RemoteAddress: remoteAddress, RuntimeVersions: previous.RuntimeVersions}
 	st.BumpUpdatedAt()
 	return st, nil
 }
 
 // reduceNodeStatus keeps the report with the greater clock. A stale report
 // changes nothing and its meta is the row's.
-func (q *Queries) reduceNodeStatus(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, st *apigen.NodeStatus) error {
+func (q *Queries) reduceNodeStatus(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, st *apigen.NodeStatus) error {
 	if st == nil {
 		return fmt.Errorf("payload has no status")
 	}
@@ -158,7 +158,7 @@ RETURNING created_time`,
 	return q.rowMetaIfStale(ctx, meta, apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS, id)
 }
 
-func (q *Queries) deleteNodeStatusRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteNodeStatusRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM node_status WHERE node_id = ?`, id)
 	return err
 }

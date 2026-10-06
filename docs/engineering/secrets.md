@@ -2,7 +2,7 @@
 
 ## Overview
 
-A secret is a **stable identity** — `secret_id`, with a name, space, and
+A secret is a **stable identity** — `secret_id`, with a key, space, and
 directory — held as one `secrets` row (placement, the newest
 `value_version`, the envelope of the last write, `created_time`) plus one
 `secret_versions` row per immutable numbered **value version**, keyed by
@@ -13,16 +13,18 @@ or move rewrites the identity row only. Both tables are materialised from
 the write log by `pq.Reduce` (see `api.md`, The write log), and the
 ciphertext itself never leaves the primary. The identity id survives renames, moves, and
 rotations and is what the write API targets. Deployment
-environment variables and settings pin exact versions by the pair
-`ValueRef{id, version}` (stable secret id plus value version) in
-`EnvVarValue.secret` / `SecretRef.ref`; plain user configs use the same identity +
-versions model (`configs`, `config_versions`) with `EnvVarValue.config` /
-`ConfigRef.ref`. There is no per-row id besides the pair.
+environment variables and settings pin exact versions by
+`SecretRef{secret_id, version}` (stable secret id plus value version), in an
+env var's `secret.secret`, a secret-valued setting, or an ingress
+`cert_source.secret`; plain user configs use the same identity + versions
+model (`configs`, `config_versions`) with `ConfigRef{config_id, version}` in
+an env var's `config.config` or a setting's `value.config_ref`. There is no
+per-row id besides the pair.
 
-Secrets and configs share **one file system per space**: a name must be unique
+Secrets and configs share **one file system per space**: a key must be unique
 among sibling secrets, configs, and `value_directories` under the same parent
-directory (0 = the implicit root). The `value_names` table (primary key
-`(space_id, parent_id, name)`, unique `(kind, id)`) holds that law as a
+directory (absent = the implicit root). The `value_keys` table (primary key
+`(space_id, parent_id, key)`, unique `(kind, id)`) holds that law as a
 constraint, and the writers check it first (`values.NameTaken`) to return
 the user-facing error. Assets have their
 own independent per-space file system.
@@ -54,9 +56,9 @@ facet (with the acting user as `author`) and carries the new
 `value_directory_id` (the destination directory must belong to the
 destination space, and sibling-name uniqueness holds there); the latest event
 row is the current space, and the log preserves the full assignment history.
-Deletion removes the identity row, its version rows, and its name; the
+Deletion removes the identity row, its version rows, and its key; the
 write log keeps the history. The Manager drops the secret's cached records,
-and the name is immediately reusable.
+and the key is immediately reusable.
 Secret space moves go through `Manager.MoveSpace`, which also fixes the
 denormalized `SpaceID` on cached version records — reveal/edit authz reads
 it. On the state stream a delete-tombstone precedes the update so clients
@@ -110,7 +112,7 @@ tokens, certificates — become sibling fields on the same route.
 
 Two properties make that narrow permission safe:
 
-- **Create-only.** An existing name is rejected. `Set` appends an immutable
+- **Create-only.** An existing key is rejected. `Set` appends an immutable
   version rather than replacing one, so without this guard a caller could bury
   an operator's credential under a value that neither of them can read back.
   Rotation stays an operator action in the browser.
@@ -139,8 +141,9 @@ Key files:
   writes (keyslot rows, and secret mutations the reducer materialises)
   through `state.Service.Commit`. Sealing happens through a `secrets.SealFunc`
   callback inside the write transaction, because the AAD needs the identity
-  id before the ciphertext can exist. The Manager's cache is keyed by
-  `ValueRef` (secret id, value version).
+  id before the ciphertext can exist. The Manager's cache is keyed by the
+  backend-internal `apigen.ValueRef` (secret id, value version), the
+  kind-free form of `SecretRef`.
 - `backend/app/primary/domain/secrets/generate.go` — the server-side value generators
   used by `PostV1SecretsGenerate`.
 - `backend/app/primary/domain/values/` — the shared secrets/configs namespace law:
@@ -150,9 +153,9 @@ Key files:
   local cache.
 - `backend/app/secondary/localinputs/localinputs.go` — a secondary's encrypted
   at-rest copy of the runtime inputs it needs.
-- `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds typed `secret`
-  / `config` `ValueRef` pairs, fetches each needed batch, validates it, and owns the
-  prepared in-memory caches.
+- `backend/lib/engine/prepare/runtimeinputs/secrets.go` — finds the
+  `SecretRef` and `ConfigRef` pins (as `apigen.ValueRef` pairs), fetches each
+  needed batch, validates it, and owns the prepared in-memory caches.
 - `backend/lib/engine/secretdist/secretdist.go` — primary-side encrypted-secret
   fetch adapter.
 - `backend/app/secondary/secrets.go` — secondary-side mTLS batch fetcher.
@@ -235,16 +238,19 @@ machine KEK (provider-supplied) ────────────────
   sweep as well.
 - The SMK is never stored in the clear. It is stored wrapped, once per
   **keyslot**, in the `secret_keyslots` table materialised from the write
-  log and keyed by `(kind, node_id)`, entity id `node_id * 256 + kind`
-  (`SecretKeyslotKind`, an enum on the wire model though no keyslot ever
-  reaches a client):
-  - **machine slot** (kind 1, one per node) — `AEAD(SMK, machineKEK)` under
+  log, one row per keyslot entity with its own `id` from `entity_ids` and
+  `(kind, node_id)` unique. On the wire a `SecretKeyslot` is `{id,
+  smk_version, wrapped_smk, nonce, wrapping}` with `wrapping` a union of
+  `machine_key{node_id}` and `recovery_code{kdf_salt}`; it is replica class
+  only and never reaches a browser. The conversion from v0.0.615 renumbered
+  the old `node_id * 256 + kind` entity ids to fresh ids 1..n:
+  - **machine slot** (`machine_key`, one per node) — `AEAD(SMK, machineKEK)` under
     that node's machine key, for unattended boot. Today only the primary has
     one; a replica that can take over will need its own row, which is why
     the slot is a per-node fact in the replicated log rather than a
     node-local file. Node eviction emits a delete for the evicted node's
     slot in the same commit.
-  - **recovery slot** (kind 2, node 0) — `AEAD(SMK, Argon2id(recoveryCode,
+  - **recovery slot** (`recovery_code`, one) — `AEAD(SMK, Argon2id(recoveryCode,
     salt))`, the break-glass path. The recovery code is shown once and never
     stored.
 
@@ -318,7 +324,7 @@ already holds everything a config references therefore makes no request at all.
 
 The operator injects that same `RuntimeInputs` instance into every container
 runner. At process spawn time (`backend/lib/engine/runner/secrets.go`),
-`EnvVarValue` entries with `secret` or `config` are expanded from its
+`EnvVar` entries with `secret` or `config` are expanded from its
 prepared in-memory caches. Plain config values are not encrypted at rest in
 the primary's own `config_versions` (a secondary's local copies are, because it
 seals every runtime input the same way). Unknown references, locked secrets,

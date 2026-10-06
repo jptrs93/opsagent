@@ -19,7 +19,7 @@ func logDBPath() string {
 }
 
 func walDeploymentDir(deploymentID int32) string {
-	return apigen.LogWALDeploymentDir(deploymentID)
+	return apigen.LogWALDeploymentDir(uint64(deploymentID))
 }
 
 func archiveDeploymentDir(deploymentID int32) string {

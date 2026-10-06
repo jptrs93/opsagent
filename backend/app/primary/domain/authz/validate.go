@@ -3,6 +3,7 @@ package authz
 import (
 	"fmt"
 	"regexp"
+	"slices"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
@@ -23,50 +24,241 @@ func invalidf(format string, args ...any) error {
 
 func validateTemplateName(name string) error {
 	if name == "" || len(name) > maxNameLen || !nameRe.MatchString(name) {
-		return invalidf("authz: invalid rule template name %q", name)
+		return invalidf("authz: invalid grant template name %q", name)
 	}
 	return nil
 }
 
-func validVerb(v int64) bool {
-	return v >= int64(apigen.AuthzVerb_AUTHZ_VERB_CREATE) && v <= int64(apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK)
+func validVerb(v apigen.AuthzVerb) bool {
+	return v >= apigen.AuthzVerb_AUTHZ_VERB_CREATE && v <= apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK
 }
 
-func validEntityType(v int64) bool {
-	return v >= int64(apigen.AuthzEntity_AUTHZ_ENTITY_SPACE) && v <= int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS)
+func validEntityKind(v apigen.AuthzEntityKind) bool {
+	return v >= apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SPACE && v <= apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS
 }
 
-func validSpaceID(v int64) bool { return v >= 0 && v <= 65535 }
-
-func validEntityRef(v int64) bool { return v > 0 }
-
-type position struct {
-	name     string
-	valid    func(int64) bool
-	selector func(*apigen.AuthzRule) *apigen.AuthzSelector
+func validArgumentKind(v apigen.AuthzArgumentKind) bool {
+	return v >= apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_PERMISSION && v <= apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_ENTITY_REF
 }
 
-var positions = []position{
-	{"spaces", validSpaceID, func(r *apigen.AuthzRule) *apigen.AuthzSelector { return r.Spaces }},
-	{"entity_types", validEntityType, func(r *apigen.AuthzRule) *apigen.AuthzSelector { return r.EntityTypes }},
-	{"entity_refs", validEntityRef, func(r *apigen.AuthzRule) *apigen.AuthzSelector { return r.EntityRefs }},
-	{"permissions", validVerb, func(r *apigen.AuthzRule) *apigen.AuthzSelector { return r.Permissions }},
+func validSpaceID(v uint64) bool { return v <= 65535 }
+
+func validEntityRef(ref apigen.AuthzEntityRef) bool {
+	_, id, ok := EntityRefTarget(ref)
+	return ok && id > 0
 }
 
-func validateTemplate(name string, t *apigen.AuthzRuleTemplateSpec) error {
+func validateVerbs(vs []apigen.AuthzVerb) error {
+	for _, v := range vs {
+		if !validVerb(v) {
+			return invalidf("invalid value %d", v)
+		}
+	}
+	return nil
+}
+
+func validateSpaces(ids []uint64) error {
+	for _, v := range ids {
+		if !validSpaceID(v) {
+			return invalidf("invalid value %d", v)
+		}
+	}
+	return nil
+}
+
+func validateEntityKinds(ks []apigen.AuthzEntityKind) error {
+	for _, v := range ks {
+		if !validEntityKind(v) {
+			return invalidf("invalid value %d", v)
+		}
+	}
+	return nil
+}
+
+func validateEntityRefs(refs []apigen.AuthzEntityRef) error {
+	for _, ref := range refs {
+		if !validEntityRef(ref) {
+			return invalidf("invalid entity ref")
+		}
+	}
+	return nil
+}
+
+func oneOfTwo(exact, allExcluding bool, exactLen int) error {
+	switch {
+	case exact == allExcluding:
+		return invalidf("selector must set exactly one of exact and all_excluding")
+	case exact && exactLen == 0:
+		return invalidf("selector matches nothing")
+	}
+	return nil
+}
+
+func validatePermissionSelector(sel apigen.AuthzPermissionSelector) error {
+	if err := oneOfTwo(sel.ExactVerbs.Present, sel.AllVerbsExcluding.Present, len(sel.ExactVerbs.Value.Values)); err != nil {
+		return err
+	}
+	if err := validateVerbs(sel.ExactVerbs.Value.Values); err != nil {
+		return err
+	}
+	return validateVerbs(sel.AllVerbsExcluding.Value.Values)
+}
+
+func validateSpaceSelector(sel apigen.AuthzSpaceSelector) error {
+	if err := oneOfTwo(sel.ExactSpaces.Present, sel.AllSpacesExcluding.Present, len(sel.ExactSpaces.Value.Values)); err != nil {
+		return err
+	}
+	if err := validateSpaces(sel.ExactSpaces.Value.Values); err != nil {
+		return err
+	}
+	return validateSpaces(sel.AllSpacesExcluding.Value.Values)
+}
+
+func validateEntityTypeSelector(sel apigen.AuthzEntityTypeSelector) error {
+	if err := oneOfTwo(sel.ExactEntityTypes.Present, sel.AllEntityTypesExcluding.Present, len(sel.ExactEntityTypes.Value.Values)); err != nil {
+		return err
+	}
+	if err := validateEntityKinds(sel.ExactEntityTypes.Value.Values); err != nil {
+		return err
+	}
+	return validateEntityKinds(sel.AllEntityTypesExcluding.Value.Values)
+}
+
+func validateEntityRefSelector(sel apigen.AuthzEntityRefSelector) error {
+	if err := oneOfTwo(sel.ExactEntityRefs.Present, sel.AllEntityRefsExcluding.Present, len(sel.ExactEntityRefs.Value.Values)); err != nil {
+		return err
+	}
+	if err := validateEntityRefs(sel.ExactEntityRefs.Value.Values); err != nil {
+		return err
+	}
+	return validateEntityRefs(sel.AllEntityRefsExcluding.Value.Values)
+}
+
+func validateSelector(sel apigen.AuthzSelector) error {
+	if err := validateSpaceSelector(sel.Spaces); err != nil {
+		return fmt.Errorf("spaces: %w", err)
+	}
+	if err := validateEntityTypeSelector(sel.EntityTypes); err != nil {
+		return fmt.Errorf("entity_types: %w", err)
+	}
+	if err := validateEntityRefSelector(sel.EntityRefs); err != nil {
+		return fmt.Errorf("entity_refs: %w", err)
+	}
+	if err := validatePermissionSelector(sel.Permissions); err != nil {
+		return fmt.Errorf("permissions: %w", err)
+	}
+	return nil
+}
+
+func validateEffect(e apigen.AuthzEffect) error {
+	if e.Value.Validate() != nil {
+		return invalidf("effect must be exactly one of allow and deny")
+	}
+	return nil
+}
+
+func isDeny(e apigen.AuthzEffect) bool { return e.Value.Deny != nil }
+
+// The access carve-out protects the repair path from denies; an allow that
+// targets access only adds, so it is not restricted.
+func deniesAccess(e apigen.AuthzEffect, sel apigen.AuthzEntityTypeSelector) bool {
+	return isDeny(e) && slices.Contains(sel.ExactEntityTypes.Value.Values, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS)
+}
+
+func validateRule(r *apigen.AuthzRule) error {
+	if r == nil {
+		return invalidf("rule is empty")
+	}
+	if err := validateEffect(r.Effect); err != nil {
+		return err
+	}
+	if err := validateSelector(r.Selector); err != nil {
+		return err
+	}
+	if deniesAccess(r.Effect, r.Selector.EntityTypes) {
+		return invalidf("rules cannot deny the access entity")
+	}
+	return nil
+}
+
+func validateGlobalRule(name string, r *apigen.AuthzRule) error {
+	if r == nil {
+		return invalidf("authz: global rule is empty")
+	}
+	if name == "" || len(name) > maxNameLen || !nameRe.MatchString(name) {
+		return invalidf("authz: invalid global rule name %q", name)
+	}
+	if err := validateRule(r); err != nil {
+		return fmt.Errorf("authz: global rule: %w", err)
+	}
+	return nil
+}
+
+type argumentUse struct {
+	id   uint32
+	kind apigen.AuthzArgumentKind
+	name string
+}
+
+func templateSelectorUses(sel apigen.AuthzTemplateSelector) ([]argumentUse, error) {
+	var uses []argumentUse
+	switch v := sel.Spaces.Value; {
+	case v.Argument != nil:
+		uses = append(uses, argumentUse{v.Argument.ArgumentID, apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_SPACE, "spaces"})
+	case v.Selector != nil:
+		if err := validateSpaceSelector(*v.Selector); err != nil {
+			return nil, fmt.Errorf("spaces: %w", err)
+		}
+	default:
+		return nil, invalidf("spaces: selector is missing")
+	}
+	switch v := sel.EntityTypes.Value; {
+	case v.Argument != nil:
+		uses = append(uses, argumentUse{v.Argument.ArgumentID, apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_ENTITY_TYPE, "entity_types"})
+	case v.Selector != nil:
+		if err := validateEntityTypeSelector(*v.Selector); err != nil {
+			return nil, fmt.Errorf("entity_types: %w", err)
+		}
+	default:
+		return nil, invalidf("entity_types: selector is missing")
+	}
+	switch v := sel.EntityRefs.Value; {
+	case v.Argument != nil:
+		uses = append(uses, argumentUse{v.Argument.ArgumentID, apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_ENTITY_REF, "entity_refs"})
+	case v.Selector != nil:
+		if err := validateEntityRefSelector(*v.Selector); err != nil {
+			return nil, fmt.Errorf("entity_refs: %w", err)
+		}
+	default:
+		return nil, invalidf("entity_refs: selector is missing")
+	}
+	switch v := sel.Permissions.Value; {
+	case v.Argument != nil:
+		uses = append(uses, argumentUse{v.Argument.ArgumentID, apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_PERMISSION, "permissions"})
+	case v.Selector != nil:
+		if err := validatePermissionSelector(*v.Selector); err != nil {
+			return nil, fmt.Errorf("permissions: %w", err)
+		}
+	default:
+		return nil, invalidf("permissions: selector is missing")
+	}
+	return uses, nil
+}
+
+func validateTemplate(name string, t *apigen.AuthzGrantTemplateSpec) error {
 	if err := validateTemplateName(name); err != nil {
 		return err
 	}
 	if t == nil {
-		return invalidf("authz: rule template content is empty")
+		return invalidf("authz: grant template content is empty")
 	}
-	declared := make(map[int64]bool, len(t.Arguments))
+	declared := make(map[uint32]apigen.AuthzArgumentKind, len(t.Arguments))
 	argNames := make(map[string]bool, len(t.Arguments))
 	for _, a := range t.Arguments {
-		if a == nil || a.ID <= 0 {
+		if a.ID == 0 {
 			return invalidf("authz: invalid argument id")
 		}
-		if declared[a.ID] {
+		if _, ok := declared[a.ID]; ok {
 			return invalidf("authz: duplicate argument id %d", a.ID)
 		}
 		if a.Name == "" || len(a.Name) > maxNameLen || !nameRe.MatchString(a.Name) {
@@ -75,171 +267,131 @@ func validateTemplate(name string, t *apigen.AuthzRuleTemplateSpec) error {
 		if argNames[a.Name] {
 			return invalidf("authz: duplicate argument name %q", a.Name)
 		}
-		declared[a.ID] = true
+		if !validArgumentKind(a.Kind) {
+			return invalidf("authz: argument %d has an invalid kind", a.ID)
+		}
+		declared[a.ID] = a.Kind
 		argNames[a.Name] = true
 	}
-	if err := validateRules(t.Rules, true); err != nil {
-		return err
+	if len(t.Rules) == 0 {
+		return invalidf("authz: at least one rule is required")
 	}
-	kinds := make(map[int64]string)
-	for i, rule := range t.Rules {
-		for _, pos := range positions {
-			sel := pos.selector(rule)
-			if sel == nil || sel.ArgumentID == 0 {
-				continue
+	used := make(map[uint32]bool, len(declared))
+	for i := range t.Rules {
+		rule := &t.Rules[i]
+		if err := validateEffect(rule.Effect); err != nil {
+			return fmt.Errorf("authz: rule %d: %w", i, err)
+		}
+		uses, err := templateSelectorUses(rule.Selector)
+		if err != nil {
+			return fmt.Errorf("authz: rule %d %w", i, err)
+		}
+		for _, u := range uses {
+			kind, ok := declared[u.id]
+			if !ok {
+				return invalidf("authz: rule %d %s: undeclared argument %d", i, u.name, u.id)
 			}
-			if !declared[sel.ArgumentID] {
-				return invalidf("authz: rule %d %s: undeclared argument %d", i, pos.name, sel.ArgumentID)
+			if kind != u.kind {
+				return invalidf("authz: rule %d %s: argument %d is declared with another kind", i, u.name, u.id)
 			}
-			if kind, ok := kinds[sel.ArgumentID]; ok && kind != pos.name {
-				return invalidf("authz: argument %d used in both %s and %s positions", sel.ArgumentID, kind, pos.name)
-			}
-			kinds[sel.ArgumentID] = pos.name
+			used[u.id] = true
+		}
+		if s := rule.Selector.EntityTypes.Value.Selector; s != nil && deniesAccess(rule.Effect, *s) {
+			return invalidf("authz: rule %d: rules cannot deny the access entity", i)
 		}
 	}
 	for id := range declared {
-		if _, ok := kinds[id]; !ok {
+		if !used[id] {
 			return invalidf("authz: argument %d is declared but unused", id)
 		}
 	}
 	return nil
 }
 
-func templateSignature(t *apigen.AuthzRuleTemplateSpec) map[int64]func(int64) bool {
-	sig := make(map[int64]func(int64) bool)
-	if t == nil {
-		return sig
-	}
-	for _, rule := range t.Rules {
-		if rule == nil {
-			continue
-		}
-		for _, pos := range positions {
-			if sel := pos.selector(rule); sel != nil && sel.ArgumentID != 0 {
-				sig[sel.ArgumentID] = pos.valid
-			}
+func denyEntityTypeArguments(t *apigen.AuthzGrantTemplateSpec) map[uint32]bool {
+	out := make(map[uint32]bool)
+	for i := range t.Rules {
+		rule := &t.Rules[i]
+		if a := rule.Selector.EntityTypes.Value.Argument; a != nil && isDeny(rule.Effect) {
+			out[a.ArgumentID] = true
 		}
 	}
-	return sig
+	return out
 }
 
-func validateRules(rules []*apigen.AuthzRule, allowArguments bool) error {
-	if len(rules) == 0 {
-		return invalidf("authz: at least one rule is required")
-	}
-	for i, rule := range rules {
-		if rule == nil {
-			return invalidf("authz: rule %d is empty", i)
+func validateBindingValues(kind apigen.AuthzArgumentKind, v apigen.AuthzArgumentValuesValueOneof) error {
+	switch kind {
+	case apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_PERMISSION:
+		if v.Permissions == nil {
+			return invalidf("requires permission values")
 		}
-		for _, pos := range positions {
-			if err := validateSelector(pos.selector(rule), pos.valid, allowArguments); err != nil {
-				return fmt.Errorf("authz: rule %d %s: %w", i, pos.name, err)
-			}
+		if len(v.Permissions.Values) == 0 {
+			return invalidf("requires values")
 		}
+		return validateVerbs(v.Permissions.Values)
+	case apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_SPACE:
+		if v.Spaces == nil {
+			return invalidf("requires space values")
+		}
+		if len(v.Spaces.Values) == 0 {
+			return invalidf("requires values")
+		}
+		return validateSpaces(v.Spaces.Values)
+	case apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_ENTITY_TYPE:
+		if v.EntityTypes == nil {
+			return invalidf("requires entity type values")
+		}
+		if len(v.EntityTypes.Values) == 0 {
+			return invalidf("requires values")
+		}
+		return validateEntityKinds(v.EntityTypes.Values)
+	case apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_ENTITY_REF:
+		if v.EntityRefs == nil {
+			return invalidf("requires entity ref values")
+		}
+		if len(v.EntityRefs.Values) == 0 {
+			return invalidf("requires values")
+		}
+		return validateEntityRefs(v.EntityRefs.Values)
 	}
-	return nil
+	return invalidf("invalid kind")
 }
 
-func validateSelector(sel *apigen.AuthzSelector, valid func(int64) bool, allowArguments bool) error {
-	if sel == nil {
-		return invalidf("selector is missing")
-	}
-	if sel.ArgumentID != 0 {
-		if !allowArguments {
-			return invalidf("arguments are only valid in rule template rules")
-		}
-		if sel.ArgumentID < 0 {
-			return invalidf("invalid argument id %d", sel.ArgumentID)
-		}
-	}
-	if !sel.Wildcard && sel.ArgumentID == 0 && len(sel.Include) == 0 {
-		return invalidf("selector matches nothing")
-	}
-	for _, v := range sel.Include {
-		if !valid(v) {
-			return invalidf("invalid value %d", v)
-		}
-	}
-	for _, v := range sel.Exclude {
-		if !valid(v) {
-			return invalidf("invalid excluded value %d", v)
-		}
-	}
-	return nil
-}
-
-func validateGlobalRule(name string, r *apigen.AuthzGlobalRuleSpec) error {
-	if r == nil {
-		return invalidf("authz: global rule is empty")
-	}
-	if name == "" || len(name) > maxNameLen || !nameRe.MatchString(name) {
-		return invalidf("authz: invalid global rule name %q", name)
-	}
-	selectors := []struct {
-		name  string
-		sel   *apigen.AuthzSelector
-		valid func(int64) bool
-	}{
-		{"spaces", r.Spaces, validSpaceID},
-		{"entity_types", r.EntityTypes, validEntityType},
-		{"entity_refs", r.EntityRefs, validEntityRef},
-		{"permissions", r.Permissions, validVerb},
-	}
-	for _, item := range selectors {
-		if err := validateSelector(item.sel, item.valid, false); err != nil {
-			return fmt.Errorf("authz: global rule %s: %w", item.name, err)
-		}
-	}
-	if !r.Deny && r.DelegatedOnly {
-		return invalidf("authz: delegated_only applies only to deny rules")
-	}
-	if r.Deny && r.DelegationAllowed {
-		return invalidf("authz: delegation_allowed applies only to allow rules")
-	}
-	// The access carve-out protects the repair path from denies; an allow that
-	// targets access only adds, so it is not restricted.
-	if r.Deny {
-		for _, v := range r.EntityTypes.Include {
-			if v == int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS) {
-				return invalidf("authz: global rules cannot deny the access entity")
-			}
-		}
-	}
-	return nil
-}
-
-func validateArgs(t *apigen.AuthzRuleTemplate, bindings []*apigen.AuthzArgumentBinding) error {
-	sig := templateSignature(t.Spec)
-	if len(sig) == 0 {
+func validateArgs(t *apigen.AuthzGrantTemplate, bindings []apigen.AuthzArgumentBinding) error {
+	if len(t.Spec.Arguments) == 0 {
 		if len(bindings) != 0 {
-			return invalidf("authz: rule template %s takes no arguments", t.Name)
+			return invalidf("authz: grant template %s takes no arguments", t.Name)
 		}
 		return nil
 	}
-	seen := make(map[int64]bool, len(bindings))
-	for _, b := range bindings {
-		if b == nil || b.ArgumentID == 0 {
+	declared := make(map[uint32]apigen.AuthzArgumentKind, len(t.Spec.Arguments))
+	for _, a := range t.Spec.Arguments {
+		declared[a.ID] = a.Kind
+	}
+	denyKinds := denyEntityTypeArguments(&t.Spec)
+	seen := make(map[uint32]bool, len(bindings))
+	for i := range bindings {
+		b := &bindings[i]
+		if b.ArgumentID == 0 {
 			return invalidf("authz: binding is missing an argument id")
 		}
 		if seen[b.ArgumentID] {
 			return invalidf("authz: duplicate binding for argument %d", b.ArgumentID)
 		}
-		valid, ok := sig[b.ArgumentID]
+		kind, ok := declared[b.ArgumentID]
 		if !ok {
-			return invalidf("authz: rule template %s has no argument %d", t.Name, b.ArgumentID)
+			return invalidf("authz: grant template %s has no argument %d", t.Name, b.ArgumentID)
 		}
-		if len(b.Values) == 0 {
-			return invalidf("authz: argument %d requires values", b.ArgumentID)
+		if err := validateBindingValues(kind, b.Values.Value); err != nil {
+			return fmt.Errorf("authz: argument %d: %w", b.ArgumentID, err)
 		}
-		for _, v := range b.Values {
-			if !valid(v) {
-				return invalidf("authz: argument %d: invalid value %d", b.ArgumentID, v)
-			}
+		if denyKinds[b.ArgumentID] && slices.Contains(b.Values.Value.EntityTypes.Values, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS) {
+			return invalidf("authz: argument %d: rules cannot deny the access entity", b.ArgumentID)
 		}
 		seen[b.ArgumentID] = true
 	}
-	if len(seen) != len(sig) {
-		return invalidf("authz: rule template %s requires bindings for all %d arguments", t.Name, len(sig))
+	if len(seen) != len(declared) {
+		return invalidf("authz: grant template %s requires bindings for all %d arguments", t.Name, len(declared))
 	}
 	return nil
 }

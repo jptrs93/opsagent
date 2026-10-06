@@ -1,14 +1,13 @@
 -- name: InsertScheduledInstanceStatus :exec
 INSERT INTO scheduled_instance_status (
-    scheduled_instance_id, updated_at, deployment_id,
+    scheduled_instance_id, updated_at,
     preparer_spec_version, preparer_artifact,
     preparer_inputs_status, preparer_image_status,
     runner_spec_version, runner_pid, runner_artifact, runner_status,
     runner_num_restarts, runner_last_restart_at, runner_extra_blob,
     runner_exit_code
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
-    deployment_id = excluded.deployment_id,
     preparer_spec_version = excluded.preparer_spec_version,
     preparer_artifact = excluded.preparer_artifact,
     preparer_inputs_status = excluded.preparer_inputs_status,
@@ -23,7 +22,7 @@ ON CONFLICT(scheduled_instance_id, updated_at) DO UPDATE SET
     runner_exit_code = excluded.runner_exit_code;
 
 -- name: ListLatestScheduledInstanceStatuses :many
-SELECT s.scheduled_instance_id, s.updated_at, s.deployment_id,
+SELECT s.scheduled_instance_id, s.updated_at,
        s.preparer_spec_version, s.preparer_artifact,
        s.preparer_inputs_status, s.preparer_image_status,
        s.runner_spec_version, s.runner_pid, s.runner_artifact, s.runner_status,
@@ -37,7 +36,7 @@ JOIN (
 ) latest ON latest.scheduled_instance_id = s.scheduled_instance_id AND latest.updated_at = s.updated_at;
 
 -- name: ListScheduledInstanceStatusHistorySince :many
-SELECT scheduled_instance_id, updated_at, deployment_id,
+SELECT scheduled_instance_id, updated_at,
        preparer_spec_version, preparer_artifact,
        preparer_inputs_status, preparer_image_status,
        runner_spec_version, runner_pid, runner_artifact, runner_status,

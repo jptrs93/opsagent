@@ -22,27 +22,45 @@ func nodes() []Node {
 	}
 }
 
-func httpsRoute(hostname, prefix string, listen ...*apigen.IngressListen) Route {
+var (
+	anyIPv4 = apigen.PrefixOf(netip.MustParsePrefix("0.0.0.0/0"))
+	anyIPv6 = apigen.PrefixOf(netip.MustParsePrefix("::/0"))
+)
+
+func httpsRoute(hostname, prefix string, listen ...apigen.IngressListen) Route {
 	return Route{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: hostname, PathPrefix: prefix, CertSource: "acme", Listen: listen}
 }
 
-func passthroughRoute(hostname string, hostPort int32, listen ...*apigen.IngressListen) Route {
+func passthroughRoute(hostname string, hostPort uint32, listen ...apigen.IngressListen) Route {
 	return Route{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: hostname, HostPort: hostPort, Listen: listen}
 }
 
-func literal(values ...string) *apigen.IngressListen {
-	return &apigen.IngressListen{Address: &apigen.AddressSelector{Prefixes: values}}
+func prefixes(values ...string) []apigen.IpPrefix {
+	out := make([]apigen.IpPrefix, 0, len(values))
+	for _, value := range values {
+		prefix, err := apigen.ParsePrefix(value)
+		if err != nil {
+			panic(err)
+		}
+		out = append(out, prefix)
+	}
+	return out
 }
 
-func family(f apigen.AddressFamily) *apigen.IngressListen {
-	return &apigen.IngressListen{Address: &apigen.AddressSelector{Family: f}}
+func literal(values ...string) apigen.IngressListen {
+	return apigen.IngressListen{Addresses: prefixes(values...)}
 }
 
-func onNode(id int32, address *apigen.AddressSelector) *apigen.IngressListen {
-	return &apigen.IngressListen{Node: &apigen.NodeSelector{NodeID: id}, Address: address}
+func family(f apigen.IpPrefix) apigen.IngressListen {
+	return apigen.IngressListen{Addresses: []apigen.IpPrefix{f}}
 }
 
-func publishSet(t *testing.T, result Result, nodeID int32) map[string]bool {
+func onNode(id uint64, addresses ...apigen.IpPrefix) apigen.IngressListen {
+	node := apigen.IngressNode{Value: apigen.IngressNodeValueOneof{Specific: &apigen.SpecificNode{NodeID: id}}}
+	return apigen.IngressListen{Node: apigen.Some(node), Addresses: addresses}
+}
+
+func publishSet(t *testing.T, result Result, nodeID uint64) map[string]bool {
 	t.Helper()
 	out := map[string]bool{}
 	for _, entry := range result.Publish[nodeID] {
@@ -55,7 +73,7 @@ func publishSet(t *testing.T, result Result, nodeID int32) map[string]bool {
 	return out
 }
 
-func itoa(v int32) string {
+func itoa(v uint32) string {
 	return strconv.Itoa(int(v))
 }
 
@@ -90,7 +108,7 @@ func TestFamilyAndLiteralSelectors(t *testing.T) {
 	result := Evaluate(Inputs{
 		Nodes: nodes(),
 		Deployments: []Deployment{
-			{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("v4.example", "/", family(apigen.AddressFamily_ADDRESS_FAMILY_IPV4))}},
+			{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("v4.example", "/", family(anyIPv4))}},
 			{ID: 11, NodeID: 1, Routes: []Route{passthroughRoute("db.example", 5433, literal(v6A.String(), "198.51.100.7"))}},
 			{ID: 12, NodeID: 1, Routes: []Route{passthroughRoute("cidr.example", 5434, literal("203.0.113.0/24"))}},
 		},
@@ -111,7 +129,7 @@ func TestFamilyAndLiteralSelectors(t *testing.T) {
 }
 
 func TestNodeSelectorIntersectsReachability(t *testing.T) {
-	route := httpsRoute("app.example", "/", onNode(2, nil))
+	route := httpsRoute("app.example", "/", onNode(2))
 	result := Evaluate(Inputs{Nodes: nodes(), Deployments: []Deployment{{ID: 10, NodeID: 1, Routes: []Route{route}}}})
 	if len(result.Publish[1])+len(result.Publish[2]) != 0 {
 		t.Fatalf("node 2 is not reachable from node 1 yet; got %v", result.Publish)
@@ -119,7 +137,7 @@ func TestNodeSelectorIntersectsReachability(t *testing.T) {
 	result = Evaluate(Inputs{
 		Nodes:       nodes(),
 		Deployments: []Deployment{{ID: 10, NodeID: 1, Routes: []Route{route}}},
-		Reachable:   func(int32) []int32 { return []int32{1, 2} },
+		Reachable:   func(uint64) []uint64 { return []uint64{1, 2} },
 	})
 	if !publishSet(t, result, 2)[v4B.String()+":443"] || len(result.Publish[1]) != 0 {
 		t.Fatalf("with cross-node reachability the route publishes on node 2 only: %v", result.Publish)
@@ -127,7 +145,7 @@ func TestNodeSelectorIntersectsReachability(t *testing.T) {
 }
 
 func TestDefaultNodeSelectorStaysOnScheduledNode(t *testing.T) {
-	everywhere := func(int32) []int32 { return []int32{1, 2} }
+	everywhere := func(uint64) []uint64 { return []uint64{1, 2} }
 	result := Evaluate(Inputs{
 		Nodes:       nodes(),
 		Deployments: []Deployment{{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/")}}},
@@ -136,7 +154,7 @@ func TestDefaultNodeSelectorStaysOnScheduledNode(t *testing.T) {
 	if !publishSet(t, result, 1)[v4A.String()+":443"] || len(result.Publish[2]) != 0 {
 		t.Fatalf("the default selector publishes on the scheduled node only, even with cross-node reachability: %v", result.Publish)
 	}
-	anyNode := &apigen.IngressListen{Node: &apigen.NodeSelector{Any: true}}
+	anyNode := apigen.IngressListen{Node: apigen.Some(apigen.IngressNode{Value: apigen.IngressNodeValueOneof{Any: &apigen.AnyNode{}}})}
 	result = Evaluate(Inputs{
 		Nodes:       nodes(),
 		Deployments: []Deployment{{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", anyNode)}}},
@@ -148,8 +166,12 @@ func TestDefaultNodeSelectorStaysOnScheduledNode(t *testing.T) {
 	if got := SelectorSummary(nil, nil); got != "scheduled node, any address" {
 		t.Fatalf("default summary = %q", got)
 	}
-	if got := SelectorSummary(anyNode, nil); got != "any node, any address" {
+	if got := SelectorSummary(&anyNode, nil); got != "any node, any address" {
 		t.Fatalf("any summary = %q", got)
+	}
+	named := onNode(2, append([]apigen.IpPrefix{anyIPv6}, prefixes(v4A.String(), "203.0.113.0/24")...)...)
+	if got := SelectorSummary(&named, func(id uint64) string { return "n" + itoa(uint32(id)) }); got != "node n2, any IPv6 address, 203.0.113.10, 203.0.113.0/24" {
+		t.Fatalf("named summary = %q", got)
 	}
 }
 
@@ -212,7 +234,7 @@ func TestLiteralReservationOnlyBlocksItsAddress(t *testing.T) {
 		Nodes:        nodes(),
 		Reservations: reservations,
 		Candidate:    10,
-		Deployments:  []Deployment{{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", family(apigen.AddressFamily_ADDRESS_FAMILY_IPV4))}}},
+		Deployments:  []Deployment{{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", family(anyIPv4))}}},
 	})
 	if len(result.Errors) != 0 {
 		t.Fatalf("errors: %s", messages(result.Errors))
@@ -316,7 +338,7 @@ func TestStoredCollisionResolvesToLowerIDWithWarnings(t *testing.T) {
 	if len(result.Warnings) != 4 {
 		t.Fatalf("both deployments are warned per address, got %d: %s", len(result.Warnings), messages(result.Warnings))
 	}
-	seen := map[int32]bool{}
+	seen := map[uint64]bool{}
 	for _, w := range result.Warnings {
 		seen[w.DeploymentID] = true
 	}
@@ -333,7 +355,7 @@ func TestTCPPortForwardConflictsWithIngress(t *testing.T) {
 		Nodes:     nodes(),
 		Candidate: 11,
 		Deployments: []Deployment{
-			{ID: 10, NodeID: 1, TCPPorts: []int32{5433}},
+			{ID: 10, NodeID: 1, TCPPorts: []uint32{5433}},
 			{ID: 11, NodeID: 1, Routes: []Route{passthroughRoute("db.example", 5433)}},
 		},
 	})

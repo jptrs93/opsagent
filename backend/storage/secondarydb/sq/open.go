@@ -21,8 +21,12 @@ var migrations string
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpen(dbPath)
 	dropRowIDRuntimeInputs(db)
+	if legacyDataModel(db) {
+		convertDataModel(context.Background(), db)
+	}
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
+	markFormatVersion(db)
 	return New(db)
 }
 

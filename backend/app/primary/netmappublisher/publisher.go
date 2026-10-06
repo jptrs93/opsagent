@@ -24,7 +24,7 @@ import (
 )
 
 type subscriber struct {
-	nodeID  int32
+	nodeID  uint64
 	updates chan *apigen.ClusterNetMap
 }
 
@@ -57,7 +57,7 @@ type Publisher struct {
 	// Acknowledgement state is kept under its own lock so recording a secondary's
 	// applied sequence never contends with rendering or publishing a map.
 	ackMu      sync.Mutex
-	applied    map[int32]int64
+	applied    map[uint64]int64
 	ackUpdates chan struct{}
 }
 
@@ -77,9 +77,9 @@ func New(store *state.Service, prefix network.Prefix, reservations func() []ingr
 		subscribers:     make(map[*subscriber]struct{}),
 		updates:         updates,
 		unsubscribe:     unsubscribe,
-		applied:         make(map[int32]int64),
+		applied:         make(map[uint64]int64),
 		ackUpdates:      make(chan struct{}, 1),
-		diagnostics:     &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}},
+		diagnostics:     &apigen.IngressDiagnosticList{Items: []apigen.IngressDiagnostic{}},
 		diagnosticsSubs: make(map[chan *apigen.IngressDiagnosticList]struct{}),
 		reservations:    reservations,
 	}
@@ -159,7 +159,7 @@ func (p *Publisher) Refresh() error {
 	return nil
 }
 
-func (p *Publisher) SnapshotForNode(nodeID int32) *apigen.ClusterNetMap {
+func (p *Publisher) SnapshotForNode(nodeID uint64) *apigen.ClusterNetMap {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return mapForNode(p.current, nodeID)
@@ -167,7 +167,7 @@ func (p *Publisher) SnapshotForNode(nodeID int32) *apigen.ClusterNetMap {
 
 // SnapshotAndSubscribe atomically returns the latest targeted map and a
 // capacity-one stream which replaces queued obsolete maps.
-func (p *Publisher) SnapshotAndSubscribe(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
+func (p *Publisher) SnapshotAndSubscribe(nodeID uint64) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	sub := &subscriber{nodeID: nodeID, updates: make(chan *apigen.ClusterNetMap, 1)}
@@ -242,7 +242,7 @@ func publishLatest(ch chan *apigen.ClusterNetMap, next *apigen.ClusterNetMap) {
 	}
 }
 
-func mapForNode(source *apigen.ClusterNetMap, nodeID int32) *apigen.ClusterNetMap {
+func mapForNode(source *apigen.ClusterNetMap, nodeID uint64) *apigen.ClusterNetMap {
 	if source == nil {
 		return nil
 	}
@@ -264,37 +264,30 @@ func canonicalContent(source *apigen.ClusterNetMap) []byte {
 
 func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations []ingressplan.Reservation) (*apigen.ClusterNetMap, *apigen.IngressDiagnosticList, error) {
 	nodes, instances := inputs.Nodes, inputs.Instances
-	netNodes := make([]*apigen.ClusterNetMapNode, 0, len(nodes))
-	knownNodes := make(map[int32]struct{}, len(nodes))
+	netNodes := make([]apigen.ClusterNetMapNode, 0, len(nodes))
+	knownNodes := make(map[uint64]struct{}, len(nodes))
 	underlayBits := 0
 	plan := renderIngressPlan(inputs, reservations)
 	for _, node := range nodes {
-		if node == nil || node.ID <= 0 {
+		if node == nil || node.ID == 0 {
 			continue
 		}
 		underlay := ""
-		if len(node.Addresses) > 0 {
-			underlay = strings.TrimSpace(node.Addresses[0])
-			if underlay != "" {
-				addr, err := netip.ParseAddr(underlay)
-				if err != nil || addr.Zone() != "" {
-					return nil, nil, fmt.Errorf("node %d has invalid underlay address %q", node.ID, underlay)
-				}
-				addr = addr.Unmap()
-				if underlayBits != 0 && addr.BitLen() != underlayBits {
-					return nil, nil, fmt.Errorf("node %d underlay address family differs from cluster", node.ID)
-				}
-				underlayBits = addr.BitLen()
-				underlay = addr.String()
+		if addr := node.UnderlayAddress.Addr(); addr.IsValid() {
+			addr = addr.Unmap()
+			if underlayBits != 0 && addr.BitLen() != underlayBits {
+				return nil, nil, fmt.Errorf("node %d underlay address family differs from cluster", node.ID)
 			}
+			underlayBits = addr.BitLen()
+			underlay = addr.String()
 		}
 		if node.WGPublicKey == "" {
 			return nil, nil, fmt.Errorf("node %d has no WireGuard public key", node.ID)
 		}
 		knownNodes[node.ID] = struct{}{}
-		netNodes = append(netNodes, &apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay, WgPublicKey: node.WGPublicKey, WgListenPort: int32(network.DefaultWGListenPort), IngressPublish: plan.publish[node.ID]})
+		netNodes = append(netNodes, apigen.ClusterNetMapNode{NodeID: node.ID, UnderlayAddress: underlay, WgPublicKey: node.WGPublicKey, WgListenPort: uint32(network.DefaultWGListenPort), IngressPublish: plan.publish[node.ID]})
 	}
-	slices.SortFunc(netNodes, func(a, b *apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
+	slices.SortFunc(netNodes, func(a, b apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
 
 	// Routes are a pure function of assignments. Nothing here reads runner status:
 	// a placement's route follows its target state, so a container restart, a
@@ -306,27 +299,31 @@ func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations [
 	// instance, which is what carries the stable inbound address. Because a
 	// draining placement keeps its own /120, flipping the /100 to a replacement
 	// never strands replies to work still in flight on the old one.
-	routesByPrefix := make(map[netip.Prefix]int32, len(instances)+len(instances)/2)
-	setRoute := func(destination netip.Prefix, nodeID int32) error {
+	routesByPrefix := make(map[netip.Prefix]uint64, len(instances)+len(instances)/2)
+	setRoute := func(destination netip.Prefix, nodeID uint64) error {
 		if existing, ok := routesByPrefix[destination]; ok && existing != nodeID {
 			return fmt.Errorf("prefix %s is claimed by nodes %d and %d", destination, existing, nodeID)
 		}
 		routesByPrefix[destination] = nodeID
 		return nil
 	}
-	servicesByDeployment := make(map[int32]*apigen.ClusterNetMapService)
-	type ordinalKey struct{ deploymentID, ordinal int32 }
+	servicesByDeployment := make(map[uint64]*apigen.ClusterNetMapService)
+	type ordinalKey struct {
+		deploymentID uint64
+		ordinal      uint32
+	}
 	type ordinalStates struct{ serving, standby, draining bool }
 	statesByOrdinal := make(map[ordinalKey]*ordinalStates)
 	for _, item := range instances {
 		cfg := item.Config
 		inst := item.Instance
-		if inst.ID <= 0 ||
-			cfg.Value.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		deploymentID := cfg.Deployment.ID
+		if inst.ID == 0 ||
+			cfg.Deployment.Spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 			continue
 		}
-		if servicesByDeployment[cfg.DeploymentID] == nil {
-			servicesByDeployment[cfg.DeploymentID] = &apigen.ClusterNetMapService{Name: network.DNSLabel(cfg.Value.Name), SpaceID: cfg.Value.SpaceID, DeploymentID: cfg.DeploymentID}
+		if servicesByDeployment[deploymentID] == nil {
+			servicesByDeployment[deploymentID] = &apigen.ClusterNetMapService{Name: network.DNSLabel(cfg.Deployment.Name), SpaceID: cfg.Deployment.SpaceID, DeploymentID: deploymentID}
 		}
 		if !inst.State.WantsRunning() {
 			continue
@@ -334,14 +331,14 @@ func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations [
 		if _, ok := knownNodes[inst.NodeID]; !ok {
 			return nil, nil, fmt.Errorf("scheduled instance %d references unknown node %d", inst.ID, inst.NodeID)
 		}
-		placement, err := prefix.PlacementCIDR(cfg.Value.SpaceID, cfg.DeploymentID, inst.InstanceOrdinal, inst.ID)
+		placement, err := prefix.PlacementCIDR(int32(cfg.Deployment.SpaceID), int32(deploymentID), int32(inst.InstanceOrdinal), int32(inst.ID))
 		if err != nil {
 			return nil, nil, fmt.Errorf("deriving placement prefix for scheduled instance %d: %w", inst.ID, err)
 		}
 		if err := setRoute(placement, inst.NodeID); err != nil {
 			return nil, nil, err
 		}
-		key := ordinalKey{cfg.DeploymentID, inst.InstanceOrdinal}
+		key := ordinalKey{deploymentID, inst.InstanceOrdinal}
 		states := statesByOrdinal[key]
 		if states == nil {
 			states = &ordinalStates{}
@@ -356,7 +353,7 @@ func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations [
 			continue
 		}
 		states.serving = true
-		instancePrefix, err := prefix.InstanceCIDR(cfg.Value.SpaceID, cfg.DeploymentID, inst.InstanceOrdinal)
+		instancePrefix, err := prefix.InstanceCIDR(int32(cfg.Deployment.SpaceID), int32(deploymentID), int32(inst.InstanceOrdinal))
 		if err != nil {
 			return nil, nil, fmt.Errorf("deriving instance prefix for scheduled instance %d: %w", inst.ID, err)
 		}
@@ -364,7 +361,7 @@ func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations [
 		// transient: the map has no way to express it and must not guess.
 		if err := setRoute(instancePrefix, inst.NodeID); err != nil {
 			return nil, nil, fmt.Errorf("deployment %d ordinal %d has more than one serving placement: %w",
-				cfg.DeploymentID, inst.InstanceOrdinal, err)
+				deploymentID, inst.InstanceOrdinal, err)
 		}
 	}
 	// An ordinal stays established while a standby+draining pair exists. The
@@ -376,14 +373,14 @@ func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations [
 			continue
 		}
 		service := servicesByDeployment[key.deploymentID]
-		service.Ordinals = append(service.Ordinals, &apigen.ClusterNetMapServiceOrdinal{Ordinal: key.ordinal})
+		service.Ordinals = append(service.Ordinals, apigen.ClusterNetMapServiceOrdinal{Ordinal: key.ordinal})
 	}
-	dnsServices := make([]*apigen.ClusterNetMapService, 0, len(servicesByDeployment))
+	dnsServices := make([]apigen.ClusterNetMapService, 0, len(servicesByDeployment))
 	for _, service := range servicesByDeployment {
-		slices.SortFunc(service.Ordinals, func(a, b *apigen.ClusterNetMapServiceOrdinal) int { return cmp.Compare(a.Ordinal, b.Ordinal) })
-		dnsServices = append(dnsServices, service)
+		slices.SortFunc(service.Ordinals, func(a, b apigen.ClusterNetMapServiceOrdinal) int { return cmp.Compare(a.Ordinal, b.Ordinal) })
+		dnsServices = append(dnsServices, *service)
 	}
-	slices.SortFunc(dnsServices, func(a, b *apigen.ClusterNetMapService) int {
+	slices.SortFunc(dnsServices, func(a, b apigen.ClusterNetMapService) int {
 		if c := cmp.Compare(a.SpaceID, b.SpaceID); c != 0 {
 			return c
 		}
@@ -392,11 +389,11 @@ func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations [
 		}
 		return cmp.Compare(a.DeploymentID, b.DeploymentID)
 	})
-	routes := make([]*apigen.ClusterNetMapRoute, 0, len(routesByPrefix))
+	routes := make([]apigen.ClusterNetMapRoute, 0, len(routesByPrefix))
 	for destination, nodeID := range routesByPrefix {
-		routes = append(routes, &apigen.ClusterNetMapRoute{LogicalPrefix: destination.String(), HostingNodeID: nodeID})
+		routes = append(routes, apigen.ClusterNetMapRoute{LogicalPrefix: destination.String(), HostingNodeID: nodeID})
 	}
-	slices.SortFunc(routes, func(a, b *apigen.ClusterNetMapRoute) int {
+	slices.SortFunc(routes, func(a, b apigen.ClusterNetMapRoute) int {
 		if c := strings.Compare(a.LogicalPrefix, b.LogicalPrefix); c != 0 {
 			return c
 		}
@@ -412,7 +409,7 @@ func render(prefix network.Prefix, inputs nodes.NetworkMapInputs, reservations [
 }
 
 type ingressPlan struct {
-	publish     map[int32][]*apigen.IngressPublish
+	publish     map[uint64][]apigen.IngressPublish
 	diagnostics *apigen.IngressDiagnosticList
 }
 
@@ -425,23 +422,23 @@ func renderIngressPlan(inputs nodes.NetworkMapInputs, reservations []ingressplan
 		if node == nil {
 			continue
 		}
-		in.Nodes = append(in.Nodes, ingressplan.Node{ID: node.ID, HostAddresses: ingressplan.ParseHostAddresses(node.HostAddresses)})
+		in.Nodes = append(in.Nodes, ingressplan.Node{ID: node.ID, HostAddresses: ingressplan.HostAddresses(node.HostAddresses)})
 	}
 	for _, cfg := range inputs.Deployments {
 		if cfg == nil || internaldeploy.IsInternalConfig(cfg) {
 			continue
 		}
-		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.DeploymentID, cfg.Value.PlacementNodeID(), cfg.Value.Name, &cfg.Value.Spec))
+		in.Deployments = append(in.Deployments, ingressplan.DeploymentFromSpec(cfg.Deployment.ID, cfg.Deployment.PlacementNodeID(), cfg.Deployment.Name, &cfg.Deployment.Spec))
 	}
 	result := ingressplan.Evaluate(in)
-	plan := ingressPlan{publish: make(map[int32][]*apigen.IngressPublish, len(result.Publish)), diagnostics: &apigen.IngressDiagnosticList{Items: []*apigen.IngressDiagnostic{}}}
+	plan := ingressPlan{publish: make(map[uint64][]apigen.IngressPublish, len(result.Publish)), diagnostics: &apigen.IngressDiagnosticList{Items: []apigen.IngressDiagnostic{}}}
 	for nodeID, entries := range result.Publish {
 		for _, entry := range entries {
 			address := ""
 			if entry.Address.IsValid() {
 				address = entry.Address.String()
 			}
-			plan.publish[nodeID] = append(plan.publish[nodeID], &apigen.IngressPublish{Address: address, Port: entry.Port})
+			plan.publish[nodeID] = append(plan.publish[nodeID], apigen.IngressPublish{Address: address, Port: entry.Port})
 		}
 	}
 	diagnostics := append(result.Diagnostics(), result.Errors...)
@@ -452,7 +449,7 @@ func renderIngressPlan(inputs nodes.NetworkMapInputs, reservations []ingressplan
 		return strings.Compare(a.Message, b.Message)
 	})
 	for _, diag := range diagnostics {
-		plan.diagnostics.Items = append(plan.diagnostics.Items, &apigen.IngressDiagnostic{DeploymentID: diag.DeploymentID, Message: diag.Message})
+		plan.diagnostics.Items = append(plan.diagnostics.Items, apigen.IngressDiagnostic{DeploymentID: diag.DeploymentID, Message: diag.Message})
 	}
 	return plan
 }
@@ -461,14 +458,14 @@ func renderIngressPlan(inputs nodes.NetworkMapInputs, reservations []ingressplan
 // deployment peer becomes (current space, deployment id), a space peer becomes
 // (space, 0). A rule referencing a deleted deployment cannot be resolved and
 // is not distributed — the deleted deployment's addresses are vacant anyway.
-func renderPolicyRules(policies []*pq.NetworkPolicyEvent, deploymentSpaces map[int32]int32) []*apigen.NetPolicyRule {
-	rules := make([]*apigen.NetPolicyRule, 0, len(policies))
+func renderPolicyRules(policies []*pq.NetworkPolicyEvent, deploymentSpaces map[uint64]uint64) []apigen.NetPolicyRule {
+	rules := make([]apigen.NetPolicyRule, 0, len(policies))
 	for _, event := range policies {
 		if event == nil {
 			continue
 		}
 		policy := &event.Value
-		if policy == nil || policy.Action != apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW {
+		if policy.Action != apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW {
 			continue
 		}
 		source, ok := resolvePolicyPeer(policy.Source, deploymentSpaces)
@@ -479,38 +476,32 @@ func renderPolicyRules(policies []*pq.NetworkPolicyEvent, deploymentSpaces map[i
 		if !ok {
 			continue
 		}
-		ports := make([]*apigen.NetPortMatch, 0, len(policy.Ports))
+		ports := make([]apigen.NetPortMatch, 0, len(policy.Ports))
 		for _, port := range policy.Ports {
-			if port == nil {
-				continue
-			}
-			ports = append(ports, &apigen.NetPortMatch{Protocol: port.Protocol, Port: port.Port, PortEnd: port.PortEnd})
+			ports = append(ports, apigen.NetPortMatch{Protocol: port.Protocol, Range: port.Range})
 		}
-		rules = append(rules, &apigen.NetPolicyRule{Source: source, Destination: destination, Ports: ports})
+		rules = append(rules, apigen.NetPolicyRule{Source: source, Destination: destination, Ports: ports})
 	}
 	slices.SortFunc(rules, comparePolicyRules)
 	return rules
 }
 
-func resolvePolicyPeer(ref *apigen.NetworkPolicyPeerRef, deploymentSpaces map[int32]int32) (*apigen.NetPolicyPeer, bool) {
-	if ref == nil {
-		return nil, false
-	}
-	switch ref.Kind {
-	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE:
-		return &apigen.NetPolicyPeer{SpaceID: ref.ID}, true
-	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT:
-		spaceID, ok := deploymentSpaces[ref.ID]
+func resolvePolicyPeer(peer apigen.NetworkPolicyPeer, deploymentSpaces map[uint64]uint64) (apigen.NetPolicyPeer, bool) {
+	switch target := peer.Target.Value; {
+	case target.Space != nil:
+		return apigen.NetPolicyPeer{SpaceID: target.Space.SpaceID}, true
+	case target.Deployment != nil:
+		spaceID, ok := deploymentSpaces[target.Deployment.DeploymentID]
 		if !ok {
-			return nil, false
+			return apigen.NetPolicyPeer{}, false
 		}
-		return &apigen.NetPolicyPeer{SpaceID: spaceID, DeploymentID: ref.ID}, true
+		return apigen.NetPolicyPeer{SpaceID: spaceID, DeploymentID: target.Deployment.DeploymentID}, true
 	default:
-		return nil, false
+		return apigen.NetPolicyPeer{}, false
 	}
 }
 
-func comparePolicyRules(a, b *apigen.NetPolicyRule) int {
+func comparePolicyRules(a, b apigen.NetPolicyRule) int {
 	if c := comparePolicyPeers(a.Source, b.Source); c != 0 {
 		return c
 	}
@@ -524,17 +515,17 @@ func comparePolicyRules(a, b *apigen.NetPolicyRule) int {
 		if c := cmp.Compare(a.Ports[i].Protocol, b.Ports[i].Protocol); c != 0 {
 			return c
 		}
-		if c := cmp.Compare(a.Ports[i].Port, b.Ports[i].Port); c != 0 {
+		if c := cmp.Compare(a.Ports[i].Range.Start, b.Ports[i].Range.Start); c != 0 {
 			return c
 		}
-		if c := cmp.Compare(a.Ports[i].PortEnd, b.Ports[i].PortEnd); c != 0 {
+		if c := cmp.Compare(a.Ports[i].Range.End, b.Ports[i].Range.End); c != 0 {
 			return c
 		}
 	}
 	return 0
 }
 
-func comparePolicyPeers(a, b *apigen.NetPolicyPeer) int {
+func comparePolicyPeers(a, b apigen.NetPolicyPeer) int {
 	if c := cmp.Compare(a.SpaceID, b.SpaceID); c != 0 {
 		return c
 	}

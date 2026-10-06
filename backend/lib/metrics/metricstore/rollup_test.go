@@ -17,8 +17,8 @@ func rollupSample(t time.Time, key int32, cpu int64, mem int64) *apigen.MetricsS
 		DeploymentVersion:   1,
 		Run:                 1,
 		NodeID:              3,
-		CpuUsageUsec:        &cpu,
-		MemCurrent:          &mem,
+		CpuUsageUsec:        apigen.Some(cpu),
+		MemCurrent:          apigen.Some(mem),
 	}
 }
 

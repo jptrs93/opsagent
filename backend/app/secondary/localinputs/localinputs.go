@@ -216,13 +216,13 @@ func (s *Store) StoreIssuedTLS(values map[int32]*runtimeinputs.IssuedTLSValue) e
 	return nil
 }
 
-func (s *Store) RetainIssuedTLS(keep map[int32]struct{}) (int, error) {
+func (s *Store) RetainIssuedTLS(keep map[uint64]struct{}) (int, error) {
 	removed := 0
 	for _, row := range s.db.ListLocalRuntimeInputs() {
 		if row.Kind != state.LocalRuntimeInputKindIssuedTLS {
 			continue
 		}
-		if _, ok := keep[int32(row.RefID)]; ok {
+		if _, ok := keep[uint64(row.RefID)]; ok {
 			continue
 		}
 		s.db.DeleteLocalRuntimeInput(row.Kind, row.RefID, row.RefVersion)
@@ -232,7 +232,7 @@ func (s *Store) RetainIssuedTLS(keep map[int32]struct{}) (int, error) {
 }
 
 func rowRef(row state.LocalRuntimeInput) apigen.ValueRef {
-	return apigen.ValueRef{ID: int32(row.RefID), Version: int32(row.RefVersion)}
+	return apigen.ValueRef{ID: uint64(row.RefID), Version: uint32(row.RefVersion)}
 }
 
 // aad binds a row's kind, id, and version into its tag, so a ciphertext cannot

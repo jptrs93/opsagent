@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"slices"
 	"sync"
 	"time"
@@ -121,13 +122,17 @@ func (t *logStreamTracker) remove(requestID string) {
 	t.mu.Unlock()
 }
 
-func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePredicate {
+func scheduledInstancePredicateForNode(nodeID uint64) storage.ScheduledInstancePredicate {
 	return func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == nodeID
 	}
 }
 
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID int32, underlayAddress, wgPublicKey string, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func(), identifiers ...string) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID uint64, underlayAddress, wgPublicKey string, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func(), identifiers ...string) error {
+	underlay, err := apigen.ParseAddr(underlayAddress)
+	if err != nil {
+		return fmt.Errorf("parsing underlay address %q: %w", underlayAddress, err)
+	}
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -140,12 +145,12 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 	}
 	hostAddresses := currentHostAddresses(sessCtx)
 	hello := func(inventory hostAddressInventory) *apigen.MsgToPrimary {
-		return &apigen.MsgToPrimary{ClusterHello: &apigen.ClusterHello{
+		return &apigen.MsgToPrimary{ClusterHello: apigen.Some(apigen.ClusterHello{
 			ClusterProtocolVersion: apigen.ClusterProtocolVersion,
 			OpendeployVersion:      version.Version,
 			RuntimeVersions:        runtimebin.InstalledSummary(),
-			Reported:               &apigen.NodeReported{Identifier: identifier, UnderlayAddress: underlayAddress, WgPublicKey: wgPublicKey, HostAddresses: inventory.addresses, HostAddressesUnknown: inventory.unknown},
-		}}
+			Reported:               apigen.NodeReported{Identifier: identifier, UnderlayAddress: underlay, WgPublicKey: wgPublicKey, HostAddresses: inventory.wire(), HostAddressesUnknown: inventory.unknown},
+		})}
 	}
 	out.Send(hello(hostAddresses))
 	go hostAddressPushLoop(sessCtx, out, hostAddresses, hello)
@@ -154,7 +159,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		if err != nil {
 			slog.WarnContext(sessCtx, "loading cached network map status failed", "err", err)
 		} else if status != nil {
-			out.Send(&apigen.MsgToPrimary{NetMapStatus: status})
+			out.Send(&apigen.MsgToPrimary{NetMapStatus: apigen.Some(*status)})
 		}
 	}
 
@@ -197,7 +202,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 			connected = true
 			slog.InfoContext(sessCtx, fmt.Sprintf("slave connected to primary %s", capi.BaseURL))
 		}
-		if msg.Evicted {
+		if msg.Evicted.Present && msg.Evicted.Value {
 			return errEvicted
 		}
 		dispatchFromPrimary(sessCtx, out, store, tracker, sess, msg, nodeID, acme, netMaps, notifySynced)
@@ -211,60 +216,58 @@ type primarySessionState struct {
 	netMapSnapshotPending bool
 }
 
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToSecondary, nodeID int32, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToSecondary, nodeID uint64, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) {
 	msgType := "heartbeat"
 	switch {
-	case msg.ScheduledInstancesSnapshot != nil:
+	case msg.ScheduledInstancesSnapshot.Present:
 		msgType = "scheduled_instances_snapshot"
-	case msg.ScheduledInstanceUpdate != nil:
+	case msg.ScheduledInstanceUpdate.Present:
 		msgType = "scheduled_instance_update"
-	case msg.DeploymentLogRequest != nil:
+	case msg.DeploymentLogRequest.Present:
 		msgType = "deployment_log_request"
-	case msg.LogQueryRequest != nil:
+	case msg.LogQueryRequest.Present:
 		msgType = "log_query_request"
-	case msg.MetricsQueryRequest != nil:
+	case msg.MetricsQueryRequest.Present:
 		msgType = "metrics_query_request"
-	case msg.MetricsLatestRequest != nil:
+	case msg.MetricsLatestRequest.Present:
 		msgType = "metrics_latest_request"
-	case msg.StopLogRequestID != "":
+	case msg.StopLogRequestID.Present:
 		msgType = "stop_log_request"
-	case msg.ClusterNetwork != nil:
+	case msg.ClusterNetwork.Present:
 		msgType = "cluster_network"
-	case msg.ClusterNetMap != nil:
+	case msg.ClusterNetMap.Present:
 		msgType = "cluster_net_map"
-	case msg.AcmeState != nil:
+	case msg.AcmeState.Present:
 		msgType = "acme_state"
-	case msg.NixStoreResets != nil:
+	case msg.NixStoreResets.Present:
 		msgType = "nix_store_resets"
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("received message from primary type=%s", msgType))
 
 	switch {
-	case msg.ScheduledInstancesSnapshot != nil:
-		applySnapshot(ctx, out, store, msg.ScheduledInstancesSnapshot, nodeID)
+	case msg.ScheduledInstancesSnapshot.Present:
+		applySnapshot(ctx, out, store, &msg.ScheduledInstancesSnapshot.Value, nodeID)
 		if notifySynced != nil {
 			notifySynced()
 		}
-	case msg.ScheduledInstanceUpdate != nil:
-		applyInstanceUpdate(ctx, store, msg.ScheduledInstanceUpdate, nodeID)
-	case msg.ClusterNetwork != nil:
-		if err := applyClusterNetwork(store, msg.ClusterNetwork); err != nil {
+	case msg.ScheduledInstanceUpdate.Present:
+		applyInstanceUpdate(ctx, store, &msg.ScheduledInstanceUpdate.Value, nodeID)
+	case msg.ClusterNetwork.Present:
+		if err := applyClusterNetwork(store, &msg.ClusterNetwork.Value); err != nil {
 			slog.WarnContext(ctx, "installing cluster network failed", "err", err)
 		}
-	case msg.AcmeState != nil:
-		store.MustSetLocalKV(storage.LocalKVAcmeState, msg.AcmeState.Encode())
+	case msg.AcmeState.Present:
+		store.MustSetLocalKV(storage.LocalKVAcmeState, msg.AcmeState.Value.Encode())
 		if acme != nil {
-			acme.Set(msg.AcmeState)
+			acme.Set(&msg.AcmeState.Value)
 		}
-	case msg.NixStoreResets != nil:
-		for _, item := range msg.NixStoreResets.Items {
-			if item != nil {
-				nixstore.Default().RequestReset(item.Repo, time.UnixMilli(item.RequestedAt))
-			}
+	case msg.NixStoreResets.Present:
+		for _, item := range msg.NixStoreResets.Value.Items {
+			nixstore.Default().RequestReset(item.Repo, item.RequestedAt)
 		}
-	case msg.ClusterNetMap != nil:
+	case msg.ClusterNetMap.Present:
 		expectedPrefix, _ := network.Default.PrefixValue()
-		status, err := acceptClusterNetMap(ctx, store, msg.ClusterNetMap, nodeID, expectedPrefix, sess.netMapSnapshotPending, netMaps)
+		status, err := acceptClusterNetMap(ctx, store, &msg.ClusterNetMap.Value, nodeID, expectedPrefix, sess.netMapSnapshotPending, netMaps)
 		if err != nil {
 			slog.WarnContext(ctx, "accepting cluster network map failed", "err", err)
 			status, _ = cachedClusterNetMapStatus(ctx, store, nodeID, expectedPrefix, err.Error())
@@ -273,7 +276,7 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 			}
 		} else {
 			sess.netMapSnapshotPending = false
-			if err := reconcileClusterNetMap(msg.ClusterNetMap, nodeID, expectedPrefix); err != nil {
+			if err := reconcileClusterNetMap(&msg.ClusterNetMap.Value, nodeID, expectedPrefix); err != nil {
 				slog.WarnContext(ctx, "reconciling cluster network map failed", "err", err)
 				status.ReconciliationError = err.Error()
 			} else {
@@ -281,33 +284,33 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 			}
 		}
 		if status != nil {
-			out.Send(&apigen.MsgToPrimary{NetMapStatus: status})
+			out.Send(&apigen.MsgToPrimary{NetMapStatus: apigen.Some(*status)})
 		}
-	case msg.StopLogRequestID != "":
-		tracker.stop(msg.StopLogRequestID)
-	case msg.DeploymentLogRequest != nil:
-		requestID := msg.DeploymentLogRequest.RequestID
-		streamCtx := tracker.start(ctx, requestID)
+	case msg.StopLogRequestID.Present:
+		tracker.stop(msg.StopLogRequestID.Value)
+	case msg.DeploymentLogRequest.Present:
+		req := msg.DeploymentLogRequest.Value
+		streamCtx := tracker.start(ctx, req.RequestID)
 		go func() {
-			defer tracker.remove(requestID)
-			streamPrepareOutput(streamCtx, out, store, msg.DeploymentLogRequest)
+			defer tracker.remove(req.RequestID)
+			streamPrepareOutput(streamCtx, out, store, &req)
 		}()
-	case msg.LogQueryRequest != nil:
-		requestID := msg.LogQueryRequest.RequestID
-		queryCtx := tracker.start(ctx, requestID)
+	case msg.LogQueryRequest.Present:
+		req := msg.LogQueryRequest.Value
+		queryCtx := tracker.start(ctx, req.RequestID)
 		go func() {
-			defer tracker.remove(requestID)
-			runLogQuery(queryCtx, out, msg.LogQueryRequest)
+			defer tracker.remove(req.RequestID)
+			runLogQuery(queryCtx, out, &req)
 		}()
-	case msg.MetricsQueryRequest != nil:
-		requestID := msg.MetricsQueryRequest.RequestID
-		queryCtx := tracker.start(ctx, requestID)
+	case msg.MetricsQueryRequest.Present:
+		req := msg.MetricsQueryRequest.Value
+		queryCtx := tracker.start(ctx, req.RequestID)
 		go func() {
-			defer tracker.remove(requestID)
-			runMetricsQuery(queryCtx, out, msg.MetricsQueryRequest)
+			defer tracker.remove(req.RequestID)
+			runMetricsQuery(queryCtx, out, &req)
 		}()
-	case msg.MetricsLatestRequest != nil:
-		runMetricsLatest(ctx, out, msg.MetricsLatestRequest)
+	case msg.MetricsLatestRequest.Present:
+		runMetricsLatest(ctx, out, &msg.MetricsLatestRequest.Value)
 	}
 }
 
@@ -328,8 +331,16 @@ func applyClusterNetwork(store *state.Service, info *apigen.ClusterNetworkInfo) 
 // can expand to on this node. Unknown survives protobuf encoding separately
 // from a successful inventory containing no addresses.
 type hostAddressInventory struct {
-	addresses []string
+	addresses []netip.Addr
 	unknown   bool
+}
+
+func (h hostAddressInventory) wire() []apigen.IpAddress {
+	out := make([]apigen.IpAddress, len(h.addresses))
+	for i, addr := range h.addresses {
+		out[i] = apigen.AddrOf(addr)
+	}
+	return out
 }
 
 func currentHostAddresses(ctx context.Context) hostAddressInventory {
@@ -339,7 +350,7 @@ func currentHostAddresses(ctx context.Context) hostAddressInventory {
 		slog.WarnContext(ctx, "enumerating host addresses failed", "err", err)
 		return hostAddressInventory{unknown: true}
 	}
-	return hostAddressInventory{addresses: network.HostAddressStrings(addrs)}
+	return hostAddressInventory{addresses: addrs}
 }
 
 // hostAddressPushLoop re-sends the cluster hello whenever a poll observes a
@@ -368,18 +379,18 @@ type scheduledInstanceSubscriber interface {
 }
 
 func statusPushLoop(ctx context.Context, out *outbox, store scheduledInstanceSubscriber, predicate storage.ScheduledInstancePredicate) {
-	lastSent := make(map[int32]time.Time)
+	lastSent := make(map[uint64]time.Time)
 	push := func(state apigen.ScheduledInstanceState) bool {
-		if state.Status.IsZero() || state.Instance.ID == 0 {
+		if !state.Status.Present || state.Instance.ID == 0 {
 			return true
 		}
 		id := state.Instance.ID
-		if !state.Status.UpdatedAt.After(lastSent[id]) {
+		updatedAt := state.Status.Value.UpdatedAt.Value
+		if !updatedAt.After(lastSent[id]) {
 			return true
 		}
-		lastSent[id] = state.Status.UpdatedAt
-		status := state.Status
-		return out.Send(&apigen.MsgToPrimary{StatusWrite: &status})
+		lastSent[id] = updatedAt
+		return out.Send(&apigen.MsgToPrimary{StatusWrite: state.Status})
 	}
 	_, ch, unsub := store.MustFetchScheduledSnapshotAndSubscribe(predicate)
 	defer func() { unsub() }()
@@ -406,11 +417,12 @@ func statusPushLoop(ctx context.Context, out *outbox, store scheduledInstanceSub
 // instance; the secondary scans its local history for rows above that value and
 // streams them back as individual StatusWrites so the primary can insert each
 // one at its canonical clock.
-func applySnapshot(ctx context.Context, out *outbox, store *state.Service, snap *apigen.ScheduledInstanceSnapshot, nodeID int32) {
+func applySnapshot(ctx context.Context, out *outbox, store *state.Service, snap *apigen.ScheduledInstanceSnapshot, nodeID uint64) {
 	slog.InfoContext(ctx, fmt.Sprintf("applying scheduled instances snapshot from primary count=%d", len(snap.Items)))
-	present := make(map[int32]struct{}, len(snap.Items))
-	for _, item := range snap.Items {
-		if item == nil || item.Instance.ID == 0 || item.Instance.NodeID != nodeID {
+	present := make(map[uint64]struct{}, len(snap.Items))
+	for i := range snap.Items {
+		item := &snap.Items[i]
+		if item.Instance.ID == 0 || item.Instance.NodeID != nodeID {
 			continue
 		}
 		present[item.Instance.ID] = struct{}{}
@@ -424,13 +436,14 @@ func applySnapshot(ctx context.Context, out *outbox, store *state.Service, snap 
 		slog.InfoContext(ctx, fmt.Sprintf("finalizing scheduled instances absent from the primary snapshot ids=%v", pruned))
 	}
 
-	for _, item := range snap.Items {
-		if item == nil || item.Instance.ID == 0 || item.Instance.NodeID != nodeID {
+	for i := range snap.Items {
+		item := &snap.Items[i]
+		if item.Instance.ID == 0 || item.Instance.NodeID != nodeID {
 			continue
 		}
 		var primaryClock time.Time
-		if !item.Status.IsZero() {
-			primaryClock = item.Status.UpdatedAt
+		if item.Status.Present {
+			primaryClock = item.Status.Value.UpdatedAt.Value
 		}
 		backlog := store.FetchScheduledInstanceStatusHistorySince(item.Instance.ID, primaryClock)
 		if len(backlog) == 0 {
@@ -439,19 +452,19 @@ func applySnapshot(ctx context.Context, out *outbox, store *state.Service, snap 
 		slog.InfoContext(ctx, fmt.Sprintf("replaying %d status history entries to primary from %s", len(backlog), primaryClock),
 			"scheduled_instance", item.Instance.ID)
 		for _, st := range backlog {
-			if !out.Send(&apigen.MsgToPrimary{StatusWrite: st}) {
+			if !out.Send(&apigen.MsgToPrimary{StatusWrite: apigen.Some(*st)}) {
 				return
 			}
 		}
 	}
 }
 
-func applyInstanceUpdate(ctx context.Context, store *state.Service, state *apigen.ScheduledInstanceState, nodeID int32) {
+func applyInstanceUpdate(ctx context.Context, store *state.Service, state *apigen.ScheduledInstanceState, nodeID uint64) {
 	if state == nil || state.Instance.ID == 0 || state.Instance.NodeID != nodeID {
 		return
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("applying scheduled instance update from primary deploymentSpecVersion=%d targetState=%v",
-		state.Instance.DeploymentSpecVersion, state.Instance.State),
-		"scheduled_instance", state.Instance.ID, "dep", state.Instance.DeploymentID)
+		state.Config.Meta.SpecVersion, state.Instance.State),
+		"scheduled_instance", state.Instance.ID, "dep", state.Instance.Deployment.DeploymentID)
 	store.MustWriteScheduledInstanceAssignment(state)
 }

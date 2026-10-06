@@ -74,7 +74,7 @@ func TestConfigSubscriptionDeliversPersistedRevisions(t *testing.T) {
 	if service.VersionID() != initialRow.Seq || initialRow.UpdatedAt == 0 {
 		t.Fatalf("version id = %d, want revision %d with a timestamp", service.VersionID(), initialRow.Seq)
 	}
-	if sub.InitialValue.MasterPasswordHash != "initial-hash" || !reflect.DeepEqual(sub.InitialValue, stored) {
+	if sub.InitialValue.MasterPasswordHash.Value != "initial-hash" || !reflect.DeepEqual(sub.InitialValue, stored) {
 		t.Fatalf("initial config = %+v, want the persisted revision %+v", sub.InitialValue, stored)
 	}
 
@@ -87,7 +87,7 @@ func TestConfigSubscriptionDeliversPersistedRevisions(t *testing.T) {
 		if row.Seq == initialRow.Seq || service.VersionID() != row.Seq {
 			t.Fatalf("version id = %d, want the new revision %d after %d", service.VersionID(), row.Seq, initialRow.Seq)
 		}
-		if got.MasterPasswordHash != "changed-hash" || !reflect.DeepEqual(got, stored) {
+		if got.MasterPasswordHash.Value != "changed-hash" || !reflect.DeepEqual(got, stored) {
 			t.Fatalf("update = %+v, want the persisted revision %+v", got, stored)
 		}
 	case <-time.After(time.Second):
@@ -151,14 +151,14 @@ func TestSecretConfigReferencesExistingSecret(t *testing.T) {
 	}
 
 	settings := DefaultSettings(DefaultInitial())
-	settings.Repo.GithubToken = apigen.SecretRef{Ref: secretMeta.Ref()}
+	settings.Repo.GithubToken = apigen.Some(secretMeta.Ref().Secret())
 	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 
 	cfg := service.Snapshot()
-	if cfg.Settings.Repo.GithubToken.Ref != secretMeta.Ref() {
-		t.Fatalf("GithubTokenSecretRef = %v, want %v", cfg.Settings.Repo.GithubToken.Ref, secretMeta.Ref())
+	if !cfg.Settings.Repo.GithubToken.Present || cfg.Settings.Repo.GithubToken.Value.Ref() != secretMeta.Ref() {
+		t.Fatalf("GithubTokenSecretRef = %v, want %v", cfg.Settings.Repo.GithubToken, secretMeta.Ref())
 	}
 }
 
@@ -170,18 +170,18 @@ func TestBackupEnabledDefaultsFalseAndCanBeEnabled(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	if service.Snapshot().Settings.Backup.Enabled.Value {
+	if service.MustLoadBoolSetting(service.Snapshot().Settings.Backup.Enabled) {
 		t.Fatal("BackupEnabled default = true, want false")
 	}
-	if service.Snapshot().Settings.LargeAssets.UseSeparateS3.Value {
+	if service.MustLoadBoolSetting(service.Snapshot().Settings.LargeAssets.UseSeparateS3) {
 		t.Fatal("LargeAssets.UseSeparateS3 default = true, want false")
 	}
 	settings := DefaultSettings(DefaultInitial())
-	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
+	settings.Backup.Enabled = BoolLiteral(true)
 	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings BackupEnabled: %v", err)
 	}
-	if !service.Snapshot().Settings.Backup.Enabled.Value {
+	if !service.MustLoadBoolSetting(service.Snapshot().Settings.Backup.Enabled) {
 		t.Fatal("BackupEnabled after update = false, want true")
 	}
 	select {
@@ -216,17 +216,17 @@ func TestStoredSettingsPreserveConfigRefWithoutResolution(t *testing.T) {
 	userCfg := statetest.ValueVersions(store, userCfgMeta)[0]
 
 	settings := DefaultSettings(DefaultInitial())
-	settings.Cluster.Listen = apigen.StringSetting{ConfigRef: apigen.ConfigRef{Ref: userCfg.Ref}}
+	settings.Cluster.Listen = StringConfigRef(userCfg.Ref.Config())
 	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings: %v", err)
 	}
 
 	cfg := service.Snapshot()
-	if cfg.Settings.Cluster.Listen.Value != "" {
-		t.Fatalf("ClusterListen value = %q, want empty stored value", cfg.Settings.Cluster.Listen.Value)
+	if cfg.Settings.Cluster.Listen.Value.Value.Literal != nil {
+		t.Fatalf("ClusterListen value = %q, want no stored literal", *cfg.Settings.Cluster.Listen.Value.Value.Literal)
 	}
-	if cfg.Settings.Cluster.Listen.ConfigRef.Ref != userCfg.Ref {
-		t.Fatalf("Cluster.Listen.ConfigRef.Ref = %v, want %v", cfg.Settings.Cluster.Listen.ConfigRef.Ref, userCfg.Ref)
+	if ref := cfg.Settings.Cluster.Listen.Value.Value.ConfigRef; ref == nil || ref.Ref() != userCfg.Ref {
+		t.Fatalf("Cluster.Listen config ref = %v, want %v", ref, userCfg.Ref)
 	}
 }
 
@@ -237,17 +237,17 @@ func TestWebUIDefaultsPreserveExistingHTTPSInstall(t *testing.T) {
 	}
 	cfg := service.Snapshot()
 
-	if !cfg.Settings.HttpsWeb.Enabled.Value {
+	if !service.MustLoadBoolSetting(cfg.Settings.HttpsWeb.Enabled) {
 		t.Fatal("WebHTTPSEnabled default = false, want true")
 	}
-	if cfg.Settings.HttpsWeb.Listen.Value != ":443" {
-		t.Fatalf("WebHTTPSListen default = %q, want :443", cfg.Settings.HttpsWeb.Listen.Value)
+	if got := service.MustLoadStringSetting(cfg.Settings.HttpsWeb.Listen); got != ":443" {
+		t.Fatalf("WebHTTPSListen default = %q, want :443", got)
 	}
-	if cfg.Settings.HttpWeb.Enabled.Value {
+	if service.MustLoadBoolSetting(cfg.Settings.HttpWeb.Enabled) {
 		t.Fatal("WebHTTPEnabled default = true, want false")
 	}
-	if cfg.Settings.HttpWeb.Listen.Value != ":8080" {
-		t.Fatalf("WebHTTPListen default = %q, want :8080", cfg.Settings.HttpWeb.Listen.Value)
+	if got := service.MustLoadStringSetting(cfg.Settings.HttpWeb.Listen); got != ":8080" {
+		t.Fatalf("WebHTTPListen default = %q, want :8080", got)
 	}
 }
 
@@ -258,7 +258,7 @@ func TestKeepLocalCopyTogglesWakeTheReconcilerOnlyWhileBackupEnabled(t *testing.
 	if err != nil {
 		t.Fatalf("InitializeService: %v", err)
 	}
-	if service.Snapshot().Settings.LargeAssets.KeepLocalCopy.Value {
+	if service.MustLoadBoolSetting(service.Snapshot().Settings.LargeAssets.KeepLocalCopy) {
 		t.Fatal("LargeAssets.KeepLocalCopy default = true, want false")
 	}
 	woke := func() bool {
@@ -271,7 +271,7 @@ func TestKeepLocalCopyTogglesWakeTheReconcilerOnlyWhileBackupEnabled(t *testing.
 	}
 
 	settings := DefaultSettings(DefaultInitial())
-	settings.LargeAssets.KeepLocalCopy = apigen.BoolSetting{Value: true}
+	settings.LargeAssets.KeepLocalCopy = BoolLiteral(true)
 	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings keep local while backup disabled: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestKeepLocalCopyTogglesWakeTheReconcilerOnlyWhileBackupEnabled(t *testing.
 		t.Fatal("keep local toggle while backup is disabled woke the reconciler")
 	}
 
-	settings.Backup.Enabled = apigen.BoolSetting{Value: true}
+	settings.Backup.Enabled = BoolLiteral(true)
 	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings enable backup: %v", err)
 	}
@@ -287,7 +287,7 @@ func TestKeepLocalCopyTogglesWakeTheReconcilerOnlyWhileBackupEnabled(t *testing.
 		t.Fatal("enabling backup did not wake the reconciler")
 	}
 
-	settings.LargeAssets.KeepLocalCopy = apigen.BoolSetting{Value: false}
+	settings.LargeAssets.KeepLocalCopy = BoolLiteral(false)
 	if err := service.UpdateSettings(*settings, 0, nil); err != nil {
 		t.Fatalf("UpdateSettings clear keep local while backup enabled: %v", err)
 	}

@@ -11,6 +11,27 @@ enum AccessPolicyType {
   ANY_OF = 3;
 }
 
+// AuditMode controls what a generated Go server mux hands to the configured
+// audit function for an RPC. Apply it via the `(cp.audit)` method option
+// (see below). Payload representations still respect the field-level
+// `(cp.audit_ignore)` option: a recorded payload is the message's ToAudit()
+// form whenever any of its fields are ignored.
+enum AuditMode {
+  // The default when the option is omitted: the RPC is not audited.
+  AUDIT_MODE_UNSPECIFIED = 0;
+  // Not audited, stated deliberately.
+  AUDIT_MODE_NONE = 1;
+  // The audit call is made with no payloads: it records that the operation
+  // happened (and any error), nothing else.
+  AUDIT_MODE_OPERATION = 2;
+  // The audit call carries the request payload only.
+  AUDIT_MODE_REQUEST = 3;
+  // The audit call carries the response payload only.
+  AUDIT_MODE_RESPONSE = 4;
+  // The audit call carries both payloads.
+  AUDIT_MODE_FULL = 5;
+}
+
 // CompressionMode controls per-RPC response compression behaviour in
 // generated Go server muxes. Apply it to an RPC via the `(cp.compression)`
 // method option (see below).
@@ -32,6 +53,16 @@ enum CompressionMode {
   COMPRESSION_MODE_NEVER = 2;
 }
 
+enum HttpMethod {
+  HTTP_METHOD_UNSPECIFIED = 0;
+  HTTP_METHOD_ANY = 1;
+  HTTP_METHOD_GET = 2;
+  HTTP_METHOD_POST = 3;
+  HTTP_METHOD_PUT = 4;
+  HTTP_METHOD_PATCH = 5;
+  HTTP_METHOD_DELETE = 6;
+}
+
 message AccessPolicy {
   AccessPolicyType policy_type = 1;
   repeated string scopes = 2;
@@ -49,7 +80,10 @@ extend google.protobuf.FieldOptions {
   string go_type = 50010;
   bool go_encode = 50012;
   bool go_ignore = 50014;
+  // Repeated messages use []T by default. Set true to request []*T storage.
   bool go_slice_ptr = 50021;
+  // Opt a singular message out of presence tracking: use T instead of Maybe[T].
+  // Missing input becomes T's zero value; empty messages are still emitted.
   bool go_value = 50022;
 
   string js_type = 50011;
@@ -67,7 +101,12 @@ extend google.protobuf.FieldOptions {
 extend google.protobuf.MethodOptions {
   bool go_custom = 50013;
   string operation_id = 50031;
-  bool audit = 50032;
+  // audit selects what the mux records for this RPC. Example:
+  //
+  //   rpc PostThingV1(ThingReq) returns (ThingResp) {
+  //     option (cp.audit) = AUDIT_MODE_OPERATION;
+  //   }
+  AuditMode audit = 50032;
   AccessPolicy policy = 50030;
   // compression overrides the mux-level response compression decision
   // for this RPC. See the `CompressionMode` enum above for the meaning
@@ -78,4 +117,16 @@ extend google.protobuf.MethodOptions {
   //   }
   CompressionMode compression = 50033;
   string url = 50034;
+  // multipart_response sends the response message's fields as a sequence of
+  // independently decodable parts rather than one encoded message: one
+  // uvarint length-prefixed frame per field, in field-number order, flushed
+  // after each. The generated handler returns one thunk per part, so the
+  // first part reaches the wire before the later ones are computed.
+  //
+  //   rpc PostV3Suggestion(Status) returns (SuggestionResponse) {
+  //     option (cp.multipart_response) = true;
+  //     option (cp.compression) = COMPRESSION_MODE_NEVER;
+  //   }
+  bool multipart_response = 50035;
+  HttpMethod http_method = 50036;
 }

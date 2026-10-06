@@ -8,23 +8,23 @@ import (
 )
 
 type LiveState struct {
-	Scheduled   map[int32]*apigen.ScheduledInstanceState
-	Deployments map[int32]*apigen.DeploymentEvent
-	Nodes       map[int32]*Node
+	Scheduled   map[uint64]*apigen.ScheduledInstanceState
+	Deployments map[uint64]*apigen.DeploymentRecord
+	Nodes       map[uint64]*Node
 }
 
 func ReadLiveState(ctx context.Context, q *pq.Queries) (LiveState, error) {
 	live := LiveState{
-		Scheduled:   map[int32]*apigen.ScheduledInstanceState{},
-		Deployments: map[int32]*apigen.DeploymentEvent{},
-		Nodes:       map[int32]*Node{},
+		Scheduled:   map[uint64]*apigen.ScheduledInstanceState{},
+		Deployments: map[uint64]*apigen.DeploymentRecord{},
+		Nodes:       map[uint64]*Node{},
 	}
 	deployments, err := q.ListActiveDeployments(ctx)
 	if err != nil {
 		return LiveState{}, err
 	}
-	for _, event := range deployments {
-		live.Deployments[event.DeploymentID] = event
+	for _, record := range deployments {
+		live.Deployments[record.Deployment.ID] = record
 	}
 	nodes, err := q.ListNodeRows(ctx, pq.MemberNodeStatuses)
 	if err != nil {

@@ -5,16 +5,17 @@ export const UPDATE = 2;
 export const DELETE = 3;
 
 export const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SECRET = 4, CONFIG = 5, ASSET = 6, NETWORK_POLICY = 7, SPACE = 8, USER = 9,
-    VALUE_DIRECTORY = 10, ASSET_DIRECTORY = 11, AUTHZ_RULE_TEMPLATE = 12, AUTHZ_GRANT = 13, AUTHZ_GLOBAL_RULE = 14, SYSTEM_CONFIG = 15,
+    VALUE_DIRECTORY = 10, ASSET_DIRECTORY = 11, AUTHZ_GRANT_TEMPLATE = 12, AUTHZ_GRANT = 13, AUTHZ_GLOBAL_RULE = 14, SYSTEM_CONFIG = 15,
     SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, AGENT_SESSION = 18, USER_SESSION = 19;
 
 const fields = [undefined, 'deployment', 'scheduledInstance', 'node', 'secret', 'config', 'asset', 'networkPolicy', 'space', 'user',
-    'valueDirectory', 'assetDirectory', 'authzRuleTemplate', 'authzGrant', 'authzGlobalRule', 'systemConfig',
+    'valueDirectory', 'assetDirectory', 'authzGrantTemplate', 'authzGrant', 'authzGlobalRule', 'systemConfig',
     'scheduledInstanceStatus', 'nodeStatus', 'agentSession', 'userSession'];
+const entityOf = (entity, type) => entity?.value?.[fields[type]];
 
 const documents = {
     [SPACE]: 'spaces', [USER]: 'users', [VALUE_DIRECTORY]: 'valueDirectories', [ASSET_DIRECTORY]: 'assetDirectories',
-    [AUTHZ_RULE_TEMPLATE]: 'authzRuleTemplates', [AUTHZ_GLOBAL_RULE]: 'authzGlobalRules',
+    [AUTHZ_GRANT_TEMPLATE]: 'authzGrantTemplates', [AUTHZ_GLOBAL_RULE]: 'authzGlobalRules',
     [AGENT_SESSION]: 'agentSessions', [USER_SESSION]: 'userSessions',
 };
 const histories = {[SECRET]: ['secrets', 'secretId'], [CONFIG]: ['configs', 'configId'], [ASSET]: ['assets', 'assetId']};
@@ -60,24 +61,21 @@ const observed = (map, clocks, id, status, tombstone) => {
 
 export const latestDeployment = versions => {
     let latest;
-    for (const event of versions?.values() || []) if (!latest || event.version > latest.version) latest = event;
+    for (const record of versions?.values() || []) if (!latest || record.meta.version > latest.meta.version) latest = record;
     return latest;
 };
 
-const deploymentEntry = (id, op, entity, env, meta) => ({
-    deploymentId: id, version: Number(meta.version || 0), specVersion: Number(meta.specVersion || 0), createdTime: new Date(Number(meta.createdTime || 0)),
-    eventType: op, seq: env.seq, eventTime: new Date(env.time), author: env.actor, value: entity,
+// Deployment versions are kept as DeploymentRecord {deployment, meta}, the
+// shape the get, history, and recently-deleted responses hand out, so the
+// deployment helpers read both alike. A delete is a record of the last
+// version under the next version number with meta.deleted set.
+const deploymentRecord = (entity, env, meta) => ({
+    deployment: entity,
+    meta: {
+        ...meta, version: Number(meta.version || 0), specVersion: Number(meta.specVersion || 0), createdTime: Number(meta.createdTime || 0),
+        updatedSeq: env.seq, updatedTime: env.time, updatedActor: env.actor, deleted: false,
+    },
 });
-
-// deploymentFromRecord turns a DeploymentRecord of the get, history, and
-// recently-deleted responses into the entry shape the tree keeps, so the
-// deployment helpers read both alike.
-export const deploymentFromRecord = record => {
-    if (!record?.deployment) return null;
-    const meta = record.meta || {};
-    const op = meta.deleted ? DELETE : (Number(meta.version || 0) === 1 ? CREATE : UPDATE);
-    return deploymentEntry(Number(record.deployment.id || 0), op, record.deployment, {seq: Number(meta.updatedSeq || 0), time: Number(meta.updatedTime || 0), actor: Number(meta.updatedActor || 0)}, meta);
-};
 
 // A reducer takes the commit envelope (seq, time, actor) and, for a create
 // or update, the entity's meta as the server's rows hold it: creation time,
@@ -85,15 +83,15 @@ export const deploymentFromRecord = record => {
 const reducers = {
     [DEPLOYMENT](tree, op, id, entity, env, meta) {
         const versions = tree.deployments.get(id) || new Map();
-        let event;
+        let record;
         if (op === DELETE) {
             const prev = latestDeployment(versions);
             if (!prev) return undefined;
-            event = {...prev, version: prev.version + 1, eventType: DELETE, seq: env.seq, eventTime: new Date(env.time), author: env.actor};
+            record = {deployment: prev.deployment, meta: {...prev.meta, version: prev.meta.version + 1, updatedSeq: env.seq, updatedTime: env.time, updatedActor: env.actor, deleted: true}};
         } else {
-            event = deploymentEntry(id, op, entity, env, meta);
+            record = deploymentRecord(entity, env, meta);
         }
-        versions.set(event.version, event);
+        versions.set(record.meta.version, record);
         tree.deployments.set(id, versions);
         return 'deployments';
     },
@@ -166,14 +164,14 @@ const pruneVersions = tree => {
     }
     const pins = new Map();
     for (const event of selected) {
-        const value = event.value;
-        if (!pins.has(value.deploymentId)) pins.set(value.deploymentId, new Set());
-        pins.get(value.deploymentId).add(value.deploymentVersion);
+        const ref = event.value.deployment || {};
+        if (!pins.has(ref.deploymentId)) pins.set(ref.deploymentId, new Set());
+        pins.get(ref.deploymentId).add(ref.version);
     }
     for (const [id, versions] of tree.deployments) {
         const latest = latestDeployment(versions);
         const keep = pins.get(id) || new Set();
-        if (latest.eventType !== DELETE || keep.size) keep.add(latest.version);
+        if (!latest.meta.deleted || keep.size) keep.add(latest.meta.version);
         for (const version of versions.keys()) if (!keep.has(version)) versions.delete(version);
         if (!versions.size) tree.deployments.delete(id);
     }
@@ -199,11 +197,12 @@ const applyEvent = (tree, event, changed) => {
     if (seq && seq <= tree.seq) return;
     const env = {seq, time: Number(event.time || 0), actor: Number(event.actor || 0)};
     for (const mutation of event.mutations || []) {
-        const op = mutation.create ? CREATE : mutation.update ? UPDATE : mutation.delete ? DELETE : 0;
+        const value = mutation.value || {};
+        const op = value.create ? CREATE : value.update ? UPDATE : value.delete ? DELETE : 0;
         if (!op) continue;
-        const body = mutation.create || mutation.update || mutation.delete;
+        const body = value.create || value.update || value.delete;
         const type = Number(body.entityType || 0);
-        const entity = op === DELETE ? undefined : body.entity?.[fields[type]];
+        const entity = op === DELETE ? undefined : entityOf(body.entity, type);
         if (op !== DELETE && !entity) continue;
         const name = reducers[type]?.(tree, op, Number(body.entityId), entity, env, body.meta || {});
         if (name) changed.add(name);
@@ -218,7 +217,7 @@ const applySnapshot = (tree, snapshot, changed) => {
     for (const name of resetTree(tree)) changed.add(name);
     for (const entry of snapshot.entities || []) {
         const type = Number(entry.entityType || 0);
-        const entity = entry.entity?.[fields[type]];
+        const entity = entityOf(entry.entity, type);
         if (!entity) continue;
         const meta = entry.meta || {};
         const env = {seq: Number(meta.updatedSeq || 0), time: Number(meta.updatedTime || 0), actor: Number(meta.updatedActor || 0)};
@@ -255,11 +254,12 @@ export function applyMessage(tree, message) {
 
 export function written(update, type) {
     for (const mutation of update?.mutations || []) {
-        const body = mutation.create || mutation.update;
+        const value = mutation.value || {};
+        const body = value.create || value.update;
         if (!body || Number(body.entityType || 0) !== type) continue;
         return {
             id: Number(body.entityId), seq: Number(update.seq || 0), time: Number(update.time || 0), actor: Number(update.actor || 0),
-            created: Boolean(mutation.create), entity: body.entity?.[fields[type]], meta: body.meta,
+            created: Boolean(value.create), entity: entityOf(body.entity, type), meta: body.meta,
         };
     }
     return undefined;

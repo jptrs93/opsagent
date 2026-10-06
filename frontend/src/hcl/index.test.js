@@ -26,7 +26,7 @@ const fullConfig = `deployment {
 
   container {
     source {
-      nix_docker_build {
+      nix_image_build {
         repo = "github.com/acme/platform"
         flake = "services/api/flake.nix"
         target = ".#api-image"
@@ -71,6 +71,8 @@ const fullConfig = `deployment {
         protocol = "tcp"
         container_port = 8080
         host_port = 80
+        allow = ["203.0.113.0/24"]
+        deny = ["203.0.113.9"]
       }
 
       https {

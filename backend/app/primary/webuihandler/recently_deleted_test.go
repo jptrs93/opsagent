@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"path/filepath"
 	"testing"
 
@@ -17,22 +16,22 @@ import (
 
 // deleteDeployment removes a deployment through the handler so the tombstone is
 // written exactly as it is in production, tombstone version and all.
-func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.DeploymentEvent) {
+func deleteDeployment(t *testing.T, h *Handler, cfg *apigen.DeploymentRecord) {
 	t.Helper()
-	current := h.findConfigByID(cfg.DeploymentID)
+	current := h.findConfigByID(cfg.Deployment.ID)
 	if current == nil {
-		t.Fatalf("deployment %d not found", cfg.DeploymentID)
+		t.Fatalf("deployment %d not found", cfg.Deployment.ID)
 	}
 	err := h.PostV1DeploymentsDelete(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentDeleteRequest{
-		DeploymentID: current.DeploymentID,
-		ExpectedSeq:  current.Seq,
+		DeploymentID: current.Deployment.ID,
+		ExpectedSeq:  current.Meta.UpdatedSeq,
 	})
 	if err != nil {
-		t.Fatalf("delete %d: %v", cfg.DeploymentID, err)
+		t.Fatalf("delete %d: %v", cfg.Deployment.ID, err)
 	}
 }
 
-func createStoppedDeployment(t *testing.T, h *Handler, nodeID int32, name string) *apigen.DeploymentEvent {
+func createStoppedDeployment(t *testing.T, h *Handler, nodeID uint64, name string) *apigen.DeploymentRecord {
 	t.Helper()
 	cfg, err := h.deploymentsCreate(apigen.Context{Ctx: context.Background()}, nixCreateRequest(nodeID, name, false))
 	if err != nil {
@@ -41,7 +40,7 @@ func createStoppedDeployment(t *testing.T, h *Handler, nodeID int32, name string
 	return cfg
 }
 
-func recentlyDeleted(t *testing.T, h *Handler, limit int32) []*apigen.DeploymentRecord {
+func recentlyDeleted(t *testing.T, h *Handler, limit int32) []apigen.DeploymentRecord {
 	t.Helper()
 	res, err := h.PostV1DeploymentsRecentlyDeleted(apigen.Context{Ctx: context.Background()},
 		&apigen.RecentlyDeletedDeploymentsRequest{Limit: limit})
@@ -51,7 +50,7 @@ func recentlyDeleted(t *testing.T, h *Handler, limit int32) []*apigen.Deployment
 	return res.Items
 }
 
-func deletedNames(items []*apigen.DeploymentRecord) []string {
+func deletedNames(items []apigen.DeploymentRecord) []string {
 	out := make([]string, 0, len(items))
 	for _, item := range items {
 		out = append(out, item.Deployment.Name)
@@ -59,10 +58,10 @@ func deletedNames(items []*apigen.DeploymentRecord) []string {
 	return out
 }
 
-func newRecentlyDeletedHandler(t *testing.T) (*Handler, int32) {
+func newRecentlyDeletedHandler(t *testing.T) (*Handler, uint64) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := ensureTestNode(store, "primary", "primary")
 	return &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), GitVersions: &fakeGitSourceProvider{}}, node.ID
 }
 
@@ -100,17 +99,17 @@ func TestRecentlyDeletedRetainsForkableSpec(t *testing.T) {
 	cfg := items[0].Deployment
 	// The spec is what a fork is seeded from, so the tombstone must carry it
 	// intact along with the identity the deployment ran under.
-	if cfg.Spec.Container1Spec == nil {
+	if cfg.Spec.Workload.Value.Container == nil {
 		t.Fatal("tombstone lost the container spec")
 	}
-	if got := cfg.Spec.Container1Spec.Source.NixDockerBuild.Repo; got != "github.com/acme/app" {
+	if got := cfg.Spec.Workload.Value.Container.Source.Value.NixImageBuild.Repo; got != "github.com/acme/app" {
 		t.Fatalf("repo = %q, want github.com/acme/app", got)
 	}
-	if cfg.Name != "web" || cfg.PlacementNodeID() != nodeID || cfg.ID != created.DeploymentID {
-		t.Fatalf("identity = %q/%d/%d, want web/%d/%d", cfg.Name, cfg.PlacementNodeID(), cfg.ID, nodeID, created.DeploymentID)
+	if cfg.Name != "web" || cfg.PlacementNodeID() != nodeID || cfg.ID != created.Deployment.ID {
+		t.Fatalf("identity = %q/%d/%d, want web/%d/%d", cfg.Name, cfg.PlacementNodeID(), cfg.ID, nodeID, created.Deployment.ID)
 	}
-	if meta := items[0].Meta; meta == nil || !meta.Deleted || meta.Version != created.Version || meta.SpecVersion != created.SpecVersion || meta.UpdatedSeq <= created.Seq {
-		t.Fatalf("tombstone meta = %+v, want deleted at version %d after seq %d", items[0].Meta, created.Version, created.Seq)
+	if meta := items[0].Meta; !meta.Deleted || meta.Version != created.Meta.Version || meta.SpecVersion != created.Meta.SpecVersion || meta.UpdatedSeq <= created.Meta.UpdatedSeq {
+		t.Fatalf("tombstone meta = %+v, want deleted at version %d after seq %d", items[0].Meta, created.Meta.Version, created.Meta.UpdatedSeq)
 	}
 }
 
@@ -161,7 +160,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	// the create API, so a tombstone for one is not forkable. Delete it through
 	// the store directly: the handler refuses internal deletes outright.
 	deployments.EnsureSystem(h.Store, nodeID, "v1.0.0")
-	var internal *apigen.DeploymentEvent
+	var internal *apigen.DeploymentRecord
 	for _, cfg := range deployments.Active(h.Store.Queries(), nil) {
 		if internaldeploy.IsInternalConfig(&cfg) {
 			internal = &cfg
@@ -171,7 +170,7 @@ func TestRecentlyDeletedOmitsInternalDeployments(t *testing.T) {
 	if internal == nil {
 		t.Fatal("no internal deployment was created")
 	}
-	statetest.DeleteDeployment(h.Store, apigen.Context{Ctx: context.Background()}, internal.DeploymentID)
+	statetest.DeleteDeployment(h.Store, apigen.Context{Ctx: context.Background()}, internal.Deployment.ID)
 
 	items := recentlyDeleted(t, h, 0)
 	if len(items) != 1 || items[0].Deployment.Name != "web" {

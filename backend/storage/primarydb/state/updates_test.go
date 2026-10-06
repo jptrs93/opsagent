@@ -37,7 +37,7 @@ func TestSubscriberOverflowClosesOnlyTheSlowSubscriber(t *testing.T) {
 	}
 	dep := mustCreateDeploymentForNode(s, apigen.Context{}, defaultSpaceID, "overflow", node.ID, envRefSpec(nil, nil))
 	receive("create", func(u WriteUpdate) bool {
-		return len(u.Mutations) == 1 && u.Mutations[0].EntityID() == int64(dep.DeploymentID) && u.Mutations[0].Kind() == apigen.AuthzVerb_AUTHZ_VERB_CREATE
+		return len(u.Mutations) == 1 && u.Mutations[0].EntityID() == dep.Deployment.ID && u.Mutations[0].Kind() == apigen.AuthzVerb_AUTHZ_VERB_CREATE
 	})
 	s.Mu.Lock()
 	for i := 0; i <= SubscriberBuffer; i++ {
@@ -52,9 +52,9 @@ func TestSubscriberOverflowClosesOnlyTheSlowSubscriber(t *testing.T) {
 		t.Fatalf("slow subscriber drained %d before close, want %d", drained, SubscriberBuffer)
 	}
 	unsubscribeSlow()
-	deleteDeployment(s, apigen.Context{}, dep.DeploymentID)
+	deleteDeployment(s, apigen.Context{}, dep.Deployment.ID)
 	receive("delete", func(u WriteUpdate) bool {
-		return len(u.Mutations) == 1 && u.Mutations[0].EntityID() == int64(dep.DeploymentID) && u.Mutations[0].Kind() == apigen.AuthzVerb_AUTHZ_VERB_DELETE
+		return len(u.Mutations) == 1 && u.Mutations[0].EntityID() == dep.Deployment.ID && u.Mutations[0].Kind() == apigen.AuthzVerb_AUTHZ_VERB_DELETE
 	})
 }
 
@@ -63,7 +63,7 @@ func TestScheduledSubscriberDeliversCommittedStates(t *testing.T) {
 	defer s.Close()
 	node := testNode(s, "primary")
 	dep := mustCreateDeploymentForNode(s, apigen.Context{}, defaultSpaceID, "instances", node.ID, envRefSpec(nil, nil))
-	inst := createScheduledInstanceForTest(s, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := createScheduledInstanceForTest(s, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	initial, updates, unsubscribe := s.MustFetchScheduledSnapshotAndSubscribe(nil)
 	defer unsubscribe()
 	if len(initial) != 1 || initial[0].Instance.ID != inst.ID {
@@ -93,21 +93,21 @@ func TestScheduledSubscriberDeliversAnInstancePrunedByItsFinalizingCommit(t *tes
 	ctx := context.Background()
 	node := testNode(s, "primary")
 	dep := mustCreateDeploymentForNode(s, apigen.Context{}, defaultSpaceID, "rollover", node.ID, envRefSpec(nil, nil))
-	old := createScheduledInstanceForTest(s, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
-	writeRunnerStatus(t, s, old.ID, apigen.RunningStatus_STOPPED)
-	next := updateDeploymentSpec(s, apigen.Context{}, dep.DeploymentID, nonEmptySpec())
-	if next.Version == dep.Version {
+	old := createScheduledInstanceForTest(s, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	writeRunnerStatus(t, s, old.ID, apigen.RunningStatus_RUNNING_STATUS_STOPPED)
+	next := updateDeploymentSpec(s, apigen.Context{}, dep.Deployment.ID, nonEmptySpec())
+	if next.Meta.Version == dep.Meta.Version {
 		t.Fatal("spec update did not produce a new version")
 	}
 	_, updates, unsubscribe := s.MustFetchScheduledSnapshotAndSubscribe(nil)
 	defer unsubscribe()
-	var created int32
+	var created uint64
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		current, err := q.GetScheduledInstance(ctx, old.ID)
 		if err != nil {
 			return nil, err
 		}
-		cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(next.DeploymentID), Version: int64(next.Version)})
+		cfg, err := q.GetDeploymentVersion(ctx, next.Deployment.ID, next.Meta.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +115,7 @@ func TestScheduledSubscriberDeliversAnInstancePrunedByItsFinalizingCommit(t *tes
 		if err != nil {
 			return nil, err
 		}
-		inst := &apigen.ScheduledInstance{ID: created, DeploymentID: cfg.DeploymentID, DeploymentVersion: cfg.Version, DeploymentSpecVersion: cfg.SpecVersion, NodeID: node.ID, SpaceID: cfg.Value.SpaceID}
+		inst := &apigen.ScheduledInstance{ID: created, Deployment: apigen.DeploymentRef{DeploymentID: cfg.Deployment.ID, Version: cfg.Meta.Version}, NodeID: node.ID, SpaceID: cfg.Deployment.SpaceID}
 		return pq.NewUpdate(
 			pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, pq.ScheduledInstanceTransition(seq, current, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED, time.Now())),
 			pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, pq.NewScheduledInstanceEvent(seq, inst, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, time.Now())),
@@ -124,7 +124,7 @@ func TestScheduledSubscriberDeliversAnInstancePrunedByItsFinalizingCommit(t *tes
 	if _, err := s.q.GetScheduledInstance(ctx, old.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("finalized instance row survived its replacement: %v", err)
 	}
-	if _, err := s.q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(dep.DeploymentID), Version: int64(dep.Version)}); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := s.q.GetDeploymentVersion(ctx, dep.Deployment.ID, dep.Meta.Version); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("unpinned version row survived: %v", err)
 	}
 	select {
@@ -132,7 +132,7 @@ func TestScheduledSubscriberDeliversAnInstancePrunedByItsFinalizingCommit(t *tes
 		if !ok || len(got) != 2 {
 			t.Fatalf("post-commit update = %+v (open=%v), want the finalized and the new instance", got, ok)
 		}
-		byID := map[int32]apigen.ScheduledInstanceState{}
+		byID := map[uint64]apigen.ScheduledInstanceState{}
 		for _, st := range got {
 			byID[st.Instance.ID] = st
 		}
@@ -140,14 +140,14 @@ func TestScheduledSubscriberDeliversAnInstancePrunedByItsFinalizingCommit(t *tes
 		if !ok || gone.Instance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
 			t.Fatalf("pruned instance %d not delivered as finalized: %+v", old.ID, got)
 		}
-		if gone.Config.DeploymentID != dep.DeploymentID || gone.Config.Version != dep.Version || gone.Config.Value.Name != "rollover" {
-			t.Fatalf("pruned instance config = %+v, want version %d of deployment %d from the log", gone.Config, dep.Version, dep.DeploymentID)
+		if gone.Config.Deployment.ID != dep.Deployment.ID || gone.Config.Meta.Version != dep.Meta.Version || gone.Config.Deployment.Name != "rollover" {
+			t.Fatalf("pruned instance config = %+v, want version %d of deployment %d from the log", gone.Config, dep.Meta.Version, dep.Deployment.ID)
 		}
-		if gone.Status.Runner.Status != apigen.RunningStatus_STOPPED {
+		if !gone.Status.Present || gone.Status.Value.Runner.Value.Status != apigen.RunningStatus_RUNNING_STATUS_STOPPED {
 			t.Fatalf("pruned instance status = %+v, want the STOPPED it ended on", gone.Status)
 		}
 		fresh, ok := byID[created]
-		if !ok || fresh.Instance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING || fresh.Config.Version != next.Version {
+		if !ok || fresh.Instance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING || fresh.Config.Meta.Version != next.Meta.Version {
 			t.Fatalf("new instance %d = %+v", created, fresh)
 		}
 	case <-time.After(3 * time.Second):

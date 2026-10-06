@@ -17,30 +17,30 @@ import (
 )
 
 const (
-	DefaultHTTPSPort  int32 = 443
-	HTTPSRedirectPort int32 = 80
+	DefaultHTTPSPort  uint32 = 443
+	HTTPSRedirectPort uint32 = 80
 )
 
 // Route is one ingress route of a virtual-mode deployment.
 type Route struct {
 	Kind       apigen.IngressKind
 	Hostname   string
-	HostPort   int32  // passthrough host port; HTTPS always claims 443 and 80
+	HostPort   uint32 // passthrough host port; HTTPS always claims 443 and 80
 	PathPrefix string // HTTPS only, normalised
 	CertSource string // HTTPS only, e.g. "acme" or "secret:12@3"
-	Listen     []*apigen.IngressListen
+	Listen     []apigen.IngressListen
 }
 
 // Deployment is the evaluator's view of one deployment.
 type Deployment struct {
-	ID       int32
-	NodeID   int32
+	ID       uint64
+	NodeID   uint64
 	Name     string
 	HostMode bool
 	Routes   []Route
 	// TCPPorts are raw TCP port forwards; they conflict with ingress ports
 	// node-wide because port forwards have no listen selector.
-	TCPPorts []int32
+	TCPPorts []uint32
 }
 
 // Node is one cluster member and its reported host addresses. An empty
@@ -48,16 +48,16 @@ type Deployment struct {
 // it yet): wildcard selectors then publish on every local address and literal
 // selectors publish their literal.
 type Node struct {
-	ID            int32
+	ID            uint64
 	HostAddresses []netip.Addr
 }
 
 // Reservation is a listener the platform itself holds: the Web UI's HTTPS and
 // HTTP servers on the primary. An invalid Address is a wildcard bind.
 type Reservation struct {
-	NodeID  int32
+	NodeID  uint64
 	Address netip.Addr
-	Port    int32
+	Port    uint32
 	Name    string
 }
 
@@ -68,27 +68,27 @@ type Inputs struct {
 	// Candidate is the deployment being validated. Collisions involving it are
 	// errors; collisions between two stored deployments (which can arise when
 	// the inventory changes after save) resolve to the lower id with warnings.
-	Candidate int32
+	Candidate uint64
 	// Reachable lists the nodes whose netproxy can dial a route hosted on
 	// the given node. Nil means the hosting node only.
-	Reachable func(hostingNode int32) []int32
+	Reachable func(hostingNode uint64) []uint64
 }
 
 // Publish is one (address, port) a node forwards to its netproxy. A zero
 // Address is the wildcard.
 type Publish struct {
 	Address netip.Addr
-	Port    int32
+	Port    uint32
 }
 
 type Diagnostic struct {
-	DeploymentID int32
+	DeploymentID uint64
 	Message      string
 }
 
 type Result struct {
 	// Publish is the per-node DNAT set, sorted and deduplicated.
-	Publish map[int32][]Publish
+	Publish map[uint64][]Publish
 	// Errors reject a save. Warnings and Excluded are informational: claims a
 	// reservation removed, collisions resolved against a deployment, and
 	// host-mode deployments beside a wildcard publish.
@@ -123,16 +123,16 @@ func (r Result) Diagnostics() []Diagnostic {
 type claim struct {
 	deployment *Deployment
 	route      *Route
-	nodeID     int32
+	nodeID     uint64
 	address    netip.Addr // zero = wildcard (inventory unknown)
-	port       int32
+	port       uint32
 	literal    bool // the selector named this exact address
 }
 
 type claimKey struct {
-	nodeID   int32
+	nodeID   uint64
 	address  netip.Addr
-	port     int32
+	port     uint32
 	hostname string
 	prefix   string
 }
@@ -141,12 +141,12 @@ type claimKey struct {
 // rules. Deployments are processed in id order, so a collision between two
 // stored deployments resolves to the lower id.
 func Evaluate(in Inputs) Result {
-	result := Result{Publish: make(map[int32][]Publish)}
-	nodes := make(map[int32]Node, len(in.Nodes))
+	result := Result{Publish: make(map[uint64][]Publish)}
+	nodes := make(map[uint64]Node, len(in.Nodes))
 	for _, node := range in.Nodes {
 		nodes[node.ID] = node
 	}
-	hostModeByNode := make(map[int32][]string)
+	hostModeByNode := make(map[uint64][]string)
 	deployments := slices.Clone(in.Deployments)
 	slices.SortFunc(deployments, func(a, b Deployment) int { return cmp.Compare(a.ID, b.ID) })
 	for _, dep := range deployments {
@@ -154,7 +154,7 @@ func Evaluate(in Inputs) Result {
 			hostModeByNode[dep.NodeID] = append(hostModeByNode[dep.NodeID], dep.Name)
 		}
 	}
-	tcpPorts := make(map[int32]map[int32]int32) // node -> port -> owner
+	tcpPorts := make(map[uint64]map[uint32]uint64) // node -> port -> owner
 	for i := range deployments {
 		dep := &deployments[i]
 		if dep.HostMode {
@@ -162,7 +162,7 @@ func Evaluate(in Inputs) Result {
 		}
 		for _, port := range dep.TCPPorts {
 			if tcpPorts[dep.NodeID] == nil {
-				tcpPorts[dep.NodeID] = make(map[int32]int32)
+				tcpPorts[dep.NodeID] = make(map[uint32]uint64)
 			}
 			if _, ok := tcpPorts[dep.NodeID][port]; !ok {
 				tcpPorts[dep.NodeID][port] = dep.ID
@@ -173,14 +173,14 @@ func Evaluate(in Inputs) Result {
 	owners := make(map[claimKey]*claim)
 	hostKinds := make(map[hostKindKey]*claim)
 	hostCerts := make(map[hostKindKey]*claim)
-	publish := make(map[int32]map[Publish]struct{})
-	addPublish := func(nodeID int32, entry Publish) {
+	publish := make(map[uint64]map[Publish]struct{})
+	addPublish := func(nodeID uint64, entry Publish) {
 		if publish[nodeID] == nil {
 			publish[nodeID] = make(map[Publish]struct{})
 		}
 		publish[nodeID][entry] = struct{}{}
 	}
-	warnedHostMode := make(map[[2]int32]struct{})
+	warnedHostMode := make(map[[2]uint64]struct{})
 
 	for i := range deployments {
 		dep := &deployments[i]
@@ -214,7 +214,7 @@ func Evaluate(in Inputs) Result {
 				}
 				addPublish(c.nodeID, Publish{Address: c.address, Port: c.port})
 				if !c.literal {
-					key := [2]int32{dep.ID, c.nodeID}
+					key := [2]uint64{dep.ID, c.nodeID}
 					if names := hostModeByNode[c.nodeID]; len(names) > 0 {
 						if _, done := warnedHostMode[key]; !done {
 							warnedHostMode[key] = struct{}{}
@@ -261,15 +261,15 @@ func dedupe(diags []Diagnostic) []Diagnostic {
 }
 
 type hostKindKey struct {
-	nodeID   int32
+	nodeID   uint64
 	address  netip.Addr
-	port     int32
+	port     uint32
 	hostname string
 }
 
 // resolveClaim records c in the ownership maps or reports why it cannot own
 // its key. It returns false when the claim must not be published.
-func resolveClaim(result *Result, candidate int32, owners map[claimKey]*claim, hostKinds, hostCerts map[hostKindKey]*claim, c *claim) bool {
+func resolveClaim(result *Result, candidate uint64, owners map[claimKey]*claim, hostKinds, hostCerts map[hostKindKey]*claim, c *claim) bool {
 	key := claimKey{c.nodeID, c.address, c.port, c.route.Hostname, ""}
 	if c.route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
 		key.prefix = c.route.PathPrefix
@@ -340,40 +340,42 @@ func addressSuffix(addr netip.Addr) string {
 // node's inventory filtered by the address selector, crossed with the route's
 // ports. The default node selector is the deployment's scheduled node; any
 // and named selectors are intersected with the reachable set.
-func expand(dep *Deployment, route *Route, nodes map[int32]Node, reachable func(int32) []int32) []*claim {
-	scheduled := []int32{dep.NodeID}
+func expand(dep *Deployment, route *Route, nodes map[uint64]Node, reachable func(uint64) []uint64) []*claim {
+	scheduled := []uint64{dep.NodeID}
 	reach := scheduled
 	if reachable != nil {
 		reach = reachable(dep.NodeID)
 	}
 	selectors := route.Listen
 	if len(selectors) == 0 {
-		selectors = []*apigen.IngressListen{{}}
+		selectors = []apigen.IngressListen{{}}
 	}
 	ports := RoutePorts(route)
 	type addrKey struct {
-		node int32
+		node uint64
 		addr netip.Addr
 	}
 	seen := make(map[addrKey]struct{})
 	var out []*claim
-	for _, selector := range selectors {
-		if selector == nil {
-			selector = &apigen.IngressListen{}
-		}
+	for i := range selectors {
+		selector := &selectors[i]
+		var specific *apigen.SpecificNode
 		candidates := scheduled
-		if selector.Node != nil && (selector.Node.Any || selector.Node.NodeID != 0) {
-			candidates = reach
+		if selector.Node.Present {
+			specific = selector.Node.Value.Value.Specific
+			if selector.Node.Value.Value.Any != nil || specific != nil {
+				candidates = reach
+			}
 		}
 		for _, nodeID := range candidates {
-			if selector.Node != nil && !selector.Node.Any && selector.Node.NodeID != 0 && selector.Node.NodeID != nodeID {
+			if specific != nil && specific.NodeID != nodeID {
 				continue
 			}
 			node, known := nodes[nodeID]
 			if !known {
 				continue
 			}
-			for _, expanded := range expandAddresses(selector.Address, node.HostAddresses) {
+			for _, expanded := range expandAddresses(selector.Addresses, node.HostAddresses) {
 				key := addrKey{nodeID, expanded.addr}
 				if _, dup := seen[key]; dup {
 					continue
@@ -393,34 +395,29 @@ type expandedAddress struct {
 	literal bool
 }
 
-// expandAddresses filters a node's inventory by one address selector. With an
-// unknown inventory a wildcard or family selector yields the wildcard entry
-// and literal prefixes yield their literal address; CIDR prefixes yield
-// nothing, because there is no inventory to intersect them with.
-func expandAddresses(selector *apigen.AddressSelector, inventory []netip.Addr) []expandedAddress {
-	family := apigen.AddressFamily_ADDRESS_FAMILY_ANY
+// expandAddresses filters a node's inventory by one address list: an empty
+// list selects every address, a /0 prefix selects every address of its
+// family, a single-address prefix names that address literally, and any other
+// prefix selects the covered addresses. With an unknown inventory the empty
+// list and family prefixes yield the wildcard entry and literal prefixes yield
+// their literal address; CIDR prefixes yield nothing, because there is no
+// inventory to intersect them with.
+func expandAddresses(addresses []apigen.IpPrefix, inventory []netip.Addr) []expandedAddress {
 	var prefixes []netip.Prefix
 	var literals []netip.Addr
-	if selector != nil {
-		family = selector.Family
-		for _, raw := range selector.Prefixes {
-			if addr, err := netip.ParseAddr(raw); err == nil {
-				literals = append(literals, addr.Unmap())
-				continue
-			}
-			if prefix, err := netip.ParsePrefix(raw); err == nil {
-				prefixes = append(prefixes, prefix.Masked())
-			}
+	family := false
+	for _, entry := range addresses {
+		prefix := entry.Prefix()
+		switch {
+		case !prefix.IsValid():
+		case prefix.IsSingleIP():
+			literals = append(literals, prefix.Addr().Unmap())
+		case prefix.Bits() == 0:
+			family = true
+			prefixes = append(prefixes, prefix)
+		default:
+			prefixes = append(prefixes, prefix.Masked())
 		}
-	}
-	familyMatches := func(addr netip.Addr) bool {
-		switch family {
-		case apigen.AddressFamily_ADDRESS_FAMILY_IPV4:
-			return addr.Is4()
-		case apigen.AddressFamily_ADDRESS_FAMILY_IPV6:
-			return addr.Is6()
-		}
-		return true
 	}
 	var out []expandedAddress
 	if len(prefixes) == 0 && len(literals) == 0 {
@@ -428,24 +425,20 @@ func expandAddresses(selector *apigen.AddressSelector, inventory []netip.Addr) [
 			return []expandedAddress{{}}
 		}
 		for _, addr := range inventory {
-			if familyMatches(addr) {
-				out = append(out, expandedAddress{addr: addr})
-			}
+			out = append(out, expandedAddress{addr: addr})
 		}
 		return out
 	}
 	if len(inventory) == 0 {
+		if family {
+			out = append(out, expandedAddress{})
+		}
 		for _, addr := range literals {
-			if familyMatches(addr) {
-				out = append(out, expandedAddress{addr: addr, literal: true})
-			}
+			out = append(out, expandedAddress{addr: addr, literal: true})
 		}
 		return out
 	}
 	for _, addr := range inventory {
-		if !familyMatches(addr) {
-			continue
-		}
 		if slices.Contains(literals, addr) {
 			out = append(out, expandedAddress{addr: addr, literal: true})
 			continue
@@ -462,20 +455,20 @@ func expandAddresses(selector *apigen.AddressSelector, inventory []netip.Addr) [
 
 // RoutePorts lists the host ports a route claims: 443 and 80 for HTTPS, the
 // configured host port (default 443) for passthrough.
-func RoutePorts(route *Route) []int32 {
+func RoutePorts(route *Route) []uint32 {
 	if route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
-		return []int32{DefaultHTTPSPort, HTTPSRedirectPort}
+		return []uint32{DefaultHTTPSPort, HTTPSRedirectPort}
 	}
 	if route.HostPort == 0 {
-		return []int32{DefaultHTTPSPort}
+		return []uint32{DefaultHTTPSPort}
 	}
-	return []int32{route.HostPort}
+	return []uint32{route.HostPort}
 }
 
 // DeploymentFromSpec builds the evaluator's view of one deployment. Hostnames
 // and prefixes are expected to be normalised already (validation runs before
 // save); the function lower-cases hostnames defensively.
-func DeploymentFromSpec(id, nodeID int32, name string, spec *apigen.DeploymentSpec) Deployment {
+func DeploymentFromSpec(id, nodeID uint64, name string, spec *apigen.DeploymentSpec) Deployment {
 	dep := Deployment{ID: id, NodeID: nodeID, Name: name}
 	if spec == nil {
 		return dep
@@ -485,49 +478,44 @@ func DeploymentFromSpec(id, nodeID int32, name string, spec *apigen.DeploymentSp
 		return dep
 	}
 	for _, pf := range spec.Networking.PortForwarding {
-		if pf != nil && pf.Protocol == apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP && pf.HostPort >= 1 && pf.HostPort <= 65535 {
+		if pf.Protocol == apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP && pf.HostPort >= 1 && pf.HostPort <= 65535 {
 			dep.TCPPorts = append(dep.TCPPorts, pf.HostPort)
 		}
 	}
 	for _, route := range spec.Networking.Ingress {
-		if route == nil {
-			continue
-		}
 		hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(route.Hostname)), ".")
 		if hostname == "" {
 			continue
 		}
 		switch {
-		case route.Kind == apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH && route.TlsPassthroughConfig != nil:
-			dep.Routes = append(dep.Routes, Route{Kind: route.Kind, Hostname: hostname, HostPort: route.TlsPassthroughConfig.HostPort, Listen: route.Listen})
-		case route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS && route.HttpsConfig != nil:
-			prefix := strings.TrimSpace(route.HttpsConfig.PathPrefix)
+		case route.Config.Value.TlsPassthrough != nil:
+			dep.Routes = append(dep.Routes, Route{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: hostname, HostPort: route.Config.Value.TlsPassthrough.HostPort.Value, Listen: route.Listen})
+		case route.Config.Value.Https != nil:
+			https := route.Config.Value.Https
+			prefix := strings.TrimSpace(https.PathPrefix)
 			if prefix == "" {
 				prefix = "/"
 			}
-			dep.Routes = append(dep.Routes, Route{Kind: route.Kind, Hostname: hostname, PathPrefix: prefix, CertSource: CertSourceClaim(route.HttpsConfig.CertSource), Listen: route.Listen})
+			dep.Routes = append(dep.Routes, Route{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: hostname, PathPrefix: prefix, CertSource: CertSourceClaim(https.CertSource), Listen: route.Listen})
 		}
 	}
 	return dep
 }
 
-func CertSourceClaim(source *apigen.CertSource) string {
-	if source == nil || source.Acme != nil {
-		return "acme"
-	}
-	if source.Secret != nil {
-		return "secret:" + source.Secret.Secret.String()
+func CertSourceClaim(source apigen.Maybe[apigen.CertSource]) string {
+	if source.Present && source.Value.Value.Secret != nil {
+		return "secret:" + source.Value.Value.Secret.Secret.String()
 	}
 	return "acme"
 }
 
-// ParseHostAddresses converts stored address strings to addresses, dropping
-// anything that does not parse.
-func ParseHostAddresses(values []string) []netip.Addr {
+// HostAddresses converts a node's reported address inventory to addresses,
+// dropping anything invalid.
+func HostAddresses(values []apigen.IpAddress) []netip.Addr {
 	out := make([]netip.Addr, 0, len(values))
 	for _, value := range values {
-		addr, err := netip.ParseAddr(strings.TrimSpace(value))
-		if err != nil || addr.Zone() != "" {
+		addr := value.Addr()
+		if !addr.IsValid() || addr.Zone() != "" {
 			continue
 		}
 		out = append(out, addr.Unmap())
@@ -538,7 +526,7 @@ func ParseHostAddresses(values []string) []netip.Addr {
 
 // WebUIReservations derives the platform's own listeners from the resolved
 // cluster settings. An empty listen host is a wildcard bind.
-func WebUIReservations(primaryNodeID int32, httpsEnabled bool, httpsListen string, httpEnabled bool, httpListen string) []Reservation {
+func WebUIReservations(primaryNodeID uint64, httpsEnabled bool, httpsListen string, httpEnabled bool, httpListen string) []Reservation {
 	var out []Reservation
 	if httpsEnabled {
 		if r, ok := listenReservation(primaryNodeID, httpsListen, "primary Web UI (https_web.listen)"); ok {
@@ -553,7 +541,7 @@ func WebUIReservations(primaryNodeID int32, httpsEnabled bool, httpsListen strin
 	return out
 }
 
-func listenReservation(nodeID int32, listen, name string) (Reservation, bool) {
+func listenReservation(nodeID uint64, listen, name string) (Reservation, bool) {
 	host, port, err := splitListen(listen)
 	if err != nil || port == 0 {
 		return Reservation{}, false
@@ -571,19 +559,19 @@ func listenReservation(nodeID int32, listen, name string) (Reservation, bool) {
 	return r, true
 }
 
-func splitListen(value string) (string, int32, error) {
+func splitListen(value string) (string, uint32, error) {
 	value = strings.TrimSpace(value)
 	idx := strings.LastIndex(value, ":")
 	if idx < 0 {
 		return "", 0, fmt.Errorf("listen %q has no port", value)
 	}
 	host := strings.Trim(value[:idx], "[]")
-	var port int32
+	var port uint32
 	for _, ch := range value[idx+1:] {
 		if ch < '0' || ch > '9' {
 			return "", 0, fmt.Errorf("listen %q has a non-numeric port", value)
 		}
-		port = port*10 + int32(ch-'0')
+		port = port*10 + uint32(ch-'0')
 		if port > 65535 {
 			return "", 0, fmt.Errorf("listen %q port out of range", value)
 		}
@@ -592,26 +580,38 @@ func splitListen(value string) (string, int32, error) {
 }
 
 // SelectorSummary renders one listen entry for diagnostics and the UI.
-func SelectorSummary(entry *apigen.IngressListen, nodeName func(int32) string) string {
+func SelectorSummary(entry *apigen.IngressListen, nodeName func(uint64) string) string {
 	node := "scheduled node"
-	if entry != nil && entry.Node != nil {
+	if entry != nil && entry.Node.Present {
 		switch {
-		case entry.Node.Any:
+		case entry.Node.Value.Value.Any != nil:
 			node = "any node"
-		case entry.Node.NodeID != 0:
-			node = "node " + nodeName(entry.Node.NodeID)
+		case entry.Node.Value.Value.Specific != nil:
+			node = "node " + nodeName(entry.Node.Value.Value.Specific.NodeID)
 		}
 	}
 	address := "any address"
-	if entry != nil && entry.Address != nil {
-		switch {
-		case len(entry.Address.Prefixes) > 0:
-			address = strings.Join(entry.Address.Prefixes, ", ")
-		case entry.Address.Family == apigen.AddressFamily_ADDRESS_FAMILY_IPV4:
-			address = "any IPv4 address"
-		case entry.Address.Family == apigen.AddressFamily_ADDRESS_FAMILY_IPV6:
-			address = "any IPv6 address"
+	if entry != nil && len(entry.Addresses) > 0 {
+		parts := make([]string, 0, len(entry.Addresses))
+		for _, prefix := range entry.Addresses {
+			parts = append(parts, PrefixSummary(prefix))
 		}
+		address = strings.Join(parts, ", ")
 	}
 	return node + ", " + address
+}
+
+func PrefixSummary(entry apigen.IpPrefix) string {
+	prefix := entry.Prefix()
+	switch {
+	case !prefix.IsValid():
+		return "invalid address"
+	case prefix.Bits() == 0 && prefix.Addr().Is4():
+		return "any IPv4 address"
+	case prefix.Bits() == 0:
+		return "any IPv6 address"
+	case prefix.IsSingleIP():
+		return prefix.Addr().String()
+	}
+	return prefix.String()
 }

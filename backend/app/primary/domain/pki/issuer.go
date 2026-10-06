@@ -17,10 +17,10 @@ type Issuer struct {
 	Secrets *secrets.Manager
 }
 
-func (i *Issuer) Issue(cfg *apigen.DeploymentEvent) (*apigen.ClusterIssuedTLSResponse, error) {
+func (i *Issuer) Issue(cfg *apigen.DeploymentRecord) (*apigen.ClusterIssuedTLSResponse, error) {
 	mount := runtimeinputs.IssuedTLSMountOf(cfg)
 	if mount == nil {
-		return nil, fmt.Errorf("deployment %d has no issued TLS mount", cfg.DeploymentID)
+		return nil, fmt.Errorf("deployment %d has no issued TLS mount", cfg.Deployment.ID)
 	}
 	caCert, caKey, err := BootstrapWorkloadCA(i.Secrets)
 	if err != nil {
@@ -37,17 +37,18 @@ func (i *Issuer) Issue(cfg *apigen.DeploymentEvent) (*apigen.ClusterIssuedTLSRes
 			NotAfter:  notAfter.UnixMilli(),
 		}, nil
 	}
-	dnsName := network.DeploymentDNSName(cfg.Value.Name, cfg.Value.SpaceID)
+	spaceID, deploymentID := int32(cfg.Deployment.SpaceID), int32(cfg.Deployment.ID)
+	dnsName := network.DeploymentDNSName(cfg.Deployment.Name, spaceID)
 	names := []string{dnsName}
 	prefix, hasPrefix := network.Default.PrefixValue()
-	if hasPrefix && cfg.Value.Spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
-		if addr, addrErr := prefix.InboundAddr(cfg.Value.SpaceID, cfg.DeploymentID, 0); addrErr == nil {
+	if hasPrefix && cfg.Deployment.Spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		if addr, addrErr := prefix.InboundAddr(spaceID, deploymentID, 0); addrErr == nil {
 			names = append(names, addr.String())
 		}
 	}
 	for _, name := range mount.ExtraNames {
-		if err := network.ValidateIssuedName(name, cfg.Value.SpaceID, cfg.DeploymentID, prefix, hasPrefix); err != nil {
-			return nil, fmt.Errorf("deployment %d issued TLS extra name: %w", cfg.DeploymentID, err)
+		if err := network.ValidateIssuedName(name, spaceID, deploymentID, prefix, hasPrefix); err != nil {
+			return nil, fmt.Errorf("deployment %d issued TLS extra name: %w", cfg.Deployment.ID, err)
 		}
 	}
 	names = append(names, mount.ExtraNames...)
@@ -67,19 +68,19 @@ func (i *Issuer) Issue(cfg *apigen.DeploymentEvent) (*apigen.ClusterIssuedTLSRes
 
 type IssuedTLSProvider struct {
 	Issuer   *Issuer
-	Snapshot func() []apigen.DeploymentEvent
+	Snapshot func() []apigen.DeploymentRecord
 }
 
-func (p *IssuedTLSProvider) FetchIssuedTLS(_ context.Context, deploymentID, _ int32) (*runtimeinputs.IssuedTLSValue, error) {
+func (p *IssuedTLSProvider) FetchIssuedTLS(_ context.Context, deploymentID uint64, _ uint32) (*runtimeinputs.IssuedTLSValue, error) {
 	for _, cfg := range p.Snapshot() {
-		if cfg.DeploymentID != deploymentID {
+		if cfg.Deployment.ID != deploymentID {
 			continue
 		}
 		res, err := p.Issuer.Issue(&cfg)
 		if err != nil {
 			return nil, err
 		}
-		return issuedtls.ValueFromResponse(res, cfg.SpecVersion), nil
+		return issuedtls.ValueFromResponse(res, cfg.Meta.SpecVersion), nil
 	}
 	return nil, fmt.Errorf("deployment %d not found", deploymentID)
 }

@@ -20,7 +20,7 @@ import (
 
 const generatorSymbols = "!@#$%^&*()-_=+[]{}"
 
-func generateSecret(t *testing.T, h *Handler, user *apigen.InternalUser, req *apigen.SecretGenerateRequest) (*pq.SecretEvent, error) {
+func generateSecret(t *testing.T, h *Handler, user *apigen.User, req *apigen.SecretGenerateRequest) (*pq.SecretEvent, error) {
 	t.Helper()
 	return h.secretsGenerate(apigen.Context{Ctx: context.Background(), User: user}, req)
 }
@@ -29,16 +29,16 @@ func TestGenerateSecretStoresAValueTheCallerNeverSees(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 
 	meta, err := generateSecret(t, h, user, &apigen.SecretGenerateRequest{
-		Name:     "db-password",
-		Password: &apigen.SecretPasswordSpec{},
+		Key:  "db-password",
+		Spec: apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{}},
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
 	}
-	if meta.Value.Fs.Name != "db-password" || meta.SecretID == 0 || len(statetest.ValueVersions(h.Store, meta)) != 1 {
+	if meta.Value.Fs.Key != "db-password" || meta.SecretID == 0 || len(statetest.ValueVersions(h.Store, meta)) != 1 {
 		t.Fatalf("secret = %+v, want a named secret with an id and one version", meta)
 	}
-	if statetest.ValueVersions(h.Store, meta)[0].Author != user.ID {
+	if statetest.ValueVersions(h.Store, meta)[0].Author != int64(user.ID) {
 		t.Fatalf("Author = %d, want the approving operator %d", statetest.ValueVersions(h.Store, meta)[0].Author, user.ID)
 	}
 
@@ -61,9 +61,9 @@ func TestGenerateSecretHonoursTheSpecification(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 
 	meta, err := generateSecret(t, h, user, &apigen.SecretGenerateRequest{
-		Name:     "api-key",
-		SpaceID:  1,
-		Password: &apigen.SecretPasswordSpec{Length: 64, IncludeSymbols: true},
+		Key:     "api-key",
+		SpaceID: 1,
+		Spec:    apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{Length: 64, IncludeSymbols: true}},
 	})
 	if err != nil {
 		t.Fatalf("PostV1SecretsGenerate: %v", err)
@@ -81,7 +81,7 @@ func TestGenerateSecretHonoursTheSpecification(t *testing.T) {
 func TestGenerateSecretIsCreateOnly(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 
-	req := &apigen.SecretGenerateRequest{Name: "db-password", Password: &apigen.SecretPasswordSpec{}}
+	req := &apigen.SecretGenerateRequest{Key: "db-password", Spec: apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{}}}
 	generated, err := generateSecret(t, h, user, req)
 	if err != nil {
 		t.Fatalf("first generate: %v", err)
@@ -108,21 +108,21 @@ func TestGenerateSecretRejectsBadRequests(t *testing.T) {
 		req  *apigen.SecretGenerateRequest
 		want error
 	}{
-		{"no name", &apigen.SecretGenerateRequest{Password: &apigen.SecretPasswordSpec{}}, SecretNameRequiredErr},
-		{"blank name", &apigen.SecretGenerateRequest{Name: "   ", Password: &apigen.SecretPasswordSpec{}}, SecretNameRequiredErr},
-		{"no specification", &apigen.SecretGenerateRequest{Name: "a"}, SecretGeneratorRequiredErr},
-		{"too short", &apigen.SecretGenerateRequest{Name: "a", Password: &apigen.SecretPasswordSpec{Length: 15}}, SecretPasswordLengthErr},
-		{"too long", &apigen.SecretGenerateRequest{Name: "a", Password: &apigen.SecretPasswordSpec{Length: 4097}}, SecretPasswordLengthErr},
-		{"negative", &apigen.SecretGenerateRequest{Name: "a", Password: &apigen.SecretPasswordSpec{Length: -1}}, SecretPasswordLengthErr},
-		{"reserved name", &apigen.SecretGenerateRequest{Name: "opendeploy.internal", Password: &apigen.SecretPasswordSpec{}}, SecretReservedNameErr},
+		{"no name", &apigen.SecretGenerateRequest{Spec: apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{}}}, SecretNameRequiredErr},
+		{"blank name", &apigen.SecretGenerateRequest{Key: "   ", Spec: apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{}}}, SecretNameRequiredErr},
+		{"no specification", &apigen.SecretGenerateRequest{Key: "a"}, SecretGeneratorRequiredErr},
+		{"too short", &apigen.SecretGenerateRequest{Key: "a", Spec: apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{Length: 15}}}, SecretPasswordLengthErr},
+		{"too long", &apigen.SecretGenerateRequest{Key: "a", Spec: apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{Length: 4097}}}, SecretPasswordLengthErr},
+		{"negative", &apigen.SecretGenerateRequest{Key: "a", Spec: apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{Length: -1}}}, SecretPasswordLengthErr},
+		{"reserved name", &apigen.SecretGenerateRequest{Key: "opendeploy.internal", Spec: apigen.SecretGenerateRequestSpecOneof{Password: &apigen.SecretPasswordSpec{}}}, SecretReservedNameErr},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := generateSecret(t, h, user, tc.req); !errors.Is(err, tc.want) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
-			if _, exists := secrets.IDByName(h.Store.Queries(), 1, strings.TrimSpace(tc.req.Name)); exists {
-				t.Fatalf("a rejected request still stored %q", tc.req.Name)
+			if _, exists := secrets.IDByName(h.Store.Queries(), 1, strings.TrimSpace(tc.req.Key)); exists {
+				t.Fatalf("a rejected request still stored %q", tc.req.Key)
 			}
 		})
 	}
@@ -163,7 +163,7 @@ func TestGenerateSecretNeverEchoesTheValue(t *testing.T) {
 	}
 
 	status, generated := post(t, "/v1/secrets/generate", token,
-		`{"name": "db-password", "password": {"length": 32}}`)
+		`{"key": "db-password", "spec": {"password": {"length": 32}}}`)
 	if status != http.StatusOK {
 		t.Fatalf("generate: status %d, want 200", status)
 	}
@@ -171,16 +171,16 @@ func TestGenerateSecretNeverEchoesTheValue(t *testing.T) {
 	if len(mutations) != 1 {
 		t.Fatalf("generate returned %d mutations, want the secret alone: %#v", len(mutations), generated)
 	}
-	create, _ := mutations[0].(map[string]any)["create"].(map[string]any)
+	create, _ := mutations[0].(map[string]any)["value"].(map[string]any)["create"].(map[string]any)
 	id, _ := create["entity_id"].(float64)
 	if id == 0 {
 		t.Fatalf("generate returned no id: %#v", generated)
 	}
-	secret, ok := create["entity"].(map[string]any)["secret"].(map[string]any)
+	secret, ok := create["entity"].(map[string]any)["value"].(map[string]any)["secret"].(map[string]any)
 	if !ok {
 		t.Fatal("missing secret entity")
 	}
-	for _, key := range []string{"ciphertext", "nonce", "value"} {
+	for _, key := range []string{"sealed", "ciphertext", "nonce", "value"} {
 		if v, ok := secret[key]; ok && v != nil && v != "" {
 			t.Fatalf("generate exposed secret bytes under %s: %#v", key, generated)
 		}

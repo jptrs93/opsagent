@@ -3,6 +3,7 @@ package webuihandler
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -11,13 +12,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
 func globalSeq(t *testing.T, h *Handler) int64 {
@@ -45,14 +44,14 @@ func recvMsg(t *testing.T, msgs <-chan *apigen.EventStreamMsg) *apigen.EventStre
 }
 
 // The first message on a stream is the sidecar statuses, not the opening snapshot.
-func openTestEventStream(t *testing.T, h *Handler, userID int32) (<-chan *apigen.EventStreamMsg, *apigen.EventStreamMsg) {
+func openTestEventStream(t *testing.T, h *Handler, userID uint64) (<-chan *apigen.EventStreamMsg, *apigen.EventStreamMsg) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	out := make(chan *apigen.EventStreamMsg, 4096)
 	go func() {
 		defer close(out)
-		for msg, err := range h.PostV1GlobalEventStream(apigen.Context{Ctx: ctx, User: &apigen.InternalUser{ID: userID}}, &apigen.EventStreamRequest{}) {
+		for msg, err := range h.PostV1GlobalEventStream(apigen.Context{Ctx: ctx, User: &apigen.User{ID: userID}}, &apigen.EventStreamRequest{}) {
 			if err != nil {
 				return
 			}
@@ -64,17 +63,17 @@ func openTestEventStream(t *testing.T, h *Handler, userID int32) (<-chan *apigen
 		}
 	}()
 	side := recvMsg(t, out)
-	if side.SecretsStatus == nil || side.BackupStatus == nil || side.IngressDiagnostics == nil || len(side.Events) != 0 || side.Snapshot != nil || side.Synced {
+	if !side.SecretsStatus.Present || !side.BackupStatus.Present || !side.IngressDiagnostics.Present || len(side.Events) != 0 || side.Snapshot.Present || side.Synced {
 		t.Fatalf("first message is not the sidecar statuses: %+v", side)
 	}
 	opening := recvMsg(t, out)
-	if !opening.Synced || opening.Snapshot == nil || opening.Snapshot.Seq != opening.Seq || len(opening.Events) != 0 {
+	if !opening.Synced || !opening.Snapshot.Present || opening.Snapshot.Value.Seq != opening.Seq || len(opening.Events) != 0 {
 		t.Fatalf("second message is not the opening snapshot: %+v", opening)
 	}
 	return out, opening
 }
 
-func startTestEventStream(t *testing.T, h *Handler, userID int32) <-chan *apigen.EventStreamMsg {
+func startTestEventStream(t *testing.T, h *Handler, userID uint64) <-chan *apigen.EventStreamMsg {
 	t.Helper()
 	out, _ := openTestEventStream(t, h, userID)
 	return out
@@ -82,18 +81,18 @@ func startTestEventStream(t *testing.T, h *Handler, userID int32) <-chan *apigen
 
 // foldOpening is the state a browser holds after a message: the snapshot
 // when the message carries one, otherwise its events folded.
-func foldOpening(msg *apigen.EventStreamMsg) map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity {
-	if msg.Snapshot != nil {
-		return statetest.FoldSnapshot(msg.Snapshot.Entities)
+func foldOpening(msg *apigen.EventStreamMsg) map[apigen.CoreEntityType]map[uint64]*apigen.CoreEntity {
+	if msg.Snapshot.Present {
+		return foldEntities(msg.Snapshot.Value.Entities)
 	}
-	return statetest.Fold(msg.Events)
+	return foldEvents(msg.Events)
 }
 
 func mutationsOf(msg *apigen.EventStreamMsg, typ apigen.CoreEntityType) []*apigen.CoreMutation {
 	var out []*apigen.CoreMutation
-	for _, e := range msg.Events {
-		for _, m := range e.Mutations {
-			if m.Type() == typ {
+	for i := range msg.Events {
+		for j := range msg.Events[i].Mutations {
+			if m := &msg.Events[i].Mutations[j]; m.Type() == typ {
 				out = append(out, m)
 			}
 		}
@@ -101,7 +100,7 @@ func mutationsOf(msg *apigen.EventStreamMsg, typ apigen.CoreEntityType) []*apige
 	return out
 }
 
-func foldMsg(msg *apigen.EventStreamMsg, typ apigen.CoreEntityType) map[int64]*apigen.CoreEntity {
+func foldMsg(msg *apigen.EventStreamMsg, typ apigen.CoreEntityType) map[uint64]*apigen.CoreEntity {
 	return foldOpening(msg)[typ]
 }
 
@@ -121,7 +120,7 @@ func TestBackupStatusIsIndependentOfCoreSequenceAndMutex(t *testing.T) {
 	}
 	h.Store.Mu.Unlock()
 	msg := recvMsg(t, updates)
-	if len(msg.Events) != 0 || msg.Seq != 0 || msg.BackupStatus == nil || *msg.BackupStatus != status {
+	if len(msg.Events) != 0 || msg.Seq != 0 || !msg.BackupStatus.Present || !reflect.DeepEqual(msg.BackupStatus.Value, status) {
 		t.Fatalf("backup status was sequenced or lost: %+v", msg)
 	}
 	if globalSeq(t, h) != before {
@@ -137,20 +136,20 @@ func TestSidecarValuesAreFrozen(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.secretsUpdates.Notify(apigen.SecretsStatusResponse{Unlocked: false})
-	if !before.SecretsStatus.Unlocked {
+	if !before.SecretsStatus.Value.Unlocked {
 		t.Fatal("later publication changed an earlier message")
 	}
 }
 
 func TestObservedStatusIsOneSequencedEvent(t *testing.T) {
 	h, _ := newEnforcementTestHandler(t)
-	node := nodes.EnsurePrimaryNode(h.Store, "primary", "primary")
+	node := ensureTestNode(h.Store, "primary", "primary")
 	updates := startTestEventStream(t, h, 1)
 	before := globalSeq(t, h)
 	nodes.SetNodeStatusByIdentifier(h.Store, node.Identifier, true, time.Now())
 	msg := recvMsg(t, updates)
 	statuses := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS)
-	if len(msg.Events) != 1 || len(msg.Events[0].Mutations) != 1 || len(statuses) != 1 || !statuses[0].Entity().NodeStatus.IsConnected {
+	if len(msg.Events) != 1 || len(msg.Events[0].Mutations) != 1 || len(statuses) != 1 || !statuses[0].Entity().Value.NodeStatus.IsConnected {
 		t.Fatalf("observation was lost or mixed with other rows: %+v", msg)
 	}
 	if msg.Seq != before+1 || msg.Events[0].Seq != before+1 || globalSeq(t, h) != before+1 {
@@ -161,7 +160,7 @@ func TestObservedStatusIsOneSequencedEvent(t *testing.T) {
 func TestCreatingCoreArrivesWithItsObservation(t *testing.T) {
 	h, _ := newEnforcementTestHandler(t)
 	updates := startTestEventStream(t, h, 1)
-	if _, _, err := nodes.UpsertEnrollmentRequest(h.Store, "192.0.2.2", "v1", apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2"}); err != nil {
+	if _, _, err := nodes.UpsertEnrollmentRequest(h.Store, "192.0.2.2", "v1", apigen.NodeReported{Identifier: "worker", UnderlayAddress: mustAddr("192.0.2.2")}); err != nil {
 		t.Fatal(err)
 	}
 	msg := recvMsg(t, updates)
@@ -174,24 +173,24 @@ func TestSessionUpdatesReachOnlyTheirOwner(t *testing.T) {
 	h, _ := newEnforcementTestHandler(t)
 	a, b := startTestEventStream(t, h, 1), startTestEventStream(t, h, 2)
 	before := globalSeq(t, h)
-	for _, userID := range []int32{1, 2} {
-		if err := h.agentSessions().InsertAgentSession(agentsessions.Record{ID: fmt.Sprint(userID), UserID: userID, CreatedAt: time.Now(), Status: apigen.AgentSessionStatus_AGENT_SESSION_PENDING}, 0); err != nil {
+	for _, userID := range []uint64{1, 2} {
+		if err := h.agentSessions().InsertAgentSession(agentsessions.Record{ID: fmt.Sprint(userID), UserID: userID, CreatedAt: time.Now(), Status: apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING}, 0); err != nil {
 			t.Fatal(err)
 		}
-		if err := users.InsertUserSession(h.Store, users.UserSession{ID: "u" + fmt.Sprint(userID), UserID: userID, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		if err := users.InsertUserSession(h.Store, users.UserSession{ID: "u" + fmt.Sprint(userID), UserID: userID, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour), TokenHash: []byte{1}, Kind: fullSession}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i, ch := range []<-chan *apigen.EventStreamMsg{a, b} {
-		owner := int32(i + 1)
+		owner := uint64(i + 1)
 		agent := recvMsg(t, ch)
 		agents := mutationsOf(agent, apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION)
-		if len(agent.Events) != 1 || len(agents) != 1 || agents[0].Entity().AgentSession.UserID != owner || len(mutationsOf(agent, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION)) != 0 {
+		if len(agent.Events) != 1 || len(agents) != 1 || agents[0].Entity().Value.AgentSession.UserID != owner || len(mutationsOf(agent, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION)) != 0 {
 			t.Fatalf("agent session update reached wrong owner: %+v", agent)
 		}
 		user := recvMsg(t, ch)
 		sessions := mutationsOf(user, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION)
-		if len(user.Events) != 1 || len(sessions) != 1 || sessions[0].Entity().UserSession.UserID != owner || len(mutationsOf(user, apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION)) != 0 {
+		if len(user.Events) != 1 || len(sessions) != 1 || sessions[0].Entity().Value.UserSession.UserID != owner || len(mutationsOf(user, apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION)) != 0 {
 			t.Fatalf("user session update reached wrong owner: %+v", user)
 		}
 		if agent.Seq <= before || user.Seq <= agent.Seq || agent.Events[0].Seq != agent.Seq || user.Events[0].Seq != user.Seq {
@@ -210,13 +209,13 @@ func TestSessionUpdatesReachOnlyTheirOwner(t *testing.T) {
 		t.Fatalf("bootstrap leaked another user's sessions: %+v %+v", agents, sessions)
 	}
 	for _, e := range agents {
-		if e.AgentSession.UserID != 1 {
-			t.Fatalf("bootstrap leaked agent session %+v", e.AgentSession)
+		if e.Value.AgentSession.UserID != 1 {
+			t.Fatalf("bootstrap leaked agent session %+v", e.Value.AgentSession)
 		}
 	}
 	for _, e := range sessions {
-		if e.UserSession.UserID != 1 {
-			t.Fatalf("bootstrap leaked user session %+v", e.UserSession)
+		if e.Value.UserSession.UserID != 1 {
+			t.Fatalf("bootstrap leaked user session %+v", e.Value.UserSession)
 		}
 	}
 }
@@ -225,11 +224,11 @@ func TestGrantResetTargetsAffectedUserAndDebounces(t *testing.T) {
 	h, _ := newEnforcementTestHandler(t)
 	a, b := startTestEventStream(t, h, 2), startTestEventStream(t, h, 3)
 	for range 2 {
-		if _, err := h.Authz.CreateGrant(&apigen.AuthzGrant{UserID: 2, TemplateID: authz.ClusterAdminTemplateID, Spec: &apigen.AuthzGrantSpec{}}, 0); err != nil {
+		if _, err := h.Authz.CreateGrant(clusterAdminGrant(2), 0); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if msg := recvMsg(t, a); msg.Snapshot == nil {
+	if msg := recvMsg(t, a); !msg.Snapshot.Present {
 		t.Fatalf("user A did not get a fresh snapshot: %+v", msg)
 	}
 	// A visible marker proves B's stream has processed the grant transactions.
@@ -239,16 +238,16 @@ func TestGrantResetTargetsAffectedUserAndDebounces(t *testing.T) {
 	}
 	for {
 		msg := recvMsg(t, b)
-		if msg.Snapshot != nil {
+		if msg.Snapshot.Present {
 			t.Fatal("grant for A reset B")
 		}
-		if configs := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) > 0 && configs[0].EntityID() == int64(created.ConfigID) {
+		if configs := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) > 0 && configs[0].EntityID() == created.ConfigID {
 			break
 		}
 	}
 	select {
 	case msg := <-a:
-		if msg.Snapshot != nil {
+		if msg.Snapshot.Present {
 			t.Fatal("burst produced duplicate reset")
 		}
 	case <-time.After(300 * time.Millisecond):
@@ -262,7 +261,7 @@ func TestSubscriberOverflowEndsStreamAndReconnectBootstraps(t *testing.T) {
 	defer cancel()
 	go func() {
 		defer close(done)
-		for msg, err := range h.PostV1GlobalEventStream(apigen.Context{Ctx: ctx, User: &apigen.InternalUser{ID: 1}}, &apigen.EventStreamRequest{}) {
+		for msg, err := range h.PostV1GlobalEventStream(apigen.Context{Ctx: ctx, User: &apigen.User{ID: 1}}, &apigen.EventStreamRequest{}) {
 			if err != nil {
 				return
 			}
@@ -292,7 +291,7 @@ func TestHiddenTransactionIsNotSent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	update := pq.NewUpdate(pq.ConfigMutation(pq.EventMeta{GlobalSeq: event.Seq, EventTime: event.EventTime, Author: int64(event.Author), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, int64(event.ConfigID), event.Value))
+	update := pq.NewUpdate(pq.ConfigMutation(pq.EventMeta{GlobalSeq: event.Seq, EventTime: event.EventTime, Author: event.Author, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, event.ConfigID, event.Value))
 	if got := h.visibleUpdate(enforceCtx(3, false), update); got != nil {
 		t.Fatalf("hidden transaction was sent: %+v", got)
 	}
@@ -300,20 +299,20 @@ func TestHiddenTransactionIsNotSent(t *testing.T) {
 
 func TestPolicyScopeChangeResetsOnlyAffectedVisibility(t *testing.T) {
 	h, hidden := newEnforcementTestHandler(t)
-	policy := func(space int32) *apigen.NetworkPolicy {
-		return &apigen.NetworkPolicy{Destination: &apigen.NetworkPolicyPeerRef{Kind: apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE, ID: space}}
+	policy := func(space uint64) *apigen.NetworkPolicy {
+		return &apigen.NetworkPolicy{Action: apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW, Source: spacePeer(space), Destination: spacePeer(space)}
 	}
 	created := writeNetworkPolicyForTest(t, h.Store, 0, policy(1))
 	limited, admin := startTestEventStream(t, h, 2), startTestEventStream(t, h, 1)
 	changed := writeNetworkPolicyForTest(t, h.Store, created.NetworkPolicyID, policy(hidden.ID))
-	if msg := recvMsg(t, limited); msg.Snapshot == nil || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 0 {
+	if msg := recvMsg(t, limited); !msg.Snapshot.Present || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 0 {
 		t.Fatalf("hidden policy was not removed by reset: %+v", msg)
 	}
-	if msg := recvMsg(t, admin); msg.Snapshot != nil || len(mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 1 {
+	if msg := recvMsg(t, admin); msg.Snapshot.Present || len(mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 1 {
 		t.Fatalf("unchanged admin visibility reset: %+v", msg)
 	}
 	writeNetworkPolicyForTest(t, h.Store, changed.NetworkPolicyID, policy(1))
-	if msg := recvMsg(t, limited); msg.Snapshot == nil || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 1 {
+	if msg := recvMsg(t, limited); !msg.Snapshot.Present || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)) != 1 {
 		t.Fatalf("newly visible policy absent after reset: %+v", msg)
 	}
 }
@@ -324,7 +323,7 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	grant, err := h.Authz.CreateGrant(&apigen.AuthzGrant{UserID: 2, TemplateID: authz.ClusterAdminTemplateID, Spec: &apigen.AuthzGrantSpec{}}, 0)
+	grant, err := h.Authz.CreateGrant(clusterAdminGrant(2), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -332,7 +331,7 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if configs := foldMsg(initial, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) != 1 || configs[int64(hidden.ConfigID)] == nil {
+	if configs := foldMsg(initial, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) != 1 || configs[hidden.ConfigID] == nil {
 		t.Fatal("grant did not reveal the staging config")
 	}
 	admin, affected, other := startTestEventStream(t, h, 1), startTestEventStream(t, h, 2), startTestEventStream(t, h, 3)
@@ -348,11 +347,11 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 		t.Fatalf("invalid grant tombstone: %+v", grants[0])
 	}
 	msg = recvMsg(t, affected)
-	if msg.Snapshot == nil || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG)) != 0 {
+	if !msg.Snapshot.Present || len(foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG)) != 0 {
 		t.Fatal("revocation did not reset and remove the formerly visible config")
 	}
 	for id, e := range foldMsg(msg, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT) {
-		if id == grant.ID || e.AuthzGrant.UserID != 2 {
+		if id == grant.ID || e.Value.AuthzGrant.UserID != 2 {
 			t.Fatal("reset retained the revoked grant or exposed another user's grant")
 		}
 	}
@@ -362,16 +361,16 @@ func TestGrantDeletePublishesTombstoneAndResetsOnlyAffectedUser(t *testing.T) {
 	}
 	for {
 		msg := recvMsg(t, other)
-		if msg.Snapshot != nil || len(mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT)) != 0 {
+		if msg.Snapshot.Present || len(mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT)) != 0 {
 			t.Fatal("grant revocation reset another user or exposed the grant")
 		}
-		if configs := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) > 0 && configs[0].EntityID() == int64(marker.ConfigID) {
+		if configs := mutationsOf(msg, apigen.CoreEntityType_CORE_ENTITY_CONFIG); len(configs) > 0 && configs[0].EntityID() == marker.ConfigID {
 			break
 		}
 	}
 }
 
-func writeNetworkPolicyForTest(t *testing.T, s *state.Service, id int32, policy *apigen.NetworkPolicy) *pq.NetworkPolicyEvent {
+func writeNetworkPolicyForTest(t *testing.T, s *state.Service, id uint64, policy *apigen.NetworkPolicy) *pq.NetworkPolicyEvent {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
@@ -385,9 +384,9 @@ func writeNetworkPolicyForTest(t *testing.T, s *state.Service, id int32, policy 
 			if err != nil {
 				return nil, err
 			}
-			event.NetworkPolicyID = int32(next)
+			event.NetworkPolicyID = next
 		} else {
-			prev, err := q.GetNetworkPolicy(ctx, int64(id))
+			prev, err := q.GetNetworkPolicy(ctx, id)
 			if err != nil {
 				return nil, err
 			}
@@ -395,7 +394,7 @@ func writeNetworkPolicyForTest(t *testing.T, s *state.Service, id int32, policy 
 		}
 		event.Value = value
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: 1, EventType: verb}
-		return pq.NewUpdate(pq.NetworkPolicyMutation(meta, int64(event.NetworkPolicyID), value)), nil
+		return pq.NewUpdate(pq.NetworkPolicyMutation(meta, event.NetworkPolicyID, value)), nil
 	}); err != nil {
 		t.Fatal(err)
 	}

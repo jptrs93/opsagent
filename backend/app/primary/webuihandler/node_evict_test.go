@@ -15,7 +15,7 @@ import (
 
 func acceptSecondaryNode(t *testing.T, store *state.Service, identifier string) *nodes.Node {
 	t.Helper()
-	req, version, err := nodes.UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: identifier, UnderlayAddress: "10.0.0.2", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
+	req, version, err := nodes.UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: identifier, UnderlayAddress: mustAddr("10.0.0.2"), WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,16 +68,16 @@ func TestEvictEndpointRefusesPinnedDeploymentsThenForces(t *testing.T) {
 	}
 	if err := h.Store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		return pq.NewUpdate(pq.SecretKeyslotMutation(pq.EventMeta{GlobalSeq: seq, EventTime: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE},
-			pq.SecretKeyslot{Kind: apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE, NodeID: int64(node.ID), SmkVersion: 1, WrappedSmk: []byte{1}, Nonce: []byte{2}, UpdatedAt: 1})), nil
+			apigen.SecretKeyslot{SmkVersion: 1, WrappedSmk: []byte{1}, Nonce: []byte{2}, Wrapping: apigen.KeyslotWrapping{Value: apigen.KeyslotWrappingValueOneof{MachineKey: &apigen.MachineKey{NodeID: node.ID}}}})), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 	event, err := h.nodesEvict(ctx, &apigen.NodeEvictRequest{Identifier: node.Identifier, ExpectedSeq: node.Seq, Force: true})
-	if err != nil || event.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
+	if err != nil || event.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED {
 		t.Fatalf("forced evict: event=%+v err=%v", event, err)
 	}
 	for _, slot := range mustSlots(t, h.Store) {
-		if slot.NodeID == int64(node.ID) {
+		if slot.Wrapping.Value.MachineKey != nil && slot.Wrapping.Value.MachineKey.NodeID == node.ID {
 			t.Fatalf("evicted node's machine keyslot still live: %+v", slot)
 		}
 	}
@@ -88,8 +88,8 @@ func TestEvictEndpointRefusesPinnedDeploymentsThenForces(t *testing.T) {
 	if err != nil {
 		t.Fatalf("exposure: %v", err)
 	}
-	if exposure.NodeID != node.ID || len(exposure.Deployments) != 1 || exposure.Deployments[0].ID != cfg.DeploymentID || exposure.Deployments[0].Name != "web" {
-		t.Fatalf("exposure = %+v, want deployment %d web", exposure, cfg.DeploymentID)
+	if exposure.NodeID != node.ID || len(exposure.Deployments) != 1 || exposure.Deployments[0].ID != cfg.Deployment.ID || exposure.Deployments[0].Name != "web" {
+		t.Fatalf("exposure = %+v, want deployment %d web", exposure, cfg.Deployment.ID)
 	}
 	if !enrollment.Evicted(enrollment.NodeEvictedErr) || enrollment.Evicted(enrollment.IdentifierEvictedErr) {
 		t.Fatal("eviction classification must key on the 410 status alone")
@@ -114,7 +114,7 @@ func TestEvictionRequiresNodeDelete(t *testing.T) {
 	}
 }
 
-func mustSlots(t *testing.T, store *state.Service) []pq.SecretKeyslot {
+func mustSlots(t *testing.T, store *state.Service) []apigen.SecretKeyslot {
 	t.Helper()
 	slots, err := store.Queries().ListSecretKeyslots(context.Background())
 	if err != nil {

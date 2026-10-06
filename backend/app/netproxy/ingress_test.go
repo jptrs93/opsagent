@@ -91,16 +91,16 @@ func TestReadTLSClientHelloFromGoTLSClient(t *testing.T) {
 func TestIngressStateFromNetState(t *testing.T) {
 	state := ingressStateFromSnapshot(&apigen.NetState{
 		Seq: 7,
-		Ingress: []*apigen.NetIngress{{
+		Ingress: []apigen.NetIngress{{
 			Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
 			Hostname: "DB.Example.COM.",
-			TlsPassthrough: &apigen.TlsPassthroughNetIngress{
+			TlsPassthrough: apigen.Some(apigen.TlsPassthroughNetIngress{
 				HostPort: 8443,
-				Backends: []*apigen.IngressBackend{
+				Backends: []apigen.IngressBackend{
 					{Address: "fd00::42", Port: 5432},
 					{Address: "not-an-address", Port: 5432},
 				},
-			},
+			}),
 		}},
 	})
 	route := state.routes[8443]["db.example.com"]
@@ -115,12 +115,12 @@ func TestIngressStateFromNetState(t *testing.T) {
 func TestIngressStateFromNetStateIgnoresDNSPort(t *testing.T) {
 	state := ingressStateFromSnapshot(&apigen.NetState{
 		Seq: 1,
-		Ingress: []*apigen.NetIngress{{
+		Ingress: []apigen.NetIngress{{
 			Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
 			Hostname: "dns.example.com",
-			TlsPassthrough: &apigen.TlsPassthroughNetIngress{
+			TlsPassthrough: apigen.Some(apigen.TlsPassthroughNetIngress{
 				HostPort: netproxyDNSPort,
-			},
+			}),
 		}},
 	})
 

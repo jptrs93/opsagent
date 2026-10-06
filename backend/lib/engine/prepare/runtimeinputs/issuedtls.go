@@ -19,43 +19,43 @@ type IssuedTLSValue struct {
 	CACertPEM   []byte    `json:"ca_cert_pem"`
 	IssuedAt    time.Time `json:"issued_at"`
 	NotAfter    time.Time `json:"not_after"`
-	SpecVersion int32     `json:"spec_version"`
+	SpecVersion uint32    `json:"spec_version"`
 }
 
 type IssuedTLSProvider interface {
-	FetchIssuedTLS(ctx context.Context, deploymentID, specVersion int32) (*IssuedTLSValue, error)
+	FetchIssuedTLS(ctx context.Context, deploymentID uint64, specVersion uint32) (*IssuedTLSValue, error)
 }
 
 type IssuedTLSPersistence interface {
-	LoadIssuedTLS() (map[int32]*IssuedTLSValue, error)
-	StoreIssuedTLS(map[int32]*IssuedTLSValue) error
-	RetainIssuedTLS(keep map[int32]struct{}) (int, error)
+	LoadIssuedTLS() (map[uint64]*IssuedTLSValue, error)
+	StoreIssuedTLS(map[uint64]*IssuedTLSValue) error
+	RetainIssuedTLS(keep map[uint64]struct{}) (int, error)
 }
 
-func IssuedTLSMountOf(cfg *apigen.DeploymentEvent) *apigen.IssuedTLSMount {
+func IssuedTLSMountOf(cfg *apigen.DeploymentRecord) *apigen.IssuedTLSMount {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Value.Spec.Container()
-	if container == nil {
+	container := cfg.Deployment.Spec.Container()
+	if container == nil || !container.Runtime.IssuedTlsMount.Present {
 		return nil
 	}
-	return container.Runtime.IssuedTlsMount
+	return &container.Runtime.IssuedTlsMount.Value
 }
 
 func (r *RuntimeInputs) SetIssuedTLSProvider(p IssuedTLSProvider) {
 	r.issuedTLS = p
 }
 
-func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
+func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.DeploymentRecord) error {
 	mount := IssuedTLSMountOf(cfg)
 	if mount == nil {
 		return nil
 	}
 	r.mu.RLock()
-	held := r.issuedTLSValues[cfg.DeploymentID]
+	held := r.issuedTLSValues[cfg.Deployment.ID]
 	r.mu.RUnlock()
-	if held != nil && held.SpecVersion == cfg.SpecVersion {
+	if held != nil && held.SpecVersion == cfg.Meta.SpecVersion {
 		return nil
 	}
 	if r.issuedTLS == nil {
@@ -64,7 +64,7 @@ func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.De
 		}
 		return fmt.Errorf("no issued TLS provider configured")
 	}
-	value, err := r.issuedTLS.FetchIssuedTLS(ctx, cfg.DeploymentID, cfg.SpecVersion)
+	value, err := r.issuedTLS.FetchIssuedTLS(ctx, cfg.Deployment.ID, cfg.Meta.SpecVersion)
 	if err != nil {
 		if held != nil && time.Now().Before(held.NotAfter) {
 			return nil
@@ -78,20 +78,20 @@ func (r *RuntimeInputs) EnsureIssuedTLSReady(ctx context.Context, cfg *apigen.De
 		return fmt.Errorf("issued TLS provider returned empty material")
 	}
 	r.mu.Lock()
-	r.issuedTLSValues[cfg.DeploymentID] = value
+	r.issuedTLSValues[cfg.Deployment.ID] = value
 	r.mu.Unlock()
-	r.persistIssuedTLS(ctx, map[int32]*IssuedTLSValue{cfg.DeploymentID: value})
+	r.persistIssuedTLS(ctx, map[uint64]*IssuedTLSValue{cfg.Deployment.ID: value})
 	return nil
 }
 
-func (r *RuntimeInputs) ResolveIssuedTLS(deploymentID int32) (*IssuedTLSValue, bool) {
+func (r *RuntimeInputs) ResolveIssuedTLS(deploymentID uint64) (*IssuedTLSValue, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	value, ok := r.issuedTLSValues[deploymentID]
 	return value, ok
 }
 
-func (r *RuntimeInputs) RetainIssuedTLS(keep map[int32]struct{}) (int, error) {
+func (r *RuntimeInputs) RetainIssuedTLS(keep map[uint64]struct{}) (int, error) {
 	r.mu.Lock()
 	for id := range r.issuedTLSValues {
 		if _, ok := keep[id]; !ok {
@@ -110,11 +110,11 @@ func IssuedTLSRoot() string {
 	return filepath.Join(ainit.StaticConfig.DataDir, "issued-tls")
 }
 
-func IssuedTLSHostDir(deploymentID int32) string {
-	return filepath.Join(IssuedTLSRoot(), strconv.Itoa(int(deploymentID)))
+func IssuedTLSHostDir(deploymentID uint64) string {
+	return filepath.Join(IssuedTLSRoot(), strconv.FormatUint(deploymentID, 10))
 }
 
-func RetainIssuedTLSDirs(keep map[int32]struct{}) (int, error) {
+func RetainIssuedTLSDirs(keep map[uint64]struct{}) (int, error) {
 	entries, err := os.ReadDir(IssuedTLSRoot())
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -124,11 +124,11 @@ func RetainIssuedTLSDirs(keep map[int32]struct{}) (int, error) {
 	}
 	removed := 0
 	for _, entry := range entries {
-		id, err := strconv.Atoi(entry.Name())
-		if err != nil || id <= 0 {
+		id, err := strconv.ParseUint(entry.Name(), 10, 64)
+		if err != nil || id == 0 {
 			continue
 		}
-		if _, keeping := keep[int32(id)]; keeping {
+		if _, keeping := keep[id]; keeping {
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(IssuedTLSRoot(), entry.Name())); err != nil {
@@ -139,7 +139,7 @@ func RetainIssuedTLSDirs(keep map[int32]struct{}) (int, error) {
 	return removed, nil
 }
 
-func (r *RuntimeInputs) persistIssuedTLS(ctx context.Context, values map[int32]*IssuedTLSValue) {
+func (r *RuntimeInputs) persistIssuedTLS(ctx context.Context, values map[uint64]*IssuedTLSValue) {
 	p, ok := r.persistence.(IssuedTLSPersistence)
 	if !ok {
 		return

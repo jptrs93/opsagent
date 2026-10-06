@@ -15,7 +15,7 @@ import {recentlyDeletedOverlay} from "../components/recentlyDeletedOverlay.js";
 import {formatDeploymentLabel, restartDeploymentOverlay, restartDeploymentPayload} from "../components/restartDeploymentOverlay.js";
 import {capi} from "../capi/index.js";
 import {nodeDisplayName} from "../lib/machines.js";
-import {containerWorkload, deploymentDeleted, deploymentWorkload, placementNodeId, desiredRunning} from "../lib/deployment.js";
+import {containerWorkload, deploymentDeleted, deploymentId as deploymentIdOf, deploymentMeta, deploymentSeq, deploymentWorkload, isSelfDeployment, placementNodeId, desiredRunning} from "../lib/deployment.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {preparerPhase} from "../lib/preparerStatus.js";
@@ -134,7 +134,7 @@ const addressReferrers = (deploymentId) =>
     deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (candidate) => {
         const envVars = containerWorkload(candidate?.config)?.runtime?.envVars || {};
         return Object.values(envVars).some(
-            (value) => Number(value?.addressDeploymentId || 0) === Number(deploymentId),
+            (envVar) => Number(envVar?.value?.address?.deploymentId || 0) === Number(deploymentId),
         );
     });
 
@@ -242,14 +242,15 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
     const saving = van.state(false);
     const error = van.state('');
     const targetVersion = deploymentWorkload(historyConfig)?.version || '';
-    const historyVersion = historyConfig?.version || 0;
+    const historyVersion = Number(deploymentMeta(historyConfig).version || 0);
     const currentConfig = getCurrentConfig();
+    const currentNodeId = placementNodeId(currentConfig);
     const label = currentConfig
         ? formatDeploymentLabel({
             id: deploymentId,
-            spaceName: `space ${currentConfig.spaceId ?? 0}`,
-            node: currentConfig.nodeId ? nodeDisplayName(currentConfig.nodeId, machinesS.val) : '',
-            name: currentConfig.name || '',
+            spaceName: `space ${currentConfig.deployment?.spaceId ?? 0}`,
+            node: currentNodeId ? nodeDisplayName(currentNodeId, machinesS.val) : '',
+            name: currentConfig.deployment?.name || '',
         })
         : `#${deploymentId}`;
 
@@ -269,16 +270,20 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
         try {
             const request = {
                 deploymentId,
-                expectedSeq: Number(current.seq || 0),
+                expectedSeq: deploymentSeq(current),
             };
-            if (current.spec?.container1Spec) {
-                const spec = structuredClone(current.spec);
-                spec.container1Spec.version = targetVersion;
-                request.specUpdate = {spec};
+            // A spec update carries the version inside the container spec and
+            // leaves the running flag alone; a version-only update would also
+            // start the deployment.
+            const spec = structuredClone(current.deployment?.spec || {});
+            const container = spec.workload?.value?.container;
+            if (container) {
+                container.version = targetVersion;
+                request.update = {spec: {spec}};
             } else {
-                request.versionOnlyUpdate = {targetVersion};
+                request.update = {versionOnly: {targetVersion}};
             }
-            await capi.postV2DeploymentsUpdate(request);
+            await capi.postV1DeploymentsUpdate(request);
             close();
         } catch (e) {
             error.val = e?.message || 'Reverting target version failed.';
@@ -318,14 +323,12 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
 }
 
 const deploymentSourceView = (config) => {
-    const spec = config?.value?.spec || {};
-    const container = spec.container1Spec || null;
-    const source = container?.source || {};
-    if (source.nixDockerBuild) {
-        return {variant: 'nixDockerBuild', repo: source.nixDockerBuild.repo || ''};
-    }
-    if (spec.opendeploySpec) {
+    if (isOpenDeployDeployment(config?.deployment)) {
         return {variant: 'githubRelease', repo: openDeployRepo};
+    }
+    const source = deploymentWorkload(config)?.source?.value || {};
+    if (source.nixImageBuild) {
+        return {variant: 'nixImageBuild', repo: source.nixImageBuild.repo || ''};
     }
     if (source.remoteImage) {
         return {variant: 'containerImage', repo: source.remoteImage.image || ''};
@@ -342,17 +345,18 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
         .filter(machine => Number(machine.id || 0))
         .map(machine => [Number(machine.id), machine]));
 
-    return deployments.filter(d => d.config && d.config.deploymentId && !deploymentDeleted(d.config)).map((d) => {
-        const id = d.config.deploymentId;
+    return deployments.filter(d => deploymentIdOf(d.config) && !deploymentDeleted(d.config)).map((d) => {
+        const id = deploymentIdOf(d.config);
+        const meta = deploymentMeta(d.config);
         const instanceId = d.instance?.id || 0;
-        const identity = {spaceId: d.config.value?.spaceId, name: d.config.value?.name};
-        const spec = d.config.value?.spec || {};
+        const identity = {spaceId: d.config.deployment?.spaceId, name: d.config.deployment?.name};
+        const spec = d.config.deployment?.spec || {};
         const workload = deploymentWorkload(d.config) || {};
         const runner = d.status?.runner || {};
         const prep = d.status?.preparer || {};
         const {variant, repo} = deploymentSourceView(d.config);
 
-        const runnerType = spec.opendeploySpec ? 'opendeploy' : 'container';
+        const runnerType = isSelfDeployment(d.config) ? 'opendeploy' : 'container';
         const spaceId = identity.spaceId || 0;
         const nodeId = placementNodeId(d.config);
         const node = nodeDisplayName(nodeId, machines);
@@ -371,7 +375,8 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             const sourceView = deploymentSourceView(state.config);
             return {
                 instanceId: instance.id || 0,
-                deploymentVersion: instance.deploymentVersion || 0,
+                deploymentVersion: Number(instance.deployment?.version || 0),
+                deploymentSpecVersion: Number(state.config?.meta?.specVersion || 0),
                 node: nodeDisplayName(instanceNodeId, machines),
                 runnerPresent: Boolean(state.status?.runner),
                 existingStatus: instanceNodeMissing && instanceStatus === STATUS_RUNNING ? 0 : instanceStatus,
@@ -409,28 +414,28 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
             lastRestartAt: runner.lastRestartAt,
-            deployedBy: d.config.author || 0,
-            deployedAt: d.config.eventTime,
-            createdAt: d.config.createdTime,
+            deployedBy: Number(meta.updatedActor || 0),
+            deployedAt: new Date(Number(meta.updatedTime || 0)),
+            createdAt: new Date(Number(meta.createdTime || 0)),
             hasNetworking: Boolean(spec.networking),
             deployedVersion: workload.version || '',
             desiredRunning: desiredRunning(d.config),
             preparer: prep,
             prepareVersion: deploymentWorkload(d.pinnedConfig)?.version || workload.version || '',
-            currentVersion: d.config.specVersion || 0,
-            version: d.config.version || 0,
-            seq: Number(d.config.seq || 0),
+            currentVersion: Number(meta.specVersion || 0),
+            version: Number(meta.version || 0),
+            seq: deploymentSeq(d.config),
             targetState: d.instance?.state || 0,
             scheduledInstances,
         };
     });
 };
 
-const findRawConfig = (deploymentId) => {
+const findRawConfig = (id) => {
     const all = deploymentsS.rawVal;
     if (!Array.isArray(all)) return null;
     for (const d of all) {
-        if (d.config?.deploymentId === deploymentId) return d.config;
+        if (deploymentIdOf(d.config) === Number(id)) return d.config;
     }
     return null;
 };
@@ -514,11 +519,8 @@ const versionHref = (member, instance) => {
     if (!version) return '';
     const variant = instance.variant || member.variant;
     const repo = instance.repo || member.repo;
-    if (variant === 'nixDockerBuild' && repo) return `https://${repo}/commit/${version}`;
-    const releaseRepo = variant === 'githubRelease'
-        ? repo
-        : member.spaceId === 0 && member.name === 'opendeploy-net' ? openDeployRepo : '';
-    if (releaseRepo) return `https://${releaseRepo}/releases/tag/${version}`;
+    if (variant === 'nixImageBuild' && repo) return `https://${repo}/commit/${version}`;
+    if (variant === 'githubRelease' && repo) return `https://${repo}/releases/tag/${version}`;
     return '';
 };
 
@@ -667,7 +669,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         overlayNode.val = restartDeploymentOverlay({
             deploymentRow,
             rawConfig: findRawConfig(deploymentRow.id),
-            restart: () => capi.postV2DeploymentsUpdate(restartDeploymentPayload(deploymentRow)),
+            restart: () => capi.postV1DeploymentsUpdate(restartDeploymentPayload(deploymentRow)),
             close: closeOverlay,
         });
     };
@@ -1329,7 +1331,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                 inspectorActionButton("Fork", () => onFork(row)),
                 inspectorActionButton("View config", () => onViewConfig(row)),
                 inspectorActionButton("Prepare output", () => onShowPrepareOutput(row)),
-                ...(row.variant === 'nixDockerBuild' && row.repo ? [
+                ...(row.variant === 'nixImageBuild' && row.repo ? [
                     inspectorActionButton("Reset build store", () => onResetNixStore(row)),
                 ] : []),
                 ...(row.canDelete ? [

@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model/deployments.proto";
+import "api-contract/options.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message Config {
+  ConfigFs fs = 1;
+  int32 space_id = 2;
+  string value = 3;
+  reserved 4, 5; // value_version, created_time: EntityMeta on the mutation
+  int32 id = 6;
+}
+
+message ConfigFs {
+  string name = 1;
+  int32 directory_id = 2; // 0 = the implicit space root
+}
+
+message ValueDirectory {
+  int32 id = 1;
+  int32 space_id = 2;
+  string name = 3;
+  int32 parent_id = 4;     // 0 = the implicit root
+  reserved 5, 6;           // created_at, author: EntityMeta on the mutation
+  reserved 7;              // deleted: a delete mutation on the event stream
+}

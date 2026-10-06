@@ -2,28 +2,28 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/network_policies.proto";
-import "api-contract/model/networking.proto";
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message NetworkPolicyCreateRequest {
   NetworkPolicyAction action = 1;
-  NetworkPolicyPeerRef source = 2;
-  NetworkPolicyPeerRef destination = 3;
+  NetworkPolicyPeer source = 2 [(cp.go_value) = true];
+  NetworkPolicyPeer destination = 3 [(cp.go_value) = true];
   repeated NetPortMatch ports = 4;
 }
 
 message NetworkPolicyUpdateRequest {
-  int32 id = 1;
-  reserved 2; // version: the ordinal check, before seqs were the concurrency token
-  int64 expected_seq = 7; // seq of the policy's last mutation the caller saw; 0 = no check
+  uint64 id = 1 [(cp.js_type) = "number"];
+  int64 expected_seq = 2 [(cp.js_type) = "number"]; // 0 = no check
   NetworkPolicyAction action = 3;
-  NetworkPolicyPeerRef source = 4;
-  NetworkPolicyPeerRef destination = 5;
+  NetworkPolicyPeer source = 4 [(cp.go_value) = true];
+  NetworkPolicyPeer destination = 5 [(cp.go_value) = true];
   repeated NetPortMatch ports = 6;
 }
 
 message NetworkPolicyDeleteRequest {
-  int32 id = 1;
+  uint64 id = 1 [(cp.js_type) = "number"];
 }

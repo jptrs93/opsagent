@@ -26,28 +26,36 @@ func (h *Handler) PostV1ReposValidate(ctx apigen.Context, req *apigen.RepoValida
 	}
 
 	switch {
-	case req.NixDockerBuild != nil:
-		if err := validateNixDockerBuildValidateRequest(req.NixDockerBuild); err != nil {
+	case req.Source.NixImageBuild != nil:
+		if err := validateNixImageBuildValidateRequest(req.Source.NixImageBuild); err != nil {
 			return nil, err
 		}
-		return h.validateNixDockerBuildSource(ctx, req.NixDockerBuild)
-	case req.ContainerImage != nil:
-		if err := validateContainerImageValidateRequest(req.ContainerImage); err != nil {
+		return h.validateNixImageBuildSource(ctx, req.Source.NixImageBuild)
+	case req.Source.ContainerImage != nil:
+		if err := validateContainerImageValidateRequest(req.Source.ContainerImage); err != nil {
 			return nil, err
 		}
-		return h.validateContainerImageSource(ctx, req.ContainerImage)
+		return h.validateContainerImageSource(ctx, req.Source.ContainerImage)
 	default:
 		return nil, apigen.NewApiErr("Bad request.", "bad_request", http.StatusBadRequest)
 	}
 }
 
-func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.ValidateNixDockerBuildSource) (*apigen.RepoValidateResponse, error) {
+func nixImageBuildResponse(res *apigen.ValidateNixImageBuildSourceResponse) *apigen.RepoValidateResponse {
+	return &apigen.RepoValidateResponse{Source: apigen.RepoValidateResponseSourceOneof{NixImageBuild: res}}
+}
+
+func containerImageResponse(res *apigen.ValidateContainerImageSourceResponse) *apigen.RepoValidateResponse {
+	return &apigen.RepoValidateResponse{Source: apigen.RepoValidateResponseSourceOneof{ContainerImage: res}}
+}
+
+func (h *Handler) validateNixImageBuildSource(ctx apigen.Context, src *apigen.ValidateNixImageBuildSource) (*apigen.RepoValidateResponse, error) {
 	repo := src.RepoUrl
 	if h.GitVersions == nil {
-		return &apigen.RepoValidateResponse{NixDockerBuild: &apigen.ValidateNixDockerBuildSourceResponse{GitRepository: validationErr("Git validation is not configured.")}}, nil
+		return nixImageBuildResponse(&apigen.ValidateNixImageBuildSourceResponse{GitRepository: validationErr("Git validation is not configured.")}), nil
 	}
 
-	res := apigen.ValidateNixDockerBuildSourceResponse{}
+	res := apigen.ValidateNixImageBuildSourceResponse{}
 	selectedBranch := src.SelectedBranch
 	needBranchListing := src.CheckBranch || src.RefreshAvailableBranches || (src.CheckRepo && !src.CheckCommit && !src.CheckFlakePath)
 	if needBranchListing {
@@ -55,7 +63,7 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		if err != nil {
 			slog.WarnContext(ctx, "listing git branches", "err", err)
 			errMessage := fmt.Sprintf("Failed checking repository branches: %v", err)
-			res.AvailableBranches = apigen.AvailableBranches{Loaded: true, Errormessage: &errMessage}
+			res.AvailableBranches = apigen.AvailableBranches{Loaded: true, ErrorMessage: apigen.Some(errMessage)}
 			if src.CheckRepo {
 				res.CheckedRepoUrl = repo
 				res.GitRepository = validationErr(errMessage)
@@ -86,9 +94,9 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		if err != nil {
 			slog.WarnContext(ctx, fmt.Sprintf("listing git repo commits branch=%s", selectedBranch), "err", err)
 			errMessage := fmt.Sprintf("Failed listing branch '%v' commits: %v", selectedBranch, err)
-			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: selectedBranch, Errormessage: &errMessage}
+			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: selectedBranch, ErrorMessage: apigen.Some(errMessage)}
 		} else {
-			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: selectedBranch, Commits: commits}
+			res.AvailableCommits = apigen.AvailableCommits{Loaded: true, Branch: selectedBranch, Commits: derefVersions(commits)}
 		}
 	}
 
@@ -180,10 +188,10 @@ func (h *Handler) validateNixDockerBuildSource(ctx apigen.Context, src *apigen.V
 		}
 	}
 
-	return &apigen.RepoValidateResponse{NixDockerBuild: &res}, nil
+	return nixImageBuildResponse(&res), nil
 }
 
-func validateNixDockerBuildValidateRequest(src *apigen.ValidateNixDockerBuildSource) error {
+func validateNixImageBuildValidateRequest(src *apigen.ValidateNixImageBuildSource) error {
 	if src.RepoUrl == "" {
 		return RepoRequiredErr
 	}
@@ -218,13 +226,13 @@ func (h *Handler) validateContainerImageSource(ctx apigen.Context, src *apigen.V
 	tags, err := versionprovider.ListContainerImageTags(ctx, image, h.GithubCredentials)
 	if err != nil {
 		slog.WarnContext(ctx, fmt.Sprintf("container image validation failed image=%s", image), "err", err)
-		return &apigen.RepoValidateResponse{ContainerImage: &apigen.ValidateContainerImageSourceResponse{Image: validationErr("Image not accessible: " + containerImageRef(image))}}, nil
+		return containerImageResponse(&apigen.ValidateContainerImageSourceResponse{Image: validationErr("Image not accessible: " + containerImageRef(image))}), nil
 	}
 	res := apigen.ValidateContainerImageSourceResponse{Image: validationOK("Image accessible: " + containerImageRef(image))}
 	if src.RefreshVersions {
-		res.Tags = tags
+		res.Tags = derefVersions(tags)
 	}
-	return &apigen.RepoValidateResponse{ContainerImage: &res}, nil
+	return containerImageResponse(&res), nil
 }
 
 func validateContainerImageValidateRequest(src *apigen.ValidateContainerImageSource) error {
@@ -248,11 +256,11 @@ func validationErr(message string) apigen.ValidationResult {
 	return apigen.ValidationResult{Checked: true, Ok: false, Message: message}
 }
 
-func selectedCommitID(commit *apigen.Version) string {
-	if commit == nil {
+func selectedCommitID(commit apigen.Maybe[apigen.Version]) string {
+	if !commit.Present {
 		return ""
 	}
-	return commit.ID
+	return commit.Value.ID
 }
 
 func hasTrimmedWhitespace(s string) bool {
@@ -269,10 +277,10 @@ func containerImageRef(image string) string {
 
 func countValidationSources(req *apigen.RepoValidateRequest) int {
 	count := 0
-	if req.NixDockerBuild != nil {
+	if req.Source.NixImageBuild != nil {
 		count++
 	}
-	if req.ContainerImage != nil {
+	if req.Source.ContainerImage != nil {
 		count++
 	}
 	return count

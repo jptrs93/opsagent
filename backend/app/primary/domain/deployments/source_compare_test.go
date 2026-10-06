@@ -7,9 +7,9 @@ import (
 )
 
 func imageSpec(image string) *apigen.DeploymentSpec {
-	return &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
-		Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: image}},
-	}}
+	return &apigen.DeploymentSpec{Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+		Source: apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: image}}},
+	}}}}
 }
 
 func TestSameDesiredVersionSourceIgnoresImageTag(t *testing.T) {

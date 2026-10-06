@@ -2,33 +2,9 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/assets.proto";
-import "api-contract/model_assets_operations.proto";
-import "api-contract/model_auth_operations.proto";
-import "api-contract/model/authz.proto";
-import "api-contract/model_authz_operations.proto";
-import "api-contract/model_cluster_operations.proto";
-import "api-contract/model/configs.proto";
-import "api-contract/model_configs_operations.proto";
-import "api-contract/model/deployments.proto";
-import "api-contract/model_deployments_operations.proto";
-import "api-contract/model_directories_operations.proto";
-import "api-contract/model_enrollment_operations.proto";
-import "api-contract/model/events.proto";
-import "api-contract/model_logs_operations.proto";
-import "api-contract/model_metrics_operations.proto";
-import "api-contract/model/network_policies.proto";
-import "api-contract/model_network_policies_operations.proto";
-import "api-contract/model/nodes.proto";
-import "api-contract/model_nodes_operations.proto";
-import "api-contract/model/secrets.proto";
-import "api-contract/model_secrets_operations.proto";
-import "api-contract/model/sessions.proto";
-import "api-contract/model_sessions_operations.proto";
-import "api-contract/model/spaces.proto";
-import "api-contract/model_spaces_operations.proto";
-import "api-contract/model/system_config.proto";
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
@@ -151,23 +127,23 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AccessRuleTemplatesList(cp.Empty) returns (AuthzRuleTemplateList) {
-    option (cp.url) = "/v1/access/rule-templates/list";
+  rpc PostV1AccessGrantTemplatesList(cp.Empty) returns (AuthzGrantTemplateList) {
+    option (cp.url) = "/v1/access/grant-templates/list";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AccessRuleTemplatesCreate(AuthzRuleTemplateCreateRequest) returns (CoreWriteUpdate) {
-    option (cp.url) = "/v1/access/rule-templates/create";
+  rpc PostV1AccessGrantTemplatesCreate(AuthzGrantTemplateCreateRequest) returns (CoreWriteUpdate) {
+    option (cp.url) = "/v1/access/grant-templates/create";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AccessRuleTemplatesUpdate(AuthzRuleTemplateUpdateRequest) returns (CoreWriteUpdate) {
-    option (cp.url) = "/v1/access/rule-templates/update";
+  rpc PostV1AccessGrantTemplatesUpdate(AuthzGrantTemplateUpdateRequest) returns (CoreWriteUpdate) {
+    option (cp.url) = "/v1/access/grant-templates/update";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1AccessRuleTemplatesDelete(AuthzRuleTemplateDeleteRequest) returns (cp.Empty) {
-    option (cp.url) = "/v1/access/rule-templates/delete";
+  rpc PostV1AccessGrantTemplatesDelete(AuthzGrantTemplateDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/access/grant-templates/delete";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
@@ -219,7 +195,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV2DeploymentsUpdate(DeploymentUpdateRequestV2) returns (CoreWriteUpdate) {
+  rpc PostV1DeploymentsUpdate(DeploymentUpdateRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
@@ -415,7 +391,7 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  // Streams raw content bytes for one content version (?content_version_id=N).
+  // Streams the content of one asset version (?asset_id=N&version=M).
   rpc GetV1AssetsContent(cp.Empty) returns (cp.Empty) {
     option (cp.url) = "/v1/assets/content";
     option (cp.go_custom) = true;

@@ -1,16 +1,17 @@
 import {FULL_GIT_COMMIT_RE, validateLocalFlakePath} from "./deploymentSource.js";
 
-import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
+import {deploymentDeleted, deploymentId, deploymentOf, placementNodeId} from "../lib/deployment.js";
+import {formatIpPrefix, IPV4_ANY_PREFIX, IPV6_ANY_PREFIX, parseIpPrefix} from "../lib/ipaddr.js";
 import {imageReference, imageRepositoryFromReference, imageVersionFromReference} from "./deploymentSource.js";
 const NETWORK_VIRTUAL = 1;
 const NETWORK_HOST = 2;
 const PROTOCOL_TCP = 1;
 const PROTOCOL_UDP = 2;
-const INGRESS_TLS_PASSTHROUGH = 1;
-const INGRESS_HTTPS = 2;
-const ADDRESS_FAMILY_IPV4 = 1;
-const ADDRESS_FAMILY_IPV6 = 2;
+const IP_FILTER_ALLOW = 1;
+const IP_FILTER_DENY = 2;
 const HTTP_BACKEND_H2C = 1;
+const HTTP_BACKEND_HTTP1 = 2;
+const ACME_CHALLENGE_HTTP01 = 1;
 const UPGRADE_RECREATE = 1;
 const UPGRADE_ROLLOVER = 2;
 const PERMISSION_READ_WRITE = 1;
@@ -23,8 +24,8 @@ export const deploymentHclCompletionOptions = [
     {label: "deployment", type: "keyword", info: "Root deployment block"},
     {label: "container", type: "keyword", info: "Container workload"},
     {label: "source", type: "keyword", info: "Container source"},
-    {label: "container_image", type: "keyword", info: "Existing container image"},
-    {label: "nix_docker_build", type: "keyword", info: "Nix-built container image"},
+    {label: "remote_image", type: "keyword", info: "Existing container image"},
+    {label: "nix_image_build", type: "keyword", info: "Nix-built container image"},
     {label: "process", type: "keyword", info: "Container process settings"},
     {label: "env_vars", type: "keyword", info: "Environment variables"},
     {label: "resources", type: "keyword", info: "Container resource overrides"},
@@ -54,8 +55,8 @@ export const deploymentHclCompletionOptions = [
     {label: "scheduled_node", type: "function", info: "listen node selector: the node the deployment is scheduled on (the default)"},
     {label: "any_node", type: "function", info: "listen node selector: every node that can reach the backend"},
     {label: "any_address", type: "function", info: "listen address selector: every host address"},
-    {label: "ipv4", type: "function", info: "listen address selector: every IPv4 host address"},
-    {label: "ipv6", type: "function", info: "listen address selector: every IPv6 host address"},
+    {label: "ipv4", type: "function", info: "listen address selector: every IPv4 host address (0.0.0.0/0)"},
+    {label: "ipv6", type: "function", info: "listen address selector: every IPv6 host address (::/0)"},
 ];
 
 class ParseFailure extends Error {
@@ -279,7 +280,7 @@ function unwrap(value) {
 
 // The generic name+version resolvers want one catalog entry per referenceable
 // asset version, but asset metas arrive one per asset with a version_refs
-// index. Expand them so `stableId` and `version` form the pinnable ValueRef.
+// index. Expand them so `stableId` and `version` form the pinnable AssetRef.
 function expandAssetVersions(metas) {
     const out = [];
     for (const meta of metas) {
@@ -309,23 +310,25 @@ function normalizedCatalogs(catalogs) {
     };
 }
 
-function deploymentOf(item) {
+// Deployment catalog entries are DeploymentRecords, bare or wrapped as the
+// status rows' {config} items.
+function recordOf(item) {
     return item?.config || item;
 }
 
 function itemSpace(item, type) {
-    if (type === "deployment") return deploymentOf(item)?.value?.spaceId;
+    if (type === "deployment") return deploymentOf(recordOf(item))?.spaceId;
     return item?.spaceId;
 }
 
 function itemName(item, type) {
     if (type === "asset") return item?.key;
-    if (type === "deployment") return deploymentOf(item)?.value?.name;
+    if (type === "deployment") return deploymentOf(recordOf(item))?.name;
     return item?.name;
 }
 
 function itemID(item, type) {
-    if (type === "deployment") return deploymentOf(item)?.deploymentId;
+    if (type === "deployment") return deploymentOf(recordOf(item))?.id;
     return item?.id;
 }
 
@@ -355,7 +358,7 @@ export function itemPath(catalogs, type, item) {
 
 function scopedItems(items, type, spaceId) {
     return items.filter(item => {
-        if (item?.deleted || deploymentDeleted(deploymentOf(item))) return false;
+        if (item?.deleted || deploymentDeleted(recordOf(item))) return false;
         const candidateSpace = itemSpace(item, type);
         return candidateSpace === undefined || candidateSpace === null || spaceId === undefined || spaceId === null
             || Number(candidateSpace) === Number(spaceId);
@@ -392,8 +395,10 @@ function nameForID(catalogs, type, id, spaceId) {
     return itemName(item, type) || placeholder(type, id);
 }
 
-function valueRef(item) {
-    return {id: Number(item.stableId), version: Number(item.version || 0)};
+// typedRef builds the SecretRef, ConfigRef, or AssetRef pinning one catalog
+// entry: the entity id under its typed key plus the value version.
+function typedRef(type, item) {
+    return {[`${type}Id`]: Number(item.stableId), version: Number(item.version || 0)};
 }
 
 // versionedReferenceForRef renders secret("space", "folder/name"[, version])
@@ -401,7 +406,7 @@ function valueRef(item) {
 // latest and the caller allows unpinned references.
 function versionedReferenceForRef(catalogs, type, ref, pinVersions) {
     const collection = versionedCollection(catalogs, type);
-    const id = Number(ref?.id || 0);
+    const id = Number(ref?.[`${type}Id`] || 0);
     const refVersion = Number(ref?.version || 0);
     const item = id && refVersion ? scopedItems(collection, type).find(candidate =>
         Number(candidate?.stableId) === id && Number(candidate?.version || 0) === refVersion) : undefined;
@@ -424,20 +429,21 @@ function deploymentReferenceForID(catalogs, functionName, id) {
     return `${functionName}(${quote(space)}, ${quote(name)})`;
 }
 
-function envValueToHcl(value, catalogs, pinVersions) {
-    if (value?.secret) {
-        return versionedReferenceForRef(catalogs, "secret", value.secret, pinVersions);
+function envValueToHcl(envVar, catalogs, pinVersions) {
+    const value = envVar?.value || {};
+    if (value.secret) {
+        return versionedReferenceForRef(catalogs, "secret", value.secret.secret, pinVersions);
     }
-    if (value?.config) {
-        return versionedReferenceForRef(catalogs, "config", value.config, pinVersions);
+    if (value.config) {
+        return versionedReferenceForRef(catalogs, "config", value.config.config, pinVersions);
     }
-    if (value?.addressDeploymentId !== undefined && value.addressDeploymentId !== null) {
-        return deploymentReferenceForID(catalogs, "address", value.addressDeploymentId);
+    if (value.address) {
+        return deploymentReferenceForID(catalogs, "address", value.address.deploymentId);
     }
-    if (value?.assetRef || value?.asset) {
-        return versionedReferenceForRef(catalogs, "asset", value.assetRef, pinVersions);
+    if (value.asset) {
+        return versionedReferenceForRef(catalogs, "asset", value.asset.asset, pinVersions);
     }
-    return quote(value?.value ?? "");
+    return quote(value.literal?.value ?? "");
 }
 
 function mountOption(name, value) {
@@ -445,27 +451,31 @@ function mountOption(name, value) {
 }
 
 // listenBlockLines renders one listen selector, omitting attributes at their
-// default (scheduled node, any address).
+// default (scheduled node, any address). A whole-family prefix is the
+// ipv4() / ipv6() selector.
 function listenBlockLines(entry, catalogs) {
     const lines = [];
-    const node = entry?.node;
+    const node = entry?.node?.value;
     if (node?.any) {
         lines.push("node = any_node()");
-    } else if (node?.nodeId) {
-        lines.push(`node = node(${quote(nameForID(catalogs, "node", node.nodeId))})`);
+    } else if (node?.specific?.nodeId) {
+        lines.push(`node = node(${quote(nameForID(catalogs, "node", node.specific.nodeId))})`);
     }
-    const address = entry?.address;
-    const prefixes = address?.prefixes || [];
-    if (prefixes.length === 1) {
+    const prefixes = (entry?.addresses || []).map(formatIpPrefix);
+    if (prefixes.length === 1 && prefixes[0] === IPV4_ANY_PREFIX) {
+        lines.push("address = ipv4()");
+    } else if (prefixes.length === 1 && prefixes[0] === IPV6_ANY_PREFIX) {
+        lines.push("address = ipv6()");
+    } else if (prefixes.length === 1) {
         lines.push(`address = ${quote(prefixes[0])}`);
     } else if (prefixes.length > 1) {
         lines.push(`address = [${prefixes.map(quote).join(", ")}]`);
-    } else if (Number(address?.family) === ADDRESS_FAMILY_IPV4) {
-        lines.push("address = ipv4()");
-    } else if (Number(address?.family) === ADDRESS_FAMILY_IPV6) {
-        lines.push("address = ipv6()");
     }
     return lines;
+}
+
+function ipFilterPrefixes(ipFilter, mode) {
+    return (ipFilter || []).filter(entry => Number(entry?.mode) === mode).map(entry => formatIpPrefix(entry.prefix));
 }
 
 export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
@@ -473,8 +483,8 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     const doc = document || {};
     const identity = doc.identity || {};
     const spec = doc.spec || {};
-    const container = spec.container1Spec || {};
-    const source = container.source || {};
+    const container = spec.workload?.value?.container || {};
+    const source = container.source?.value || {};
     const runtime = container.runtime || {};
     const defaultVolume = runtime.defaultVolume || {};
     const networking = spec.networking || {};
@@ -489,16 +499,16 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     add(0);
     add(1, "container {");
     add(2, "source {");
-    if (source.nixDockerBuild) {
-        const nixSource = source.nixDockerBuild;
-        add(3, "nix_docker_build {");
+    if (source.nixImageBuild) {
+        const nixSource = source.nixImageBuild;
+        add(3, "nix_image_build {");
         add(4, `repo = ${quote(nixSource.repo)}`);
         add(4, `flake = ${quote(nixSource.flake)}`);
         if (nixSource.target) add(4, `target = ${quote(nixSource.target)}`);
         add(4, `version = ${quote(container.version)}`);
         add(3, "}");
     } else {
-        add(3, "container_image {");
+        add(3, "remote_image {");
         add(4, `image = ${quote(imageReference(source.remoteImage?.image, container.version))}`);
         add(3, "}");
     }
@@ -566,13 +576,12 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         add(2, "}");
     }
 
-    if (container.upgradeStrategy === UPGRADE_ROLLOVER || container.readinessSignal) {
+    const readinessTimeout = container.readinessSignal?.timeoutSeconds;
+    if (container.upgradeStrategy === UPGRADE_ROLLOVER || readinessTimeout) {
         add(0);
         add(2, "upgrade {");
         add(3, `strategy = ${quote(container.upgradeStrategy === UPGRADE_ROLLOVER ? "rollover" : "recreate")}`);
-        if (container.readinessSignal) {
-            add(3, `readiness_timeout_seconds = ${Number(container.readinessSignal.timeoutSeconds || 0)}`);
-        }
+        if (readinessTimeout) add(3, `readiness_timeout_seconds = ${Number(readinessTimeout)}`);
         add(2, "}");
     }
 
@@ -593,28 +602,32 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
         const hostPort = Number(route?.hostPort || 0);
         const lines = [`protocol = ${quote(protocol)}`, `container_port = ${containerPort}`];
         if (hostPort && hostPort !== containerPort) lines.push(`host_port = ${hostPort}`);
-        const allow = route?.ipFilter?.allow || [];
+        const allow = ipFilterPrefixes(route?.ipFilter, IP_FILTER_ALLOW);
         if (allow.length) lines.push(`allow = [${allow.map(quote).join(", ")}]`);
+        const deny = ipFilterPrefixes(route?.ipFilter, IP_FILTER_DENY);
+        if (deny.length) lines.push(`deny = [${deny.map(quote).join(", ")}]`);
         routeBlocks.push({name: "port_forward", lines, listen: []});
     }
     for (const route of networking.ingress || []) {
-        if (route?.kind === INGRESS_HTTPS || route?.httpsConfig) {
-            const config = route?.httpsConfig || {};
+        const routeConfig = route?.config?.value || {};
+        if (routeConfig.https) {
+            const config = routeConfig.https;
             const lines = [`hostname = ${quote(route?.hostname)}`, `container_port = ${Number(config.containerPort || 0)}`];
             if (config.pathPrefix && config.pathPrefix !== "/") lines.push(`path_prefix = ${quote(config.pathPrefix)}`);
             if (config.stripPrefix) lines.push("strip_prefix = true");
             if (config.backendProtocol === HTTP_BACKEND_H2C) lines.push('backend = "h2c"');
             if (config.maxRequestBodyBytes) lines.push(`max_request_body_bytes = ${Number(config.maxRequestBodyBytes)}`);
             if (config.flushIntervalMs) lines.push(`flush_interval_ms = ${Number(config.flushIntervalMs)}`);
-            if (config.certSource?.secret) {
-                lines.push(`cert = ${versionedReferenceForRef(refs, "secret", config.certSource.secret.secret, pinVersions)}`);
-            } else if (config.certSource?.acme) {
+            const certSource = config.certSource?.value || {};
+            if (certSource.secret) {
+                lines.push(`cert = ${versionedReferenceForRef(refs, "secret", certSource.secret.secret, pinVersions)}`);
+            } else if (certSource.acme) {
                 lines.push("cert = acme()");
             }
             routeBlocks.push({name: "https", lines, listen: route?.listen || []});
             continue;
         }
-        const config = route?.tlsPassthroughConfig || {};
+        const config = routeConfig.tlsPassthrough || {};
         const lines = [`hostname = ${quote(route?.hostname)}`, `container_port = ${Number(config.containerPort || 0)}`];
         if (config.hostPort) lines.push(`host_port = ${Number(config.hostPort)}`);
         routeBlocks.push({name: "tls_passthrough", lines, listen: route?.listen || []});
@@ -652,7 +665,7 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     add(2, "dedicated_nodes {");
     // No placement yet reads as a placeholder the person is meant to replace,
     // not as an unresolved id.
-    const nodeIds = (doc.scheduling?.dedicatedNodes?.nodes || []).map(Number).filter(Boolean);
+    const nodeIds = (doc.scheduling?.placement?.value?.dedicatedNodes?.nodes || []).map(Number).filter(Boolean);
     const nodeRefs = nodeIds.length
         ? nodeIds.map(id => `node(${quote(nameForID(refs, "node", id))})`)
         : ['node("select-a-node")'];
@@ -747,12 +760,12 @@ function resolveNamed(text, diagnostics, expression, type, name, catalogs, space
     let matches = scopedItems(collection, type, type === "deployment" ? spaceId : undefined)
         .filter(item => itemName(item, type) === name);
     if (type === "deployment" && options.nodeId !== undefined && options.nodeId !== null) {
-        matches = matches.filter(item => placementNodeId(deploymentOf(item)) === Number(options.nodeId));
+        matches = matches.filter(item => placementNodeId(recordOf(item)) === Number(options.nodeId));
     }
     if (type === "deployment" && options.preferNodeId !== undefined && options.preferNodeId !== null) {
         // Same name may exist on several nodes; the local node shadows the
         // others, but a name unique to another node still resolves.
-        const ownNode = matches.filter(item => placementNodeId(deploymentOf(item)) === Number(options.preferNodeId));
+        const ownNode = matches.filter(item => placementNodeId(recordOf(item)) === Number(options.preferNodeId));
         if (ownNode.length > 0) matches = ownNode;
     }
     matches = uniqueByID(matches, type);
@@ -912,7 +925,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             const options = optionsExpression ? validateObject(text, diagnostics, optionsExpression, new Set(["executable"])) : new Map();
             if (asset) {
                 assetMounts.push({
-                    asset: valueRef(asset),
+                    asset: typedRef("asset", asset),
                     containerPath: pathExpression.value,
                     permission: optionBoolean(text, diagnostics, options, "executable")
                         ? PERMISSION_READ_EXECUTE
@@ -926,7 +939,7 @@ function parseMounts(text, diagnostics, attr, catalogs, spaceId, nodeId, runtime
             const deployment = deploymentReference(text, diagnostics, source, catalogs, nodeId);
             if (!deployment) continue;
             mounts.push({
-                deploymentId: Number(deploymentOf(deployment).deploymentId),
+                deploymentId: deploymentId(recordOf(deployment)),
                 containerPath: pathExpression.value,
                 permission: optionBoolean(text, diagnostics, options, "read_only")
                     ? PERMISSION_READ_ONLY
@@ -1008,7 +1021,7 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
         }
         const value = entry.value;
         if (value.kind === "string") {
-            setEnv(entry.name, {value: value.value});
+            setEnv(entry.name, {value: {literal: {value: value.value}}});
             continue;
         }
         if (value.kind !== "call" || !["secret", "config", "asset", "address"].includes(value.name)) {
@@ -1025,12 +1038,12 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
             item = versionedReference(text, diagnostics, value, type, catalogs, spaceId);
         }
         if (!item) continue;
-        if (value.name === "secret") setEnv(entry.name, {secret: valueRef(item)});
-        if (value.name === "config") setEnv(entry.name, {config: valueRef(item)});
-        if (value.name === "asset") setEnv(entry.name, {asset: item.key, assetRef: valueRef(item)});
+        if (value.name === "secret") setEnv(entry.name, {value: {secret: {secret: typedRef("secret", item)}}});
+        if (value.name === "config") setEnv(entry.name, {value: {config: {config: typedRef("config", item)}}});
+        if (value.name === "asset") setEnv(entry.name, {value: {asset: {key: item.key, asset: typedRef("asset", item)}}});
         if (value.name === "address") {
-            const config = deploymentOf(item);
-            setEnv(entry.name, {addressDeploymentId: Number(config.deploymentId), addressSpaceId: Number(config.value?.spaceId)});
+            const record = recordOf(item);
+            setEnv(entry.name, {value: {address: {deploymentId: deploymentId(record), spaceId: Number(deploymentOf(record)?.spaceId || 0)}}});
         }
     }
     container.envVars = envVars;
@@ -1038,7 +1051,8 @@ function parseEnvVars(text, diagnostics, block, attr, catalogs, spaceId, nodeId,
 
 const INGRESS_BLOCK_HINT = "Ingress routes are declared as blocks: ingress { https { ... } tls_passthrough { ... } port_forward { ... } }.";
 const SCHEDULING_BLOCK_HINT = 'Placement and desired state live in the scheduling block: scheduling { running = true dedicated_nodes { nodes = [node("name")] } }.';
-const SOURCE_VERSION_HINT = 'version is declared inside the source block: nix_docker_build { version = "…" }, or the tag of container_image { image = "repository:tag" }.';
+const SOURCE_VERSION_HINT = 'version is declared inside the source block: nix_image_build { version = "…" }, or the tag of remote_image { image = "repository:tag" }.';
+const SOURCE_RENAME_HINT = 'Source blocks are remote_image { image = "repository:tag" } and nix_image_build { repo, flake, version }; container_image and nix_docker_build are their previous names.';
 const IMAGE_VERSION_HINT = 'A container image is versioned by its reference: image = "repository:tag" or "repository@sha256:…"; there is no separate version attribute.';
 
 function portValue(text, diagnostics, attr, description) {
@@ -1058,13 +1072,13 @@ function parseListenBlocks(text, diagnostics, parent, catalogs, nodeId) {
             if (value.kind === "call" && value.name === "scheduled_node" && value.args.length === 0) {
                 // The default: omitted from the stored selector.
             } else if (value.kind === "call" && value.name === "any_node" && value.args.length === 0) {
-                entry.node = {any: true};
+                entry.node = {value: {any: {}}};
             } else if (value.kind === "call" && value.name === "node" && value.args.length === 1 && value.args[0].kind === "string" && value.args[0].value) {
                 const node = resolveNamed(text, diagnostics, value, "node", value.args[0].value, catalogs);
                 if (node && nodeId !== null && nodeId !== undefined && Number(node.id) !== Number(nodeId)) {
                     diagnostics.push(diagnostic(text, value, "Ingress is served by the deployment's own node; listen node must be that node."));
                 } else if (node) {
-                    entry.node = {nodeId: Number(node.id)};
+                    entry.node = {value: {specific: {nodeId: Number(node.id)}}};
                 }
             } else {
                 diagnostics.push(diagnostic(text, value, 'listen node must be scheduled_node(), node("name"), or any_node().'));
@@ -1075,21 +1089,22 @@ function parseListenBlocks(text, diagnostics, parent, catalogs, nodeId) {
             const value = addressAttr.value;
             const literals = value.kind === "string" ? [value] : value.kind === "list" ? value.items : null;
             if (value.kind === "call" && value.name === "any_address" && value.args.length === 0) {
-                entry.address = {};
+                // The default: an empty address list.
             } else if (value.kind === "call" && value.name === "ipv4" && value.args.length === 0) {
-                entry.address = {family: ADDRESS_FAMILY_IPV4};
+                entry.addresses = [parseIpPrefix(IPV4_ANY_PREFIX)];
             } else if (value.kind === "call" && value.name === "ipv6" && value.args.length === 0) {
-                entry.address = {family: ADDRESS_FAMILY_IPV6};
+                entry.addresses = [parseIpPrefix(IPV6_ANY_PREFIX)];
             } else if (literals && literals.length) {
                 const prefixes = [];
                 for (const item of literals) {
-                    if (item.kind !== "string" || !validIpFilterEntry(item.value)) {
+                    const prefix = item.kind === "string" ? parseIpPrefix(item.value) : null;
+                    if (!prefix) {
                         diagnostics.push(diagnostic(text, item, "listen address entries must be quoted IP addresses or CIDR prefixes."));
                         continue;
                     }
-                    prefixes.push(item.value.trim());
+                    prefixes.push(prefix);
                 }
-                if (prefixes.length) entry.address = {prefixes};
+                if (prefixes.length) entry.addresses = prefixes;
             } else {
                 diagnostics.push(diagnostic(text, value, 'listen address must be an IP or CIDR string, a list of them, ipv4(), ipv6(), or any_address().'));
             }
@@ -1109,7 +1124,7 @@ function parseIngressBlock(text, diagnostics, block, networking, catalogs, space
     for (const route of members(block, "block")) {
         if (route.name === "port_forward") {
             count++;
-            validateMembers(text, diagnostics, route, new Set(["protocol", "container_port", "host_port", "allow"]), new Set());
+            validateMembers(text, diagnostics, route, new Set(["protocol", "container_port", "host_port", "allow", "deny"]), new Set());
             const protocolAttr = requireAttribute(text, diagnostics, route, "protocol");
             const protocol = stringValue(text, diagnostics, protocolAttr, "Port-forward protocol");
             if (protocolAttr && protocol !== null && protocol !== "tcp" && protocol !== "udp") {
@@ -1124,11 +1139,13 @@ function parseIngressBlock(text, diagnostics, block, networking, catalogs, space
                 hostPort,
                 containerPort,
             };
-            const allowAttr = firstAttribute(route, "allow");
-            if (allowAttr) {
-                const allow = ipFilterAllowList(text, diagnostics, allowAttr);
-                if (allow?.length) forward.ipFilter = {allow};
+            const ipFilter = [];
+            for (const [name, mode] of [["allow", IP_FILTER_ALLOW], ["deny", IP_FILTER_DENY]]) {
+                const attr = firstAttribute(route, name);
+                if (!attr) continue;
+                for (const prefix of ipPrefixList(text, diagnostics, attr, `Port-forward ${name}`) || []) ipFilter.push({mode, prefix});
             }
+            if (ipFilter.length) forward.ipFilter = ipFilter;
             portForwarding.push(forward);
             continue;
         }
@@ -1141,7 +1158,9 @@ function parseIngressBlock(text, diagnostics, block, networking, catalogs, space
             const hostPort = hostPortAttr ? portValue(text, diagnostics, hostPortAttr, "TLS passthrough host_port") : 0;
             const listen = parseListenBlocks(text, diagnostics, route, catalogs, nodeId);
             if (hostname === null || containerPort === null || hostPort === null) continue;
-            const entry = {kind: INGRESS_TLS_PASSTHROUGH, hostname, tlsPassthroughConfig: {hostPort, containerPort}};
+            const tlsPassthrough = {containerPort};
+            if (hostPort) tlsPassthrough.hostPort = hostPort;
+            const entry = {hostname, config: {value: {tlsPassthrough}}};
             if (listen.length) entry.listen = listen;
             ingress.push(entry);
             continue;
@@ -1155,7 +1174,7 @@ function parseIngressBlock(text, diagnostics, block, networking, catalogs, space
             if (hostPortAttr) diagnostics.push(diagnostic(text, hostPortAttr.nameToken, "https is always published on 443; host_port is not configurable."));
             const hostname = stringValue(text, diagnostics, requireAttribute(text, diagnostics, route, "hostname"), "HTTPS hostname", {nonempty: true});
             const containerPort = portValue(text, diagnostics, requireAttribute(text, diagnostics, route, "container_port"), "HTTPS container_port");
-            const httpsConfig = {containerPort};
+            const httpsConfig = {containerPort, backendProtocol: HTTP_BACKEND_HTTP1};
             const pathPrefixAttr = firstAttribute(route, "path_prefix");
             if (pathPrefixAttr) {
                 const prefix = stringValue(text, diagnostics, pathPrefixAttr, "HTTPS path_prefix", {nonempty: true});
@@ -1178,29 +1197,29 @@ function parseIngressBlock(text, diagnostics, block, networking, catalogs, space
             }
             const maxBodyAttr = firstAttribute(route, "max_request_body_bytes");
             if (maxBodyAttr) {
-                const maxBody = integerValue(text, diagnostics, maxBodyAttr, "HTTPS max_request_body_bytes");
+                const maxBody = integerValue(text, diagnostics, maxBodyAttr, "HTTPS max_request_body_bytes", 1);
                 if (maxBody) httpsConfig.maxRequestBodyBytes = maxBody;
             }
             const flushAttr = firstAttribute(route, "flush_interval_ms");
             if (flushAttr) {
-                const flush = integerValue(text, diagnostics, flushAttr, "HTTPS flush_interval_ms", -1, 60000);
-                if (flush !== null && flush !== 0) httpsConfig.flushIntervalMs = flush;
+                const flush = integerValue(text, diagnostics, flushAttr, "HTTPS flush_interval_ms", 1, 60000);
+                if (flush) httpsConfig.flushIntervalMs = flush;
             }
             const certAttr = firstAttribute(route, "cert");
             if (certAttr) {
                 const value = certAttr.value;
                 if (value.kind === "call" && value.name === "acme" && value.args.length === 0) {
-                    httpsConfig.certSource = {acme: {}};
+                    httpsConfig.certSource = {value: {acme: {challenge: ACME_CHALLENGE_HTTP01}}};
                 } else if (value.kind === "call" && value.name === "secret") {
                     const item = versionedReference(text, diagnostics, value, "secret", catalogs, spaceId);
-                    if (item) httpsConfig.certSource = {secret: {secret: valueRef(item)}};
+                    if (item) httpsConfig.certSource = {value: {secret: {secret: typedRef("secret", item)}}};
                 } else {
                     diagnostics.push(diagnostic(text, value, 'HTTPS cert must be acme() or secret("space", "folder/name"[, version]).'));
                 }
             }
             const listen = parseListenBlocks(text, diagnostics, route, catalogs, nodeId);
             if (hostname === null || containerPort === null) continue;
-            const entry = {kind: INGRESS_HTTPS, hostname, httpsConfig};
+            const entry = {hostname, config: {value: {https: httpsConfig}}};
             if (listen.length) entry.listen = listen;
             ingress.push(entry);
         }
@@ -1210,36 +1229,21 @@ function parseIngressBlock(text, diagnostics, block, networking, catalogs, space
     return count;
 }
 
-function ipFilterAllowList(text, diagnostics, entry) {
+function ipPrefixList(text, diagnostics, entry, description) {
     if (entry.value.kind !== "list") {
-        diagnostics.push(diagnostic(text, entry.value, "Port-forward allow must be a list of IP addresses or CIDR prefixes."));
+        diagnostics.push(diagnostic(text, entry.value, `${description} must be a list of IP addresses or CIDR prefixes.`));
         return null;
     }
-    const allow = [];
+    const prefixes = [];
     for (const item of entry.value.items) {
-        if (item.kind !== "string" || !validIpFilterEntry(item.value)) {
-            diagnostics.push(diagnostic(text, item, "Allow entries must be quoted IP addresses or CIDR prefixes."));
+        const prefix = item.kind === "string" ? parseIpPrefix(item.value) : null;
+        if (!prefix) {
+            diagnostics.push(diagnostic(text, item, `${description} entries must be quoted IP addresses or CIDR prefixes.`));
             continue;
         }
-        allow.push(item.value.trim());
+        prefixes.push(prefix);
     }
-    return allow;
-}
-
-function validIpFilterEntry(value) {
-    const segments = (value || "").trim().split("/");
-    if (segments.length > 2) return false;
-    const [addr, bits] = segments;
-    const v4 = addr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    let maxBits = 32;
-    if (v4) {
-        if (v4.slice(1).some(octet => Number(octet) > 255)) return false;
-    } else {
-        if (!addr.includes(":") || !/^[0-9a-fA-F:.]{2,45}$/.test(addr)) return false;
-        maxBits = 128;
-    }
-    if (bits === undefined) return true;
-    return /^\d{1,3}$/.test(bits) && Number(bits) <= maxBits;
+    return prefixes;
 }
 
 function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
@@ -1286,9 +1290,9 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     const containers = members(deployment, "block", "container");
     if (containers.length !== 1) diagnostics.push(diagnostic(text, containers[1] || deployment, "Deployment requires exactly one container block."));
     const containerBlock = containers[0];
-    const sourceSpec = {};
+    const sourceValue = {};
     const runtime = {defaultVolume: {disabled: true}};
-    const container = {source: sourceSpec, runtime, upgradeStrategy: UPGRADE_RECREATE};
+    const container = {source: {value: sourceValue}, runtime, upgradeStrategy: UPGRADE_RECREATE};
     let version = null;
     let versionAttr = null;
     if (containerBlock) {
@@ -1297,13 +1301,18 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
         validateMembers(text, diagnostics, containerBlock, new Set(["env_vars", "mounts", "version"]), new Set(["source", "process", "env_vars", "resources", "upgrade"]));
         const source = exactlyOneBlock(text, diagnostics, containerBlock, "source");
         if (source) {
-            validateMembers(text, diagnostics, source, new Set(), new Set(["container_image", "nix_docker_build"]));
+            // The previous block names are accepted by validateMembers so the
+            // rename hint is their only diagnostic.
+            validateMembers(text, diagnostics, source, new Set(), new Set(["remote_image", "nix_image_build", "container_image", "nix_docker_build"]));
             const variants = source.body.filter(item => item.kind === "block");
-            if (variants.length !== 1 || !["container_image", "nix_docker_build"].includes(variants[0]?.name)) {
-                diagnostics.push(diagnostic(text, variants[1] || source, "Source requires exactly one container_image or nix_docker_build block."));
+            if (variants.length !== 1) {
+                diagnostics.push(diagnostic(text, variants[1] || source, "Source requires exactly one remote_image or nix_image_build block."));
             }
             const variant = variants[0];
-            if (variant?.name === "container_image") {
+            if (variant?.name === "container_image" || variant?.name === "nix_docker_build") {
+                diagnostics.push(diagnostic(text, variant.nameToken, SOURCE_RENAME_HINT));
+            }
+            if (variant?.name === "remote_image") {
                 // The version is the reference's tag or digest; a separate
                 // attribute is the previous shape and only earns the hint.
                 const movedVersion = firstAttribute(variant, "version");
@@ -1316,13 +1325,13 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
                     if (!repository) {
                         diagnostics.push(diagnostic(text, imageAttr.value, "Container image must name a repository before its tag."));
                     } else {
-                        sourceSpec.remoteImage = {image: repository};
+                        sourceValue.remoteImage = {image: repository};
                         versionAttr = imageAttr;
                         version = imageVersionFromReference(reference);
                     }
                 }
             }
-            if (variant?.name === "nix_docker_build") {
+            if (variant?.name === "nix_image_build") {
                 validateMembers(text, diagnostics, variant, new Set(["repo", "flake", "target", "version"]), new Set());
                 const repo = stringValue(text, diagnostics, requireAttribute(text, diagnostics, variant, "repo"), "Nix repository", {nonempty: true});
                 const flakeAttr = requireAttribute(text, diagnostics, variant, "flake");
@@ -1334,11 +1343,11 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
                 const target = stringValue(text, diagnostics, targetAttr, "Nix target");
                 if (target !== null && target !== "" && !target.startsWith(".#")) diagnostics.push(diagnostic(text, targetAttr.value, 'Nix target must begin with ".#".'));
                 if (repo !== null && flake !== null) {
-                    sourceSpec.nixDockerBuild = {repo, flake};
-                    if (targetAttr && target !== null) sourceSpec.nixDockerBuild.target = target;
+                    sourceValue.nixImageBuild = {repo, flake};
+                    if (targetAttr && target !== null) sourceValue.nixImageBuild.target = target;
                 }
             }
-            if (variant?.name === "nix_docker_build") {
+            if (variant?.name === "nix_image_build") {
                 versionAttr = requireAttribute(text, diagnostics, variant, "version");
                 version = stringValue(text, diagnostics, versionAttr, "Version");
             }
@@ -1391,9 +1400,12 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
                 container.upgradeStrategy = UPGRADE_ROLLOVER;
             }
             const timeoutAttr = firstAttribute(upgrade, "readiness_timeout_seconds");
-            const timeout = integerValue(text, diagnostics, timeoutAttr, "readiness_timeout_seconds", 0);
+            const timeout = integerValue(text, diagnostics, timeoutAttr, "readiness_timeout_seconds", 1);
             if (timeoutAttr && timeout !== null) container.readinessSignal = {timeoutSeconds: timeout};
         }
+        // Rollover needs a readiness signal; without a timeout the server
+        // default applies.
+        if (container.upgradeStrategy === UPGRADE_ROLLOVER && !container.readinessSignal) container.readinessSignal = {};
     }
 
     // The network block is optional: virtual mode is the default, and the block
@@ -1416,11 +1428,11 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     }
 
     if (running && version !== null && !version) {
-        diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, sourceSpec.remoteImage
+        diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, sourceValue.remoteImage
             ? 'Container image must include a tag or digest (image = "repository:tag") while running is true.'
             : "Version cannot be empty while running is true."));
     }
-    if (sourceSpec.nixDockerBuild && version && !FULL_GIT_COMMIT_RE.test(version)) {
+    if (sourceValue.nixImageBuild && version && !FULL_GIT_COMMIT_RE.test(version)) {
         diagnostics.push(diagnostic(text, versionAttr?.value || versionAttr, "Version must be a full 40-character commit sha."));
     }
     const immutableName = unwrap(constraints?.immutableName);
@@ -1436,8 +1448,8 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
     container.version = version;
     return {
         identity: {name, spaceId},
-        scheduling: {running, dedicatedNodes: {nodes: nodeId ? [nodeId] : []}},
-        spec: {container1Spec: container, networking},
+        scheduling: {running, placement: {value: {dedicatedNodes: {nodes: nodeId ? [nodeId] : []}}}},
+        spec: {workload: {value: {container}}, networking},
     };
 }
 

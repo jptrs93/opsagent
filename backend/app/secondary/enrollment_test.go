@@ -77,7 +77,7 @@ func TestEnrollReturnsWhenContextCanceled(t *testing.T) {
 
 func TestCacheEnrollmentBootstrapStateRequiresNetwork(t *testing.T) {
 	accepted := enrollmentAcceptedWithBootstrap(t, "secondary-1")
-	accepted.ClusterNetwork = nil
+	accepted.ClusterNetwork = apigen.ClusterNetworkInfo{}
 	if err := cacheEnrollmentBootstrapState(context.Background(), EnrollmentConfig{DataDir: t.TempDir()}, accepted); err == nil {
 		t.Fatal("cacheEnrollmentBootstrapState succeeded without network")
 	}
@@ -112,11 +112,11 @@ func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 func TestCacheEnrollmentBootstrapStatePersistsNetworkMap(t *testing.T) {
 	dataDir := t.TempDir()
 	accepted := enrollmentAcceptedWithBootstrap(t, "secondary-1")
-	accepted.ClusterNetMap = &apigen.ClusterNetMap{
+	accepted.ClusterNetMap = apigen.ClusterNetMap{
 		DerivedFromSeq: 1,
 		TargetNodeID:   2,
 		UlaPrefix:      accepted.ClusterNetwork.UlaPrefix,
-		Nodes: []*apigen.ClusterNetMapNode{
+		Nodes: []apigen.ClusterNetMapNode{
 			{NodeID: 2, UnderlayAddress: "192.0.2.2", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", WgListenPort: 51833},
 		},
 	}
@@ -151,29 +151,29 @@ func enrollmentAcceptedWithBootstrap(t *testing.T, machine string) *apigen.Enrol
 	return &apigen.EnrollmentAccepted{
 		ID:             1,
 		NodeName:       machine,
-		ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: prefix.Bytes()},
-		NodeDeployment: &apigen.ScheduledInstanceState{
+		ClusterNetwork: apigen.ClusterNetworkInfo{UlaPrefix: prefix.Bytes()},
+		NodeDeployment: apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{
-				ID:           1,
-				NodeID:       2,
-				DeploymentID: 10,
-				State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+				ID:         1,
+				NodeID:     2,
+				Deployment: apigen.DeploymentRef{DeploymentID: 10, Version: 1},
+				State:      apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
-			Config: apigen.DeploymentEvent{
-				DeploymentID: 10,
-				Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, 2), Spec: *internaldeploy.SelfSpec(), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.SelfName},
+			Config: apigen.DeploymentRecord{
+				Deployment: apigen.Deployment{ID: 10, Scheduling: apigen.DedicatedScheduling(true, 2), Spec: *internaldeploy.SelfSpec(), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.SelfName},
+				Meta:       apigen.EntityMeta{Version: 1, SpecVersion: 1},
 			},
 		},
-		NodeNetDeployment: &apigen.ScheduledInstanceState{
+		NodeNetDeployment: apigen.ScheduledInstanceState{
 			Instance: apigen.ScheduledInstance{
-				ID:           2,
-				NodeID:       2,
-				DeploymentID: 11,
-				State:        apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
+				ID:         2,
+				NodeID:     2,
+				Deployment: apigen.DeploymentRef{DeploymentID: 11, Version: 1},
+				State:      apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 			},
-			Config: apigen.DeploymentEvent{
-				DeploymentID: 11,
-				Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, 2), Spec: *internaldeploy.NetproxySpec(), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.NetproxyName},
+			Config: apigen.DeploymentRecord{
+				Deployment: apigen.Deployment{ID: 11, Scheduling: apigen.DedicatedScheduling(true, 2), Spec: *internaldeploy.NetproxySpec(), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.NetproxyName},
+				Meta:       apigen.EntityMeta{Version: 1, SpecVersion: 1},
 			},
 		},
 	}

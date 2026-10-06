@@ -2,6 +2,7 @@ package statetest
 
 import (
 	"context"
+	"encoding/hex"
 	"sort"
 	"time"
 
@@ -12,19 +13,24 @@ import (
 )
 
 type ValueVersion struct {
-	Ref                      apigen.ValueRef
-	Version, SpaceID, Author int32
-	GlobalSeq                int64
-	CreatedAt                time.Time
-	Value, Sha256            string
-	SizeBytes                int64
+	Ref           apigen.ValueRef
+	Version       uint32
+	SpaceID       uint64
+	Author        int64
+	GlobalSeq     int64
+	CreatedAt     time.Time
+	Value, Sha256 string
+	SizeBytes     int64
 }
 
 type valueEvent struct {
-	id, valueVersion, author, spaceID int32
-	seq, eventTime                    int64
-	value, sha                        string
-	size                              int64
+	id             uint64
+	valueVersion   uint32
+	author         int64
+	spaceID        uint64
+	seq, eventTime int64
+	value, sha     string
+	size           int64
 }
 
 func projectValue(value any) valueEvent {
@@ -36,7 +42,7 @@ func projectValue(value any) valueEvent {
 	case *pq.AssetEvent:
 		return projectValue(*e)
 	case pq.AssetEvent:
-		return valueEvent{id: e.AssetID, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, seq: e.Seq, eventTime: e.EventTime, sha: e.Value.Sha256, size: e.Value.SizeBytes}
+		return valueEvent{id: e.AssetID, valueVersion: e.ValueVersion, author: e.Author, spaceID: e.Value.SpaceID, seq: e.Seq, eventTime: e.EventTime, sha: hex.EncodeToString(e.Value.Sha256), size: int64(e.Value.SizeBytes)}
 	default:
 		panic("not a value event")
 	}
@@ -60,15 +66,15 @@ func valueHistory(s *state.Service, value any) []valueEvent {
 	switch value.(type) {
 	case *pq.SecretEvent:
 		for _, v := range erru.Must(q.ListSecretVersions(ctx)) {
-			add(valueEvent{id: int32(v.SecretID), valueVersion: int32(v.ValueVersion), author: int32(v.Author), spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime})
+			add(valueEvent{id: v.SecretID, valueVersion: v.ValueVersion, author: v.Author, spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime})
 		}
 	case *pq.ConfigEvent:
 		for _, v := range erru.Must(q.ListConfigVersions(ctx)) {
-			add(valueEvent{id: int32(v.ConfigID), valueVersion: int32(v.ValueVersion), author: int32(v.Author), spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime, value: v.Value})
+			add(valueEvent{id: v.ConfigID, valueVersion: v.ValueVersion, author: v.Author, spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime, value: v.Value})
 		}
 	default:
 		for _, v := range erru.Must(q.ListAssetVersions(ctx)) {
-			add(valueEvent{id: int32(v.AssetID), valueVersion: int32(v.ValueVersion), author: int32(v.Author), spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime, sha: v.Sha256, size: v.SizeBytes})
+			add(valueEvent{id: v.AssetID, valueVersion: v.ValueVersion, author: v.Author, spaceID: target.spaceID, seq: v.Seq, eventTime: v.EventTime, sha: v.Sha256, size: v.SizeBytes})
 		}
 	}
 	if len(events) == 0 {

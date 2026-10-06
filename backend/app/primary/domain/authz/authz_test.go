@@ -25,35 +25,100 @@ func mustOpen(t *testing.T, store *state.Service) *Service {
 	return s
 }
 
-func all() *apigen.AuthzSelector { return &apigen.AuthzSelector{Wildcard: true} }
+func deny(delegatedOnly bool) apigen.AuthzEffect {
+	return apigen.AuthzEffect{Value: apigen.AuthzEffectValueOneof{Deny: &apigen.AuthzDeny{DelegatedOnly: delegatedOnly}}}
+}
 
-func templateGrant(userID, templateID int64, args ...*apigen.AuthzArgumentBinding) *apigen.AuthzGrant {
-	return &apigen.AuthzGrant{
-		UserID:     userID,
-		TemplateID: templateID,
-		Spec:       &apigen.AuthzGrantSpec{Args: args},
+func anySelector() apigen.AuthzSelector {
+	return apigen.AuthzSelector{
+		Permissions: allVerbsExcluding(),
+		Spaces:      allSpacesExcluding(),
+		EntityTypes: allEntityTypesExcluding(),
+		EntityRefs:  allEntityRefs(),
 	}
 }
 
-func ruleGrant(userID int64, rule *apigen.AuthzRule) *apigen.AuthzGrant {
-	return &apigen.AuthzGrant{
-		UserID: userID,
-		Spec:   &apigen.AuthzGrantSpec{Rule: rule},
+func allowRule(delegationAllowed bool, sel apigen.AuthzSelector) *apigen.AuthzRule {
+	return &apigen.AuthzRule{Effect: allow(delegationAllowed), Selector: sel}
+}
+
+func denyRule(delegatedOnly bool, sel apigen.AuthzSelector) *apigen.AuthzRule {
+	return &apigen.AuthzRule{Effect: deny(delegatedOnly), Selector: sel}
+}
+
+func anyTemplateSelector() apigen.AuthzTemplateSelector {
+	return apigen.AuthzTemplateSelector{
+		Permissions: templatePermissions(allVerbsExcluding()),
+		Spaces:      templateSpaces(allSpacesExcluding()),
+		EntityTypes: templateEntityTypes(allEntityTypesExcluding()),
+		EntityRefs:  templateEntityRefs(allEntityRefs()),
 	}
 }
 
-func viewDeployment(space int64) RequestedAccess {
+func spacesArgTemplateSelector(argID uint32) apigen.AuthzTemplateSelector {
+	sel := anyTemplateSelector()
+	sel.Spaces = templateSpacesArgument(argID)
+	return sel
+}
+
+func templateRule(effect apigen.AuthzEffect, sel apigen.AuthzTemplateSelector) apigen.AuthzTemplateRule {
+	return apigen.AuthzTemplateRule{Effect: effect, Selector: sel}
+}
+
+func spaceArg(id uint32, name string) apigen.AuthzTemplateArgument {
+	return apigen.AuthzTemplateArgument{ID: id, Name: name, Kind: apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_SPACE}
+}
+
+func spacesTemplate(argID uint32, rules ...apigen.AuthzTemplateRule) *apigen.AuthzGrantTemplateSpec {
+	return &apigen.AuthzGrantTemplateSpec{
+		Arguments: []apigen.AuthzTemplateArgument{spaceArg(argID, "spaces")},
+		Rules:     rules,
+	}
+}
+
+func spaceBinding(argID uint32, ids ...uint64) apigen.AuthzArgumentBinding {
+	return apigen.AuthzArgumentBinding{
+		ArgumentID: argID,
+		Values:     apigen.AuthzArgumentValues{Value: apigen.AuthzArgumentValuesValueOneof{Spaces: &apigen.AuthzSpaceValues{Values: ids}}},
+	}
+}
+
+func templateSource(templateID uint64, args ...apigen.AuthzArgumentBinding) apigen.AuthzGrantSource {
+	return apigen.AuthzGrantSource{Value: apigen.AuthzGrantSourceValueOneof{Template: &apigen.AuthzTemplateGrant{TemplateID: templateID, Args: args}}}
+}
+
+func templateGrant(userID, templateID uint64, args ...apigen.AuthzArgumentBinding) *apigen.AuthzGrant {
+	return &apigen.AuthzGrant{UserID: userID, Grant: templateSource(templateID, args...)}
+}
+
+func ruleGrant(userID uint64, rule *apigen.AuthzRule) *apigen.AuthzGrant {
+	return &apigen.AuthzGrant{UserID: userID, Grant: apigen.AuthzGrantSource{Value: apigen.AuthzGrantSourceValueOneof{Rule: rule}}}
+}
+
+func deploymentRef(id uint64) apigen.AuthzEntityRef {
+	return apigen.AuthzEntityRef{Target: apigen.AuthzEntityRefTarget{Value: apigen.AuthzEntityRefTargetValueOneof{Deployment: &id}}}
+}
+
+func secretRef(id uint64) apigen.AuthzEntityRef {
+	return apigen.AuthzEntityRef{Target: apigen.AuthzEntityRefTarget{Value: apigen.AuthzEntityRefTargetValueOneof{Secret: &id}}}
+}
+
+func exactRefs(refs ...apigen.AuthzEntityRef) apigen.AuthzEntityRefSelector {
+	return apigen.AuthzEntityRefSelector{ExactEntityRefs: apigen.Some(apigen.AuthzEntityRefList{Values: refs})}
+}
+
+func viewDeployment(space uint64) RequestedAccess {
 	return RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW,
 		SpaceID:    space,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT,
 		EntityID:   7,
 	}
 }
 
 func TestBuiltinsSeededAndListed(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	templates := s.RuleTemplates()
+	templates := s.GrantTemplates()
 	if len(templates) != 2 {
 		t.Fatalf("expected 2 builtin templates, got %d", len(templates))
 	}
@@ -80,8 +145,8 @@ func TestClusterAdminGrant(t *testing.T) {
 	for _, req := range []RequestedAccess{
 		viewDeployment(0),
 		viewDeployment(9),
-		{Verb: apigen.AuthzVerb_AUTHZ_VERB_REVEAL, SpaceID: 3, EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SECRET, EntityID: 12},
-		{Verb: apigen.AuthzVerb_AUTHZ_VERB_CREATE, SpaceID: 1, EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT},
+		{Verb: apigen.AuthzVerb_AUTHZ_VERB_REVEAL, SpaceID: 3, EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET, EntityID: 12},
+		{Verb: apigen.AuthzVerb_AUTHZ_VERB_CREATE, SpaceID: 1, EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT},
 	} {
 		if !s.HasAccess(1, req) {
 			t.Fatalf("cluster_admin should allow %+v", req)
@@ -90,7 +155,7 @@ func TestClusterAdminGrant(t *testing.T) {
 	if s.HasAccess(2, viewDeployment(1)) {
 		t.Fatal("grant must not leak to another user")
 	}
-	if s.HasAccess(1, RequestedAccess{SpaceID: 1, EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT}) {
+	if s.HasAccess(1, RequestedAccess{SpaceID: 1, EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT}) {
 		t.Fatal("unknown verb must never match")
 	}
 	if s.HasAccess(1, RequestedAccess{Verb: apigen.AuthzVerb_AUTHZ_VERB_VIEW, SpaceID: 1}) {
@@ -100,7 +165,7 @@ func TestClusterAdminGrant(t *testing.T) {
 
 func TestSpaceAdminArgumentBinding(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	if _, err := s.CreateGrant(templateGrant(1, SpaceAdminTemplateID, &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{2, 3}}), 0); err != nil {
+	if _, err := s.CreateGrant(templateGrant(1, SpaceAdminTemplateID, spaceBinding(1, 2, 3)), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	if !s.HasAccess(1, viewDeployment(2)) || !s.HasAccess(1, viewDeployment(3)) {
@@ -117,7 +182,7 @@ func TestSpaceAdminArgumentBinding(t *testing.T) {
 	reveal := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_REVEAL,
 		SpaceID:    2,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SECRET,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET,
 		EntityID:   4,
 	}
 	if !s.HasAccess(1, reveal) {
@@ -130,7 +195,7 @@ func TestSpaceAdminArgumentBinding(t *testing.T) {
 	logs := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS,
 		SpaceID:    2,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT,
 		EntityID:   7,
 	}
 	if !s.HasAccess(1, logs) {
@@ -144,13 +209,9 @@ func TestSpaceAdminArgumentBinding(t *testing.T) {
 
 func TestDirectRuleWithExclusion(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	_, err := s.CreateGrant(ruleGrant(1, &apigen.AuthzRule{
-		Permissions: all(),
-		Spaces:      &apigen.AuthzSelector{Wildcard: true, Exclude: []int64{0}},
-		EntityTypes: all(),
-		EntityRefs:  all(),
-	}), 0)
-	if err != nil {
+	sel := anySelector()
+	sel.Spaces = allSpacesExcluding(0)
+	if _, err := s.CreateGrant(ruleGrant(1, allowRule(false, sel)), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	if s.HasAccess(1, viewDeployment(0)) {
@@ -163,12 +224,12 @@ func TestDirectRuleWithExclusion(t *testing.T) {
 
 func TestEntityRefSelector(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	_, err := s.CreateGrant(ruleGrant(1, &apigen.AuthzRule{
-		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-		Spaces:      all(),
-		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT)}},
-		EntityRefs:  &apigen.AuthzSelector{Include: []int64{7}},
-	}), 0)
+	_, err := s.CreateGrant(ruleGrant(1, allowRule(false, apigen.AuthzSelector{
+		Permissions: exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW),
+		Spaces:      allSpacesExcluding(),
+		EntityTypes: exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT),
+		EntityRefs:  exactRefs(deploymentRef(7)),
+	})), 0)
 	if err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
@@ -192,33 +253,87 @@ func TestEntityRefSelector(t *testing.T) {
 	}
 }
 
+func TestEntityRefCarriesItsKind(t *testing.T) {
+	s := mustOpen(t, newTestStore(t))
+	sel := anySelector()
+	sel.EntityRefs = exactRefs(secretRef(7))
+	if _, err := s.CreateGrant(ruleGrant(1, allowRule(false, sel)), 0); err != nil {
+		t.Fatalf("CreateGrant: %v", err)
+	}
+	if s.HasAccess(1, viewDeployment(5)) {
+		t.Fatal("a secret ref must not match a deployment with the same id")
+	}
+	secret := viewDeployment(5)
+	secret.EntityType = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET
+	if !s.HasAccess(1, secret) {
+		t.Fatal("secret ref 7 should be allowed")
+	}
+	excluding := anySelector()
+	excluding.EntityRefs = apigen.AuthzEntityRefSelector{AllEntityRefsExcluding: apigen.Some(apigen.AuthzEntityRefList{Values: []apigen.AuthzEntityRef{deploymentRef(7)}})}
+	if _, err := s.CreateGrant(ruleGrant(2, allowRule(false, excluding)), 0); err != nil {
+		t.Fatalf("CreateGrant: %v", err)
+	}
+	if s.HasAccess(2, viewDeployment(5)) {
+		t.Fatal("excluded deployment 7 should be denied")
+	}
+	if !s.HasAccess(2, secret) {
+		t.Fatal("secret 7 is not the excluded deployment 7")
+	}
+}
+
 func TestGrantValidation(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
+	withSpaces := func(sel apigen.AuthzSpaceSelector) *apigen.AuthzRule {
+		r := anySelector()
+		r.Spaces = sel
+		return allowRule(false, r)
+	}
+	withPermissions := func(sel apigen.AuthzPermissionSelector) *apigen.AuthzRule {
+		r := anySelector()
+		r.Permissions = sel
+		return allowRule(false, r)
+	}
+	withRefs := func(sel apigen.AuthzEntityRefSelector) *apigen.AuthzRule {
+		r := anySelector()
+		r.EntityRefs = sel
+		return allowRule(false, r)
+	}
+	bothLists := apigen.AuthzSpaceSelector{
+		ExactSpaces:        apigen.Some(apigen.SpaceIdList{Values: []uint64{1}}),
+		AllSpacesExcluding: apigen.Some(apigen.SpaceIdList{}),
+	}
+	denyAccess := anySelector()
+	denyAccess.EntityTypes = exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS)
 	cases := []struct {
 		name  string
 		grant *apigen.AuthzGrant
 	}{
 		{"no user", templateGrant(0, ClusterAdminTemplateID)},
 		{"neither form", &apigen.AuthzGrant{UserID: 1}},
-		{"both forms", &apigen.AuthzGrant{UserID: 1, TemplateID: ClusterAdminTemplateID, Spec: &apigen.AuthzGrantSpec{
-			Rule: &apigen.AuthzRule{Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all()}}}},
+		{"both forms", &apigen.AuthzGrant{UserID: 1, Grant: apigen.AuthzGrantSource{Value: apigen.AuthzGrantSourceValueOneof{
+			Rule:     allowRule(false, anySelector()),
+			Template: &apigen.AuthzTemplateGrant{TemplateID: ClusterAdminTemplateID},
+		}}}},
 		{"unknown template", templateGrant(1, 99)},
-		{"args without template argument", templateGrant(1, ClusterAdminTemplateID, &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{1}})},
+		{"args without template argument", templateGrant(1, ClusterAdminTemplateID, spaceBinding(1, 1))},
 		{"missing bindings", templateGrant(1, SpaceAdminTemplateID)},
-		{"empty binding values", templateGrant(1, SpaceAdminTemplateID, &apigen.AuthzArgumentBinding{ArgumentID: 1})},
-		{"binding value out of domain", templateGrant(1, SpaceAdminTemplateID, &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{70000}})},
-		{"unknown argument id", templateGrant(1, SpaceAdminTemplateID, &apigen.AuthzArgumentBinding{ArgumentID: 9, Values: []int64{2}})},
-		{"duplicate binding", templateGrant(1, SpaceAdminTemplateID,
-			&apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{2}},
-			&apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{3}})},
-		{"direct rule with argument", ruleGrant(1, &apigen.AuthzRule{
-			Permissions: all(), Spaces: &apigen.AuthzSelector{ArgumentID: 1}, EntityTypes: all(), EntityRefs: all()})},
-		{"direct rule matching nothing", ruleGrant(1, &apigen.AuthzRule{
-			Permissions: all(), Spaces: &apigen.AuthzSelector{}, EntityTypes: all(), EntityRefs: all()})},
-		{"direct rule missing selector", ruleGrant(1, &apigen.AuthzRule{
-			Permissions: all(), Spaces: all(), EntityTypes: all()})},
-		{"direct rule invalid verb", ruleGrant(1, &apigen.AuthzRule{
-			Permissions: &apigen.AuthzSelector{Include: []int64{99}}, Spaces: all(), EntityTypes: all(), EntityRefs: all()})},
+		{"empty binding values", templateGrant(1, SpaceAdminTemplateID, spaceBinding(1))},
+		{"binding without values", templateGrant(1, SpaceAdminTemplateID, apigen.AuthzArgumentBinding{ArgumentID: 1})},
+		{"binding of another kind", templateGrant(1, SpaceAdminTemplateID, apigen.AuthzArgumentBinding{
+			ArgumentID: 1,
+			Values:     apigen.AuthzArgumentValues{Value: apigen.AuthzArgumentValuesValueOneof{Permissions: &apigen.AuthzPermissionValues{Values: []apigen.AuthzVerb{apigen.AuthzVerb_AUTHZ_VERB_VIEW}}}},
+		})},
+		{"binding value out of domain", templateGrant(1, SpaceAdminTemplateID, spaceBinding(1, 70000))},
+		{"unknown argument id", templateGrant(1, SpaceAdminTemplateID, spaceBinding(9, 2))},
+		{"duplicate binding", templateGrant(1, SpaceAdminTemplateID, spaceBinding(1, 2), spaceBinding(1, 3))},
+		{"direct rule without effect", ruleGrant(1, &apigen.AuthzRule{Selector: anySelector()})},
+		{"direct rule matching nothing", ruleGrant(1, withSpaces(exactSpaces()))},
+		{"direct rule missing selector", ruleGrant(1, withSpaces(apigen.AuthzSpaceSelector{}))},
+		{"direct rule with both lists", ruleGrant(1, withSpaces(bothLists))},
+		{"direct rule invalid verb", ruleGrant(1, withPermissions(exactVerbs(99)))},
+		{"direct rule invalid ref", ruleGrant(1, withRefs(exactRefs(apigen.AuthzEntityRef{})))},
+		{"direct rule zero ref", ruleGrant(1, withRefs(exactRefs(deploymentRef(0))))},
+		{"direct deny of access", ruleGrant(1, denyRule(false, denyAccess))},
 	}
 	for _, tc := range cases {
 		if _, err := s.CreateGrant(tc.grant, 0); err == nil {
@@ -230,60 +345,46 @@ func TestGrantValidation(t *testing.T) {
 	}
 }
 
-func TestRuleTemplateCRUD(t *testing.T) {
+func TestGrantTemplateCRUD(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	content := &apigen.AuthzRuleTemplateSpec{
-		Arguments: []*apigen.AuthzTemplateArgument{{ID: 1, Name: "spaces"}},
-		Rules: []*apigen.AuthzRule{{
-			Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-			Spaces:      &apigen.AuthzSelector{ArgumentID: 1},
-			EntityTypes: all(),
-			EntityRefs:  all(),
-		}},
-	}
-	created, err := s.CreateRuleTemplate("deployer", content, 5)
+	viewSel := spacesArgTemplateSelector(1)
+	viewSel.Permissions = templatePermissions(exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW))
+	content := spacesTemplate(1, templateRule(allow(false), viewSel))
+	created, err := s.CreateGrantTemplate("deployer", content, 5)
 	if err != nil {
-		t.Fatalf("CreateRuleTemplate: %v", err)
+		t.Fatalf("CreateGrantTemplate: %v", err)
 	}
 	if created.ID <= SpaceAdminTemplateID {
 		t.Fatalf("unexpected created template: %+v", created)
 	}
 
-	if _, err := s.CreateRuleTemplate("deployer", content, 5); !errors.Is(err, ErrNameTaken) {
+	if _, err := s.CreateGrantTemplate("deployer", content, 5); !errors.Is(err, ErrNameTaken) {
 		t.Fatalf("duplicate name: expected ErrNameTaken, got %v", err)
 	}
-	if _, err := s.CreateRuleTemplate("Bad Name", content, 5); err == nil {
+	if _, err := s.CreateGrantTemplate("Bad Name", content, 5); err == nil {
 		t.Fatal("invalid name should be rejected")
 	}
-	if _, err := s.UpdateRuleTemplate(ClusterAdminTemplateID, "cluster_admin", content, 0); !errors.Is(err, ErrBuiltin) {
+	if _, err := s.UpdateGrantTemplate(ClusterAdminTemplateID, "cluster_admin", content, 0); !errors.Is(err, ErrBuiltin) {
 		t.Fatalf("builtin update: expected ErrBuiltin, got %v", err)
 	}
-	if err := s.DeleteRuleTemplate(SpaceAdminTemplateID, 0); !errors.Is(err, ErrBuiltin) {
+	if err := s.DeleteGrantTemplate(SpaceAdminTemplateID, 0); !errors.Is(err, ErrBuiltin) {
 		t.Fatalf("builtin delete: expected ErrBuiltin, got %v", err)
 	}
 
-	grant, err := s.CreateGrant(templateGrant(1, created.ID, &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{2}}), 0)
+	grant, err := s.CreateGrant(templateGrant(1, created.ID, spaceBinding(1, 2)), 0)
 	if err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	if !s.HasAccess(1, viewDeployment(2)) {
 		t.Fatal("custom template grant should allow view in space 2")
 	}
-	if err := s.DeleteRuleTemplate(created.ID, 0); !errors.Is(err, ErrTemplateInUse) {
+	if err := s.DeleteGrantTemplate(created.ID, 0); !errors.Is(err, ErrTemplateInUse) {
 		t.Fatalf("referenced delete: expected ErrTemplateInUse, got %v", err)
 	}
 
-	updated, err := s.UpdateRuleTemplate(created.ID, "release_manager", &apigen.AuthzRuleTemplateSpec{
-		Arguments: []*apigen.AuthzTemplateArgument{{ID: 1, Name: "spaces"}},
-		Rules: []*apigen.AuthzRule{{
-			Permissions: all(),
-			Spaces:      &apigen.AuthzSelector{ArgumentID: 1},
-			EntityTypes: all(),
-			EntityRefs:  all(),
-		}},
-	}, 7)
+	updated, err := s.UpdateGrantTemplate(created.ID, "release_manager", spacesTemplate(1, templateRule(allow(false), spacesArgTemplateSelector(1))), 7)
 	if err != nil {
-		t.Fatalf("UpdateRuleTemplate: %v", err)
+		t.Fatalf("UpdateGrantTemplate: %v", err)
 	}
 	if updated.Name != "release_manager" {
 		t.Fatalf("unexpected updated template: %+v", updated)
@@ -303,110 +404,99 @@ func TestRuleTemplateCRUD(t *testing.T) {
 	if s.HasAccess(1, viewDeployment(2)) {
 		t.Fatal("deleting the grant should drop access")
 	}
-	if err := s.DeleteRuleTemplate(created.ID, 0); err != nil {
-		t.Fatalf("DeleteRuleTemplate: %v", err)
+	if err := s.DeleteGrantTemplate(created.ID, 0); err != nil {
+		t.Fatalf("DeleteGrantTemplate: %v", err)
 	}
-	if _, err := s.RuleTemplate(created.ID); !errors.Is(err, ErrNotFound) {
+	if _, err := s.GrantTemplate(created.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("deleted template lookup: expected ErrNotFound, got %v", err)
 	}
-	if _, err := s.CreateRuleTemplate("release_manager", content, 5); err != nil {
+	if _, err := s.CreateGrantTemplate("release_manager", content, 5); err != nil {
 		t.Fatalf("name should be reusable after delete: %v", err)
 	}
 }
 
 func TestTemplateValidation(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	arg := func(id int64, name string) *apigen.AuthzTemplateArgument {
-		return &apigen.AuthzTemplateArgument{ID: id, Name: name}
+	arg := func(id uint32, name string, kind apigen.AuthzArgumentKind) apigen.AuthzTemplateArgument {
+		return apigen.AuthzTemplateArgument{ID: id, Name: name, Kind: kind}
 	}
-	wildcardRule := func() *apigen.AuthzRule {
-		return &apigen.AuthzRule{Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all()}
+	space := apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_SPACE
+	wildcardRule := func() apigen.AuthzTemplateRule { return templateRule(allow(false), anyTemplateSelector()) }
+	argSpacesRule := func(id uint32) apigen.AuthzTemplateRule {
+		return templateRule(allow(false), spacesArgTemplateSelector(id))
 	}
-	argSpacesRule := func(id int64) *apigen.AuthzRule {
-		return &apigen.AuthzRule{Permissions: all(), Spaces: &apigen.AuthzSelector{ArgumentID: id}, EntityTypes: all(), EntityRefs: all()}
-	}
+	twoPositions := spacesArgTemplateSelector(1)
+	twoPositions.Permissions = apigen.AuthzTemplatePermissionSelector{Value: apigen.AuthzTemplatePermissionSelectorValueOneof{Argument: &apigen.AuthzArgument{ArgumentID: 1}}}
+	missingPosition := anyTemplateSelector()
+	missingPosition.EntityRefs = apigen.AuthzTemplateEntityRefSelector{}
+	denyAccess := anyTemplateSelector()
+	denyAccess.EntityTypes = templateEntityTypes(exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS))
 	cases := []struct {
 		name    string
-		content *apigen.AuthzRuleTemplateSpec
+		content *apigen.AuthzGrantTemplateSpec
 	}{
 		{"nil content", nil},
-		{"no rules", &apigen.AuthzRuleTemplateSpec{}},
-		{"undeclared argument", &apigen.AuthzRuleTemplateSpec{
-			Rules: []*apigen.AuthzRule{argSpacesRule(1)}}},
-		{"unused argument", &apigen.AuthzRuleTemplateSpec{
-			Arguments: []*apigen.AuthzTemplateArgument{arg(1, "spaces")},
-			Rules:     []*apigen.AuthzRule{wildcardRule()}}},
-		{"argument in two position kinds", &apigen.AuthzRuleTemplateSpec{
-			Arguments: []*apigen.AuthzTemplateArgument{arg(1, "xs")},
-			Rules: []*apigen.AuthzRule{{
-				Permissions: &apigen.AuthzSelector{ArgumentID: 1},
-				Spaces:      &apigen.AuthzSelector{ArgumentID: 1},
-				EntityTypes: all(),
-				EntityRefs:  all(),
-			}}}},
-		{"duplicate argument id", &apigen.AuthzRuleTemplateSpec{
-			Arguments: []*apigen.AuthzTemplateArgument{arg(1, "a"), arg(1, "b")},
-			Rules:     []*apigen.AuthzRule{argSpacesRule(1)}}},
-		{"duplicate argument name", &apigen.AuthzRuleTemplateSpec{
-			Arguments: []*apigen.AuthzTemplateArgument{arg(1, "a"), arg(2, "a")},
-			Rules:     []*apigen.AuthzRule{argSpacesRule(1), argSpacesRule(2)}}},
-		{"invalid argument name", &apigen.AuthzRuleTemplateSpec{
-			Arguments: []*apigen.AuthzTemplateArgument{arg(1, "Bad Name")},
-			Rules:     []*apigen.AuthzRule{argSpacesRule(1)}}},
-		{"invalid argument id", &apigen.AuthzRuleTemplateSpec{
-			Arguments: []*apigen.AuthzTemplateArgument{arg(0, "spaces")},
-			Rules:     []*apigen.AuthzRule{argSpacesRule(1)}}},
+		{"no rules", &apigen.AuthzGrantTemplateSpec{}},
+		{"undeclared argument", &apigen.AuthzGrantTemplateSpec{
+			Rules: []apigen.AuthzTemplateRule{argSpacesRule(1)}}},
+		{"unused argument", &apigen.AuthzGrantTemplateSpec{
+			Arguments: []apigen.AuthzTemplateArgument{arg(1, "spaces", space)},
+			Rules:     []apigen.AuthzTemplateRule{wildcardRule()}}},
+		{"argument kind differs from its position", &apigen.AuthzGrantTemplateSpec{
+			Arguments: []apigen.AuthzTemplateArgument{arg(1, "verbs", apigen.AuthzArgumentKind_AUTHZ_ARGUMENT_KIND_PERMISSION)},
+			Rules:     []apigen.AuthzTemplateRule{argSpacesRule(1)}}},
+		{"argument in two position kinds", &apigen.AuthzGrantTemplateSpec{
+			Arguments: []apigen.AuthzTemplateArgument{arg(1, "xs", space)},
+			Rules:     []apigen.AuthzTemplateRule{templateRule(allow(false), twoPositions)}}},
+		{"duplicate argument id", &apigen.AuthzGrantTemplateSpec{
+			Arguments: []apigen.AuthzTemplateArgument{arg(1, "a", space), arg(1, "b", space)},
+			Rules:     []apigen.AuthzTemplateRule{argSpacesRule(1)}}},
+		{"duplicate argument name", &apigen.AuthzGrantTemplateSpec{
+			Arguments: []apigen.AuthzTemplateArgument{arg(1, "a", space), arg(2, "a", space)},
+			Rules:     []apigen.AuthzTemplateRule{argSpacesRule(1), argSpacesRule(2)}}},
+		{"invalid argument name", &apigen.AuthzGrantTemplateSpec{
+			Arguments: []apigen.AuthzTemplateArgument{arg(1, "Bad Name", space)},
+			Rules:     []apigen.AuthzTemplateRule{argSpacesRule(1)}}},
+		{"invalid argument id", &apigen.AuthzGrantTemplateSpec{
+			Arguments: []apigen.AuthzTemplateArgument{arg(0, "spaces", space)},
+			Rules:     []apigen.AuthzTemplateRule{argSpacesRule(1)}}},
+		{"invalid argument kind", &apigen.AuthzGrantTemplateSpec{
+			Arguments: []apigen.AuthzTemplateArgument{arg(1, "spaces", 0)},
+			Rules:     []apigen.AuthzTemplateRule{argSpacesRule(1)}}},
+		{"missing position", &apigen.AuthzGrantTemplateSpec{
+			Rules: []apigen.AuthzTemplateRule{templateRule(allow(false), missingPosition)}}},
+		{"rule without effect", &apigen.AuthzGrantTemplateSpec{
+			Rules: []apigen.AuthzTemplateRule{{Selector: anyTemplateSelector()}}}},
+		{"deny of access", &apigen.AuthzGrantTemplateSpec{
+			Rules: []apigen.AuthzTemplateRule{templateRule(deny(false), denyAccess)}}},
 	}
 	for _, tc := range cases {
-		if _, err := s.CreateRuleTemplate("t1", tc.content, 1); err == nil {
+		if _, err := s.CreateGrantTemplate("t1", tc.content, 1); err == nil {
 			t.Errorf("%s: expected error", tc.name)
 		}
 	}
-	if len(s.RuleTemplates()) != 2 {
+	if len(s.GrantTemplates()) != 2 {
 		t.Fatal("no templates should have been stored")
 	}
 }
 
 func TestUpdateTemplateSignatureGuard(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	created, err := s.CreateRuleTemplate("deployer", &apigen.AuthzRuleTemplateSpec{
-		Arguments: []*apigen.AuthzTemplateArgument{{ID: 1, Name: "spaces"}},
-		Rules: []*apigen.AuthzRule{{
-			Permissions: all(),
-			Spaces:      &apigen.AuthzSelector{ArgumentID: 1},
-			EntityTypes: all(),
-			EntityRefs:  all(),
-		}},
-	}, 1)
+	created, err := s.CreateGrantTemplate("deployer", spacesTemplate(1, templateRule(allow(false), spacesArgTemplateSelector(1))), 1)
 	if err != nil {
-		t.Fatalf("CreateRuleTemplate: %v", err)
+		t.Fatalf("CreateGrantTemplate: %v", err)
 	}
-	grant, err := s.CreateGrant(templateGrant(1, created.ID, &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{2}}), 0)
+	grant, err := s.CreateGrant(templateGrant(1, created.ID, spaceBinding(1, 2)), 0)
 	if err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
-	changed := &apigen.AuthzRuleTemplateSpec{
-		Arguments: []*apigen.AuthzTemplateArgument{{ID: 2, Name: "spaces"}},
-		Rules: []*apigen.AuthzRule{{
-			Permissions: all(),
-			Spaces:      &apigen.AuthzSelector{ArgumentID: 2},
-			EntityTypes: all(),
-			EntityRefs:  all(),
-		}},
-	}
-	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", changed, 0); err == nil {
+	changed := spacesTemplate(2, templateRule(allow(false), spacesArgTemplateSelector(2)))
+	if _, err := s.UpdateGrantTemplate(created.ID, "deployer", changed, 0); err == nil {
 		t.Fatal("changing the argument signature must be rejected while grants bind it")
 	}
-	renamed := &apigen.AuthzRuleTemplateSpec{
-		Arguments: []*apigen.AuthzTemplateArgument{{ID: 1, Name: "space_ids"}},
-		Rules: []*apigen.AuthzRule{{
-			Permissions: all(),
-			Spaces:      &apigen.AuthzSelector{ArgumentID: 1},
-			EntityTypes: all(),
-			EntityRefs:  all(),
-		}},
-	}
-	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", renamed, 0); err != nil {
+	renamed := spacesTemplate(1, templateRule(allow(false), spacesArgTemplateSelector(1)))
+	renamed.Arguments[0].Name = "space_ids"
+	if _, err := s.UpdateGrantTemplate(created.ID, "deployer", renamed, 0); err != nil {
 		t.Fatalf("renaming an argument must not invalidate bindings: %v", err)
 	}
 	if !s.HasAccess(1, viewDeployment(2)) {
@@ -415,7 +505,7 @@ func TestUpdateTemplateSignatureGuard(t *testing.T) {
 	if err := s.DeleteGrant(1, grant.ID, 0); err != nil {
 		t.Fatalf("DeleteGrant: %v", err)
 	}
-	if _, err := s.UpdateRuleTemplate(created.ID, "deployer", changed, 0); err != nil {
+	if _, err := s.UpdateGrantTemplate(created.ID, "deployer", changed, 0); err != nil {
 		t.Fatalf("signature change should be allowed once no grants bind it: %v", err)
 	}
 }
@@ -425,20 +515,19 @@ func TestGlobalRuleOverridesAllow(t *testing.T) {
 	if _, err := s.CreateGrant(templateGrant(1, ClusterAdminTemplateID), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
-	rule, err := s.CreateGlobalRule("no_prod_reveal", &apigen.AuthzGlobalRuleSpec{
-		Deny:        true,
-		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
-		Spaces:      &apigen.AuthzSelector{Include: []int64{3}},
-		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
-		EntityRefs:  all(),
-	}, 1)
+	rule, err := s.CreateGlobalRule("no_prod_reveal", denyRule(false, apigen.AuthzSelector{
+		Permissions: exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_REVEAL),
+		Spaces:      exactSpaces(3),
+		EntityTypes: exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET),
+		EntityRefs:  allEntityRefs(),
+	}), 1)
 	if err != nil {
 		t.Fatalf("CreateGlobalRule: %v", err)
 	}
 	reveal := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_REVEAL,
 		SpaceID:    3,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SECRET,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET,
 		EntityID:   4,
 	}
 	if s.HasAccess(1, reveal) {
@@ -465,6 +554,48 @@ func TestGlobalRuleOverridesAllow(t *testing.T) {
 	}
 }
 
+func TestGrantDenyRuleOverridesAllow(t *testing.T) {
+	s := mustOpen(t, newTestStore(t))
+	for _, user := range []uint64{1, 2} {
+		if _, err := s.CreateGrant(templateGrant(user, ClusterAdminTemplateID), 0); err != nil {
+			t.Fatalf("CreateGrant: %v", err)
+		}
+	}
+	denied, err := s.CreateGrant(ruleGrant(1, denyRule(false, apigen.AuthzSelector{
+		Permissions: exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_REVEAL),
+		Spaces:      exactSpaces(3),
+		EntityTypes: exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET),
+		EntityRefs:  allEntityRefs(),
+	})), 0)
+	if err != nil {
+		t.Fatalf("CreateGrant deny: %v", err)
+	}
+	reveal := RequestedAccess{
+		Verb:       apigen.AuthzVerb_AUTHZ_VERB_REVEAL,
+		SpaceID:    3,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET,
+		EntityID:   4,
+	}
+	if s.HasAccess(1, reveal) {
+		t.Fatal("a deny grant rule should beat the user's cluster_admin grant")
+	}
+	if !s.HasAccess(2, reveal) {
+		t.Fatal("a deny grant rule is scoped to its user")
+	}
+	if !s.SpaceVisible(1, 3, false) {
+		t.Fatal("deny rules do not withdraw space visibility the allow grants")
+	}
+	if _, err := s.CreateGrant(ruleGrant(1, denyRule(false, anySelector())), 0); err != nil {
+		t.Fatalf("CreateGrant deny everything: %v", err)
+	}
+	if !s.HasAccess(1, adminAccess) {
+		t.Fatal("deny grant rules must not reach access management")
+	}
+	if err := s.DeleteGrant(1, denied.ID, 0); err != nil {
+		t.Fatalf("DeleteGrant: %v", err)
+	}
+}
+
 func TestClusterAdminDelegationLimits(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
 	if _, err := s.CreateGrant(templateGrant(1, ClusterAdminTemplateID), 0); err != nil {
@@ -473,7 +604,7 @@ func TestClusterAdminDelegationLimits(t *testing.T) {
 	direct := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_REVEAL,
 		SpaceID:    1,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SECRET,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET,
 		EntityID:   4,
 	}
 	if !s.HasAccess(1, direct) {
@@ -509,7 +640,7 @@ func TestClusterAdminDelegationLimits(t *testing.T) {
 	logs := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS,
 		SpaceID:    2,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT,
 		EntityID:   7,
 	}
 	if !s.HasAccess(1, logs) {
@@ -523,26 +654,21 @@ func TestClusterAdminDelegationLimits(t *testing.T) {
 
 func TestGlobalRuleDelegatedOnly(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	if _, err := s.CreateGrant(ruleGrant(1, &apigen.AuthzRule{
-		Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all(),
-		DelegationAllowed: true,
-	}), 0); err != nil {
+	if _, err := s.CreateGrant(ruleGrant(1, allowRule(true, anySelector())), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
-	if _, err := s.CreateGlobalRule("no_agent_reveal", &apigen.AuthzGlobalRuleSpec{
-		Deny:          true,
-		Permissions:   &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_REVEAL)}},
-		Spaces:        all(),
-		EntityTypes:   &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_SECRET)}},
-		EntityRefs:    all(),
-		DelegatedOnly: true,
-	}, 1); err != nil {
+	if _, err := s.CreateGlobalRule("no_agent_reveal", denyRule(true, apigen.AuthzSelector{
+		Permissions: exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_REVEAL),
+		Spaces:      allSpacesExcluding(),
+		EntityTypes: exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET),
+		EntityRefs:  allEntityRefs(),
+	}), 1); err != nil {
 		t.Fatalf("CreateGlobalRule: %v", err)
 	}
 	reveal := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_REVEAL,
 		SpaceID:    2,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SECRET,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET,
 		EntityID:   4,
 	}
 	if !s.HasAccess(1, reveal) {
@@ -556,9 +682,7 @@ func TestGlobalRuleDelegatedOnly(t *testing.T) {
 
 func TestGrantDelegationFlag(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	if _, err := s.CreateGrant(ruleGrant(1, &apigen.AuthzRule{
-		Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all(),
-	}), 0); err != nil {
+	if _, err := s.CreateGrant(ruleGrant(1, allowRule(false, anySelector())), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	req := viewDeployment(2)
@@ -583,13 +707,7 @@ func TestGlobalRuleAccessCarveOut(t *testing.T) {
 	if _, err := s.CreateGrant(templateGrant(1, ClusterAdminTemplateID), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
-	if _, err := s.CreateGlobalRule("deny_everything", &apigen.AuthzGlobalRuleSpec{
-		Deny:        true,
-		Permissions: all(),
-		Spaces:      all(),
-		EntityTypes: all(),
-		EntityRefs:  all(),
-	}, 1); err != nil {
+	if _, err := s.CreateGlobalRule("deny_everything", denyRule(false, anySelector()), 1); err != nil {
 		t.Fatalf("CreateGlobalRule: %v", err)
 	}
 	if s.HasAccess(1, viewDeployment(1)) {
@@ -598,7 +716,7 @@ func TestGlobalRuleAccessCarveOut(t *testing.T) {
 	access := RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_UPDATE,
 		SpaceID:    0,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS,
 	}
 	if !s.HasAccess(1, access) {
 		t.Fatal("ACCESS checks must skip global rules so the rule stays removable")
@@ -607,32 +725,25 @@ func TestGlobalRuleAccessCarveOut(t *testing.T) {
 
 func TestGlobalRuleValidation(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
+	withSpaces := func(sel apigen.AuthzSpaceSelector) *apigen.AuthzRule {
+		r := anySelector()
+		r.Spaces = sel
+		return allowRule(false, r)
+	}
+	denyAccess := anySelector()
+	denyAccess.EntityTypes = exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS)
 	cases := []struct {
 		name     string
 		ruleName string
-		rule     *apigen.AuthzGlobalRuleSpec
+		rule     *apigen.AuthzRule
 	}{
 		{"nil", "p", nil},
-		{"no name", "", &apigen.AuthzGlobalRuleSpec{
-			Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all()}},
-		{"missing selector", "p", &apigen.AuthzGlobalRuleSpec{
-			Permissions: all(), Spaces: all(), EntityTypes: all()}},
-		{"argument", "p", &apigen.AuthzGlobalRuleSpec{
-			Permissions: all(), Spaces: &apigen.AuthzSelector{ArgumentID: 1}, EntityTypes: all(), EntityRefs: all()}},
-		{"matches nothing", "p", &apigen.AuthzGlobalRuleSpec{
-			Permissions: all(), Spaces: &apigen.AuthzSelector{}, EntityTypes: all(), EntityRefs: all()}},
-		{"denies access entity", "p", &apigen.AuthzGlobalRuleSpec{
-			Permissions: all(), Spaces: all(),
-			EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS)}},
-			EntityRefs:  all(), Deny: true}},
-		{"invalid space", "p", &apigen.AuthzGlobalRuleSpec{
-			Permissions: all(), Spaces: &apigen.AuthzSelector{Include: []int64{70000}}, EntityTypes: all(), EntityRefs: all()}},
-		{"delegated_only on allow", "p", &apigen.AuthzGlobalRuleSpec{
-			Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all(),
-			DelegatedOnly: true}},
-		{"delegation_allowed on deny", "p", &apigen.AuthzGlobalRuleSpec{
-			Permissions: all(), Spaces: all(), EntityTypes: all(), EntityRefs: all(),
-			Deny: true, DelegationAllowed: true}},
+		{"no name", "", allowRule(false, anySelector())},
+		{"missing selector", "p", withSpaces(apigen.AuthzSpaceSelector{})},
+		{"matches nothing", "p", withSpaces(exactSpaces())},
+		{"denies access entity", "p", denyRule(false, denyAccess)},
+		{"invalid space", "p", withSpaces(exactSpaces(70000))},
+		{"no effect", "p", &apigen.AuthzRule{Selector: anySelector()}},
 	}
 	for _, tc := range cases {
 		if _, err := s.CreateGlobalRule(tc.ruleName, tc.rule, 1); err == nil {
@@ -644,11 +755,7 @@ func TestGlobalRuleValidation(t *testing.T) {
 	}
 	// An allow rule targeting access is only additive, so the deny carve-out
 	// does not apply to it.
-	if _, err := s.CreateGlobalRule("access_allow", &apigen.AuthzGlobalRuleSpec{
-		Permissions: all(), Spaces: all(),
-		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS)}},
-		EntityRefs:  all(),
-	}, 1); err != nil {
+	if _, err := s.CreateGlobalRule("access_allow", allowRule(false, denyAccess), 1); err != nil {
 		t.Fatalf("allow rule targeting access: %v", err)
 	}
 }
@@ -656,28 +763,16 @@ func TestGlobalRuleValidation(t *testing.T) {
 func TestReloadPreservesState(t *testing.T) {
 	store := newTestStore(t)
 	s := mustOpen(t, store)
-	created, err := s.CreateRuleTemplate("deployer", &apigen.AuthzRuleTemplateSpec{
-		Arguments: []*apigen.AuthzTemplateArgument{{ID: 1, Name: "spaces"}},
-		Rules: []*apigen.AuthzRule{{
-			Permissions: all(),
-			Spaces:      &apigen.AuthzSelector{ArgumentID: 1},
-			EntityTypes: all(),
-			EntityRefs:  all(),
-		}},
-	}, 5)
+	created, err := s.CreateGrantTemplate("deployer", spacesTemplate(1, templateRule(allow(false), spacesArgTemplateSelector(1))), 5)
 	if err != nil {
-		t.Fatalf("CreateRuleTemplate: %v", err)
+		t.Fatalf("CreateGrantTemplate: %v", err)
 	}
-	if _, err := s.CreateGrant(templateGrant(1, created.ID, &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{3}}), 0); err != nil {
+	if _, err := s.CreateGrant(templateGrant(1, created.ID, spaceBinding(1, 3)), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
-	if _, err := s.CreateGlobalRule("no_deletes", &apigen.AuthzGlobalRuleSpec{
-		Deny:        true,
-		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_DELETE)}},
-		Spaces:      all(),
-		EntityTypes: all(),
-		EntityRefs:  all(),
-	}, 5); err != nil {
+	noDeletes := anySelector()
+	noDeletes.Permissions = exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_DELETE)
+	if _, err := s.CreateGlobalRule("no_deletes", denyRule(false, noDeletes), 5); err != nil {
 		t.Fatalf("CreateGlobalRule: %v", err)
 	}
 
@@ -696,19 +791,18 @@ func TestReloadPreservesState(t *testing.T) {
 	if len(reloaded.GlobalRules()) != 2 {
 		t.Fatalf("expected the seeded default plus 1 created global rule after reload, got %d", len(reloaded.GlobalRules()))
 	}
-	if len(reloaded.RuleTemplates()) != 3 {
-		t.Fatalf("expected 3 templates after reload, got %d", len(reloaded.RuleTemplates()))
+	if len(reloaded.GrantTemplates()) != 3 {
+		t.Fatalf("expected 3 templates after reload, got %d", len(reloaded.GrantTemplates()))
 	}
 	grants := reloaded.GrantsForUser(1)
-	if len(grants) != 1 || grants[0].TemplateID != created.ID {
+	if len(grants) != 1 || grants[0].Grant.Value.Template == nil || grants[0].Grant.Value.Template.TemplateID != created.ID {
 		t.Fatalf("unexpected grants after reload: %+v", grants)
 	}
 }
 
 func TestSpaceVisible(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	binding := &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{3}}
-	if _, err := s.CreateGrant(templateGrant(1, SpaceAdminTemplateID, binding), 0); err != nil {
+	if _, err := s.CreateGrant(templateGrant(1, SpaceAdminTemplateID, spaceBinding(1, 3)), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	if !s.SpaceVisible(1, 3, false) {
@@ -726,12 +820,9 @@ func TestSpaceVisible(t *testing.T) {
 	if !s.SpaceVisible(1, 3, true) {
 		t.Fatal("space_admin delegable rule should keep the space visible to agents")
 	}
-	if _, err := s.CreateGrant(ruleGrant(5, &apigen.AuthzRule{
-		Permissions: all(),
-		Spaces:      &apigen.AuthzSelector{Include: []int64{6}},
-		EntityTypes: all(),
-		EntityRefs:  all(),
-	}), 0); err != nil {
+	sel := anySelector()
+	sel.Spaces = exactSpaces(6)
+	if _, err := s.CreateGrant(ruleGrant(5, allowRule(false, sel)), 0); err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
 	if !s.SpaceVisible(5, 6, false) {
@@ -748,7 +839,7 @@ func TestLastAdminGrantGuard(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
-	limited, err := s.CreateGrant(templateGrant(2, SpaceAdminTemplateID, &apigen.AuthzArgumentBinding{ArgumentID: 1, Values: []int64{3}}), 0)
+	limited, err := s.CreateGrant(templateGrant(2, SpaceAdminTemplateID, spaceBinding(1, 3)), 0)
 	if err != nil {
 		t.Fatalf("CreateGrant: %v", err)
 	}
@@ -770,11 +861,11 @@ func TestLastAdminGrantGuard(t *testing.T) {
 	}
 }
 
-func viewUser(userID int64) RequestedAccess {
+func viewUser(userID uint64) RequestedAccess {
 	return RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW,
 		SpaceID:    0,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_USER,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_USER,
 		EntityID:   userID,
 	}
 }
@@ -802,13 +893,12 @@ func TestSeededDefaultUserVisibility(t *testing.T) {
 
 func TestGlobalDenyBeatsAllow(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	if _, err := s.CreateGlobalRule("no_roster", &apigen.AuthzGlobalRuleSpec{
-		Deny:        true,
-		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-		Spaces:      all(),
-		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_USER)}},
-		EntityRefs:  all(),
-	}, 1); err != nil {
+	if _, err := s.CreateGlobalRule("no_roster", denyRule(false, apigen.AuthzSelector{
+		Permissions: exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW),
+		Spaces:      allSpacesExcluding(),
+		EntityTypes: exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_USER),
+		EntityRefs:  allEntityRefs(),
+	}), 1); err != nil {
 		t.Fatalf("CreateGlobalRule: %v", err)
 	}
 	if s.HasAccess(9, viewUser(3)) {
@@ -825,12 +915,12 @@ func TestGlobalDenyBeatsAllow(t *testing.T) {
 
 func TestGlobalAllowDelegationFlag(t *testing.T) {
 	s := mustOpen(t, newTestStore(t))
-	if _, err := s.CreateGlobalRule("humans_view_deployments", &apigen.AuthzGlobalRuleSpec{
-		Permissions: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzVerb_AUTHZ_VERB_VIEW)}},
-		Spaces:      &apigen.AuthzSelector{Include: []int64{2}},
-		EntityTypes: &apigen.AuthzSelector{Include: []int64{int64(apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT)}},
-		EntityRefs:  all(),
-	}, 1); err != nil {
+	if _, err := s.CreateGlobalRule("humans_view_deployments", allowRule(false, apigen.AuthzSelector{
+		Permissions: exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_VIEW),
+		Spaces:      exactSpaces(2),
+		EntityTypes: exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT),
+		EntityRefs:  allEntityRefs(),
+	}), 1); err != nil {
 		t.Fatalf("CreateGlobalRule: %v", err)
 	}
 	direct := viewDeployment(2)
@@ -879,21 +969,21 @@ func TestSystemSpaceFenceBeatsEveryGrant(t *testing.T) {
 	}
 	cases := []struct {
 		verb   apigen.AuthzVerb
-		entity apigen.AuthzEntity
-		space  int64
+		entity apigen.AuthzEntityKind
+		space  uint64
 		want   bool
 	}{
-		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_SECRET, 0, false},
-		{apigen.AuthzVerb_AUTHZ_VERB_REVEAL, apigen.AuthzEntity_AUTHZ_ENTITY_SECRET, 0, false},
-		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_CONFIG, 0, false},
-		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_ASSET, 0, false},
-		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, 0, false},
-		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, 0, true},
-		{apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, 0, true},
-		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_NODE, 0, true},
-		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS, 0, true},
-		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntity_AUTHZ_ENTITY_SECRET, 1, true},
-		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT, 1, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_REVEAL, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_CONFIG, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ASSET, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT, 0, false},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT, 0, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT, 0, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_NODE, 0, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS, 0, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_VIEW, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET, 1, true},
+		{apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT, 1, true},
 	}
 	for _, c := range cases {
 		got := s.HasAccess(1, RequestedAccess{Verb: c.verb, SpaceID: c.space, EntityType: c.entity})
@@ -902,3 +992,5 @@ func TestSystemSpaceFenceBeatsEveryGrant(t *testing.T) {
 		}
 	}
 }
+
+func sourceBlob(src apigen.AuthzGrantSource) []byte { return src.Encode() }

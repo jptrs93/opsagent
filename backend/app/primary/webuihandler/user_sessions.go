@@ -17,7 +17,7 @@ import (
 
 var UserSessionNotFoundErr = apigen.NewApiErr("Session not found", "user_session_not_found", http.StatusNotFound)
 
-func (h *Handler) startUserSession(ctx apigen.Context, user *apigen.InternalUser, kind apigen.UserSessionKind, ttl time.Duration) (*apigen.LoginResponse, error) {
+func (h *Handler) startUserSession(ctx apigen.Context, user *apigen.User, kind apigen.UserSessionKind, ttl time.Duration) (*apigen.LoginResponse, error) {
 	sessionID, err := authu.GenerateRandomToken(32)
 	if err != nil {
 		return nil, fmt.Errorf("generating user session id: %w", err)
@@ -44,13 +44,13 @@ func (h *Handler) startUserSession(ctx apigen.Context, user *apigen.InternalUser
 	return newLoginResponse(user, token, kind, rec.ExpiresAt, sessionID), nil
 }
 
-func (h *Handler) startDefaultUserSession(ctx apigen.Context, user *apigen.InternalUser) (*apigen.LoginResponse, error) {
+func (h *Handler) startDefaultUserSession(ctx apigen.Context, user *apigen.User) (*apigen.LoginResponse, error) {
 	return h.startUserSession(ctx, user, apigen.UserSessionKind_USER_SESSION_KIND_FULL, defaultSessionTokenTTL)
 }
 
 // resolveUserSession turns a u_ token into its user and session, rejecting a
 // missing, revoked, expired, or mismatched one.
-func (h *Handler) resolveUserSession(sessionID, token string, now time.Time) (*apigen.InternalUser, users.UserSession, error) {
+func (h *Handler) resolveUserSession(sessionID, token string, now time.Time) (*apigen.User, users.UserSession, error) {
 	rec, err := users.UserSessionByID(h.Store.Queries(), sessionID)
 	if errors.Is(err, users.ErrNotFound) {
 		return nil, rec, InvalidAuthTokenErr
@@ -74,29 +74,17 @@ func (h *Handler) resolveUserSession(sessionID, token string, now time.Time) (*a
 	return user, rec, nil
 }
 
-func userSessionToProto(rec users.UserSession) *apigen.UserSession {
-	return &apigen.UserSession{
-		ID:                rec.ID,
-		UserID:            rec.UserID,
-		ExpiresAt:         rec.ExpiresAt,
-		RevokedAt:         rec.RevokedAt,
-		RequestingAddress: rec.RequestingAddress,
-		UserAgent:         rec.UserAgent,
-		Kind:              rec.Kind,
-	}
-}
-
 func (h *Handler) PostV1UserSessionsList(ctx apigen.Context) (*apigen.UserSessionList, error) {
 	if err := requireHuman(ctx); err != nil {
 		return nil, err
 	}
-	records, err := users.ListUserSessions(h.Store.Queries(), ctx.User.ID)
+	records, err := h.Store.Queries().ListUserSessionsForUser(ctx, ctx.User.ID)
 	if err != nil {
 		return nil, fmt.Errorf("listing user sessions: %w", err)
 	}
-	items := make([]*apigen.UserSession, 0, len(records))
+	items := make([]apigen.UserSession, 0, len(records))
 	for _, rec := range records {
-		items = append(items, userSessionToProto(rec))
+		items = append(items, *rec.Proto())
 	}
 	return &apigen.UserSessionList{Items: items}, nil
 }
@@ -105,20 +93,20 @@ func (h *Handler) PostV1UserSessionsRevoke(ctx apigen.Context, req *apigen.UserS
 	if err := requireHuman(ctx); err != nil {
 		return err
 	}
-	if strings.TrimSpace(req.ID) == "" {
+	if strings.TrimSpace(req.SessionID) == "" {
 		return UserSessionNotFoundErr
 	}
-	revoked, err := users.RevokeUserSession(h.Store, req.ID, ctx.User.ID, time.Now())
+	revoked, err := users.RevokeUserSession(h.Store, req.SessionID, ctx.User.ID, time.Now())
 	if err != nil {
 		return fmt.Errorf("revoking user session: %w", err)
 	}
 	if !revoked {
-		rec, fetchErr := users.UserSessionByID(h.Store.Queries(), req.ID)
+		rec, fetchErr := users.UserSessionByID(h.Store.Queries(), req.SessionID)
 		if fetchErr != nil || rec.UserID != ctx.User.ID {
 			return UserSessionNotFoundErr
 		}
 		return nil
 	}
-	slog.InfoContext(ctx, "revoked user session", "session", req.ID, "user", ctx.User.ID)
+	slog.InfoContext(ctx, "revoked user session", "session", req.SessionID, "user", ctx.User.ID)
 	return nil
 }

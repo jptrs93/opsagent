@@ -17,7 +17,7 @@ import (
 
 func bg() apigen.Context { return apigen.Context{Ctx: context.Background()} }
 
-func (h *Handler) operatorCtx(t *testing.T, user *apigen.InternalUser) apigen.Context {
+func (h *Handler) operatorCtx(t *testing.T, user *apigen.User) apigen.Context {
 	t.Helper()
 	ctx, err := h.verifyToken(h.mustToken(t, user.ID, fullSession, 48*time.Hour))
 	if err != nil {
@@ -26,7 +26,7 @@ func (h *Handler) operatorCtx(t *testing.T, user *apigen.InternalUser) apigen.Co
 	return ctx
 }
 
-func (h *Handler) mustRequestStart(t *testing.T, userID int32) *apigen.AgentSessionRequest {
+func (h *Handler) mustRequestStart(t *testing.T, userID uint64) *apigen.AgentSessionRequest {
 	t.Helper()
 	req, err := h.PostV1AgentSessionsRequestStart(bg(), &apigen.AgentSessionRequestStartRequest{UserID: userID})
 	if err != nil {
@@ -41,30 +41,30 @@ func TestAgentSessionRequestApprovePickup(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
 
-	if req.Status != apigen.AgentSessionStatus_AGENT_SESSION_PENDING {
+	if req.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING {
 		t.Fatalf("status = %v, want PENDING", req.Status)
 	}
 	if req.ApprovalCode == "" || !strings.Contains(req.ApprovalCode, "-") {
 		t.Fatalf("approval code = %q, want a grouped code", req.ApprovalCode)
 	}
 
-	before, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{ID: req.ID})
+	before, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{SessionID: req.SessionID})
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsGetSession: %v", err)
 	}
-	if before.Status != apigen.AgentSessionStatus_AGENT_SESSION_PENDING || before.Token != "" {
+	if before.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING || before.Token != "" {
 		t.Fatalf("pickup before approval = %#v, want PENDING with no token", before)
 	}
 
-	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{ID: req.ID}); err != nil {
+	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{SessionID: req.SessionID}); err != nil {
 		t.Fatalf("PostV1AgentSessionsApprove: %v", err)
 	}
 
-	got, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{ID: req.ID})
+	got, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{SessionID: req.SessionID})
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsGetSession after approval: %v", err)
 	}
-	if got.Status != apigen.AgentSessionStatus_AGENT_SESSION_APPROVED || got.Token == "" {
+	if got.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED || got.Token == "" {
 		t.Fatalf("pickup = %#v, want APPROVED with a token", got)
 	}
 
@@ -81,22 +81,22 @@ func TestAgentSessionRequestApprovePickup(t *testing.T) {
 func TestAgentSessionTokenIsDeliveredOnce(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
-	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{ID: req.ID}); err != nil {
+	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{SessionID: req.SessionID}); err != nil {
 		t.Fatalf("PostV1AgentSessionsApprove: %v", err)
 	}
 
-	first, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{ID: req.ID})
+	first, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{SessionID: req.SessionID})
 	if err != nil || first.Token == "" {
 		t.Fatalf("first pickup = %#v, err = %v", first, err)
 	}
-	second, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{ID: req.ID})
+	second, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{SessionID: req.SessionID})
 	if err != nil {
 		t.Fatalf("second pickup: %v", err)
 	}
 	if second.Token != "" {
 		t.Fatal("second pickup returned a token")
 	}
-	if second.Status != apigen.AgentSessionStatus_AGENT_SESSION_APPROVED {
+	if second.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED {
 		t.Fatalf("second pickup status = %v, want APPROVED", second.Status)
 	}
 }
@@ -105,7 +105,7 @@ func TestAgentSessionTokenIsDeliveredOnce(t *testing.T) {
 func TestConcurrentPickupMintsExactlyOneToken(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
-	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{ID: req.ID}); err != nil {
+	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{SessionID: req.SessionID}); err != nil {
 		t.Fatalf("PostV1AgentSessionsApprove: %v", err)
 	}
 
@@ -116,7 +116,7 @@ func TestConcurrentPickupMintsExactlyOneToken(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{ID: req.ID})
+			res, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{SessionID: req.SessionID})
 			if err == nil {
 				tokens[i] = res.Token
 			}
@@ -162,14 +162,14 @@ func TestStaleRequestIsSupersededRatherThanBlocking(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsRequestStart after a stale request: %v", err)
 	}
-	if fresh.ID == stale.ID {
+	if fresh.SessionID == stale.SessionID {
 		t.Fatal("expected a new request id")
 	}
-	rec, err := h.agentSessions().FetchAgentSession(stale.ID)
+	rec, err := h.agentSessions().FetchAgentSession(stale.SessionID)
 	if err != nil {
 		t.Fatalf("FetchAgentSession: %v", err)
 	}
-	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_REJECTED {
+	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED {
 		t.Fatalf("stale request status = %v, want REJECTED", rec.Status)
 	}
 }
@@ -178,16 +178,16 @@ func TestStaleRequestIsSupersededRatherThanBlocking(t *testing.T) {
 func TestApprovedSessionExpiresUncollected(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
-	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{ID: req.ID}); err != nil {
+	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, user), &apigen.AgentSessionApproveRequest{SessionID: req.SessionID}); err != nil {
 		t.Fatalf("PostV1AgentSessionsApprove: %v", err)
 	}
 	shrinkTTL(t, &agentSessionPickupTTL)
 
-	got, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{ID: req.ID})
+	got, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{SessionID: req.SessionID})
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsGetSession: %v", err)
 	}
-	if got.Status != apigen.AgentSessionStatus_AGENT_SESSION_REJECTED || got.Token != "" {
+	if got.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED || got.Token != "" {
 		t.Fatalf("pickup = %#v, want REJECTED with no token", got)
 	}
 }
@@ -196,18 +196,18 @@ func TestApprovedSessionExpiresUncollected(t *testing.T) {
 // be the request's own user doing it.
 func TestApproveIsScopedToTheRequestedUser(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	other := &apigen.InternalUser{ID: 2, WebAuthNID: user.WebAuthNID, Name: "other"}
+	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: "other"}
 	users.Write(h.Store, other)
 	req := h.mustRequestStart(t, user.ID)
 
-	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, other), &apigen.AgentSessionApproveRequest{ID: req.ID}); err == nil {
+	if _, err := h.PostV1AgentSessionsApprove(h.operatorCtx(t, other), &apigen.AgentSessionApproveRequest{SessionID: req.SessionID}); err == nil {
 		t.Fatal("expected another user's approval to fail")
 	}
-	rec, err := h.agentSessions().FetchAgentSession(req.ID)
+	rec, err := h.agentSessions().FetchAgentSession(req.SessionID)
 	if err != nil {
 		t.Fatalf("FetchAgentSession: %v", err)
 	}
-	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_PENDING {
+	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING {
 		t.Fatalf("status = %v, want the request still PENDING", rec.Status)
 	}
 }
@@ -217,10 +217,10 @@ func TestApproveTwiceIsRejected(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
 	ctx := h.operatorCtx(t, user)
-	if _, err := h.PostV1AgentSessionsApprove(ctx, &apigen.AgentSessionApproveRequest{ID: req.ID}); err != nil {
+	if _, err := h.PostV1AgentSessionsApprove(ctx, &apigen.AgentSessionApproveRequest{SessionID: req.SessionID}); err != nil {
 		t.Fatalf("PostV1AgentSessionsApprove: %v", err)
 	}
-	if _, err := h.PostV1AgentSessionsApprove(ctx, &apigen.AgentSessionApproveRequest{ID: req.ID}); err == nil {
+	if _, err := h.PostV1AgentSessionsApprove(ctx, &apigen.AgentSessionApproveRequest{SessionID: req.SessionID}); err == nil {
 		t.Fatal("expected a second approval to fail")
 	}
 }
@@ -231,17 +231,17 @@ func TestRevokeOnAPendingRequestRejectsIt(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
 
-	if err := h.PostV1AgentSessionsRevoke(h.operatorCtx(t, user), &apigen.AgentSessionRevokeRequest{ID: req.ID}); err != nil {
+	if err := h.PostV1AgentSessionsRevoke(h.operatorCtx(t, user), &apigen.AgentSessionRevokeRequest{SessionID: req.SessionID}); err != nil {
 		t.Fatalf("PostV1AgentSessionsRevoke: %v", err)
 	}
-	rec, err := h.agentSessions().FetchAgentSession(req.ID)
+	rec, err := h.agentSessions().FetchAgentSession(req.SessionID)
 	if err != nil {
 		t.Fatalf("FetchAgentSession: %v", err)
 	}
-	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_REJECTED {
+	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED {
 		t.Fatalf("status = %v, want REJECTED", rec.Status)
 	}
-	got, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{ID: req.ID})
+	got, err := h.PostV1AgentSessionsGetSession(bg(), &apigen.AgentSessionGetRequest{SessionID: req.SessionID})
 	if err != nil {
 		t.Fatalf("PostV1AgentSessionsGetSession: %v", err)
 	}
@@ -256,7 +256,7 @@ func TestPendingSessionIDDoesNotAuthenticate(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	req := h.mustRequestStart(t, user.ID)
 
-	token, err := mintToken(agentTokenKind, req.ID)
+	token, err := mintToken(agentTokenKind, req.SessionID)
 	if err != nil {
 		t.Fatalf("mintToken: %v", err)
 	}
@@ -290,12 +290,12 @@ func TestAgentInstructionsRender(t *testing.T) {
 	// The page is an agent's only map of the API, so it has to name the
 	// shapes the server actually serves: the event stream's mutation envelope
 	// and the log/metrics endpoints an operator may grant.
-	for _, want := range []string{"/v1/global/events", "after_seq", "`mutations`", "`entity_type`", "`entity_id`", "`spec_version`", "value_version", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/network-policies/list"} {
+	for _, want := range []string{"/v1/global/events", "`snapshot`", "`meta`", "`updated_seq`", "`mutations`", "`entity_type`", "`entity_id`", "`spec_version`", "value_version", `"restart": {}`, "dedicated_nodes", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/user-sessions/*"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("instructions omit %s", want)
 		}
 	}
-	for _, retired := range []string{"deployment_configs", "/v1/global/snapshot", "deployment_events"} {
+	for _, retired := range []string{"deployment_configs", "/v1/global/snapshot", "deployment_events", "after_seq", "/v1/nodes/list", "/v1/network-policies/list", "/v1/personal-sessions", "SecretEvent", "DeploymentEvent", "`reset`"} {
 		if strings.Contains(body, retired) {
 			t.Fatalf("instructions still describe the retired %s shape", retired)
 		}

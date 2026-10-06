@@ -63,6 +63,11 @@ func Respond(ctx context.Context, r *http.Request, w http.ResponseWriter, res En
 		return
 	}
 	if res != nil {
+		payload, err := encodeChecked(res)
+		if err != nil {
+			HandleReqErr(ctx, ApiErr{Code: http.StatusInternalServerError, DisplayErr: "Invalid server response", InternalErr: err.Error()}, r, w)
+			return
+		}
 		if negotiatedJSONResponse(r) {
 			b, err := json.Marshal(res)
 			if err != nil {
@@ -74,7 +79,7 @@ func Respond(ctx context.Context, r *http.Request, w http.ResponseWriter, res En
 			return
 		}
 		w.Header().Set("Content-Type", "application/protobuf")
-		RespondWithStatus(ctx, w, res.Encode(), http.StatusOK)
+		RespondWithStatus(ctx, w, payload, http.StatusOK)
 		return
 	}
 	RespondWithStatus(ctx, w, nil, http.StatusOK)
@@ -359,56 +364,4 @@ func (e ApiErr) Error() string {
 		return e.InternalErr
 	}
 	return e.DisplayErr
-}
-
-// ValidationError represents a buf.validate constraint failure on a request payload.
-// The Path slice records the path to the offending field, joined with dots when
-// rendered (e.g. "user.email" or "items[3].name").
-type ValidationError struct {
-	Path   []string
-	Reason string
-}
-
-func (e *ValidationError) Error() string {
-	return joinValidationPath(e.Path) + ": " + e.Reason
-}
-
-func joinValidationPath(parts []string) string {
-	switch len(parts) {
-	case 0:
-		return ""
-	case 1:
-		return parts[0]
-	}
-	n := len(parts) - 1
-	for _, p := range parts {
-		n += len(p)
-	}
-	out := make([]byte, 0, n)
-	for i, p := range parts {
-		if i > 0 && len(p) > 0 && p[0] != '[' {
-			out = append(out, '.')
-		}
-		out = append(out, p...)
-	}
-	return string(out)
-}
-
-func newValidationError(path []string, reason string) *ValidationError {
-	return &ValidationError{Path: path, Reason: reason}
-}
-
-func wrapValidationError(err error, segment string) error {
-	if err == nil {
-		return nil
-	}
-	var ve *ValidationError
-	if errors.As(err, &ve) {
-		path := make([]string, 0, len(ve.Path)+1)
-		path = append(path, segment)
-		path = append(path, ve.Path...)
-		ve.Path = path
-		return ve
-	}
-	return err
 }

@@ -10,7 +10,7 @@ import (
 func agentSessionRowToRecord(row pq.AgentSession) Record {
 	return Record{
 		ID:                row.SessionID,
-		UserID:            int32(row.UserID),
+		UserID:            row.UserID,
 		CreatedAt:         time.UnixMilli(row.CreatedAt),
 		ExpiresAt:         timeOrZero(row.ExpiresAt),
 		TokenHash:         row.TokenHash,
@@ -22,6 +22,14 @@ func agentSessionRowToRecord(row pq.AgentSession) Record {
 	}
 }
 
+// ToProto is the wire document without the token hash.
 func ToProto(rec Record) *apigen.AgentSession {
-	return &apigen.AgentSession{ID: rec.ID, UserID: rec.UserID, ExpiresAt: rec.ExpiresAt, TokenPrefix: rec.TokenPrefix, Status: rec.Status, RequestingAddress: rec.RequestingAddress, ApprovalCode: rec.ApprovalCode, ApprovedAt: rec.ApprovedAt}
+	s := &apigen.AgentSession{SessionID: rec.ID, UserID: rec.UserID, Status: rec.Status, RequestingAddress: rec.RequestingAddress, ApprovedAt: apigen.TimeOf(rec.ApprovedAt)}
+	if rec.ApprovalCode != "" {
+		s.ApprovalCode = apigen.Some(rec.ApprovalCode)
+	}
+	if rec.Collected() {
+		s.Token = apigen.Some(apigen.AgentToken{Prefix: rec.TokenPrefix, ExpiresAt: rec.ExpiresAt})
+	}
+	return s
 }

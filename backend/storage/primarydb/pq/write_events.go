@@ -3,9 +3,7 @@ package pq
 import (
 	"context"
 	"database/sql"
-	"encoding/binary"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -16,7 +14,8 @@ func (q *Queries) InsertWriteEvent(ctx context.Context, u *apigen.CoreWriteUpdat
 	if _, err := q.db.ExecContext(ctx, `INSERT INTO write_events (seq, time, actor) VALUES (?, ?, ?)`, u.Seq, u.Time, u.Actor); err != nil {
 		return err
 	}
-	for i, m := range u.Mutations {
+	for i := range u.Mutations {
+		m := &u.Mutations[i]
 		var payload []byte
 		if e := m.Entity(); e != nil {
 			payload = e.Encode()
@@ -44,108 +43,102 @@ func (q *Queries) LatestWriteEventSeq(ctx context.Context) (int64, error) {
 // mutations in publication order. after < 0 includes the genesis events at
 // seq 0.
 func (q *Queries) WriteEventsInRange(ctx context.Context, after, upTo int64) ([]*apigen.CoreWriteUpdate, error) {
-	return q.writeEventsInRangeOfTypes(ctx, after, upTo, nil)
+	events, err := q.loggedWriteEventsInRange(ctx, after, upTo)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*apigen.CoreWriteUpdate, 0, len(events))
+	for _, e := range events {
+		out = append(out, e.update)
+	}
+	return out, nil
 }
 
-func (q *Queries) writeEventsInRangeOfTypes(ctx context.Context, after, upTo int64, types []apigen.CoreEntityType) ([]*apigen.CoreWriteUpdate, error) {
-	args := []any{after, upTo}
-	filter := ""
-	if len(types) > 0 {
-		marks := make([]string, 0, len(types))
-		for _, t := range types {
-			marks = append(marks, "?")
-			args = append(args, int64(t))
-		}
-		filter = ` AND m.entity_type IN (` + strings.Join(marks, ", ") + `)`
-	}
-	rows, err := q.db.QueryContext(ctx, `SELECT e.seq, e.time, e.actor, m.entity_type, m.entity_id, m.op, m.payload
+// loggedEvent is one logged write with, per mutation index, the deployment
+// counters the log carries for it.
+type loggedEvent struct {
+	update *apigen.CoreWriteUpdate
+	logged map[int]loggedDeploymentFacts
+}
+
+func (q *Queries) loggedWriteEventsInRange(ctx context.Context, after, upTo int64) ([]loggedEvent, error) {
+	rows, err := q.db.QueryContext(ctx, `SELECT e.seq, e.time, e.actor, m.entity_type, m.entity_id, m.op, m.payload, m.version, m.spec_version
 FROM write_events e JOIN write_event_mutations m ON m.seq = e.seq
-WHERE e.seq > ? AND e.seq <= ?`+filter+`
-ORDER BY e.seq, m.idx`, args...)
+WHERE e.seq > ? AND e.seq <= ?
+ORDER BY e.seq, m.idx`, after, upTo)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []*apigen.CoreWriteUpdate
+	var out []loggedEvent
 	for rows.Next() {
-		var seq, eventTime, entityType, entityID, op int64
-		var actor int32
+		var seq, eventTime, actor, entityType, op int64
+		var entityID uint64
 		var payload []byte
-		if err := rows.Scan(&seq, &eventTime, &actor, &entityType, &entityID, &op, &payload); err != nil {
+		var version, specVersion sql.NullInt64
+		if err := rows.Scan(&seq, &eventTime, &actor, &entityType, &entityID, &op, &payload, &version, &specVersion); err != nil {
 			return nil, err
 		}
-		if n := len(out); n == 0 || out[n-1].Seq != seq {
-			out = append(out, &apigen.CoreWriteUpdate{Seq: seq, Time: eventTime, Actor: actor})
+		if n := len(out); n == 0 || out[n-1].update.Seq != seq {
+			out = append(out, loggedEvent{update: &apigen.CoreWriteUpdate{Seq: seq, Time: eventTime, Actor: actor}})
 		}
 		m, err := decodeWriteEventMutation(apigen.CoreEntityType(entityType), entityID, apigen.AuthzVerb(op), payload)
 		if err != nil {
 			return nil, fmt.Errorf("write event %d: %w", seq, err)
 		}
-		if q.logged != nil && apigen.CoreEntityType(entityType) == apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT {
-			if facts, ok := loggedDeploymentCounters(payload); ok {
-				q.logged[m] = facts
+		current := &out[len(out)-1]
+		if version.Valid && specVersion.Valid && version.Int64 > 0 && specVersion.Int64 > 0 {
+			if current.logged == nil {
+				current.logged = map[int]loggedDeploymentFacts{}
 			}
+			current.logged[len(current.update.Mutations)] = loggedDeploymentFacts{version: uint32(version.Int64), specVersion: uint32(specVersion.Int64)}
 		}
-		out[len(out)-1].Mutations = append(out[len(out)-1].Mutations, m)
+		current.update.Mutations = append(current.update.Mutations, m)
 	}
 	return out, rows.Err()
 }
 
-func decodeWriteEventMutation(t apigen.CoreEntityType, id int64, op apigen.AuthzVerb, payload []byte) (*apigen.CoreMutation, error) {
+func decodeWriteEventMutation(t apigen.CoreEntityType, id uint64, op apigen.AuthzVerb, payload []byte) (apigen.CoreMutation, error) {
 	if op == apigen.AuthzVerb_AUTHZ_VERB_DELETE {
-		return &apigen.CoreMutation{Delete: &apigen.DeleteMutation{EntityType: t, EntityID: id}}, nil
+		return apigen.DeleteMutationOf(t, id), nil
 	}
 	entity, err := apigen.DecodeCoreEntity(payload)
 	if err != nil {
-		return nil, err
+		return apigen.CoreMutation{}, err
 	}
 	StampEntityID(entity, id)
 	if op == apigen.AuthzVerb_AUTHZ_VERB_CREATE {
-		return &apigen.CoreMutation{Create: &apigen.CreateMutation{EntityType: t, EntityID: id, Entity: entity}}, nil
+		return apigen.CreateMutationOf(t, id, *entity), nil
 	}
-	return &apigen.CoreMutation{Update: &apigen.UpdateMutation{EntityType: t, EntityID: id, Entity: entity}}, nil
+	return apigen.UpdateMutationOf(t, id, *entity), nil
 }
 
 // LatestMutation returns an entity's newest logged mutation, a delete
 // included, or sql.ErrNoRows when the log never saw the entity.
-func (q *Queries) LatestMutation(ctx context.Context, t apigen.CoreEntityType, id int64) (*apigen.CoreMutation, error) {
+func (q *Queries) LatestMutation(ctx context.Context, t apigen.CoreEntityType, id uint64) (*apigen.CoreMutation, error) {
 	var op int64
 	var payload []byte
 	if err := q.db.QueryRowContext(ctx, `SELECT op, payload FROM write_event_mutations WHERE entity_type = ? AND entity_id = ? ORDER BY seq DESC, idx DESC LIMIT 1`,
 		int64(t), id).Scan(&op, &payload); err != nil {
 		return nil, err
 	}
-	return decodeWriteEventMutation(t, id, apigen.AuthzVerb(op), payload)
+	m, err := decodeWriteEventMutation(t, id, apigen.AuthzVerb(op), payload)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
 }
 
-// requireCompleteWriteLog refuses a database whose write log stops short of
-// its global seq. The log is the only source the materialised tables are
-// built from, and only a start on v0.0.614 or later fills it, so a database
-// that skipped that release has to step through it first. It runs before
-// anything else touches the file, so a refused database goes back to the
-// release it came from unchanged.
-func requireCompleteWriteLog(db *sql.DB) {
-	ctx := context.Background()
-	q := &Queries{db: &conn{DBTX: db, root: db}}
-	tables, err := q.existingTables(ctx, []string{"global_seq", "write_events"})
-	if err != nil {
-		panic(fmt.Errorf("write log: %w", err))
+// refuseLegacyDatabase refuses a database that v0.0.615 never opened: its
+// entity history still sits in the per-entity event tables that the
+// v0.0.615 materialisation folded into the write log, and that code is gone.
+func refuseLegacyDatabase(db *sql.DB) {
+	var n int64
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'deployment_event_log'`).Scan(&n); err != nil {
+		panic(fmt.Errorf("legacy check: %w", err))
 	}
-	if !slices.Contains(tables, "global_seq") {
-		return
-	}
-	seq, err := q.GetGlobalSeq(ctx)
-	if err != nil {
-		panic(fmt.Errorf("write log: %w", err))
-	}
-	logged := int64(-1)
-	if slices.Contains(tables, "write_events") {
-		if logged, err = q.LatestWriteEventSeq(ctx); err != nil {
-			panic(fmt.Errorf("write log: %w", err))
-		}
-	}
-	if seq > 0 && logged < seq {
-		panic(fmt.Sprintf("the write log ends at seq %d but the database is at seq %d: start this database on v0.0.614 once before upgrading", logged, seq))
+	if n > 0 {
+		panic("this database predates the write log materialisation: start it on v0.0.615 once before upgrading")
 	}
 }
 
@@ -164,7 +157,7 @@ func seedWriteLogGenesis(db *sql.DB) {
 	}
 	genesis := &apigen.CoreWriteUpdate{Time: time.Now().UnixMilli()}
 	for _, sp := range []apigen.Space{{ID: 0, Name: "_system"}, {ID: 1, Name: "global"}} {
-		genesis.Mutations = append(genesis.Mutations, &apigen.CoreMutation{Create: &apigen.CreateMutation{EntityType: apigen.CoreEntityType_CORE_ENTITY_SPACE, EntityID: int64(sp.ID), Entity: &apigen.CoreEntity{Space: &sp}}})
+		genesis.Mutations = append(genesis.Mutations, apigen.CreateMutationOf(apigen.CoreEntityType_CORE_ENTITY_SPACE, sp.ID, entityOf(apigen.CoreEntityValueOneof{Space: &sp})))
 	}
 	err = q.Tx(ctx, func(tx *Queries) error {
 		if err := tx.ReduceUpdate(ctx, genesis); err != nil {
@@ -177,71 +170,24 @@ func seedWriteLogGenesis(db *sql.DB) {
 	}
 }
 
+// loggedDeploymentFacts are the version and spec_version the write log
+// carries beside a deployment mutation from before the reducer derived them.
+// The spec counter cannot be re-derived from those payloads: specs that
+// differed only in fields dropped since decode equal now, so a rebuild takes
+// the logged numbers where they exist.
 type loggedDeploymentFacts struct {
-	version, specVersion int64
+	version, specVersion uint32
 }
 
-// loggedDeploymentCounters reads the version and spec_version the v0.0.614
-// backfill wrote into every deployment payload at Deployment tags 15 and 16,
-// reserved since. The spec counter cannot be re-derived from the payloads:
-// specs that differed only in fields dropped before the backfill decode
-// equal now, so a rebuild takes the logged numbers where they exist.
-func loggedDeploymentCounters(payload []byte) (loggedDeploymentFacts, bool) {
-	deployment, ok := protoField(payload, uint64(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT))
-	if !ok {
-		return loggedDeploymentFacts{}, false
+func writeEventTypeFilter(types []apigen.CoreEntityType) (string, []any) {
+	if len(types) == 0 {
+		return "", nil
 	}
-	version, okVersion := protoField(deployment.bytes, 15)
-	spec, okSpec := protoField(deployment.bytes, 16)
-	if !okVersion || !okSpec || version.varint == 0 || spec.varint == 0 {
-		return loggedDeploymentFacts{}, false
+	marks := make([]string, 0, len(types))
+	args := make([]any, 0, len(types))
+	for _, t := range types {
+		marks = append(marks, "?")
+		args = append(args, int64(t))
 	}
-	return loggedDeploymentFacts{version: int64(version.varint), specVersion: int64(spec.varint)}, true
-}
-
-type protoValue struct {
-	varint uint64
-	bytes  []byte
-}
-
-func protoField(buf []byte, want uint64) (protoValue, bool) {
-	for len(buf) > 0 {
-		key, n := binary.Uvarint(buf)
-		if n <= 0 {
-			return protoValue{}, false
-		}
-		buf = buf[n:]
-		tag, wire := key>>3, key&7
-		var v protoValue
-		switch wire {
-		case 0:
-			x, n := binary.Uvarint(buf)
-			if n <= 0 {
-				return protoValue{}, false
-			}
-			v.varint, buf = x, buf[n:]
-		case 1:
-			if len(buf) < 8 {
-				return protoValue{}, false
-			}
-			v.bytes, buf = buf[:8], buf[8:]
-		case 2:
-			l, n := binary.Uvarint(buf)
-			if n <= 0 || uint64(len(buf)-n) < l {
-				return protoValue{}, false
-			}
-			v.bytes, buf = buf[n:n+int(l)], buf[n+int(l):]
-		case 5:
-			if len(buf) < 4 {
-				return protoValue{}, false
-			}
-			v.bytes, buf = buf[:4], buf[4:]
-		default:
-			return protoValue{}, false
-		}
-		if tag == want {
-			return v, true
-		}
-	}
-	return protoValue{}, false
+	return ` AND m.entity_type IN (` + strings.Join(marks, ", ") + `)`, args
 }

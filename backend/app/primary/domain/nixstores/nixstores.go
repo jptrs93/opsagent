@@ -29,7 +29,7 @@ type Service struct {
 // New loads the persisted requests and replays them into the primary's own
 // store manager through applyLocal.
 func New(store *state.Service, applyLocal func(repo string, requestedAt time.Time)) (*Service, error) {
-	items, err := store.Queries().ListNixStoreResets(context.Background())
+	items, err := listItems(context.Background(), store.Queries())
 	if err != nil {
 		return nil, err
 	}
@@ -41,13 +41,13 @@ func New(store *state.Service, applyLocal func(repo string, requestedAt time.Tim
 	}
 	if applyLocal != nil {
 		for _, item := range items {
-			applyLocal(item.Repo, time.UnixMilli(item.RequestedAt))
+			applyLocal(item.Repo, item.RequestedAt)
 		}
 	}
 	return s, nil
 }
 
-func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time, author int32) error {
+func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time, author int64) error {
 	repo = strings.TrimSpace(repo)
 	if repo == "" {
 		return errors.New("repository is required")
@@ -58,8 +58,8 @@ func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time, 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	err := s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
-		var id int64
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: author, EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
+		var id uint64
 		switch previous, err := q.GetNixStoreReset(ctx, repo); {
 		case errors.Is(err, sql.ErrNoRows):
 			meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
@@ -71,12 +71,12 @@ func (s *Service) RequestReset(ctx context.Context, repo string, now time.Time, 
 		default:
 			id = previous.ID
 		}
-		return pq.NewUpdate(pq.NixStoreResetMutation(meta, id, &apigen.NixStoreReset{Repo: repo, RequestedAt: now.UnixMilli()})), nil
+		return pq.NewUpdate(pq.NixStoreResetMutation(meta, id, &apigen.NixStoreReset{Repo: repo})), nil
 	})
 	if err != nil {
 		return err
 	}
-	items, err := s.store.Queries().ListNixStoreResets(ctx)
+	items, err := listItems(ctx, s.store.Queries())
 	if err != nil {
 		return err
 	}
@@ -117,4 +117,16 @@ func (s *Service) SnapshotAndSubscribe() (*apigen.NixStoreResets, <-chan *apigen
 			delete(s.subscribers, updates)
 		})
 	}
+}
+
+func listItems(ctx context.Context, q *pq.Queries) ([]apigen.NixStoreResetItem, error) {
+	rows, err := q.ListNixStoreResetRows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]apigen.NixStoreResetItem, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, apigen.NixStoreResetItem{Repo: r.Repo, RequestedAt: time.UnixMilli(r.RequestedAt)})
+	}
+	return items, nil
 }

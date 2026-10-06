@@ -2,14 +2,15 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/logs.proto";
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message PrepareOutputRequest {
-  int32 deployment_id = 3;
-  int32 spec_version = 2;  // spec version whose prepare log to stream (0 = latest)
+  uint64 deployment_id = 1 [(cp.js_type) = "number"];
+  uint32 spec_version = 2;  // spec version whose prepare log to stream (0 = latest)
 }
 
 message PrepareOutputChunk {
@@ -17,8 +18,8 @@ message PrepareOutputChunk {
 }
 
 message DeploymentLogRequest {
-  PrepareOutputRequest preparer_output = 2;
-  string request_id = 3;  // Unique ID for multiplexing parallel log streams over a single cluster session.
+  PrepareOutputRequest preparer_output = 1;
+  string request_id = 2;  // Unique ID for multiplexing parallel log streams over a single cluster session.
 }
 
 // One predicate of a log query. Filters AND together. A filter with no field
@@ -39,11 +40,11 @@ message LogFilter {
 // count, per-field sampled value stats) in a single round trip. No
 // pagination.
 message LogQueryRequest {
-  int32 deployment_id = 1;
-  int32 target_node_id = 2;   // Required for system log queries (deployment_id = 0).
-  int32 deployment_version = 3;   // DeploymentEvent top-level version to search (0 = all versions). Each placement runs one deployment version, so it identifies a container lifetime together with node, instance and run.
-  int64 time_start = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Inclusive; 0 = time_end - 12h.
-  int64 time_end = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];    // Exclusive; 0 = now, pinned server-side and echoed in stats.
+  uint64 deployment_id = 1 [(cp.js_type) = "number"];
+  uint64 target_node_id = 2 [(cp.js_type) = "number"];   // Required for system log queries (deployment_id = 0).
+  uint32 deployment_version = 3;   // Deployment version to search (0 = all versions). Each placement runs one deployment version, so it identifies a container lifetime together with node, instance and run.
+  optional int64 time_start = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Inclusive; absent = time_end - 12h.
+  optional int64 time_end = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];    // Exclusive; absent = now, pinned server-side and echoed in stats.
   repeated LogFilter filters = 6;
   int32 limit = 7;             // Matching records kept; 0 = server default (10000, also the cap); < 0 = aggregates only.
   int32 histogram_buckets = 8; // Hint from client pixel width; 0 disables the histogram. Server may clamp.
@@ -55,28 +56,28 @@ message LogQueryRequest {
 message LogQueryStats {
   int64 time_start = 1 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Effective range queried.
   int64 time_end = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int64 scanned_rows = 3;   // Records examined.
-  int64 matched_rows = 4;   // Records matching the filters over the full range.
+  int64 scanned_rows = 3 [(cp.js_type) = "number"];   // Records examined.
+  int64 matched_rows = 4 [(cp.js_type) = "number"];   // Records matching the filters over the full range.
   int32 returned_rows = 5;
   bool truncated = 6;       // matched_rows exceeded the returned records.
   int32 took_ms = 7;
-  int64 sampled_rows = 8;   // Newest matched records sampled for per-field stats.
+  int64 sampled_rows = 8 [(cp.js_type) = "number"];   // Newest matched records sampled for per-field stats.
 }
 
 message LogHistogramSeries {
   string level = 1;           // DEBUG/INFO/WARN/ERROR, OTHER for any other parsed level, or "" for lines with no parsed level.
-  repeated int64 counts = 2;  // Matching records per bucket, oldest bucket first.
+  repeated int64 counts = 2 [(cp.js_type) = "number"];  // Matching records per bucket, oldest bucket first.
 }
 
 message LogHistogram {
-  int64 bucket_ms = 1;  // Bucket width in milliseconds.
+  int64 bucket_ms = 1 [(cp.js_type) = "number"];  // Bucket width in milliseconds.
   int64 start_time = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Left edge of the first bucket.
   repeated LogHistogramSeries series = 3;
 }
 
 message LogFieldValueCount {
   string value = 1;
-  int64 count = 2;
+  int64 count = 2 [(cp.js_type) = "number"];
 }
 
 // Sampled value distribution for one parsed field, computed during the main
@@ -85,9 +86,9 @@ message LogFieldValueCount {
 message LogFieldStats {
   string field = 1;
   double coverage = 2;                  // Fraction of sampled records carrying the field.
-  int64 distinct = 3;                   // Distinct values among sampled records.
+  int64 distinct = 3 [(cp.js_type) = "number"];                   // Distinct values among sampled records.
   repeated LogFieldValueCount top = 4;  // Top values by sampled count, descending.
-  int64 other = 5;                      // Sampled occurrences outside top.
+  int64 other = 5 [(cp.js_type) = "number"];                      // Sampled occurrences outside top.
 }
 
 message LogQueryResponse {

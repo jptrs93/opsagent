@@ -17,10 +17,10 @@ import {selectableSpaces} from "../lib/nodeSpaces.js";
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {
     ASSET_COLUMNS, ASSET_DEFAULT_COLUMNS, ASSET_DEFAULT_COLUMN_WIDTHS,
-    assetDirsAsNamed, fmtSize, makeAssetItems,
+    fmtSize, makeAssetItems,
 } from "../lib/assetExplorer.js";
 import {
-    buildRows, checkDrop, dirsById, dirPathSegments, dragSource, dropDestination,
+    buildRows, checkDrop, dirIdForWire, dirsById, dirPathSegments, dragSource, dropDestination,
     emptySpaceIds, flexColumnKey, folderOptions, itemKey, itemPathSegments, sameSet,
     spaceHue,
 } from "../lib/valueExplorer.js";
@@ -46,7 +46,15 @@ const loadView = () => {
 };
 
 const assetRefMatches = (assetID, ref) =>
-    Number(ref?.id || 0) === assetID;
+    Number(ref?.assetId || 0) === assetID;
+
+// The upload query carries the destination folder only away from the root: an
+// absent directory_id is the space root, matching the optional ids elsewhere.
+const uploadParams = ({key, spaceId, directoryId}) => ({
+    key,
+    space_id: String(Number(spaceId || 0)),
+    ...(dirIdForWire(directoryId) ? {directory_id: String(dirIdForWire(directoryId))} : {}),
+});
 
 async function uploadAssetFile(file, params, token, onProgress) {
     const query = new URLSearchParams(params);
@@ -149,7 +157,7 @@ export function assetsPage() {
 
 
     const currentItems = () => makeAssetItems(assetMetasS.val);
-    const currentDirs = () => assetDirsAsNamed(assetDirectoriesS.val);
+    const currentDirs = () => assetDirectoriesS.val || [];
     // listedSpaces is the page's whole notion of "the spaces": the opendeploy
     // space is dropped once here so it stays out of the tree, the filter menu
     // and every destination picker without each of them re-testing for it.
@@ -178,7 +186,7 @@ export function assetsPage() {
             const cfg = deployment?.config;
             if (!cfg || deploymentDeleted(cfg)) return false;
             const runtime = containerWorkload(cfg)?.runtime || {};
-            return Object.values(runtime.envVars || {}).some((value) => assetRefMatches(assetID, value?.assetRef))
+            return Object.values(runtime.envVars || {}).some((envVar) => assetRefMatches(assetID, envVar?.value?.asset?.asset))
                 || (runtime.assetMounts || []).some((mount) => assetRefMatches(assetID, mount?.asset));
         });
         return {deployments, settings: []};
@@ -305,7 +313,7 @@ export function assetsPage() {
         dialogSaving.val = true;
         try {
             error.val = null;
-            const dir = await capi.postV1AssetDirectoriesCreate({spaceId, parentId: directoryId, key});
+            const dir = await capi.postV1AssetDirectoriesCreate({spaceId, parentId: dirIdForWire(directoryId), key});
             folderDialog.val = null;
             expandTo(spaceId, dir.id);
             selectedKey.val = `dir:${dir.id}`;
@@ -349,11 +357,11 @@ export function assetsPage() {
             // unsupported on the server.
             const dir = sel.dir;
             moveDialog.val = {
-                label: `Move ${dir.name}`,
+                label: `Move ${dir.key}`,
                 options: () => folderOptions(currentDirs(), dir.spaceId, Number(dir.id)),
                 currentId: () => Number(dir.parentId || 0),
                 apply: async (destination) => {
-                    await capi.postV1AssetDirectoriesMove({directoryId: Number(dir.id), newParentId: destination});
+                    await capi.postV1AssetDirectoriesMove({directoryId: Number(dir.id), newParentId: dirIdForWire(destination)});
                     expandTo(Number(dir.spaceId), destination);
                 },
             };
@@ -370,7 +378,7 @@ export function assetsPage() {
             options: () => folderOptions(currentDirs(), spaceId.val),
             currentId: () => (spaceId.val === Number(item.spaceId) ? item.directoryId : null),
             apply: async (destination) => {
-                const request = {assetId: item.id, assetDirectoryId: destination};
+                const request = {assetId: item.id, assetDirectoryId: dirIdForWire(destination)};
                 if (spaceId.val !== Number(item.spaceId)) request.spaceId = spaceId.val;
                 await capi.postV1AssetsMove(request);
                 expandTo(spaceId.val, destination);
@@ -396,7 +404,7 @@ export function assetsPage() {
     const openDelete = (sel) => {
         if (sel.type === "dir") {
             deleteTarget.val = {
-                label: `folder ${sel.dir.name}`,
+                label: `folder ${sel.dir.key}`,
                 apply: async () => {
                     await capi.postV1AssetDirectoriesDelete({directoryId: Number(sel.dir.id)});
                     selectedKey.val = null;
@@ -485,7 +493,7 @@ export function assetsPage() {
             uploadedKey.val = "";
             const params = target.mode === "version"
                 ? {asset_id: String(target.assetId)}
-                : {key: name, unique_key: "1", space_id: String(target.spaceId), directory_id: String(target.directoryId)};
+                : {...uploadParams({key: name, spaceId: target.spaceId, directoryId: target.directoryId}), unique_key: "1"};
             const version = await uploadAssetFile(target.file, params, loginS.val?.token, (loaded, total) => {
                 uploadLoaded.val = loaded;
                 uploadTotal.val = total || target.file.size;
@@ -839,11 +847,11 @@ export function assetsPage() {
         try {
             if (drag.type === "dir") {
                 await capi.postV1AssetDirectoriesMove({
-                    directoryId: drag.id, newParentId: destination.directoryId, spaceId: destination.spaceId,
+                    directoryId: drag.id, newParentId: dirIdForWire(destination.directoryId), spaceId: destination.spaceId,
                 });
             } else {
                 await capi.postV1AssetsMove({
-                    assetId: drag.id, assetDirectoryId: destination.directoryId, spaceId: destination.spaceId,
+                    assetId: drag.id, assetDirectoryId: dirIdForWire(destination.directoryId), spaceId: destination.spaceId,
                 });
             }
             expandTo(destination.spaceId, destination.directoryId);
@@ -1021,7 +1029,7 @@ export function assetsPage() {
                         return groupRow(row, columns,
                             disclosure(row.expanded, row.key),
                             folderIcon({class: "w-[13px] h-[13px] flex-none text-slate-400"}),
-                            nameText(row.dir.name),
+                            nameText(row.dir.key),
                             countTag(row.count));
                     }
                     return itemRow(row, columns, usesMap);
@@ -1204,7 +1212,7 @@ export function assetsPage() {
             : null;
         return [
             div({class: "flex flex-none flex-col gap-2 border-b border-gray-800 py-2.5 pl-3 pr-9"},
-                inspectorTitle(sel, isSpace ? sel.space.name : sel.dir.name),
+                inspectorTitle(sel, isSpace ? sel.space.name : sel.dir.key),
                 div({class: "flex items-center gap-2"},
                     badge(isSpace ? "Space" : "Folder", "bg-slate-500/15 text-slate-300"),
                     isSpace ? "" : inspectorSpaceTag(spaceId))),
@@ -1218,7 +1226,7 @@ export function assetsPage() {
                 actionButton("New asset here", openCreate),
                 actionButton("Upload here", pickUploadNew),
                 ...(isSpace ? [actionButton("New folder here", openNewFolder)] : [
-                    actionButton("Rename", () => startRename(selectedKey.val, sel.dir.name)),
+                    actionButton("Rename", () => startRename(selectedKey.val, sel.dir.key)),
                     actionButton("Move", () => openMoveDialog(sel)),
                     actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white"),
                 ])),
@@ -1449,7 +1457,7 @@ export function assetsPage() {
             // create request is overridden with whatever it is showing on save.
             createAsset: async (request) => {
                 const {spaceId, directoryId} = createDest.val;
-                const created = await uploadAsset({key: request.key, space_id: Number(spaceId || 0), directory_id: Number(directoryId || 0)}, request.blob);
+                const created = await uploadAsset(uploadParams({key: request.key, spaceId, directoryId}), request.blob);
                 expandTo(spaceId, directoryId);
                 selectedKey.val = `asset:${written(created, ASSET)?.id}`;
                 return created;

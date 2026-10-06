@@ -28,7 +28,7 @@ func New(store *state.Service) *Service { return &Service{store: store} }
 // stay zero until it is approved and collected.
 type Record struct {
 	ID                string
-	UserID            int32
+	UserID            uint64
 	CreatedAt         time.Time
 	ExpiresAt         time.Time
 	TokenHash         []byte
@@ -44,11 +44,11 @@ type Record struct {
 // picked up from a live one.
 func (r Record) Collected() bool { return len(r.TokenHash) > 0 }
 
-func eventMeta(seq int64, author int32, eventType apigen.AuthzVerb) pq.EventMeta {
-	return pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType}
+func eventMeta(seq int64, author int64, eventType apigen.AuthzVerb) pq.EventMeta {
+	return pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: author, EventType: eventType}
 }
 
-func (s *Service) InsertAgentSession(rec Record, author int32) error {
+func (s *Service) InsertAgentSession(rec Record, author int64) error {
 	ctx := context.Background()
 	return s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION)
@@ -56,7 +56,9 @@ func (s *Service) InsertAgentSession(rec Record, author int32) error {
 			return nil, err
 		}
 		doc := ToProto(rec)
-		doc.TokenHash = rec.TokenHash
+		if doc.Token.Present {
+			doc.Token.Value.Hash = apigen.Some(rec.TokenHash)
+		}
 		return pq.NewUpdate(pq.AgentSessionMutation(eventMeta(seq, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE), id, doc)), nil
 	})
 }
@@ -73,8 +75,8 @@ func (s *Service) FetchAgentSession(id string) (Record, error) {
 	return agentSessionRowToRecord(row), nil
 }
 
-func (s *Service) ListAgentSessionsForUser(userID int32) ([]Record, error) {
-	rows, err := s.store.Queries().ListAgentSessionsForUser(context.Background(), int64(userID))
+func (s *Service) ListAgentSessionsForUser(userID uint64) ([]Record, error) {
+	rows, err := s.store.Queries().ListAgentSessionsForUser(context.Background(), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -88,8 +90,8 @@ func (s *Service) ListAgentSessionsForUser(userID int32) ([]Record, error) {
 // ListPendingAgentSessionsForUser returns the user's open session requests,
 // newest first. There is normally at most one, but stale requests are only
 // closed lazily, so a caller has to be prepared for several.
-func (s *Service) ListPendingAgentSessionsForUser(userID int32) ([]Record, error) {
-	rows, err := s.store.Queries().ListPendingAgentSessionsForUser(context.Background(), int64(userID))
+func (s *Service) ListPendingAgentSessionsForUser(userID uint64) ([]Record, error) {
+	rows, err := s.store.Queries().ListPendingAgentSessionsForUser(context.Background(), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +104,7 @@ func (s *Service) ListPendingAgentSessionsForUser(userID int32) ([]Record, error
 
 // appendTransition applies change to the live row and publishes the result
 // as an update; a change that returns false writes nothing.
-func (s *Service) appendTransition(id string, author int32, change func(row *pq.AgentSession) bool) (bool, error) {
+func (s *Service) appendTransition(id string, author int64, change func(row *pq.AgentSession) bool) (bool, error) {
 	ctx := context.Background()
 	var changed bool
 	err := s.store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
@@ -125,7 +127,7 @@ func (s *Service) appendTransition(id string, author int32, change func(row *pq.
 // SetAgentSessionStatus moves a session to a new state. approvedAt is
 // written together with it so the row can never claim a state whose
 // timestamp is missing.
-func (s *Service) SetAgentSessionStatus(id string, status apigen.AgentSessionStatus, approvedAt time.Time, author int32) error {
+func (s *Service) SetAgentSessionStatus(id string, status apigen.AgentSessionStatus, approvedAt time.Time, author int64) error {
 	_, err := s.appendTransition(id, author, func(row *pq.AgentSession) bool {
 		row.Status, row.ApprovedAt = int64(status), unixOrZero(approvedAt)
 		return true
@@ -136,12 +138,12 @@ func (s *Service) SetAgentSessionStatus(id string, status apigen.AgentSessionSta
 // ApproveAgentSession approves one of userID's pending requests. It reports
 // false when the row was not pending, which is how a second approval of the
 // same request is rejected.
-func (s *Service) ApproveAgentSession(id string, userID int32, at time.Time) (bool, error) {
-	return s.appendTransition(id, userID, func(row *pq.AgentSession) bool {
-		if row.UserID != int64(userID) || row.Status != int64(apigen.AgentSessionStatus_AGENT_SESSION_PENDING) {
+func (s *Service) ApproveAgentSession(id string, userID uint64, at time.Time) (bool, error) {
+	return s.appendTransition(id, int64(userID), func(row *pq.AgentSession) bool {
+		if row.UserID != userID || row.Status != int64(apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING) {
 			return false
 		}
-		row.Status, row.ApprovedAt = int64(apigen.AgentSessionStatus_AGENT_SESSION_APPROVED), at.Unix()
+		row.Status, row.ApprovedAt = int64(apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED), at.Unix()
 		return true
 	})
 }
@@ -152,7 +154,7 @@ func (s *Service) ApproveAgentSession(id string, userID int32, at time.Time) (bo
 // token it minted rather than hand out a second working credential.
 func (s *Service) ClaimAgentSessionToken(id string, tokenHash []byte, tokenPrefix string, expiresAt time.Time) (bool, error) {
 	return s.appendTransition(id, 0, func(row *pq.AgentSession) bool {
-		if row.Status != int64(apigen.AgentSessionStatus_AGENT_SESSION_APPROVED) || len(row.TokenHash) != 0 {
+		if row.Status != int64(apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED) || len(row.TokenHash) != 0 {
 			return false
 		}
 		row.TokenHash, row.TokenPrefix, row.ExpiresAt = tokenHash, tokenPrefix, unixOrZero(expiresAt)
@@ -164,9 +166,9 @@ func (s *Service) ClaimAgentSessionToken(id string, tokenHash []byte, tokenPrefi
 // another's session by guessing its id. author is the caller's attribution
 // id, negative when the session revokes itself. A session already rejected
 // or revoked is left as it is.
-func (s *Service) RevokeAgentSession(id string, userID int32, status apigen.AgentSessionStatus, author int32) error {
+func (s *Service) RevokeAgentSession(id string, userID uint64, status apigen.AgentSessionStatus, author int64) error {
 	_, err := s.appendTransition(id, author, func(row *pq.AgentSession) bool {
-		if row.UserID != int64(userID) || row.Status == int64(apigen.AgentSessionStatus_AGENT_SESSION_REJECTED) || row.Status == int64(apigen.AgentSessionStatus_AGENT_SESSION_REVOKED) {
+		if row.UserID != userID || row.Status == int64(apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED) || row.Status == int64(apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REVOKED) {
 			return false
 		}
 		row.Status = int64(status)

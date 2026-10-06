@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"math"
 	"net/netip"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -39,14 +40,12 @@ func NetproxyPublishFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID i
 		return nil, fmt.Errorf("network map is nil")
 	}
 	var out []IngressPublish
-	for _, node := range clusterMap.Nodes {
-		if node == nil || node.NodeID != nodeID {
+	for i := range clusterMap.Nodes {
+		node := &clusterMap.Nodes[i]
+		if nodeID <= 0 || node.NodeID != uint64(nodeID) {
 			continue
 		}
 		for _, entry := range node.IngressPublish {
-			if entry == nil {
-				continue
-			}
 			if entry.Port < 1 || entry.Port > 65535 {
 				return nil, fmt.Errorf("network map ingress publish has invalid port %d", entry.Port)
 			}
@@ -75,8 +74,10 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 	}
 	underlays := make(map[int32]nodeTransport, len(clusterMap.Nodes))
 	localWGPort := uint16(0)
-	for _, node := range clusterMap.Nodes {
-		if node == nil || node.NodeID <= 0 {
+	for i := range clusterMap.Nodes {
+		node := &clusterMap.Nodes[i]
+		wireNodeID, err := nodeIDFromWire(node.NodeID)
+		if err != nil {
 			return Topology{}, fmt.Errorf("network map topology has invalid node")
 		}
 		if node.WgPublicKey == "" {
@@ -85,7 +86,7 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		if node.WgListenPort < 1 || node.WgListenPort > 65535 {
 			return Topology{}, fmt.Errorf("network map topology has invalid WireGuard listen port for node %d", node.NodeID)
 		}
-		if node.NodeID == nodeID {
+		if wireNodeID == nodeID {
 			localWGPort = uint16(node.WgListenPort)
 		}
 		if node.UnderlayAddress == "" {
@@ -95,7 +96,7 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 		if err != nil || addr.Zone() != "" {
 			return Topology{}, fmt.Errorf("network map topology has invalid underlay for node %d", node.NodeID)
 		}
-		underlays[node.NodeID] = nodeTransport{underlay: addr.Unmap(), wgKey: node.WgPublicKey, wgPort: uint16(node.WgListenPort)}
+		underlays[wireNodeID] = nodeTransport{underlay: addr.Unmap(), wgKey: node.WgPublicKey, wgPort: uint16(node.WgListenPort)}
 	}
 	if localWGPort == 0 {
 		return Topology{}, fmt.Errorf("network map topology is missing local node %d", nodeID)
@@ -104,15 +105,19 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 	topology := Topology{Prefix: prefix, LocalNodeID: nodeID, LocalWGPort: localWGPort}
 	remoteHosts := make(map[int32]struct{})
 	for _, route := range clusterMap.Routes {
-		if route == nil || route.HostingNodeID == nodeID {
+		hostingNodeID, err := nodeIDFromWire(route.HostingNodeID)
+		if err != nil {
+			return Topology{}, fmt.Errorf("network map route %q: %w", route.LogicalPrefix, err)
+		}
+		if hostingNodeID == nodeID {
 			continue
 		}
 		destination, err := netip.ParsePrefix(route.LogicalPrefix)
 		if err != nil {
 			return Topology{}, fmt.Errorf("parsing logical route prefix %q: %w", route.LogicalPrefix, err)
 		}
-		topology.Routes = append(topology.Routes, RemoteRoute{Prefix: destination, NodeID: route.HostingNodeID})
-		remoteHosts[route.HostingNodeID] = struct{}{}
+		topology.Routes = append(topology.Routes, RemoteRoute{Prefix: destination, NodeID: hostingNodeID})
+		remoteHosts[hostingNodeID] = struct{}{}
 	}
 	if len(remoteHosts) == 0 {
 		return topology, nil
@@ -139,10 +144,17 @@ func TopologyFromClusterNetMap(clusterMap *apigen.ClusterNetMap, nodeID int32, p
 	return topology, nil
 }
 
-func PolicyRulesFromNetMap(rules []*apigen.NetPolicyRule) []PolicyRule {
+func nodeIDFromWire(id uint64) (int32, error) {
+	if id == 0 || id > math.MaxInt32 {
+		return 0, fmt.Errorf("node id %d is outside 1..%d", id, math.MaxInt32)
+	}
+	return int32(id), nil
+}
+
+func PolicyRulesFromNetMap(rules []apigen.NetPolicyRule) []PolicyRule {
 	out := make([]PolicyRule, 0, len(rules))
-	for _, rule := range rules {
-		converted, err := policyRuleFromWire(rule)
+	for i := range rules {
+		converted, err := policyRuleFromWire(&rules[i])
 		if err != nil {
 			continue
 		}
@@ -155,17 +167,17 @@ func policyRuleFromWire(rule *apigen.NetPolicyRule) (PolicyRule, error) {
 	if rule == nil {
 		return PolicyRule{}, fmt.Errorf("policy rule is nil")
 	}
-	source, err := policyPeerFromWire(rule.Source)
+	source, err := policyPeerFromWire(&rule.Source)
 	if err != nil {
 		return PolicyRule{}, fmt.Errorf("policy rule source: %w", err)
 	}
-	destination, err := policyPeerFromWire(rule.Destination)
+	destination, err := policyPeerFromWire(&rule.Destination)
 	if err != nil {
 		return PolicyRule{}, fmt.Errorf("policy rule destination: %w", err)
 	}
 	converted := PolicyRule{Source: source, Destination: destination}
-	for _, port := range rule.Ports {
-		match, err := portMatchFromWire(port)
+	for i := range rule.Ports {
+		match, err := portMatchFromWire(&rule.Ports[i])
 		if err != nil {
 			return PolicyRule{}, err
 		}
@@ -178,13 +190,13 @@ func policyPeerFromWire(peer *apigen.NetPolicyPeer) (PolicyPeer, error) {
 	if peer == nil {
 		return PolicyPeer{}, fmt.Errorf("peer is nil")
 	}
-	if peer.SpaceID < 0 || peer.SpaceID > MaxSpaceID {
+	if peer.SpaceID > uint64(MaxSpaceID) {
 		return PolicyPeer{}, fmt.Errorf("space id %d is outside 0..%d", peer.SpaceID, MaxSpaceID)
 	}
-	if peer.DeploymentID < 0 || peer.DeploymentID > MaxDeploymentID {
+	if peer.DeploymentID > uint64(MaxDeploymentID) {
 		return PolicyPeer{}, fmt.Errorf("deployment id %d is outside 0..%d", peer.DeploymentID, MaxDeploymentID)
 	}
-	return PolicyPeer{SpaceID: peer.SpaceID, DeploymentID: peer.DeploymentID}, nil
+	return PolicyPeer{SpaceID: int32(peer.SpaceID), DeploymentID: int32(peer.DeploymentID)}, nil
 }
 
 func portMatchFromWire(port *apigen.NetPortMatch) (PortMatch, error) {
@@ -200,13 +212,18 @@ func portMatchFromWire(port *apigen.NetPortMatch) (PortMatch, error) {
 	default:
 		return PortMatch{}, fmt.Errorf("port match has invalid protocol %d", port.Protocol)
 	}
-	if port.Port < 1 || port.Port > 65535 {
-		return PortMatch{}, fmt.Errorf("port %d is outside 1..65535", port.Port)
+	start, end := port.Range.Start, port.Range.End
+	if start < 1 || start > 65535 {
+		return PortMatch{}, fmt.Errorf("port %d is outside 1..65535", start)
 	}
-	if port.PortEnd != 0 && (port.PortEnd < port.Port || port.PortEnd > 65535) {
-		return PortMatch{}, fmt.Errorf("port range end %d is invalid for start %d", port.PortEnd, port.Port)
+	if end != 0 && (end < start || end > 65535) {
+		return PortMatch{}, fmt.Errorf("port range end %d is invalid for start %d", end, start)
 	}
-	return PortMatch{Protocol: protocol, Port: uint16(port.Port), PortEnd: uint16(port.PortEnd)}, nil
+	match := PortMatch{Protocol: protocol, Port: uint16(start)}
+	if end > start {
+		match.PortEnd = uint16(end)
+	}
+	return match, nil
 }
 
 func ValidateNetMapPolicyRule(rule *apigen.NetPolicyRule) error {

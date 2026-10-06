@@ -2,21 +2,23 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/assets.proto";
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message AssetRenameRequest {
-  int32 asset_id = 1;
+  uint64 asset_id = 1 [(cp.js_type) = "number"];
   string new_key = 2;
 }
 
 message AssetDeleteRequest {
-  int32 asset_id = 1;
+  uint64 asset_id = 1 [(cp.js_type) = "number"];
 }
 
 message AssetMoveRequest {
-  int32 asset_id = 1;
-  int32 asset_directory_id = 2; // 0 = the root of the target space
-  int32 space_id = 3; // Target space; 0 keeps the asset where it is.
+  uint64 asset_id = 1 [(cp.js_type) = "number"];
+  optional uint64 asset_directory_id = 2 [(cp.js_type) = "number"]; // absent = the root of the target space
+  optional uint64 space_id = 3 [(cp.js_type) = "number"];           // absent = the current space
 }

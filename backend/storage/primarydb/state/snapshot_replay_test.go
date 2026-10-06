@@ -50,37 +50,37 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	check("node observed state")
 	cfg := mustCreateDeploymentForNodeRunning(s, apigen.Context{}, 1, "api", node.ID, false, testSpecWithVersion("v1"))
 	check("create deployment")
-	inst := createScheduledInstanceForTest(s, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := createScheduledInstanceForTest(s, cfg.Deployment.ID, cfg.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	check("pin original version")
 	writeInstanceStatusForTest(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) {
 		st.BumpUpdatedAt()
-		st.Runner = apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING, RunningPid: 42}
+		st.Runner = runnerStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, 42)
 	})
 	check("instance observed state")
-	mustSetDeploymentWorkloadState(s, apigen.Context{}, cfg.DeploymentID, "v2", false)
+	mustSetDeploymentWorkloadState(s, apigen.Context{}, cfg.Deployment.ID, "v2", false)
 	check("update desired while pinned")
-	deleteDeployment(s, apigen.Context{}, cfg.DeploymentID)
+	deleteDeployment(s, apigen.Context{}, cfg.Deployment.ID)
 	check("delete while pinned")
-	if got := snapshotEntries(t, s.q, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT, int64(cfg.DeploymentID)); len(got) != 1 || !got[0].Meta.Deleted || got[0].Meta.Version != 1 {
+	if got := snapshotEntries(t, s.q, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT, cfg.Deployment.ID); len(got) != 1 || !got[0].Meta.Deleted || got[0].Meta.Version != 1 {
 		t.Fatalf("deleted deployment must retain the pinned version marked deleted, snapshot holds %+v", got)
 	}
 	setScheduledInstanceState(s, inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	check("finalization releases deleted deployment")
-	if got := snapshotEntries(t, s.q, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT, int64(cfg.DeploymentID)); len(got) != 0 {
+	if got := snapshotEntries(t, s.q, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT, cfg.Deployment.ID); len(got) != 0 {
 		t.Fatalf("unreferenced versions not pruned, snapshot holds %d entries", len(got))
 	}
 	cfg = mustCreateDeploymentForNodeRunning(s, apigen.Context{}, 1, "api", node.ID, false, testSpecWithVersion("v1"))
 	check("create another deployment")
-	inst = createScheduledInstanceForTest(s, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst = createScheduledInstanceForTest(s, cfg.Deployment.ID, cfg.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	check("new run")
 	writeInstanceStatusForTest(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) {
 		st.BumpUpdatedAt()
-		st.Runner = apigen.RunnerStatus{Status: apigen.RunningStatus_STOPPED}
+		st.Runner = runnerStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 	})
 	check("final observed state")
 	setScheduledInstanceState(s, inst.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 	check("retain final for live deployment")
-	createScheduledInstanceForTest(s, cfg.DeploymentID, cfg.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	createScheduledInstanceForTest(s, cfg.Deployment.ID, cfg.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	check("supersede final")
 	config := createConfigForTest(s, "config", "one")
 	check("create config")
@@ -114,6 +114,6 @@ func TestSnapshotEqualsReplayThroughCreateUpdateDeleteAndFinalization(t *testing
 	check("delete value directory")
 	assetDir := createAssetDirectoryForTest(s, 1, 0, "folder", 1)
 	check("create asset directory")
-	deleteAssetDirectoryForTest(s, int32(assetDir.ID))
+	deleteAssetDirectoryForTest(s, assetDir.ID)
 	check("delete asset directory")
 }

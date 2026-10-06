@@ -1,6 +1,6 @@
 import {deploymentDeleted, deploymentWorkload} from '../lib/deployment.js';
 
-const latest = versions => [...versions.values()].reduce((a, b) => !a || b.version > a.version ? b : a, undefined);
+const latest = versions => [...versions.values()].reduce((a, b) => !a || b.meta.version > a.meta.version ? b : a, undefined);
 
 // One read rule for both browser rows and their retained version pins. An
 // ordinal uses its live placements; without any, it uses its newest final run.
@@ -8,7 +8,7 @@ export function selectInstanceEvents(tree) {
     const ordinals = new Map();
     for (const event of tree.scheduledInstances.values()) {
         const value = event.value;
-        const key = `${value.deploymentId}:${value.instanceOrdinal || 0}`;
+        const key = `${value.deployment?.deploymentId}:${value.instanceOrdinal || 0}`;
         const group = ordinals.get(key) || {live: [], final: undefined};
         if (value.state === 2) {
             if (!group.final || event.scheduledInstanceId > group.final.scheduledInstanceId) group.final = event;
@@ -19,19 +19,20 @@ export function selectInstanceEvents(tree) {
     for (const group of ordinals.values()) {
         if (group.live.length) result.push(...group.live);
         else if (group.final) {
-            const versions = tree.deployments.get(group.final.value.deploymentId);
+            const versions = tree.deployments.get(group.final.value.deployment?.deploymentId);
             if (!versions || !deploymentDeleted(latest(versions))) result.push(group.final);
         }
     }
     return result.sort((a, b) => a.scheduledInstanceId - b.scheduledInstanceId);
 }
 
-// The runner reports the spec version it runs; the workload version it stands
-// for is read off the instance's pinned config, as the worker view does.
+// The runner reports only the spec version it runs; the workload version it
+// stands for is read off the instance's pinned config, as the worker view does,
+// and exposed as runner.runningVersion for the views.
 const withRunningVersion = (config, status) => {
     const runner = status?.runner;
     const specVersion = Number(runner?.deploymentSpecVersion || 0);
-    if (!runner || !config || !specVersion || specVersion !== Number(config.specVersion || 0)) return status;
+    if (!runner || !config || !specVersion || specVersion !== Number(config.meta?.specVersion || 0)) return status;
     const runningVersion = deploymentWorkload(config)?.version || '';
     return runner.runningVersion === runningVersion ? status : {...status, runner: {...runner, runningVersion}};
 };
@@ -40,15 +41,16 @@ export function deriveDeploymentRows(tree) {
     const instances = new Map();
     for (const event of selectInstanceEvents(tree)) {
         const value = event.value;
-        const config = tree.deployments.get(value.deploymentId)?.get(value.deploymentVersion);
+        const ref = value.deployment || {};
+        const config = tree.deployments.get(ref.deploymentId)?.get(ref.version);
         const state = {
             instance: {...value, id: event.scheduledInstanceId},
             config,
             status: withRunningVersion(config, tree.instanceStatuses.get(event.scheduledInstanceId)),
         };
-        const group = instances.get(value.deploymentId) || [];
+        const group = instances.get(ref.deploymentId) || [];
         group.push(state);
-        instances.set(value.deploymentId, group);
+        instances.set(ref.deploymentId, group);
     }
     const rows = [];
     for (const [id, versions] of tree.deployments) {
@@ -58,5 +60,5 @@ export function deriveDeploymentRows(tree) {
         const runtime = scheduledInstances.at(-1);
         rows.push({config, scheduledInstances, instance: runtime?.instance, status: runtime?.status, pinnedConfig: runtime?.config});
     }
-    return rows.sort((a, b) => a.config.deploymentId - b.config.deploymentId);
+    return rows.sort((a, b) => Number(a.config.deployment?.id || 0) - Number(b.config.deployment?.id || 0));
 }

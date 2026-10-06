@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"net/netip"
 	"os"
 	"path/filepath"
 	"testing"
@@ -61,7 +62,7 @@ func TestCreateResolveRoundTrip(t *testing.T) {
 	if !ok || got != "hunter2" {
 		t.Fatalf("Resolve = %q, %v; want hunter2, true", got, ok)
 	}
-	if m, ok := mgr.MetaByRef(meta.Ref()); !ok || m.Name != "staging.db.password" || m.SecretID != meta.SecretID {
+	if m, ok := mgr.MetaByRef(meta.Ref()); !ok || m.Key != "staging.db.password" || m.SecretID != meta.SecretID {
 		t.Fatalf("MetaByRef = %+v, %v", m, ok)
 	}
 	info, err := os.Stat(filepath.Join(dir, machinekey.FileName))
@@ -151,7 +152,7 @@ func TestRenameIsMetadataOnly(t *testing.T) {
 	if got, ok := mgr2.Resolve(first.Ref()); !ok || got != "one" {
 		t.Fatalf("Resolve first after reopen = %q, %v; want one, true", got, ok)
 	}
-	if m, ok := mgr2.MetaByRef(second.Ref()); !ok || m.Name != "prod.db.password" || m.Ref() != second.Ref() {
+	if m, ok := mgr2.MetaByRef(second.Ref()); !ok || m.Key != "prod.db.password" || m.Ref() != second.Ref() {
 		t.Fatalf("MetaByRef after reopen = %+v, %v", m, ok)
 	}
 }
@@ -164,7 +165,7 @@ func TestSystemSecretsLiveInSpaceZero(t *testing.T) {
 		t.Fatalf("SetInternal: %v", err)
 	}
 	records := ListVersionRecords(store.Queries())
-	if len(records) != 1 || records[0].SpaceID != 0 || records[0].Author != 0 || records[0].Name != "opendeploy.cluster.ca.key" {
+	if len(records) != 1 || records[0].SpaceID != 0 || records[0].Author != 0 || records[0].Key != "opendeploy.cluster.ca.key" {
 		t.Fatalf("system secret rows = %+v, want one space 0 row authored by the system", records)
 	}
 	ref := apigen.ValueRef{ID: records[0].SecretID, Version: 1}
@@ -298,7 +299,7 @@ func TestKeyslotsAreNodeKeyedEvents(t *testing.T) {
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
+	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("10.0.0.1"))
 	mgr, err := Initialize(dir, store)
 	if err != nil {
 		t.Fatalf("Initialize: %v", err)
@@ -317,12 +318,13 @@ func TestKeyslotsAreNodeKeyedEvents(t *testing.T) {
 	if _, err := mgr.GenerateRecoveryCode(7); err != nil {
 		t.Fatalf("GenerateRecoveryCode again: %v", err)
 	}
-	if _, ok := findSlot(listKeyslots(store.Queries()), slotRecovery, 0); !ok {
+	recovery, ok := findSlot(listKeyslots(store.Queries()), slotRecovery, 0)
+	if !ok {
 		t.Fatal("recovery slot missing")
 	}
 	raw := sqlitedb.MustOpen(filepath.Join(dir, "primary.db"))
 	defer raw.Close()
-	recoverySlot := pq.SecretKeyslotEntityID(pq.SecretKeyslot{Kind: slotRecovery})
+	recoverySlot := recovery.ID
 	var rows int
 	if err := raw.QueryRow(`SELECT COUNT(*) FROM write_event_mutations m JOIN write_events e ON e.seq = m.seq WHERE m.entity_type = ? AND m.entity_id = ? AND e.actor = 7`,
 		int64(apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT), recoverySlot).Scan(&rows); err != nil || rows != 2 {
@@ -334,7 +336,7 @@ func TestKeyslotsAreNodeKeyedEvents(t *testing.T) {
 		t.Fatalf("recovery slot write kinds = %q, %v; want 1,2", types, err)
 	}
 	if err := store.Commit(t.Context(), nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		deletes, err := q.NodeSecretKeyslotDeletes(t.Context(), pq.EventMeta{GlobalSeq: seq, EventTime: 1}, int64(primary.ID))
+		deletes, err := q.NodeSecretKeyslotDeletes(t.Context(), pq.EventMeta{GlobalSeq: seq, EventTime: 1}, primary.ID)
 		if err != nil {
 			return nil, err
 		}

@@ -109,20 +109,20 @@ function fmtNum(n) {
 function deploymentLabel(item, machines) {
     const cfg = item?.config || {};
     const node = nodeDisplayName(placementNodeId(cfg), machines);
-    return [node, cfg.value?.name].filter(Boolean).join(' / ') || `#${cfg.deploymentId}`;
+    return [node, cfg.deployment?.name].filter(Boolean).join(' / ') || `#${cfg.deployment?.id}`;
 }
 
 function deploymentSpaceID(item) {
-    return item?.config?.value?.spaceId || 0;
+    return item?.config?.deployment?.spaceId || 0;
 }
 
 function selectedDeployment(items, id) {
-    return items.find(item => item.config?.deploymentId === id) || null;
+    return items.find(item => item.config?.deployment?.id === id) || null;
 }
 
 function isSystemDeployment(item) {
-    return item?.config?.value?.name === SYSTEM_DEPLOYMENT_NAME && (
-        deploymentSpaceID(item) === SYSTEM_SPACE_ID || Boolean(item?.config?.value?.spec?.opendeploySpec)
+    return item?.config?.deployment?.name === SYSTEM_DEPLOYMENT_NAME && (
+        deploymentSpaceID(item) === SYSTEM_SPACE_ID
     );
 }
 
@@ -296,7 +296,7 @@ export function logsPage(selectedDeploymentId) {
     let autoSearchedDeploymentId = 0;
     let scroller;
 
-    const liveDeployments = () => (deploymentsS.val || []).filter(item => item.config?.deploymentId && !deploymentDeleted(item.config));
+    const liveDeployments = () => (deploymentsS.val || []).filter(item => item.config?.deployment?.id && !deploymentDeleted(item.config));
 
     // scopePayload resolves the deployment scope for a request: the system
     // deployment queries as deployment 0 on its node.
@@ -473,11 +473,11 @@ export function logsPage(selectedDeploymentId) {
         if (versionsForDeployment === id && workloadVersionsS.val) return;
         versionsForDeployment = id;
         workloadVersionsS.val = null;
-        const current = Number(selectedDeployment(liveDeployments(), id)?.config?.version || 0);
+        const current = Number(selectedDeployment(liveDeployments(), id)?.config?.meta?.version || 0);
         try {
             const resp = await capi.postV1DeploymentsHistory({deploymentId: id});
             if (versionsForDeployment !== id) return;
-            const versions = new Set((resp.entries || []).map(e => Number(e.deployment?.meta?.version || 0)));
+            const versions = new Set((resp.entries || []).map(e => Number(e.value?.deployment?.meta?.version || 0)));
             if (current) versions.add(current);
             workloadVersionsS.val = [...versions].filter(v => v > 0).sort((a, b) => b - a);
         } catch {
@@ -524,7 +524,7 @@ export function logsPage(selectedDeploymentId) {
         }
         deploymentSelect.replaceChildren(
             option({value: ""}, "Select deployment"),
-            ...filtered.map(item => option({value: String(item.config.deploymentId)}, deploymentLabel(item, machinesS.val))),
+            ...filtered.map(item => option({value: String(item.config.deployment.id)}, deploymentLabel(item, machinesS.val))),
         );
         deploymentSelect.value = String(deploymentId.val || '');
     });

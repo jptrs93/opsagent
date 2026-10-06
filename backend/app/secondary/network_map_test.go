@@ -70,9 +70,9 @@ func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
 	invalid := testClusterNetMap(t, prefix, 1)
 	invalid.TargetNodeID = 2
 	sess := &primarySessionState{netMapSnapshotPending: true}
-	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToSecondary{ClusterNetMap: invalid}, 1, nil, nil, nil)
+	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToSecondary{ClusterNetMap: apigen.Some(*invalid)}, 1, nil, nil, nil)
 	status := (<-out.ch).NetMapStatus
-	if status == nil || status.ReconciliationError == "" || status.PersistedSeq != 0 {
+	if !status.Present || status.Value.ReconciliationError == "" || status.Value.PersistedSeq != 0 {
 		t.Fatalf("rejection status = %+v", status)
 	}
 	if !sess.netMapSnapshotPending {
@@ -198,14 +198,14 @@ func testClusterNetMap(t *testing.T, prefix network.Prefix, seq int64) *apigen.C
 		DerivedFromSeq: seq,
 		TargetNodeID:   1,
 		UlaPrefix:      prefix.Bytes(),
-		Nodes: []*apigen.ClusterNetMapNode{
+		Nodes: []apigen.ClusterNetMapNode{
 			{NodeID: 1, UnderlayAddress: "192.0.2.1", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=", WgListenPort: 51833},
 			{NodeID: 2, UnderlayAddress: "192.0.2.2", WgPublicKey: "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI=", WgListenPort: 51833},
 		},
-		Routes: []*apigen.ClusterNetMapRoute{{LogicalPrefix: destination.String(), HostingNodeID: 1}},
-		DnsServices: []*apigen.ClusterNetMapService{
-			{Name: "opendeploy-net", SpaceID: 0, DeploymentID: 2, Ordinals: []*apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
-			{Name: "app", SpaceID: 1, DeploymentID: 10, Ordinals: []*apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
+		Routes: []apigen.ClusterNetMapRoute{{LogicalPrefix: destination.String(), HostingNodeID: 1}},
+		DnsServices: []apigen.ClusterNetMapService{
+			{Name: "opendeploy-net", SpaceID: 0, DeploymentID: 2, Ordinals: []apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
+			{Name: "app", SpaceID: 1, DeploymentID: 10, Ordinals: []apigen.ClusterNetMapServiceOrdinal{{Ordinal: 0}}},
 		},
 	}
 }
@@ -213,7 +213,7 @@ func testClusterNetMap(t *testing.T, prefix network.Prefix, seq int64) *apigen.C
 func TestValidateClusterNetMapNormalizesIngressPublish(t *testing.T) {
 	prefix := network.GeneratePrefix()
 	candidate := testClusterNetMap(t, prefix, 1)
-	candidate.Nodes[0].IngressPublish = []*apigen.IngressPublish{
+	candidate.Nodes[0].IngressPublish = []apigen.IngressPublish{
 		{Address: "203.0.113.10", Port: 443},
 		{Address: "", Port: 80},
 		{Address: "203.0.113.10", Port: 443},
@@ -224,7 +224,7 @@ func TestValidateClusterNetMapNormalizesIngressPublish(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := normalized.Nodes[0].IngressPublish
-	want := []*apigen.IngressPublish{{Address: "", Port: 80}, {Address: "203.0.113.10", Port: 443}, {Address: "203.0.113.11", Port: 443}}
+	want := []apigen.IngressPublish{{Address: "", Port: 80}, {Address: "203.0.113.10", Port: 443}, {Address: "203.0.113.11", Port: 443}}
 	if len(got) != len(want) {
 		t.Fatalf("publish = %+v, want %+v", got, want)
 	}
@@ -233,7 +233,7 @@ func TestValidateClusterNetMapNormalizesIngressPublish(t *testing.T) {
 			t.Fatalf("publish[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
-	for name, entry := range map[string]*apigen.IngressPublish{
+	for name, entry := range map[string]apigen.IngressPublish{
 		"bad address": {Address: "not-an-ip", Port: 443},
 		"zoned":       {Address: "fe80::1%eth0", Port: 443},
 		"zero port":   {Address: "203.0.113.10"},
@@ -241,7 +241,7 @@ func TestValidateClusterNetMapNormalizesIngressPublish(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			candidate := testClusterNetMap(t, prefix, 1)
-			candidate.Nodes[0].IngressPublish = []*apigen.IngressPublish{entry}
+			candidate.Nodes[0].IngressPublish = []apigen.IngressPublish{entry}
 			if _, _, err := validateClusterNetMap(candidate, 1, prefix); err == nil {
 				t.Fatal("malformed ingress publish entry was accepted")
 			}

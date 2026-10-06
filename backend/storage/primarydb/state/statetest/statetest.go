@@ -17,8 +17,8 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-func createDeployment(s *state.Service, ctx apigen.Context, def *apigen.Deployment, inlockValidate func(*pq.Queries) error) (*apigen.DeploymentEvent, error) {
-	var event *apigen.DeploymentEvent
+func createDeployment(s *state.Service, ctx apigen.Context, def *apigen.Deployment, inlockValidate func(*pq.Queries) error) (*apigen.DeploymentRecord, error) {
+	var record *apigen.DeploymentRecord
 	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
 			if err := inlockValidate(q); err != nil {
@@ -29,53 +29,53 @@ func createDeployment(s *state.Service, ctx apigen.Context, def *apigen.Deployme
 		if err != nil {
 			return nil, err
 		}
-		event = pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), def)
-		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+		record = pq.DeploymentCreateRecord(ctx, id, seq, time.Now(), def)
+		return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 	})
-	return event, err
+	return record, err
 }
 
-func updateDeployment(s *state.Service, ctx apigen.Context, deploymentID int32, mutate func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error) *apigen.DeploymentEvent {
-	var event *apigen.DeploymentEvent
+func updateDeployment(s *state.Service, ctx apigen.Context, deploymentID uint64, mutate func(def *apigen.Deployment, existing *apigen.DeploymentRecord) error) *apigen.DeploymentRecord {
+	var record *apigen.DeploymentRecord
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		existing, err := q.GetLatestDeploymentEvent(ctx, int64(deploymentID))
+		existing, err := q.GetLatestDeployment(ctx, deploymentID)
 		if err != nil {
 			return nil, err
 		}
-		def := existing.Value
+		def := existing.Deployment
 		if err := mutate(&def, existing); err != nil {
 			return nil, err
 		}
-		event, err = q.DeploymentUpdateEvent(ctx, int64(deploymentID), seq, time.Now(), &def)
+		record, err = q.DeploymentUpdateRecord(ctx, deploymentID, seq, time.Now(), &def)
 		if errors.Is(err, pq.ErrDeploymentUnchanged) {
-			event = existing
+			record = existing
 			return nil, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+		return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 	}))
-	return event
+	return record
 }
 
-func MustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+func MustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID uint64, name string, nodeID uint64, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 	return mustCreateDeploymentForNode(s, ctx, spaceID, name, nodeID, true, spec)
 }
 
-func MustCreateStoppedDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+func MustCreateStoppedDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID uint64, name string, nodeID uint64, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 	return mustCreateDeploymentForNode(s, ctx, spaceID, name, nodeID, false, spec)
 }
 
-func mustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID int32, name string, nodeID int32, running bool, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+func mustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID uint64, name string, nodeID uint64, running bool, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 	stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
 	return erru.Must(createDeployment(s, ctx, &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(running, nodeID), SpaceID: spaceID, Name: name, Spec: *stored}, func(q *pq.Queries) error {
-		events, err := q.ListActiveDeployments(ctx)
+		records, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return err
 		}
-		for _, cfg := range events {
-			if storage.DeploymentKeyMatches(cfg.Value, nodeID, spaceID, name) {
+		for _, cfg := range records {
+			if storage.DeploymentKeyMatches(cfg.Deployment, nodeID, spaceID, name) {
 				return fmt.Errorf("deployment node=%d space=%d name=%q already exists", nodeID, spaceID, name)
 			}
 		}
@@ -83,15 +83,15 @@ func mustCreateDeploymentForNode(s *state.Service, ctx apigen.Context, spaceID i
 	}))
 }
 
-func UpdateDeploymentSpec(s *state.Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
-	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
+func UpdateDeploymentSpec(s *state.Service, ctx apigen.Context, deploymentID uint64, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
+	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentRecord) error {
 		def.Spec = *erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
 		return nil
 	})
 }
 
-func UpdateDeploymentSpecKeepingWorkload(s *state.Service, ctx apigen.Context, deploymentID int32, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
-	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error {
+func UpdateDeploymentSpecKeepingWorkload(s *state.Service, ctx apigen.Context, deploymentID uint64, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
+	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentRecord) error {
 		stored := erru.Must(apigen.DecodeDeploymentSpec(spec.Encode()))
 		if err := stored.SetWorkloadVersion(existing.WorkloadVersion()); err != nil {
 			return err
@@ -101,9 +101,9 @@ func UpdateDeploymentSpecKeepingWorkload(s *state.Service, ctx apigen.Context, d
 	})
 }
 
-func SetDeploymentWorkloadState(s *state.Service, ctx apigen.Context, deploymentID int32, version string, running bool) *apigen.DeploymentEvent {
-	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentEvent) error {
-		spec := erru.Must(apigen.DecodeDeploymentSpec(existing.Value.Spec.Encode()))
+func SetDeploymentWorkloadState(s *state.Service, ctx apigen.Context, deploymentID uint64, version string, running bool) *apigen.DeploymentRecord {
+	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, existing *apigen.DeploymentRecord) error {
+		spec := erru.Must(apigen.DecodeDeploymentSpec(existing.Deployment.Spec.Encode()))
 		if err := spec.SetWorkloadVersion(version); err != nil {
 			return err
 		}
@@ -113,57 +113,55 @@ func SetDeploymentWorkloadState(s *state.Service, ctx apigen.Context, deployment
 	})
 }
 
-func RestartDeployment(s *state.Service, ctx apigen.Context, deploymentID int32) *apigen.DeploymentEvent {
-	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
-		def.Scheduling.Generation++
+func RestartDeployment(s *state.Service, ctx apigen.Context, deploymentID uint64) *apigen.DeploymentRecord {
+	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentRecord) error {
+		def.Scheduling.RestartGeneration++
 		return nil
 	})
 }
 
-func RenameDeployment(s *state.Service, ctx apigen.Context, deploymentID int32, name string) *apigen.DeploymentEvent {
-	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
+func RenameDeployment(s *state.Service, ctx apigen.Context, deploymentID uint64, name string) *apigen.DeploymentRecord {
+	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentRecord) error {
 		def.Name = name
 		return nil
 	})
 }
 
-func MoveDeploymentSpace(s *state.Service, ctx apigen.Context, deploymentID, spaceID int32) *apigen.DeploymentEvent {
-	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentEvent) error {
+func MoveDeploymentSpace(s *state.Service, ctx apigen.Context, deploymentID, spaceID uint64) *apigen.DeploymentRecord {
+	return updateDeployment(s, ctx, deploymentID, func(def *apigen.Deployment, _ *apigen.DeploymentRecord) error {
 		def.SpaceID = spaceID
 		return nil
 	})
 }
 
-func DeleteDeployment(s *state.Service, ctx apigen.Context, deploymentID int32) *apigen.DeploymentEvent {
-	var event *apigen.DeploymentEvent
+func DeleteDeployment(s *state.Service, ctx apigen.Context, deploymentID uint64) *apigen.DeploymentRecord {
+	var record *apigen.DeploymentRecord
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
-		event, err = q.DeploymentDeleteEvent(ctx, int64(deploymentID), seq, time.Now())
+		record, err = q.DeploymentDeleteRecord(ctx, deploymentID, seq, time.Now())
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+		return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 	}))
-	return event
+	return record
 }
 
-func CreateScheduledInstance(s *state.Service, deploymentID, deploymentVersion, nodeID, instanceOrdinal int32, target apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
+func CreateScheduledInstance(s *state.Service, deploymentID uint64, deploymentVersion uint32, nodeID uint64, instanceOrdinal uint32, target apigen.ScheduledInstanceTarget) *apigen.ScheduledInstance {
 	ctx := context.Background()
 	now := time.Now()
 	inst := &apigen.ScheduledInstance{
-		DeploymentID:      deploymentID,
-		DeploymentVersion: deploymentVersion,
-		NodeID:            nodeID,
-		InstanceOrdinal:   instanceOrdinal,
-		State:             target,
+		Deployment:      apigen.DeploymentRef{DeploymentID: deploymentID, Version: deploymentVersion},
+		NodeID:          nodeID,
+		InstanceOrdinal: instanceOrdinal,
+		State:           target,
 	}
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(deploymentID), Version: int64(deploymentVersion)})
+		cfg, err := q.GetDeploymentVersion(ctx, deploymentID, deploymentVersion)
 		if err != nil {
 			return nil, err
 		}
-		inst.DeploymentSpecVersion = cfg.SpecVersion
-		inst.SpaceID = cfg.Value.SpaceID
+		inst.SpaceID = cfg.Deployment.SpaceID
 		inst.ID = erru.Must(q.NextScheduledInstanceID(ctx))
 		event := pq.NewScheduledInstanceEvent(seq, inst, target, now)
 		return pq.NewUpdate(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, event)), nil
@@ -171,7 +169,7 @@ func CreateScheduledInstance(s *state.Service, deploymentID, deploymentVersion, 
 	return inst
 }
 
-func SetScheduledInstanceState(s *state.Service, instanceID int32, target apigen.ScheduledInstanceTarget) {
+func SetScheduledInstanceState(s *state.Service, instanceID uint64, target apigen.ScheduledInstanceTarget) {
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		current, err := q.GetScheduledInstance(ctx, instanceID)
@@ -186,7 +184,7 @@ func SetScheduledInstanceState(s *state.Service, instanceID int32, target apigen
 	}))
 }
 
-func NonFinalInstances(s *state.Service, deploymentID int32) []*apigen.ScheduledInstance {
+func NonFinalInstances(s *state.Service, deploymentID uint64) []*apigen.ScheduledInstance {
 	events := erru.Must(s.Queries().ListNonFinalScheduledInstancesForDeployment(context.Background(), deploymentID))
 	out := make([]*apigen.ScheduledInstance, 0, len(events))
 	for _, event := range events {
@@ -198,10 +196,11 @@ func NonFinalInstances(s *state.Service, deploymentID int32) []*apigen.Scheduled
 
 func NonEmptySpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{
-		Container1Spec: &apigen.ContainerSpec{
-			Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}},
-			Runtime: apigen.ContainerRuntime{User: "1000"},
-		},
+		Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+			Source:          apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: "example/app"}}},
+			Runtime:         apigen.ContainerRuntime{User: "1000"},
+			UpgradeStrategy: apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE,
+		}}},
 		Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST},
 	}
 }
@@ -216,34 +215,33 @@ func SpecWithVersion(version string) *apigen.DeploymentSpec {
 
 func EnvRefSpec(configs map[string]apigen.ValueRef, secrets map[string]apigen.ValueRef) *apigen.DeploymentSpec {
 	spec := SpecWithVersion("v1")
-	spec.Container1Spec.Runtime.EnvVars = make(map[string]*apigen.EnvVarValue, len(configs)+len(secrets))
+	env := make(map[string]apigen.EnvVar, len(configs)+len(secrets))
 	for key, ref := range configs {
-		ref := ref
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{Config: &ref}
+		env[key] = apigen.EnvVar{Value: apigen.EnvVarValueOneof{Config: &apigen.ConfigEnv{Config: apigen.ConfigRef{ConfigID: ref.ID, Version: ref.Version}}}}
 	}
 	for key, ref := range secrets {
-		ref := ref
-		spec.Container1Spec.Runtime.EnvVars[key] = &apigen.EnvVarValue{Secret: &ref}
+		env[key] = apigen.EnvVar{Value: apigen.EnvVarValueOneof{Secret: &apigen.SecretEnv{Secret: apigen.SecretRef{SecretID: ref.ID, Version: ref.Version}}}}
 	}
+	spec.Container().Runtime.EnvVars = env
 	return spec
 }
 
-func DeploymentEnvRef(t testing.TB, cfg *apigen.DeploymentEvent, key string, secret bool) apigen.ValueRef {
+func DeploymentEnvRef(t testing.TB, cfg *apigen.DeploymentRecord, key string, secret bool) apigen.ValueRef {
 	t.Helper()
-	value := cfg.Value.Spec.Container1Spec.Runtime.EnvVars[key]
-	if value == nil {
-		t.Fatalf("deployment %d env %s is missing", cfg.DeploymentID, key)
+	value, ok := cfg.Deployment.Spec.Container().Runtime.EnvVars[key]
+	if !ok {
+		t.Fatalf("deployment %d env %s is missing", cfg.Deployment.ID, key)
 	}
 	if secret {
-		if value.Secret == nil {
-			t.Fatalf("deployment %d env %s has no secret ref", cfg.DeploymentID, key)
+		if value.Value.Secret == nil {
+			t.Fatalf("deployment %d env %s has no secret ref", cfg.Deployment.ID, key)
 		}
-		return *value.Secret
+		return apigen.ValueRef{ID: value.Value.Secret.Secret.SecretID, Version: value.Value.Secret.Secret.Version}
 	}
-	if value.Config == nil {
-		t.Fatalf("deployment %d env %s has no config ref", cfg.DeploymentID, key)
+	if value.Value.Config == nil {
+		t.Fatalf("deployment %d env %s has no config ref", cfg.Deployment.ID, key)
 	}
-	return *value.Config
+	return apigen.ValueRef{ID: value.Value.Config.Config.ConfigID, Version: value.Value.Config.Config.Version}
 }
 
 // Canonical encodes an update with its mutations in a fixed order and
@@ -251,7 +249,7 @@ func DeploymentEnvRef(t testing.TB, cfg *apigen.DeploymentEvent, key string, sec
 // equal.
 func Canonical(update state.WriteUpdate) []byte {
 	cp := update
-	cp.Mutations = make([]*apigen.CoreMutation, 0, len(update.Mutations))
+	cp.Mutations = make([]apigen.CoreMutation, 0, len(update.Mutations))
 	for _, m := range update.Mutations {
 		cp.Mutations = append(cp.Mutations, withoutMeta(m))
 	}
@@ -259,16 +257,16 @@ func Canonical(update state.WriteUpdate) []byte {
 	return cp.Encode()
 }
 
-func withoutMeta(m *apigen.CoreMutation) *apigen.CoreMutation {
+func withoutMeta(m apigen.CoreMutation) apigen.CoreMutation {
 	switch {
-	case m.Create != nil:
-		c := *m.Create
-		c.Meta = nil
-		return &apigen.CoreMutation{Create: &c}
-	case m.Update != nil:
-		u := *m.Update
-		u.Meta = nil
-		return &apigen.CoreMutation{Update: &u}
+	case m.Value.Create != nil:
+		c := *m.Value.Create
+		c.Meta = apigen.Maybe[apigen.EntityMeta]{}
+		return apigen.CoreMutation{Value: apigen.CoreMutationValueOneof{Create: &c}}
+	case m.Value.Update != nil:
+		u := *m.Value.Update
+		u.Meta = apigen.Maybe[apigen.EntityMeta]{}
+		return apigen.CoreMutation{Value: apigen.CoreMutationValueOneof{Update: &u}}
 	}
 	return m
 }
@@ -294,14 +292,15 @@ func AssertUpdateMatchesRows(t testing.TB, s *state.Service, update state.WriteU
 
 // Fold applies mutations in order and returns the live entity payloads keyed
 // by type and id, the state a stream consumer holds after the events.
-func Fold(events []*apigen.CoreWriteUpdate) map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity {
-	out := map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity{}
+func Fold(events []*apigen.CoreWriteUpdate) map[apigen.CoreEntityType]map[uint64]*apigen.CoreEntity {
+	out := map[apigen.CoreEntityType]map[uint64]*apigen.CoreEntity{}
 	for _, e := range events {
-		for _, m := range e.Mutations {
+		for i := range e.Mutations {
+			m := &e.Mutations[i]
 			if out[m.Type()] == nil {
-				out[m.Type()] = map[int64]*apigen.CoreEntity{}
+				out[m.Type()] = map[uint64]*apigen.CoreEntity{}
 			}
-			if m.Delete != nil {
+			if m.Value.Delete != nil {
 				delete(out[m.Type()], m.EntityID())
 				continue
 			}
@@ -321,23 +320,23 @@ func Snapshot(t testing.TB, q *pq.Queries) []*apigen.MaterialisedEntity {
 // FoldSnapshot returns, by type and id, the live entity payloads a fresh
 // subscriber holds after the opening snapshot: the newest retained version of
 // each entity, and nothing for deleted ones.
-func FoldSnapshot(entries []*apigen.MaterialisedEntity) map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity {
-	out := map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity{}
+func FoldSnapshot(entries []*apigen.MaterialisedEntity) map[apigen.CoreEntityType]map[uint64]*apigen.CoreEntity {
+	out := map[apigen.CoreEntityType]map[uint64]*apigen.CoreEntity{}
 	for _, e := range entries {
-		if e.Meta != nil && e.Meta.Deleted {
+		if e.Meta.Deleted {
 			continue
 		}
 		if out[e.EntityType] == nil {
-			out[e.EntityType] = map[int64]*apigen.CoreEntity{}
+			out[e.EntityType] = map[uint64]*apigen.CoreEntity{}
 		}
-		out[e.EntityType][e.EntityID] = e.Entity
+		out[e.EntityType][e.EntityID] = &e.Entity
 	}
 	return out
 }
 
 // Live returns the entity payloads a fresh subscriber holds after the opening
 // snapshot.
-func Live(t testing.TB, q *pq.Queries, typ apigen.CoreEntityType) map[int64]*apigen.CoreEntity {
+func Live(t testing.TB, q *pq.Queries, typ apigen.CoreEntityType) map[uint64]*apigen.CoreEntity {
 	t.Helper()
 	return FoldSnapshot(Snapshot(t, q))[typ]
 }

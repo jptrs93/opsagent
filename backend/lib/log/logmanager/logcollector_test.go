@@ -7,7 +7,7 @@ import (
 	logv2 "github.com/jptrs93/opsagent/backend/lib/log/v2"
 )
 
-const testDeploymentID int32 = 42
+const testDeploymentID = 42
 const testNodeID int32 = 7
 
 func record(t *testing.T, at string, version int32, run int32, stream int8, line string) []byte {

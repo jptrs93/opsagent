@@ -21,65 +21,81 @@ func virtualNetworking() apigen.NetworkingConfig {
 	return apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL}
 }
 
+func containerWorkload(container *apigen.ContainerSpec) apigen.Workload {
+	if container.UpgradeStrategy == apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_UNSPECIFIED {
+		container.UpgradeStrategy = apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE
+	}
+	return apigen.Workload{Value: apigen.WorkloadValueOneof{Container: container}}
+}
+
+func remoteSource(image string) apigen.ContainerSource {
+	return apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: image}}}
+}
+
+func nixSourceOf(repo, flake, target string) apigen.ContainerSource {
+	return apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{NixImageBuild: &apigen.NixImageBuild{Repo: repo, Flake: flake, Target: target}}}
+}
+
+func mustPrefix(s string) apigen.IpPrefix {
+	p, err := apigen.ParsePrefix(s)
+	if err != nil {
+		panic(err)
+	}
+	return p
+}
+
 func remoteDeploymentSpec(image string, networking apigen.NetworkingConfig) apigen.DeploymentSpec {
 	return apigen.DeploymentSpec{
-		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: image}}},
-		Networking:     networking,
+		Workload:   containerWorkload(&apigen.ContainerSpec{Source: remoteSource(image)}),
+		Networking: networking,
 	}
 }
 
 func TestValidateDeploymentSpecNixDockerBuild(t *testing.T) {
 	spec, err := ValidateSpecWithResolvers(&apigen.DeploymentSpec{
-		Container1Spec: &apigen.ContainerSpec{
-			Source: apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{
-				Repo:   "github.com/acme/web",
-				Flake:  "nix/web/flake.nix",
-				Target: ".#webImage",
-			}},
+		Workload: containerWorkload(&apigen.ContainerSpec{
+			Source:  nixSourceOf("github.com/acme/web", "nix/web/flake.nix", ".#webImage"),
 			Runtime: apigen.ContainerRuntime{User: "1000"},
-		},
+		}),
 		Networking: hostNetworking(),
 	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
-	if spec.Container1Spec.Source.NixDockerBuild == nil {
-		t.Fatal("nixDockerBuild is nil")
+	nix := spec.Container().Source.Value.NixImageBuild
+	if nix == nil {
+		t.Fatal("nixImageBuild is nil")
 	}
-	if spec.Container1Spec.Source.NixDockerBuild.Repo != "github.com/acme/web" {
-		t.Fatalf("repo = %q", spec.Container1Spec.Source.NixDockerBuild.Repo)
+	if nix.Repo != "github.com/acme/web" {
+		t.Fatalf("repo = %q", nix.Repo)
 	}
-	if spec.Container1Spec.Source.NixDockerBuild.Flake != "nix/web/flake.nix" {
-		t.Fatalf("flake = %q", spec.Container1Spec.Source.NixDockerBuild.Flake)
+	if nix.Flake != "nix/web/flake.nix" {
+		t.Fatalf("flake = %q", nix.Flake)
 	}
-	if spec.Container1Spec.Source.NixDockerBuild.Target != ".#webImage" {
-		t.Fatalf("target = %q", spec.Container1Spec.Source.NixDockerBuild.Target)
+	if nix.Target != ".#webImage" {
+		t.Fatalf("target = %q", nix.Target)
 	}
-	if spec.Container1Spec.Runtime.User != "1000" {
-		t.Fatalf("container user = %q", spec.Container1Spec.Runtime.User)
+	if spec.Container().Runtime.User != "1000" {
+		t.Fatalf("container user = %q", spec.Container().Runtime.User)
 	}
 }
 
 func TestValidateDeploymentSpecCanonicalizesSafeFlakePath(t *testing.T) {
 	spec, err := ValidateSpecWithResolvers(&apigen.DeploymentSpec{
-		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
-			NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/web", Flake: "./nix/../flake.nix"},
-		}},
+		Workload:   containerWorkload(&apigen.ContainerSpec{Source: nixSourceOf("github.com/acme/web", "./nix/../flake.nix", "")}),
 		Networking: hostNetworking(),
 	}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := spec.Container1Spec.Source.NixDockerBuild.Flake; got != "flake.nix" {
+	if got := spec.Container().Source.Value.NixImageBuild.Flake; got != "flake.nix" {
 		t.Fatalf("flake = %q, want flake.nix", got)
 	}
 
 	for _, flake := range []string{"/flake.nix", "../flake.nix", "nix/default.nix"} {
 		t.Run(flake, func(t *testing.T) {
 			_, err := ValidateSpecWithResolvers(&apigen.DeploymentSpec{
-				Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
-					NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/web", Flake: flake},
-				}},
+				Workload:   containerWorkload(&apigen.ContainerSpec{Source: nixSourceOf("github.com/acme/web", flake, "")}),
 				Networking: hostNetworking(),
 			}, nil, nil, nil)
 			if err == nil {
@@ -89,7 +105,7 @@ func TestValidateDeploymentSpecCanonicalizesSafeFlakePath(t *testing.T) {
 	}
 }
 
-func nixCreateRequest(nodeID int32, name string, running bool) *apigen.DeploymentCreateRequest {
+func nixCreateRequest(nodeID uint64, name string, running bool) *apigen.DeploymentCreateRequest {
 	return &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: name,
 		Scheduling: apigen.DedicatedScheduling(running, nodeID),
@@ -103,19 +119,14 @@ func nixDeploymentSpec(repo, flake string) apigen.DeploymentSpec {
 
 func nixDeploymentSpecWithVersion(repo, flake, version string) apigen.DeploymentSpec {
 	return apigen.DeploymentSpec{
-		Container1Spec: &apigen.ContainerSpec{
-			Source:  apigen.ContainerBundleSource{NixDockerBuild: &apigen.NixDockerBuild{Repo: repo, Flake: flake}},
-			Version: version,
-		},
+		Workload:   containerWorkload(&apigen.ContainerSpec{Source: nixSourceOf(repo, flake, ""), Version: version}),
 		Networking: hostNetworking(),
 	}
 }
 
 func TestValidateDeploymentSpecRejectsNonLocalNixTarget(t *testing.T) {
 	_, err := ValidateSpecWithResolvers(&apigen.DeploymentSpec{
-		Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{
-			NixDockerBuild: &apigen.NixDockerBuild{Repo: "github.com/acme/web", Flake: "flake.nix", Target: "github:acme/web#image"},
-		}},
+		Workload:   containerWorkload(&apigen.ContainerSpec{Source: nixSourceOf("github.com/acme/web", "flake.nix", "github:acme/web#image")}),
 		Networking: hostNetworking(),
 	}, nil, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), "local flake selector") {
@@ -156,18 +167,18 @@ func TestValidateDeploymentSpecResolvesAssetMounts(t *testing.T) {
 		},
 	}
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
-		Asset: apigen.ValueRef{ID: 1, Version: 42}, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_READ_EXECUTE,
+	input.Container().Runtime.AssetMounts = []apigen.AssetMount{{
+		Asset: apigen.AssetRef{AssetID: 1, Version: 42}, ContainerPath: "/etc/nginx/nginx.conf", Permission: apigen.FilePermission_FILE_PERMISSION_READ_EXECUTE,
 	}}
 	spec, err := ValidateSpecWithResolvers(&input, assets, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
-	mounts := spec.Container1Spec.Runtime.AssetMounts
+	mounts := spec.Container().Runtime.AssetMounts
 	if len(mounts) != 1 {
 		t.Fatalf("asset mounts len = %d", len(mounts))
 	}
-	if mounts[0].Asset != (apigen.ValueRef{ID: 1, Version: 42}) || mounts[0].ContainerPath != "/etc/nginx/nginx.conf" || mounts[0].Permission != apigen.FilePermission_READ_EXECUTE {
+	if mounts[0].Asset.Ref() != (apigen.ValueRef{ID: 1, Version: 42}) || mounts[0].ContainerPath != "/etc/nginx/nginx.conf" || mounts[0].Permission != apigen.FilePermission_FILE_PERMISSION_READ_EXECUTE {
 		t.Fatalf("asset mount not resolved: %+v", mounts[0])
 	}
 }
@@ -180,20 +191,20 @@ func TestValidateDeploymentSpecResolvesEnvAssetRefs(t *testing.T) {
 		},
 	}
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"APP_CONFIG": {AssetRef: &apigen.ValueRef{ID: 2, Version: 51}}}
+	input.Container().Runtime.EnvVars = map[string]apigen.EnvVar{"APP_CONFIG": {Value: apigen.EnvVarValueOneof{Asset: &apigen.AssetEnv{Asset: apigen.AssetRef{AssetID: 2, Version: 51}}}}}
 	spec, err := ValidateSpecWithResolvers(&input, assets, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
-	value := spec.Container1Spec.Runtime.EnvVars["APP_CONFIG"]
-	if value.Asset != "app.conf" || *value.AssetRef != (apigen.ValueRef{ID: 2, Version: 51}) {
+	value := spec.Container().Runtime.EnvVars["APP_CONFIG"].Value.Asset
+	if value == nil || value.Key != "app.conf" || value.Asset.Ref() != (apigen.ValueRef{ID: 2, Version: 51}) {
 		t.Fatalf("env asset ref not resolved: %+v", value)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsUnknownEnvAssetRef(t *testing.T) {
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"APP_CONFIG": {AssetRef: &apigen.ValueRef{ID: 2, Version: 999}}}
+	input.Container().Runtime.EnvVars = map[string]apigen.EnvVar{"APP_CONFIG": {Value: apigen.EnvVarValueOneof{Asset: &apigen.AssetEnv{Asset: apigen.AssetRef{AssetID: 2, Version: 999}}}}}
 	_, err := ValidateSpecWithResolvers(&input, fakeAssetResolver{}, nil, nil)
 	if err == nil || !strings.Contains(err.Error(), `asset 2@999 not found`) {
 		t.Fatalf("err = %v, want unknown asset", err)
@@ -202,15 +213,15 @@ func TestValidateDeploymentSpecRejectsUnknownEnvAssetRef(t *testing.T) {
 
 func TestValidateDeploymentSpecAcceptsHostMounts(t *testing.T) {
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.Mounts = []*apigen.CustomHostMount{{
-		HostPath: " /home/ubuntu/coflip-server/data ", ContainerPath: " /data ", Permission: apigen.FilePermission_READ_WRITE,
+	input.Container().Runtime.Mounts = []apigen.HostMount{{
+		HostPath: " /home/ubuntu/coflip-server/data ", ContainerPath: " /data ", Permission: apigen.FilePermission_FILE_PERMISSION_READ_WRITE,
 	}}
 	spec, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
-	mount := spec.Container1Spec.Runtime.Mounts[0]
-	if mount.HostPath != "/home/ubuntu/coflip-server/data" || mount.ContainerPath != "/data" || mount.Permission != apigen.FilePermission_READ_WRITE {
+	mount := spec.Container().Runtime.Mounts[0]
+	if mount.HostPath != "/home/ubuntu/coflip-server/data" || mount.ContainerPath != "/data" || mount.Permission != apigen.FilePermission_FILE_PERMISSION_READ_WRITE {
 		t.Fatalf("mount not normalized: %+v", mount)
 	}
 }
@@ -218,7 +229,7 @@ func TestValidateDeploymentSpecAcceptsHostMounts(t *testing.T) {
 func TestValidateDeploymentSpecValidatesMounts(t *testing.T) {
 	t.Run("default volume path", func(t *testing.T) {
 		input := remoteDeploymentSpec("nginx", hostNetworking())
-		input.Container1Spec.Runtime.DefaultVolume.ContainerPath = "data"
+		input.Container().Runtime.DefaultVolume.ContainerPath = "data"
 		if _, err := ValidateSpecWithResolvers(&input, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "defaultVolume.containerPath") {
 			t.Fatalf("err = %v, want invalid default volume path", err)
 		}
@@ -226,7 +237,7 @@ func TestValidateDeploymentSpecValidatesMounts(t *testing.T) {
 
 	t.Run("custom mount permission", func(t *testing.T) {
 		input := remoteDeploymentSpec("nginx", hostNetworking())
-		input.Container1Spec.Runtime.Mounts = []*apigen.CustomHostMount{{HostPath: "/srv/data", ContainerPath: "/data"}}
+		input.Container().Runtime.Mounts = []apigen.HostMount{{HostPath: "/srv/data", ContainerPath: "/data"}}
 		if _, err := ValidateSpecWithResolvers(&input, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "permission") {
 			t.Fatalf("err = %v, want custom mount permission rejection", err)
 		}
@@ -234,7 +245,7 @@ func TestValidateDeploymentSpecValidatesMounts(t *testing.T) {
 
 	t.Run("cross-deployment mount permission", func(t *testing.T) {
 		input := remoteDeploymentSpec("nginx", hostNetworking())
-		input.Container1Spec.Runtime.CrossDeploymentMounts = []*apigen.CrossDeploymentMount{{DeploymentID: 2, ContainerPath: "/data"}}
+		input.Container().Runtime.CrossDeploymentMounts = []apigen.CrossDeploymentMount{{DeploymentID: 2, ContainerPath: "/data"}}
 		if _, err := ValidateSpecWithResolvers(&input, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "permission") {
 			t.Fatalf("err = %v, want cross-deployment mount permission rejection", err)
 		}
@@ -242,7 +253,7 @@ func TestValidateDeploymentSpecValidatesMounts(t *testing.T) {
 
 	t.Run("asset mount permission", func(t *testing.T) {
 		input := remoteDeploymentSpec("nginx", hostNetworking())
-		input.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{Asset: apigen.ValueRef{ID: 3, Version: 1}, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_WRITE}}
+		input.Container().Runtime.AssetMounts = []apigen.AssetMount{{Asset: apigen.AssetRef{AssetID: 3, Version: 1}, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_FILE_PERMISSION_READ_WRITE}}
 		assets := fakeAssetResolver{"app.conf": {Ref: apigen.ValueRef{ID: 3, Version: 1}, Key: "app.conf"}}
 		if _, err := ValidateSpecWithResolvers(&input, assets, nil, nil); err == nil || !strings.Contains(err.Error(), "READ_ONLY or READ_EXECUTE") {
 			t.Fatalf("err = %v, want asset mount permission rejection", err)
@@ -252,55 +263,55 @@ func TestValidateDeploymentSpecValidatesMounts(t *testing.T) {
 
 func TestValidateDeploymentSpecNormalizesContainerCommand(t *testing.T) {
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.OverrideCommand = []string{" /app/server ", "", " --listen ", " :8080 ", "   "}
+	input.Container().Runtime.OverrideCommand = []string{" /app/server ", "", " --listen ", " :8080 ", "   "}
 	spec, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
 	want := []string{"/app/server", "--listen", ":8080"}
-	if got := spec.Container1Spec.Runtime.OverrideCommand; strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+	if got := spec.Container().Runtime.OverrideCommand; strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("command = %#v, want %#v", got, want)
 	}
 }
 
 func TestValidateDeploymentSpecAcceptsDevShmSizeKb(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.DevShmSizeKb = 65536
+	input.Container().Runtime.DevShmSizeKb = apigen.Some[uint32](65536)
 	spec, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
-	if spec.Container1Spec.Runtime.DevShmSizeKb != 65536 {
-		t.Fatalf("devShmSizeKb = %d, want 65536", spec.Container1Spec.Runtime.DevShmSizeKb)
+	if got := spec.Container().Runtime.DevShmSizeKb; !got.Present || got.Value != 65536 {
+		t.Fatalf("devShmSizeKb = %v, want 65536", got)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsInvalidDevShmSizeKb(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.DevShmSizeKb = -1
+	input.Container().Runtime.DevShmSizeKb = apigen.Some[uint32](0)
 	_, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "devShmSizeKb") {
+	if err == nil || !strings.Contains(err.Error(), "dev_shm_size_kb") {
 		t.Fatalf("err = %v, want invalid devShmSizeKb", err)
 	}
 }
 
 func TestValidateDeploymentSpecAcceptsFileDescriptorLimit(t *testing.T) {
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.FileDescriptorLimit = 4096
+	input.Container().Runtime.FileDescriptorLimit = apigen.Some[uint32](4096)
 	spec, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
-	if spec.Container1Spec.Runtime.FileDescriptorLimit != 4096 {
-		t.Fatalf("fileDescriptorLimit = %d, want 4096", spec.Container1Spec.Runtime.FileDescriptorLimit)
+	if got := spec.Container().Runtime.FileDescriptorLimit; !got.Present || got.Value != 4096 {
+		t.Fatalf("fileDescriptorLimit = %v, want 4096", got)
 	}
 }
 
 func TestValidateDeploymentSpecRejectsInvalidFileDescriptorLimit(t *testing.T) {
 	input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-	input.Container1Spec.Runtime.FileDescriptorLimit = -1
+	input.Container().Runtime.FileDescriptorLimit = apigen.Some[uint32](0)
 	_, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "fileDescriptorLimit") {
+	if err == nil || !strings.Contains(err.Error(), "file_descriptor_limit") {
 		t.Fatalf("err = %v, want invalid fileDescriptorLimit", err)
 	}
 }
@@ -334,8 +345,8 @@ func TestValidateDeploymentSpecRejectsInvalidHostMounts(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input := remoteDeploymentSpec("nginx:latest", hostNetworking())
-			input.Container1Spec.Runtime.Mounts = []*apigen.CustomHostMount{{
-				HostPath: tc.host, ContainerPath: tc.container, Permission: apigen.FilePermission_READ_WRITE,
+			input.Container().Runtime.Mounts = []apigen.HostMount{{
+				HostPath: tc.host, ContainerPath: tc.container, Permission: apigen.FilePermission_FILE_PERMISSION_READ_WRITE,
 			}}
 			_, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
 			if err == nil {
@@ -353,27 +364,25 @@ func TestContainerHostMountDenylistPathBoundaries(t *testing.T) {
 	}
 	for _, host := range []string{"/srv/data", "/home/ubuntu/app", "/var/lib/my-app", "/var/log/my-app", "/var/lib/opendeploy-backups", "/etc-backup", "/runner", "/var/libexec"} {
 		input := remoteDeploymentSpec("nginx", virtualNetworking())
-		input.Container1Spec.Runtime.Mounts = []*apigen.CustomHostMount{{HostPath: host, ContainerPath: "/data", Permission: apigen.FilePermission_READ_ONLY}}
+		input.Container().Runtime.Mounts = []apigen.HostMount{{HostPath: host, ContainerPath: "/data", Permission: apigen.FilePermission_FILE_PERMISSION_READ_ONLY}}
 		if _, err := ValidateSpecWithResolvers(&input, nil, nil, nil); err != nil {
 			t.Errorf("unrelated path %q was denied: %v", host, err)
 		}
 	}
 }
 
-func TestValidateDeploymentSpecRejectsOpendeploySpec(t *testing.T) {
-	_, err := ValidateSpecWithResolvers(&apigen.DeploymentSpec{
-		OpendeploySpec: &apigen.OpendeploySpec{},
-		Networking:     hostNetworking(),
-	}, nil, nil, nil)
-	if err == nil {
-		t.Fatal("expected ValidateSpecWithAssets to reject an opendeploy spec")
+func TestValidateDeploymentSpecRequiresContainerWorkload(t *testing.T) {
+	_, err := ValidateSpecWithResolvers(&apigen.DeploymentSpec{Networking: hostNetworking()}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "workload") {
+		t.Fatalf("err = %v, want missing container workload rejection", err)
 	}
 }
 
 func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"PGUSER": {Secret: &apigen.ValueRef{ID: 6, Version: 2}}, "PGDATABASE": {Config: &apigen.ValueRef{ID: 18, Version: 1}},
+	input.Container().Runtime.EnvVars = map[string]apigen.EnvVar{
+		"PGUSER":     {Value: apigen.EnvVarValueOneof{Secret: &apigen.SecretEnv{Secret: apigen.SecretRef{SecretID: 6, Version: 2}}}},
+		"PGDATABASE": {Value: apigen.EnvVarValueOneof{Config: &apigen.ConfigEnv{Config: apigen.ConfigRef{ConfigID: 18, Version: 1}}}},
 	}
 	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{{ID: 6, Version: 2}: "postgres"}, fakeConfigResolver{{ID: 18, Version: 1}: "postgres"})
 	if err != nil {
@@ -381,26 +390,13 @@ func TestValidateDeploymentSpecAcceptsKnownEnvRefs(t *testing.T) {
 	}
 }
 
-func TestValidateDeploymentSpecDefaultsToVirtualNetworking(t *testing.T) {
+func TestValidateDeploymentSpecRejectsUnspecifiedNetworkingMode(t *testing.T) {
 	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{})
-	spec, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
-	}
-	if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
-		t.Fatalf("networking mode = %v, want virtual", spec.Networking.Mode)
+	_, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "networking.mode") {
+		t.Fatalf("err = %v, want unspecified networking mode rejection", err)
 	}
 
-	forwarded := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
-		PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}},
-	})
-	spec, err = ValidateSpecWithResolvers(&forwarded, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
-	}
-	if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL || len(spec.Networking.PortForwarding) != 1 {
-		t.Fatalf("networking = %+v, want virtual mode with one port forward", spec.Networking)
-	}
 }
 
 func TestValidateDeploymentSpecAcceptsExplicitHostNetworking(t *testing.T) {
@@ -416,7 +412,7 @@ func TestValidateDeploymentSpecAcceptsExplicitHostNetworking(t *testing.T) {
 
 func TestValidateDeploymentSpecAcceptsHostNetworkingRollover(t *testing.T) {
 	input := remoteDeploymentSpec("nginx", hostNetworking())
-	input.Container1Spec.UpgradeStrategy = apigen.ContainerUpgradeStrategy_ROLLOVER
+	input.Container().UpgradeStrategy = apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_ROLLOVER
 	spec, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
@@ -429,7 +425,7 @@ func TestValidateDeploymentSpecAcceptsHostNetworkingRollover(t *testing.T) {
 func TestValidateDeploymentSpecAcceptsVirtualPortForwarding(t *testing.T) {
 	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
 		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-		PortForwarding: []*apigen.PortForward{
+		PortForwarding: []apigen.PortForward{
 			{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080},
 			{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP, HostPort: 18080, ContainerPort: 8080},
 		},
@@ -446,23 +442,27 @@ func TestValidateDeploymentSpecAcceptsVirtualPortForwarding(t *testing.T) {
 func TestValidateDeploymentSpecNormalizesPortForwardIpFilter(t *testing.T) {
 	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
 		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-		PortForwarding: []*apigen.PortForward{{
+		PortForwarding: []apigen.PortForward{{
 			Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
-			IpFilter: &apigen.IpFilter{Allow: []string{" 203.0.113.7 ", "198.51.100.0/24", "2001:DB8::/32"}},
+			IpFilter: []apigen.IpFilter{
+				{Mode: apigen.IpFilterMode_IP_FILTER_MODE_ALLOW, Prefix: mustPrefix("203.0.113.7")},
+				{Mode: apigen.IpFilterMode_IP_FILTER_MODE_ALLOW, Prefix: mustPrefix("198.51.100.0/24")},
+				{Mode: apigen.IpFilterMode_IP_FILTER_MODE_ALLOW, Prefix: mustPrefix("2001:DB8::/32")},
+			},
 		}},
 	})
 	spec, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ValidateSpecWithResolvers failed: %v", err)
 	}
-	got := spec.Networking.PortForwarding[0].IpFilter.Allow
-	want := []string{"203.0.113.7", "198.51.100.0/24", "2001:db8::/32"}
+	got := spec.Networking.PortForwarding[0].IpFilter
+	want := []string{"203.0.113.7/32", "198.51.100.0/24", "2001:db8::/32"}
 	if len(got) != len(want) {
 		t.Fatalf("allow = %v, want %v", got, want)
 	}
 	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("allow = %v, want %v", got, want)
+		if got[i].Prefix.String() != want[i] {
+			t.Fatalf("allow[%d] = %v, want %v", i, got[i].Prefix.String(), want[i])
 		}
 	}
 }
@@ -470,12 +470,9 @@ func TestValidateDeploymentSpecNormalizesPortForwardIpFilter(t *testing.T) {
 func TestValidateDeploymentSpecAcceptsTlsPassthroughIngress(t *testing.T) {
 	input := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
 		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-		Ingress: []*apigen.Ingress{{
-			Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+		Ingress: []apigen.Ingress{{
 			Hostname: "db.example.com",
-			TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-				ContainerPort: 5432,
-			},
+			Config:   tlsPassthrough(apigen.Maybe[uint32]{}, 5432),
 		}},
 	})
 	spec, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
@@ -497,7 +494,7 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "host mode with port forwarding",
 			networking: apigen.NetworkingConfig{
 				Mode:           apigen.NetworkingMode_NETWORKING_MODE_HOST,
-				PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}},
+				PortForwarding: []apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080}},
 			},
 			want: "requires virtual mode",
 		},
@@ -505,7 +502,7 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "invalid protocol",
 			networking: apigen.NetworkingConfig{
 				Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UNSPECIFIED, HostPort: 18080, ContainerPort: 8080}},
+				PortForwarding: []apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UNSPECIFIED, HostPort: 18080, ContainerPort: 8080}},
 			},
 			want: "protocol",
 		},
@@ -513,23 +510,23 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "invalid host port",
 			networking: apigen.NetworkingConfig{
 				Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 0, ContainerPort: 8080}},
+				PortForwarding: []apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 0, ContainerPort: 8080}},
 			},
-			want: "hostPort",
+			want: "host_port",
 		},
 		{
 			name: "invalid container port",
 			networking: apigen.NetworkingConfig{
 				Mode:           apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 0}},
+				PortForwarding: []apigen.PortForward{{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 0}},
 			},
-			want: "containerPort",
+			want: "container_port",
 		},
 		{
 			name: "duplicate same protocol host port",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{
+				PortForwarding: []apigen.PortForward{
 					{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080},
 					{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8081},
 				},
@@ -540,10 +537,9 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "host mode with ingress",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST,
-				Ingress: []*apigen.Ingress{{
-					Kind:                 apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-					Hostname:             "db.example.com",
-					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 5432},
+				Ingress: []apigen.Ingress{{
+					Hostname: "db.example.com",
+					Config:   tlsPassthrough(apigen.Maybe[uint32]{}, 5432),
 				}},
 			},
 			want: "requires virtual mode",
@@ -552,9 +548,9 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "ip filter deny not supported",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{{
+				PortForwarding: []apigen.PortForward{{
 					Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
-					IpFilter: &apigen.IpFilter{Deny: []string{"203.0.113.7"}},
+					IpFilter: []apigen.IpFilter{{Mode: apigen.IpFilterMode_IP_FILTER_MODE_DENY, Prefix: mustPrefix("203.0.113.7")}},
 				}},
 			},
 			want: "ipFilter.deny is not supported yet",
@@ -563,20 +559,22 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "ip filter invalid allow entry",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{{
+				PortForwarding: []apigen.PortForward{{
 					Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
-					IpFilter: &apigen.IpFilter{Allow: []string{"office"}},
+					IpFilter: []apigen.IpFilter{{Mode: apigen.IpFilterMode_IP_FILTER_MODE_ALLOW}},
 				}},
 			},
-			want: "not a valid IP address or CIDR prefix",
+			want: "prefix",
 		},
 		{
 			name: "ip filter allow host bits set",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{{
+				PortForwarding: []apigen.PortForward{{
 					Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
-					IpFilter: &apigen.IpFilter{Allow: []string{"10.0.0.1/8"}},
+					IpFilter: []apigen.IpFilter{{Mode: apigen.IpFilterMode_IP_FILTER_MODE_ALLOW, Prefix: apigen.IpPrefix{Value: apigen.IpPrefixValueOneof{
+						Ipv4: &apigen.IPv4Prefix{Address: apigen.IPv4Address{Octets: []byte{10, 0, 0, 1}}, PrefixLength: 8},
+					}}}},
 				}},
 			},
 			want: "host bits set",
@@ -585,9 +583,12 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "ip filter duplicate allow entry",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				PortForwarding: []*apigen.PortForward{{
+				PortForwarding: []apigen.PortForward{{
 					Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 18080, ContainerPort: 8080,
-					IpFilter: &apigen.IpFilter{Allow: []string{"203.0.113.7/32", "203.0.113.7"}},
+					IpFilter: []apigen.IpFilter{
+						{Mode: apigen.IpFilterMode_IP_FILTER_MODE_ALLOW, Prefix: mustPrefix("203.0.113.7/32")},
+						{Mode: apigen.IpFilterMode_IP_FILTER_MODE_ALLOW, Prefix: mustPrefix("203.0.113.7")},
+					},
 				}},
 			},
 			want: "duplicate entry",
@@ -596,21 +597,19 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "tls passthrough without config",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				Ingress: []*apigen.Ingress{{
-					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+				Ingress: []apigen.Ingress{{
 					Hostname: "db.example.com",
 				}},
 			},
-			want: "tlsPassthroughConfig",
+			want: "config.value",
 		},
 		{
 			name: "invalid ingress hostname",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				Ingress: []*apigen.Ingress{{
-					Kind:                 apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-					Hostname:             "not a hostname",
-					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 5432},
+				Ingress: []apigen.Ingress{{
+					Hostname: "not a hostname",
+					Config:   tlsPassthrough(apigen.Maybe[uint32]{}, 5432),
 				}},
 			},
 			want: "hostname",
@@ -619,12 +618,9 @@ func TestValidateDeploymentSpecRejectsInvalidNetworking(t *testing.T) {
 			name: "tls passthrough on netproxy DNS port",
 			networking: apigen.NetworkingConfig{
 				Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-				Ingress: []*apigen.Ingress{{
-					Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
+				Ingress: []apigen.Ingress{{
 					Hostname: "dns.example.com",
-					TlsPassthroughConfig: &apigen.TlsPassthroughConfig{
-						HostPort: 53, ContainerPort: 443,
-					},
+					Config:   tlsPassthrough(apigen.Some[uint32](53), 443),
 				}},
 			},
 			want: "hostPort 53 is reserved for opendeploy-net DNS",
@@ -651,7 +647,7 @@ func TestValidateDeploymentSpecRejectsNetproxyImage(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsUnknownSecretRef(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGPASSWORD": {Secret: &apigen.ValueRef{ID: 6, Version: 99}}}
+	input.Container().Runtime.EnvVars = map[string]apigen.EnvVar{"PGPASSWORD": {Value: apigen.EnvVarValueOneof{Secret: &apigen.SecretEnv{Secret: apigen.SecretRef{SecretID: 6, Version: 99}}}}}
 	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{{ID: 6, Version: 2}: "postgres"}, fakeConfigResolver{})
 	if err == nil || !strings.Contains(err.Error(), "unknown secret 6@99") {
 		t.Fatalf("err = %v, want unknown secret", err)
@@ -660,7 +656,7 @@ func TestValidateDeploymentSpecRejectsUnknownSecretRef(t *testing.T) {
 
 func TestValidateDeploymentSpecRejectsUnknownConfigRef(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"PGDATABASE": {Config: &apigen.ValueRef{ID: 99, Version: 1}}}
+	input.Container().Runtime.EnvVars = map[string]apigen.EnvVar{"PGDATABASE": {Value: apigen.EnvVarValueOneof{Config: &apigen.ConfigEnv{Config: apigen.ConfigRef{ConfigID: 99, Version: 1}}}}}
 	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err == nil || !strings.Contains(err.Error(), "unknown config 99@1") {
 		t.Fatalf("err = %v, want unknown config", err)
@@ -669,8 +665,8 @@ func TestValidateDeploymentSpecRejectsUnknownConfigRef(t *testing.T) {
 
 func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"LITERAL": {Value: ptrString("${s:not.real} and ${c:not.real}")},
+	input.Container().Runtime.EnvVars = map[string]apigen.EnvVar{
+		"LITERAL": {Value: apigen.EnvVarValueOneof{Literal: &apigen.LiteralEnv{Value: "${s:not.real} and ${c:not.real}"}}},
 	}
 	_, err := ValidateSpecWithResolvers(&input, nil, fakeSecretResolver{}, fakeConfigResolver{})
 	if err != nil {
@@ -679,25 +675,31 @@ func TestValidateDeploymentSpecAcceptsLiteralEnvValues(t *testing.T) {
 }
 
 func TestValidateDeploymentSpecRejectsIncompleteAddressRef(t *testing.T) {
-	deploymentID := int32(7)
 	input := remoteDeploymentSpec("postgres:16", hostNetworking())
-	input.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{"UPSTREAM": {AddressDeploymentID: &deploymentID}}
+	input.Container().Runtime.EnvVars = map[string]apigen.EnvVar{"UPSTREAM": {Value: apigen.EnvVarValueOneof{Address: &apigen.AddressEnv{SpaceID: 1}}}}
 	_, err := ValidateSpecWithResolvers(&input, nil, nil, nil)
-	if err == nil || !strings.Contains(err.Error(), "required together") {
+	if err == nil || !strings.Contains(err.Error(), "addressDeploymentId must be positive") {
 		t.Fatalf("err = %v, want incomplete address rejection", err)
+	}
+	empty := remoteDeploymentSpec("postgres:16", hostNetworking())
+	empty.Container().Runtime.EnvVars = map[string]apigen.EnvVar{"UPSTREAM": {}}
+	_, err = ValidateSpecWithResolvers(&empty, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "exactly one") {
+		t.Fatalf("err = %v, want empty env value rejection", err)
 	}
 }
 
-func ptrInt32(v int32) *int32    { return &v }
-func ptrString(v string) *string { return &v }
+func tlsPassthrough(hostPort apigen.Maybe[uint32], containerPort uint32) apigen.IngressConfig {
+	return apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{TlsPassthrough: &apigen.TlsPassthroughConfig{HostPort: hostPort, ContainerPort: containerPort}}}
+}
 
 func TestValidateIssuedTLSNamesLimitsInternalNamesToOwnSpace(t *testing.T) {
 	spec := remoteDeploymentSpec("nginx", virtualNetworking())
-	spec.Container1Spec.Runtime.IssuedTlsMount = &apigen.IssuedTLSMount{ContainerPath: "/tls", ExtraNames: []string{"example.com", "api.space-3.internal"}}
+	spec.Container().Runtime.IssuedTlsMount = apigen.Some(apigen.IssuedTLSMount{ContainerPath: "/tls", ExtraNames: []string{"example.com", "api.space-3.internal"}})
 	if err := validateIssuedTLSNames(&spec, 7, 3); err != nil {
 		t.Fatalf("own-space names: %v", err)
 	}
-	spec.Container1Spec.Runtime.IssuedTlsMount.ExtraNames = []string{"example.com", "api.space-1.internal"}
+	spec.Container().Runtime.IssuedTlsMount.Value.ExtraNames = []string{"example.com", "api.space-1.internal"}
 	err := validateIssuedTLSNames(&spec, 7, 3)
 	if err == nil || !strings.Contains(err.Error(), "extraNames[1]") || !strings.Contains(err.Error(), "space-3.internal") {
 		t.Fatalf("err = %v, want rejection of api.space-1.internal", err)

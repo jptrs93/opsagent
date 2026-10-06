@@ -35,14 +35,14 @@ func mapConfigStoreErr(err error) error {
 }
 
 func (h *Handler) PostV1ConfigsCreate(ctx apigen.Context, req *apigen.ConfigCreateRequest) (*apigen.CoreWriteUpdate, error) {
-	name := strings.TrimSpace(req.Name)
+	name := strings.TrimSpace(req.Key)
 	if name == "" {
 		return nil, UserConfigNameRequiredErr
 	}
 	if err := h.requireAccess(ctx, vCreate, eConfig, valueSpace(req.SpaceID), 0); err != nil {
 		return nil, err
 	}
-	meta, err := values.CreateConfig(h.Store, name, req.SpaceID, req.ValueDirectoryID, requestUserID(ctx), req.Value)
+	meta, err := values.CreateConfig(h.Store, name, req.SpaceID, values.DirectoryID(req.ValueDirectoryID), requestUserID(ctx), req.Value)
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
@@ -56,7 +56,7 @@ func (h *Handler) PostV1ConfigsSet(ctx apigen.Context, req *apigen.ConfigSetRequ
 	}
 	if existing, ok := values.GetConfig(h.Store.Queries(), req.ConfigID); !ok {
 		return nil, UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ConfigID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, existing.SpaceID(), existing.ConfigID, UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
 	expected, err := requestedDeploymentVersions(req.UpdateReferencingDeployments, req.ReferencingDeployments)
@@ -84,15 +84,15 @@ func (h *Handler) PostV1ConfigsRename(ctx apigen.Context, req *apigen.ConfigRena
 	if req.ConfigID == 0 {
 		return nil, UserConfigIDRequiredErr
 	}
-	if strings.TrimSpace(req.NewName) == "" {
+	if strings.TrimSpace(req.NewKey) == "" {
 		return nil, UserConfigNameRequiredErr
 	}
 	if existing, ok := values.GetConfig(h.Store.Queries(), req.ConfigID); !ok {
 		return nil, UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ConfigID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vUpdate, eConfig, existing.SpaceID(), existing.ConfigID, UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
-	meta, err := values.RenameConfig(h.Store, req.ConfigID, strings.TrimSpace(req.NewName))
+	meta, err := values.RenameConfig(h.Store, req.ConfigID, strings.TrimSpace(req.NewKey))
 	if err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
@@ -114,14 +114,14 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 	if !ok {
 		return nil, UserConfigNotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eConfig, int64(existing.SpaceID()), int64(existing.ConfigID), UserConfigNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eConfig, existing.SpaceID(), existing.ConfigID, UserConfigNotFoundErr); err != nil {
 		return nil, err
 	}
-	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID)
-	spaceChanging := req.SpaceID != 0 && destSpace != existing.SpaceID()
+	destSpace := nodes.NormalizedUserSpaceID(req.SpaceID.Value)
+	spaceChanging := req.SpaceID.Present && destSpace != existing.SpaceID()
 	// Moving into another space also needs the right to create a config there.
 	if spaceChanging {
-		if err := h.requireAccess(ctx, vCreate, eConfig, valueSpace(req.SpaceID), 0); err != nil {
+		if err := h.requireAccess(ctx, vCreate, eConfig, valueSpace(req.SpaceID.Value), 0); err != nil {
 			return nil, err
 		}
 	}
@@ -130,7 +130,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 			if destSpace == nodes.DefaultSpaceID {
 				return nil
 			}
-			ids := deployments.Int32Set([]int32{req.ConfigID})
+			ids := deployments.IDSet([]uint64{req.ConfigID})
 			if h.settingsUseConfigID(ids) {
 				return deployments.MoveReferencesOutsideSpaceErr
 			}
@@ -143,7 +143,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 			}
 			return nil
 		}
-		if err := values.MoveConfigSpace(h.Store, req.ConfigID, req.SpaceID, req.ValueDirectoryID, ctx.AttributionUserID(), validate); err != nil {
+		if err := values.MoveConfigSpace(h.Store, req.ConfigID, req.SpaceID.Value, values.DirectoryID(req.ValueDirectoryID), ctx.AttributionUserID(), validate); err != nil {
 			return nil, mapConfigStoreErr(err)
 		}
 		// Tombstone for clients that saw the old space but cannot see the new
@@ -151,7 +151,7 @@ func (h *Handler) PostV1ConfigsMove(ctx apigen.Context, req *apigen.ConfigMoveRe
 		// "gone". The update below re-adds the row where the destination is
 		// visible.
 
-	} else if err := values.MoveConfigDirectory(h.Store, req.ConfigID, req.ValueDirectoryID); err != nil {
+	} else if err := values.MoveConfigDirectory(h.Store, req.ConfigID, values.DirectoryID(req.ValueDirectoryID)); err != nil {
 		return nil, mapConfigStoreErr(err)
 	}
 	meta, ok := values.GetConfig(h.Store.Queries(), req.ConfigID)
@@ -168,11 +168,11 @@ func (h *Handler) PostV1ConfigsDelete(ctx apigen.Context, req *apigen.ConfigDele
 	}
 	if existing, ok := values.GetConfig(h.Store.Queries(), req.ConfigID); !ok {
 		return UserConfigNotFoundErr
-	} else if err := h.requireEntityAccess(ctx, vDelete, eConfig, int64(existing.SpaceID()), int64(existing.ConfigID), UserConfigNotFoundErr); err != nil {
+	} else if err := h.requireEntityAccess(ctx, vDelete, eConfig, existing.SpaceID(), existing.ConfigID, UserConfigNotFoundErr); err != nil {
 		return err
 	}
 	validate := func(q *pq.Queries) error {
-		ids := deployments.Int32Set([]int32{req.ConfigID})
+		ids := deployments.IDSet([]uint64{req.ConfigID})
 		if len(ids) == 0 {
 			return UserConfigNotFoundErr
 		}

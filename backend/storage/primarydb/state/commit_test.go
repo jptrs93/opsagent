@@ -23,20 +23,21 @@ func TestCommitRollbackPreservesIDsAndPublishesWriterUpdate(t *testing.T) {
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
 	stop := errors.New("abort after writes")
-	var firstID int64
+	var firstID uint64
 	var returned *WriteUpdate
 	write := func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		id, err := q.NextDeploymentID(ctx)
 		if err != nil {
 			return nil, err
 		}
-		event := pq.DeploymentCreateEvent(apigen.Context{Ctx: ctx, User: &apigen.InternalUser{ID: 1}}, id, seq, time.Now(), &apigen.Deployment{Name: "written", SpaceID: defaultSpaceID})
+		def := &apigen.Deployment{Name: "written", SpaceID: defaultSpaceID, Spec: *nonEmptySpec(), Scheduling: apigen.DedicatedScheduling(true, 1)}
+		record := pq.DeploymentCreateRecord(apigen.Context{Ctx: ctx, User: &apigen.User{ID: 1}}, id, seq, time.Now(), def)
 		if firstID == 0 {
 			firstID = id
 		} else if id != firstID {
 			t.Fatal("rollback consumed identity")
 		}
-		returned = pq.NewUpdate(pq.DeploymentMutation(event))
+		returned = pq.NewUpdate(pq.DeploymentMutation(record))
 		return returned, nil
 	}
 	err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
@@ -61,7 +62,7 @@ func TestCommitRollbackPreservesIDsAndPublishesWriterUpdate(t *testing.T) {
 	if got.Seq != before+1 || len(got.Mutations) != 1 {
 		t.Fatalf("incorrect writer sequence: %+v", got)
 	}
-	m := got.Mutations[0]
+	m := &got.Mutations[0]
 	if m.Type() != apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT || m.Kind() != apigen.AuthzVerb_AUTHZ_VERB_CREATE || m.EntityID() != firstID || m.Meta() == nil || m.Meta().Version != 1 || m.Meta().SpecVersion != 1 {
 		t.Fatalf("writer mutation: %+v", m)
 	}
@@ -78,14 +79,14 @@ func TestGrantEventsMatchRowsAndBootstrapReplay(t *testing.T) {
 	replay := fullFold(t, s.q)
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
-	check := func(kind apigen.AuthzVerb, id int64) *apigen.AuthzGrant {
+	check := func(kind apigen.AuthzVerb, id uint64) *apigen.AuthzGrant {
 		t.Helper()
 		update := <-sub
 		assertUpdateMatchesRows(t, s, update)
 		if len(update.Mutations) != 1 {
 			t.Fatalf("grant writer published %d mutations", len(update.Mutations))
 		}
-		m := update.Mutations[0]
+		m := &update.Mutations[0]
 		if m.Type() != apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT || m.EntityID() != id || m.Kind() != kind {
 			t.Fatalf("invalid grant mutation: %+v", m)
 		}
@@ -96,18 +97,21 @@ func TestGrantEventsMatchRowsAndBootstrapReplay(t *testing.T) {
 			if meta := m.Meta(); meta.CreatedTime != update.Time || meta.UpdatedActor != update.Actor {
 				t.Fatalf("grant meta %+v differs from the commit envelope %+v", meta, update)
 			}
-			return entity.AuthzGrant
+			return entity.Value.AuthzGrant
 		}
 		return nil
 	}
 	first := insertGrantForTest(t, s, 7, 3, 123)
 	created := check(apigen.AuthzVerb_AUTHZ_VERB_CREATE, first)
-	if created == nil || created.UserID != 7 || created.TemplateID != 2 {
+	if created == nil || created.UserID != 7 || created.Grant.Value.Template == nil || created.Grant.Value.Template.TemplateID != 2 {
 		t.Fatalf("grant payload lost its facts: %+v", created)
 	}
 	second := insertGrantForTest(t, s, 8, 0, 124)
 	check(apigen.AuthzVerb_AUTHZ_VERB_CREATE, second)
 	createdRow := erru.Must(s.q.GetAuthzGrant(ctx, first))
+	if createdRow.TemplateID != 2 {
+		t.Fatalf("grant row template = %d, want the template the grant names", createdRow.TemplateID)
+	}
 	if value := erru.Must(pq.AuthzGrantEntity(createdRow)); !reflect.DeepEqual(&value, created) {
 		t.Fatalf("grant row %+v differs from the published payload %+v", value, created)
 	}
@@ -129,10 +133,10 @@ func TestGrantEventsMatchRowsAndBootstrapReplay(t *testing.T) {
 	}
 }
 
-func insertGrantForTest(t *testing.T, s *Service, userID, author, createdAt int64) int64 {
+func insertGrantForTest(t *testing.T, s *Service, userID uint64, author, createdAt int64) uint64 {
 	t.Helper()
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT)
@@ -140,7 +144,7 @@ func insertGrantForTest(t *testing.T, s *Service, userID, author, createdAt int6
 			return nil, err
 		}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: createdAt, Author: author, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
-		value := apigen.AuthzGrant{UserID: userID, TemplateID: 2, Spec: &apigen.AuthzGrantSpec{}}
+		value := apigen.AuthzGrant{UserID: userID, Grant: apigen.AuthzGrantSource{Value: apigen.AuthzGrantSourceValueOneof{Template: &apigen.AuthzTemplateGrant{TemplateID: 2}}}}
 		return pq.NewUpdate(pq.AuthzGrantMutation(meta, id, value)), nil
 	}); err != nil {
 		t.Fatal(err)
@@ -148,7 +152,7 @@ func insertGrantForTest(t *testing.T, s *Service, userID, author, createdAt int6
 	return id
 }
 
-func deleteGrantForTest(t *testing.T, s *Service, id int64) {
+func deleteGrantForTest(t *testing.T, s *Service, id uint64) {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {

@@ -48,12 +48,8 @@ func TestConcurrentCreatesRejectDuplicateIdentity(t *testing.T) {
 func TestConcurrentCreatesRejectDuplicateIngressClaim(t *testing.T) {
 	h, _, _ := newV2DeploymentHandler(t)
 	spec := remoteDeploymentSpec("nginx", apigen.NetworkingConfig{
-		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
-		Ingress: []*apigen.Ingress{{
-			Kind:                 apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
-			Hostname:             "db.example.com",
-			TlsPassthroughConfig: &apigen.TlsPassthroughConfig{ContainerPort: 5432, HostPort: 8443},
-		}},
+		Mode:    apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+		Ingress: []apigen.Ingress{tlsPassthroughIngressOnPort("db.example.com", 5432, 8443)},
 	})
 	const attempts = 8
 	errs := make([]error, attempts)
@@ -104,7 +100,7 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 		}
 		var wg sync.WaitGroup
 		var createErr, moveErr error
-		var created *apigen.DeploymentEvent
+		var created *apigen.DeploymentRecord
 		wg.Add(2)
 		go func() {
 			defer wg.Done()
@@ -118,7 +114,7 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 			defer wg.Done()
 			_, moveErr = h.secretsMove(apigen.Context{}, &apigen.SecretMoveRequest{
 				SecretID: sec.SecretID,
-				SpaceID:  staging.ID,
+				SpaceID:  optID(staging.ID),
 			})
 		}()
 		wg.Wait()
@@ -128,7 +124,7 @@ func TestSecretMoveRacingDeploymentCreateKeepsLocality(t *testing.T) {
 			t.Fatalf("round %d: secret version disappeared", round)
 		}
 		if createErr == nil && moveErr == nil && meta.SpaceID != prod.ID && meta.SpaceID != nodes.DefaultSpaceID {
-			t.Fatalf("round %d: deployment %d pins secret in space %d — locality violated", round, created.DeploymentID, meta.SpaceID)
+			t.Fatalf("round %d: deployment %d pins secret in space %d — locality violated", round, created.Deployment.ID, meta.SpaceID)
 		}
 	}
 }

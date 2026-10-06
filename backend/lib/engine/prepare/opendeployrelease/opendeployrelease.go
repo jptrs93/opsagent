@@ -29,42 +29,42 @@ func New(releasesDir string, client *github.Client) *Preparer {
 	}
 }
 
-func (p *Preparer) PrepareBinary(ctx context.Context, dep *apigen.DeploymentEvent, log *preparerlog.Log) (string, apigen.ImageStatus) {
+func (p *Preparer) PrepareBinary(ctx context.Context, dep *apigen.DeploymentRecord, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	assetPath, err := p.downloadReleaseBinary(ctx, dep.WorkloadVersion(), log)
 	if err != nil {
 		log.Error("downloading release asset: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	log.Write("download complete: %s", assetPath)
-	return assetPath, apigen.ImageStatus_IMAGE_READY
+	return assetPath, apigen.ImageStatus_IMAGE_STATUS_READY
 }
 
-func (p *Preparer) PrepareImage(ctx context.Context, dep *apigen.DeploymentEvent, log *preparerlog.Log) (string, apigen.ImageStatus) {
+func (p *Preparer) PrepareImage(ctx context.Context, dep *apigen.DeploymentRecord, log *preparerlog.Log) (string, apigen.ImageStatus) {
 	version := dep.WorkloadVersion()
 	assetPath, err := p.downloadReleaseBinary(ctx, version, log)
 	if err != nil {
 		log.Error("downloading OpenDeploy release binary: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	binary, err := os.ReadFile(assetPath)
 	if err != nil {
 		log.Error("reading OpenDeploy release binary: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 
 	ref := internaldeploy.NetproxyImage + ":" + imageTag(version)
 	reader, err := opendeployBinaryOCI(ref, binary)
 	if err != nil {
 		log.Error("building opendeploy-net image: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	resolved, err := ctrd.Default.Import(ctx, ctrd.ImageStream{Reader: reader, Ref: ref})
 	if err != nil {
 		log.Error("importing opendeploy-net image: %v", err)
-		return "", apigen.ImageStatus_IMAGE_FAILED
+		return "", apigen.ImageStatus_IMAGE_STATUS_FAILED
 	}
 	log.Write("imported opendeploy-net image %s from %s", resolved, assetPath)
-	return resolved, apigen.ImageStatus_IMAGE_READY
+	return resolved, apigen.ImageStatus_IMAGE_STATUS_READY
 }
 
 func (p *Preparer) downloadReleaseBinary(ctx context.Context, version string, log *preparerlog.Log) (string, error) {

@@ -129,9 +129,7 @@ func (w *Watcher) publish(next *apigen.NetState) {
 
 	endpointCount := 0
 	for _, service := range next.DnsServices {
-		if service != nil {
-			endpointCount += len(service.Endpoints)
-		}
+		endpointCount += len(service.Endpoints)
 	}
 	slog.InfoContext(w.ctx, fmt.Sprintf("netstate loaded seq=%d node=%s dnsServices=%d dnsEndpoints=%d upstreamResolvers=%d ingressRoutes=%d",
 		next.Seq, next.NodeIdentifier, len(next.DnsServices), endpointCount, len(next.UpstreamResolvers), len(next.Ingress)))

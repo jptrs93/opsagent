@@ -19,13 +19,13 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-type foldState = map[apigen.CoreEntityType]map[int64]*apigen.CoreEntity
+type foldState = map[apigen.CoreEntityType]map[uint64]*apigen.CoreEntity
 
 // canonicalUpdate encodes an update with its mutations in a stable order and
 // without meta, the shape the write log holds.
 func canonicalUpdate(update WriteUpdate) []byte {
 	cp := update
-	cp.Mutations = make([]*apigen.CoreMutation, 0, len(update.Mutations))
+	cp.Mutations = make([]apigen.CoreMutation, 0, len(update.Mutations))
 	for _, m := range update.Mutations {
 		cp.Mutations = append(cp.Mutations, withoutMeta(m))
 	}
@@ -33,16 +33,16 @@ func canonicalUpdate(update WriteUpdate) []byte {
 	return cp.Encode()
 }
 
-func withoutMeta(m *apigen.CoreMutation) *apigen.CoreMutation {
+func withoutMeta(m apigen.CoreMutation) apigen.CoreMutation {
 	switch {
-	case m.Create != nil:
-		c := *m.Create
-		c.Meta = nil
-		return &apigen.CoreMutation{Create: &c}
-	case m.Update != nil:
-		u := *m.Update
-		u.Meta = nil
-		return &apigen.CoreMutation{Update: &u}
+	case m.Value.Create != nil:
+		c := *m.Value.Create
+		c.Meta = apigen.Maybe[apigen.EntityMeta]{}
+		return apigen.CoreMutation{Value: apigen.CoreMutationValueOneof{Create: &c}}
+	case m.Value.Update != nil:
+		u := *m.Value.Update
+		u.Meta = apigen.Maybe[apigen.EntityMeta]{}
+		return apigen.CoreMutation{Value: apigen.CoreMutationValueOneof{Update: &u}}
 	}
 	return m
 }
@@ -53,8 +53,9 @@ func withoutMeta(m *apigen.CoreMutation) *apigen.CoreMutation {
 // its type.
 func assertUpdateMeta(t *testing.T, update WriteUpdate) {
 	t.Helper()
-	for _, m := range update.Mutations {
-		if m.Delete != nil {
+	for i := range update.Mutations {
+		m := &update.Mutations[i]
+		if m.Value.Delete != nil {
 			if m.Meta() != nil {
 				t.Fatalf("delete of %v %d carries meta at seq %d", m.Type(), m.EntityID(), update.Seq)
 			}
@@ -99,8 +100,8 @@ func assertUpdateReplays(t *testing.T, s *Service, update WriteUpdate) {
 	if !bytes.Equal(canonicalUpdate(update), canonicalUpdate(*events[0])) {
 		t.Fatalf("published update differs from persisted rows at seq %d\ngot: %+v\nwant: %+v", update.Seq, update, *events[0])
 	}
-	for _, m := range events[0].Mutations {
-		if m.Meta() != nil {
+	for i := range events[0].Mutations {
+		if m := &events[0].Mutations[i]; m.Meta() != nil {
 			t.Fatalf("write log replays meta for %v %d at seq %d", m.Type(), m.EntityID(), update.Seq)
 		}
 	}
@@ -109,11 +110,12 @@ func assertUpdateReplays(t *testing.T, s *Service, update WriteUpdate) {
 
 func foldInto(state foldState, events ...*apigen.CoreWriteUpdate) {
 	for _, e := range events {
-		for _, m := range e.Mutations {
+		for i := range e.Mutations {
+			m := &e.Mutations[i]
 			if state[m.Type()] == nil {
-				state[m.Type()] = map[int64]*apigen.CoreEntity{}
+				state[m.Type()] = map[uint64]*apigen.CoreEntity{}
 			}
-			if m.Delete != nil {
+			if m.Value.Delete != nil {
 				delete(state[m.Type()], m.EntityID())
 				continue
 			}
@@ -141,9 +143,9 @@ func snapshotFold(t *testing.T, q *pq.Queries) foldState {
 			continue
 		}
 		if state[e.EntityType] == nil {
-			state[e.EntityType] = map[int64]*apigen.CoreEntity{}
+			state[e.EntityType] = map[uint64]*apigen.CoreEntity{}
 		}
-		state[e.EntityType][e.EntityID] = e.Entity
+		state[e.EntityType][e.EntityID] = &e.Entity
 	}
 	return state
 }
@@ -189,13 +191,13 @@ func assertSnapshotWellFormed(t *testing.T, entries []*apigen.MaterialisedEntity
 	t.Helper()
 	type key struct {
 		typ apigen.CoreEntityType
-		id  int64
+		id  uint64
 	}
 	previous := map[key]*apigen.EntityMeta{}
 	closed := map[apigen.CoreEntityType]bool{}
 	for i, e := range entries {
-		meta := e.Meta
-		if e.Entity == nil || meta == nil || meta.CreatedTime == 0 || meta.UpdatedTime == 0 {
+		meta := &e.Meta
+		if e.Entity.Value.Validate() != nil || meta.CreatedTime == 0 || meta.UpdatedTime == 0 {
 			t.Fatalf("snapshot entry %d (%v %d) is malformed: %+v %+v", i, e.EntityType, e.EntityID, meta, e.Entity)
 		}
 		if i > 0 && entries[i-1].EntityType != e.EntityType {
@@ -224,7 +226,7 @@ func assertSnapshotWellFormed(t *testing.T, entries []*apigen.MaterialisedEntity
 }
 
 // snapshotEntries returns the entries of one entity in snapshot order.
-func snapshotEntries(t *testing.T, q *pq.Queries, typ apigen.CoreEntityType, id int64) []*apigen.MaterialisedEntity {
+func snapshotEntries(t *testing.T, q *pq.Queries, typ apigen.CoreEntityType, id uint64) []*apigen.MaterialisedEntity {
 	t.Helper()
 	var out []*apigen.MaterialisedEntity
 	for _, e := range erru.Must(q.Snapshot(context.Background())) {
@@ -254,7 +256,7 @@ func assertFoldEqual(t *testing.T, label string, got, want foldState) {
 		types[typ] = true
 	}
 	for _, typ := range sortedKeys(types) {
-		ids := map[int64]bool{}
+		ids := map[uint64]bool{}
 		for id := range got[typ] {
 			ids[id] = true
 		}
@@ -284,21 +286,25 @@ func retainForSnapshot(full foldState) foldState {
 		out[typ] = maps.Clone(entities)
 	}
 	instances := full[apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE]
-	type ordinal struct{ deployment, ordinal int32 }
+	type ordinal struct {
+		deployment uint64
+		ordinal    uint32
+	}
 	live := map[ordinal]bool{}
-	newestFinal := map[ordinal]int64{}
+	newestFinal := map[ordinal]uint64{}
 	for id, e := range instances {
-		k := ordinal{e.ScheduledInstance.DeploymentID, e.ScheduledInstance.InstanceOrdinal}
-		if !e.ScheduledInstance.State.IsFinal() {
+		inst := e.Value.ScheduledInstance
+		k := ordinal{inst.Deployment.DeploymentID, inst.InstanceOrdinal}
+		if !inst.State.IsFinal() {
 			live[k] = true
 		} else if id > newestFinal[k] {
 			newestFinal[k] = id
 		}
 	}
 	for id, e := range instances {
-		inst := e.ScheduledInstance
-		k := ordinal{inst.DeploymentID, inst.InstanceOrdinal}
-		if inst.State.IsFinal() && (live[k] || newestFinal[k] != id || full[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][int64(inst.DeploymentID)] == nil) {
+		inst := e.Value.ScheduledInstance
+		k := ordinal{inst.Deployment.DeploymentID, inst.InstanceOrdinal}
+		if inst.State.IsFinal() && (live[k] || newestFinal[k] != id || full[apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT][inst.Deployment.DeploymentID] == nil) {
 			delete(out[apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE], id)
 		}
 	}
@@ -317,7 +323,7 @@ var oracleTypes = []apigen.CoreEntityType{
 	apigen.CoreEntityType_CORE_ENTITY_SECRET, apigen.CoreEntityType_CORE_ENTITY_CONFIG, apigen.CoreEntityType_CORE_ENTITY_ASSET,
 	apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY, apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY,
 	apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, apigen.CoreEntityType_CORE_ENTITY_SPACE, apigen.CoreEntityType_CORE_ENTITY_USER,
-	apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE,
+	apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE,
 	apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION, apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET,
 	apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT, apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG,
 	apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS, apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS,
@@ -333,57 +339,57 @@ func assertFoldMatchesLiveTables(t *testing.T, s *Service, fold foldState) {
 	q := s.q
 	entity := func(m pq.Mutation) *apigen.CoreEntity { return &m.Entity }
 	live := foldState{}
-	put := func(typ apigen.CoreEntityType, id int64, e *apigen.CoreEntity) {
+	put := func(typ apigen.CoreEntityType, id uint64, e *apigen.CoreEntity) {
 		if live[typ] == nil {
-			live[typ] = map[int64]*apigen.CoreEntity{}
+			live[typ] = map[uint64]*apigen.CoreEntity{}
 		}
 		live[typ][id] = e
 	}
 	fold = retainForSnapshot(fold)
 	for _, e := range erru.Must(q.ListActiveDeployments(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT, int64(e.DeploymentID), entity(pq.DeploymentMutation(e)))
+		put(apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT, e.Deployment.ID, entity(pq.DeploymentMutation(e)))
 	}
 	for _, e := range erru.Must(q.ListRetainedScheduledInstances(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE, int64(e.ScheduledInstanceID), entity(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, e)))
+		put(apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE, e.ScheduledInstanceID, entity(pq.ScheduledInstanceMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, e)))
 	}
 	for _, row := range erru.Must(q.ListNodeRows(ctx, allNodeStatuses)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_NODE, int64(row.Event.NodeID), entity(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, &row.Event)))
+		put(apigen.CoreEntityType_CORE_ENTITY_NODE, row.Event.NodeID, entity(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, &row.Event)))
 	}
 	for _, st := range erru.Must(q.ListLatestScheduledInstanceStatuses(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS, int64(st.ScheduledInstanceID), entity(pq.ScheduledInstanceStatusMutation(0, 0, st)))
+		put(apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS, st.ScheduledInstanceID, entity(pq.ScheduledInstanceStatusMutation(0, 0, st)))
 	}
 	for _, st := range erru.Must(q.ListLatestNodeStatuses(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS, int64(st.NodeID), entity(pq.NodeStatusMutation(0, 0, st)))
+		put(apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS, st.NodeID, entity(pq.NodeStatusMutation(0, 0, st)))
 	}
 	for _, row := range erru.Must(q.ListSecretRows(ctx)) {
-		v := erru.Must(q.GetSecretVersion(ctx, apigen.ValueRef{ID: int32(row.ID), Version: int32(row.ValueVersion)}))
+		v := erru.Must(q.GetSecretVersion(ctx, apigen.ValueRef{ID: row.ID, Version: row.ValueVersion}))
 		put(apigen.CoreEntityType_CORE_ENTITY_SECRET, row.ID, entity(pq.SecretMutation(pq.EventMeta{}, row.ID, pq.SecretEntity(row, v))))
 	}
 	for _, row := range erru.Must(q.ListConfigRows(ctx)) {
-		v := erru.Must(q.GetConfigVersion(ctx, apigen.ValueRef{ID: int32(row.ID), Version: int32(row.ValueVersion)}))
+		v := erru.Must(q.GetConfigVersion(ctx, apigen.ValueRef{ID: row.ID, Version: row.ValueVersion}))
 		put(apigen.CoreEntityType_CORE_ENTITY_CONFIG, row.ID, entity(pq.ConfigMutation(pq.EventMeta{}, row.ID, pq.ConfigEntity(row, v))))
 	}
 	for _, row := range erru.Must(q.ListAssetRows(ctx)) {
-		v := erru.Must(q.GetAssetVersion(ctx, apigen.ValueRef{ID: int32(row.ID), Version: int32(row.ValueVersion)}))
+		v := erru.Must(q.GetAssetVersion(ctx, apigen.ValueRef{ID: row.ID, Version: row.ValueVersion}))
 		put(apigen.CoreEntityType_CORE_ENTITY_ASSET, row.ID, entity(pq.AssetMutation(pq.EventMeta{}, row.ID, pq.AssetEntity(row, v))))
 	}
 	for _, d := range erru.Must(q.ListValueDirectories(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY, int64(d.ID), entity(pq.ValueDirectoryMutation(pq.EventMeta{}, d)))
+		put(apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY, d.ID, entity(pq.ValueDirectoryMutation(pq.EventMeta{}, d)))
 	}
 	for _, d := range erru.Must(q.ListAssetDirectories(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY, int64(d.ID), entity(pq.AssetDirectoryMutation(pq.EventMeta{}, d)))
+		put(apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY, d.ID, entity(pq.AssetDirectoryMutation(pq.EventMeta{}, d)))
 	}
 	for _, e := range erru.Must(q.ListNetworkPolicies(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, int64(e.NetworkPolicyID), entity(pq.NetworkPolicyMutation(pq.EventMeta{}, int64(e.NetworkPolicyID), e.Value)))
+		put(apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, e.NetworkPolicyID, entity(pq.NetworkPolicyMutation(pq.EventMeta{}, e.NetworkPolicyID, e.Value)))
 	}
 	for _, sp := range erru.Must(q.ListSpaces(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_SPACE, int64(sp.ID), entity(pq.SpaceMutation(pq.EventMeta{}, sp)))
+		put(apigen.CoreEntityType_CORE_ENTITY_SPACE, sp.ID, entity(pq.SpaceMutation(pq.EventMeta{}, sp)))
 	}
 	for _, r := range erru.Must(q.ListUserRows(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_USER, r.ID, entity(pq.UserMutation(pq.EventMeta{}, pq.UserEntity(r))))
+		put(apigen.CoreEntityType_CORE_ENTITY_USER, r.ID, entity(pq.UserMutation(pq.EventMeta{}, erru.Must(pq.UserEntity(r)))))
 	}
-	for _, r := range erru.Must(q.ListAuthzRuleTemplates(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, r.ID, entity(pq.AuthzRuleTemplateMutation(pq.EventMeta{}, erru.Must(pq.AuthzRuleTemplateEntity(r)))))
+	for _, r := range erru.Must(q.ListAuthzGrantTemplates(ctx)) {
+		put(apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, r.ID, entity(pq.AuthzGrantTemplateMutation(pq.EventMeta{}, erru.Must(pq.AuthzGrantTemplateEntity(r)))))
 	}
 	for _, r := range erru.Must(q.ListAuthzGrants(ctx)) {
 		put(apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT, r.ID, entity(pq.AuthzGrantMutation(pq.EventMeta{}, r.ID, erru.Must(pq.AuthzGrantEntity(r)))))
@@ -401,13 +407,13 @@ func assertFoldMatchesLiveTables(t *testing.T, s *Service, fold foldState) {
 		put(apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET, r.ID, entity(pq.NixStoreResetMutation(pq.EventMeta{}, r.ID, r.Entity())))
 	}
 	for _, k := range erru.Must(q.ListSecretKeyslots(ctx)) {
-		put(apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT, pq.SecretKeyslotEntityID(k), entity(pq.SecretKeyslotMutation(pq.EventMeta{}, k)))
+		put(apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT, k.ID, entity(pq.SecretKeyslotMutation(pq.EventMeta{}, k)))
 	}
 	if r, err := q.GetSystemConfig(ctx); err == nil {
 		put(apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG, pq.SystemConfigEntityID, entity(pq.SystemConfigMutation(pq.EventMeta{}, erru.Must(apigen.DecodeSystemConfig(r.ConfigBlob)))))
 	}
 	for _, typ := range oracleTypes {
-		ids := map[int64]bool{}
+		ids := map[uint64]bool{}
 		for id := range fold[typ] {
 			ids[id] = true
 		}
@@ -433,9 +439,13 @@ func assertFoldMatchesLiveTables(t *testing.T, s *Service, fold foldState) {
 	}
 }
 
-func createNetworkPolicyForTest(s *Service, author int32) int32 {
+func spacePeer(spaceID uint64) apigen.NetworkPolicyPeer {
+	return apigen.NetworkPolicyPeer{Target: apigen.NetworkPolicyPeerTarget{Value: apigen.NetworkPolicyPeerTargetValueOneof{Space: &apigen.SpacePeer{SpaceID: spaceID}}}}
+}
+
+func createNetworkPolicyForTest(s *Service, author int64) uint64 {
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)
@@ -443,29 +453,27 @@ func createNetworkPolicyForTest(s *Service, author int32) int32 {
 			return nil, err
 		}
 		now := time.Now().UnixMilli()
-		policy := apigen.NetworkPolicy{Action: apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW,
-			Source:      &apigen.NetworkPolicyPeerRef{Kind: apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE, ID: 1},
-			Destination: &apigen.NetworkPolicyPeerRef{Kind: apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE, ID: 1}}
-		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
+		policy := apigen.NetworkPolicy{Action: apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW, Source: spacePeer(1), Destination: spacePeer(1)}
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: author, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
 		return pq.NewUpdate(pq.NetworkPolicyMutation(meta, id, policy)), nil
 	}))
-	return int32(id)
+	return id
 }
 
-func deleteNetworkPolicyForTest(s *Service, id int32) {
+func deleteNetworkPolicyForTest(s *Service, id uint64) {
 	ctx := context.Background()
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		if _, err := q.GetNetworkPolicy(ctx, int64(id)); err != nil {
+		if _, err := q.GetNetworkPolicy(ctx, id); err != nil {
 			return nil, err
 		}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli()}
-		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, int64(id))), nil
+		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, id)), nil
 	}))
 }
 
-func createUserForTest(s *Service, name string) int64 {
+func createUserForTest(s *Service, name string) uint64 {
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_USER)
@@ -473,50 +481,59 @@ func createUserForTest(s *Service, name string) int64 {
 			return nil, err
 		}
 		now := time.Now().UnixMilli()
-		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: id, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
-		return pq.NewUpdate(pq.UserMutation(meta, apigen.User{ID: int32(id), Name: name, Credentials: []byte{}})), nil
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(id), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
+		return pq.NewUpdate(pq.UserMutation(meta, apigen.User{ID: id, Name: name, Authentication: apigen.UserAuthentication{WebAuthnID: []byte{byte(id)}}})), nil
 	}))
 	return id
 }
 
-func insertRuleTemplateForTest(t *testing.T, s *Service, name string, author int64) int64 {
+func allowRule() apigen.AuthzTemplateRule {
+	return apigen.AuthzTemplateRule{Effect: apigen.AuthzEffect{Value: apigen.AuthzEffectValueOneof{Allow: &apigen.AuthzAllow{}}}, Selector: apigen.AuthzTemplateSelector{
+		Permissions: apigen.AuthzTemplatePermissionSelector{Value: apigen.AuthzTemplatePermissionSelectorValueOneof{Selector: &apigen.AuthzPermissionSelector{}}},
+		Spaces:      apigen.AuthzTemplateSpaceSelector{Value: apigen.AuthzTemplateSpaceSelectorValueOneof{Selector: &apigen.AuthzSpaceSelector{}}},
+		EntityTypes: apigen.AuthzTemplateEntityTypeSelector{Value: apigen.AuthzTemplateEntityTypeSelectorValueOneof{Selector: &apigen.AuthzEntityTypeSelector{}}},
+		EntityRefs:  apigen.AuthzTemplateEntityRefSelector{Value: apigen.AuthzTemplateEntityRefSelectorValueOneof{Selector: &apigen.AuthzEntityRefSelector{}}},
+	}}
+}
+
+func insertGrantTemplateForTest(t *testing.T, s *Service, name string, author int64) uint64 {
 	t.Helper()
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
-		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE)
+		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE)
 		if err != nil {
 			return nil, err
 		}
 		now := time.Now().UnixMilli()
-		record := apigen.AuthzRuleTemplate{ID: id, Name: name, Spec: &apigen.AuthzRuleTemplateSpec{}}
+		record := apigen.AuthzGrantTemplate{ID: id, Name: name, Spec: apigen.AuthzGrantTemplateSpec{Rules: []apigen.AuthzTemplateRule{allowRule()}}}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: author, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
-		return pq.NewUpdate(pq.AuthzRuleTemplateMutation(meta, record)), nil
+		return pq.NewUpdate(pq.AuthzGrantTemplateMutation(meta, record)), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 	return id
 }
 
-func deleteRuleTemplateForTest(t *testing.T, s *Service, id int64) {
+func deleteGrantTemplateForTest(t *testing.T, s *Service, id uint64) {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
-		if _, err := q.GetAuthzRuleTemplate(ctx, id); err != nil {
+		if _, err := q.GetAuthzGrantTemplate(ctx, id); err != nil {
 			return nil, err
 		}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli()}
-		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, id)), nil
+		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, id)), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func insertGlobalRuleForTest(t *testing.T, s *Service, name string, author int64) int64 {
+func insertGlobalRuleForTest(t *testing.T, s *Service, name string, author int64) uint64 {
 	t.Helper()
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE)
@@ -524,7 +541,7 @@ func insertGlobalRuleForTest(t *testing.T, s *Service, name string, author int64
 			return nil, err
 		}
 		now := time.Now().UnixMilli()
-		record := apigen.AuthzGlobalRule{ID: id, Name: name, Spec: &apigen.AuthzGlobalRuleSpec{Deny: true}}
+		record := apigen.AuthzGlobalRule{ID: id, Name: name, Rule: apigen.AuthzRule{Effect: apigen.AuthzEffect{Value: apigen.AuthzEffectValueOneof{Deny: &apigen.AuthzDeny{}}}}}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: author, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
 		return pq.NewUpdate(pq.AuthzGlobalRuleMutation(meta, record)), nil
 	}); err != nil {
@@ -533,7 +550,7 @@ func insertGlobalRuleForTest(t *testing.T, s *Service, name string, author int64
 	return id
 }
 
-func deleteGlobalRuleForTest(t *testing.T, s *Service, id int64) {
+func deleteGlobalRuleForTest(t *testing.T, s *Service, id uint64) {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
@@ -548,10 +565,10 @@ func deleteGlobalRuleForTest(t *testing.T, s *Service, id int64) {
 }
 
 type equivalenceScenario struct {
-	pinned   *apigen.DeploymentEvent
-	released *apigen.DeploymentEvent
-	draining *apigen.DeploymentEvent
-	empty    *apigen.DeploymentEvent
+	pinned   *apigen.DeploymentRecord
+	released *apigen.DeploymentRecord
+	draining *apigen.DeploymentRecord
+	empty    *apigen.DeploymentRecord
 }
 
 // seedEquivalenceScenario writes every entity type the fold oracles compare,
@@ -570,44 +587,44 @@ func seedEquivalenceScenario(t *testing.T, s *Service) equivalenceScenario {
 	setNodeStatusForTest(s, node.Identifier, true, time.Now())
 	running := func(st *apigen.ScheduledInstanceStatus) {
 		st.BumpUpdatedAt()
-		st.Runner = apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING, RunningPid: 42}
+		st.Runner = runnerStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, 42)
 	}
 	stopped := func(st *apigen.ScheduledInstanceStatus) {
 		st.BumpUpdatedAt()
-		st.Runner = apigen.RunnerStatus{Status: apigen.RunningStatus_STOPPED}
+		st.Runner = runnerStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 	}
 	pinned := mustCreateDeploymentForNodeRunning(s, ctx, 1, "pinned", node.ID, true, testSpecWithVersion("v1"))
-	oldRun := createScheduledInstanceForTest(s, pinned.DeploymentID, pinned.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	oldRun := createScheduledInstanceForTest(s, pinned.Deployment.ID, pinned.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeInstanceStatusForTest(s, oldRun.ID, running)
-	mustSetDeploymentWorkloadState(s, ctx, pinned.DeploymentID, "v2", true)
-	newRun := createScheduledInstanceForTest(s, pinned.DeploymentID, pinned.Version+1, other.ID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	mustSetDeploymentWorkloadState(s, ctx, pinned.Deployment.ID, "v2", true)
+	newRun := createScheduledInstanceForTest(s, pinned.Deployment.ID, pinned.Meta.Version+1, other.ID, 1, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeInstanceStatusForTest(s, newRun.ID, running)
 	writeInstanceStatusForTest(s, newRun.ID, running)
-	retainedFinal := createScheduledInstanceForTest(s, pinned.DeploymentID, pinned.Version+1, node.ID, 2, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	retainedFinal := createScheduledInstanceForTest(s, pinned.Deployment.ID, pinned.Meta.Version+1, node.ID, 2, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeInstanceStatusForTest(s, retainedFinal.ID, stopped)
 	setScheduledInstanceState(s, retainedFinal.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	superseded := createScheduledInstanceForTest(s, pinned.DeploymentID, pinned.Version+1, node.ID, 3, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	superseded := createScheduledInstanceForTest(s, pinned.Deployment.ID, pinned.Meta.Version+1, node.ID, 3, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeInstanceStatusForTest(s, superseded.ID, stopped)
 	setScheduledInstanceState(s, superseded.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
-	replacement := createScheduledInstanceForTest(s, pinned.DeploymentID, pinned.Version+1, node.ID, 3, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	replacement := createScheduledInstanceForTest(s, pinned.Deployment.ID, pinned.Meta.Version+1, node.ID, 3, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeInstanceStatusForTest(s, replacement.ID, running)
 
 	released := mustCreateDeploymentForNodeRunning(s, ctx, 1, "released", node.ID, true, testSpecWithVersion("v1"))
-	releasedRun := createScheduledInstanceForTest(s, released.DeploymentID, released.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	releasedRun := createScheduledInstanceForTest(s, released.Deployment.ID, released.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeInstanceStatusForTest(s, releasedRun.ID, running)
-	deleteDeployment(s, ctx, released.DeploymentID)
+	deleteDeployment(s, ctx, released.Deployment.ID)
 	writeInstanceStatusForTest(s, releasedRun.ID, stopped)
 	setScheduledInstanceState(s, releasedRun.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED)
 
 	draining := mustCreateDeploymentForNodeRunning(s, ctx, 1, "draining", other.ID, true, testSpecWithVersion("v1"))
-	drainingRun := createScheduledInstanceForTest(s, draining.DeploymentID, draining.Version, other.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	drainingRun := createScheduledInstanceForTest(s, draining.Deployment.ID, draining.Meta.Version, other.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	writeInstanceStatusForTest(s, drainingRun.ID, running)
-	deleteDeployment(s, ctx, draining.DeploymentID)
+	deleteDeployment(s, ctx, draining.Deployment.ID)
 	setScheduledInstanceState(s, drainingRun.ID, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING)
 
 	empty := mustCreateDeploymentForNodeRunning(s, ctx, 1, "empty", node.ID, false, testSpecWithVersion("v1"))
-	moveDeploymentSpace(s, ctx, empty.DeploymentID, 2)
-	deleteDeployment(s, ctx, empty.DeploymentID)
+	moveDeploymentSpace(s, ctx, empty.Deployment.ID, 2)
+	deleteDeployment(s, ctx, empty.Deployment.ID)
 
 	kept := createSecretForTest(s, "kept")
 	appendSecretVersionForTest(s, kept, []byte{9})
@@ -639,8 +656,8 @@ func seedEquivalenceScenario(t *testing.T, s *Service) equivalenceScenario {
 	deleteAssetDirectoryForTest(s, createAssetDirectoryForTest(s, 1, dir.ID, "gone", 1).ID)
 	insertGrantForTest(t, s, 7, 3, 123)
 	deleteGrantForTest(t, s, insertGrantForTest(t, s, 8, 3, 124))
-	insertRuleTemplateForTest(t, s, "kept", 3)
-	deleteRuleTemplateForTest(t, s, insertRuleTemplateForTest(t, s, "gone", 3))
+	insertGrantTemplateForTest(t, s, "kept", 3)
+	deleteGrantTemplateForTest(t, s, insertGrantTemplateForTest(t, s, "gone", 3))
 	insertGlobalRuleForTest(t, s, "kept", 3)
 	deleteGlobalRuleForTest(t, s, insertGlobalRuleForTest(t, s, "gone", 3))
 	seedLatestOnlyHistory(t, s)
@@ -672,16 +689,16 @@ func TestSnapshotFoldMatchesFullRangeFold(t *testing.T) {
 	assertFoldEqual(t, "snapshot", snapshotFold(t, s.q), want)
 	assertSnapshotMatchesRebuild(t, s.q)
 	deployment := apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT
-	if got := snapshotEntries(t, s.q, deployment, int64(scenario.pinned.DeploymentID)); len(got) != 2 || got[0].Meta.Version != 1 || got[1].Meta.Version != 2 || got[0].Meta.Deleted || got[1].Meta.Deleted {
+	if got := snapshotEntries(t, s.q, deployment, scenario.pinned.Deployment.ID); len(got) != 2 || got[0].Meta.Version != 1 || got[1].Meta.Version != 2 || got[0].Meta.Deleted || got[1].Meta.Deleted {
 		t.Fatalf("snapshot holds %+v for the pinned deployment, want the pinned and the newest version", got)
 	}
-	if got := snapshotEntries(t, s.q, deployment, int64(scenario.released.DeploymentID)); len(got) != 0 {
+	if got := snapshotEntries(t, s.q, deployment, scenario.released.Deployment.ID); len(got) != 0 {
 		t.Fatalf("snapshot holds %d entries of the released deployment", len(got))
 	}
-	if got := snapshotEntries(t, s.q, deployment, int64(scenario.draining.DeploymentID)); len(got) != 1 || !got[0].Meta.Deleted || got[0].Meta.Version != 1 {
+	if got := snapshotEntries(t, s.q, deployment, scenario.draining.Deployment.ID); len(got) != 1 || !got[0].Meta.Deleted || got[0].Meta.Version != 1 {
 		t.Fatalf("snapshot holds %+v for the draining deployment, want the pinned version marked deleted", got)
 	}
-	if got := snapshotEntries(t, s.q, deployment, int64(scenario.empty.DeploymentID)); len(got) != 0 {
+	if got := snapshotEntries(t, s.q, deployment, scenario.empty.Deployment.ID); len(got) != 0 {
 		t.Fatalf("snapshot holds %d entries of the deleted empty deployment", len(got))
 	}
 }
@@ -720,17 +737,17 @@ func TestPublishedUpdatesMatchReplayedEvents(t *testing.T) {
 	assertFoldEqual(t, "published stream", published, replay)
 }
 
-func createAgentSessionForTest(t *testing.T, s *Service, sessionID string, userID int32) int64 {
+func createAgentSessionForTest(t *testing.T, s *Service, sessionID string, userID uint64) uint64 {
 	t.Helper()
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION)
 		if err != nil {
 			return nil, err
 		}
-		doc := &apigen.AgentSession{ID: sessionID, UserID: userID, Status: apigen.AgentSessionStatus_AGENT_SESSION_PENDING, RequestingAddress: "10.0.0.1", ApprovalCode: "1234"}
+		doc := &apigen.AgentSession{SessionID: sessionID, UserID: userID, Status: apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING, RequestingAddress: "10.0.0.1", ApprovalCode: apigen.Some("1234")}
 		return pq.NewUpdate(pq.AgentSessionMutation(pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, id, doc)), nil
 	}); err != nil {
 		t.Fatal(err)
@@ -746,24 +763,24 @@ func approveAgentSessionForTest(t *testing.T, s *Service, sessionID string) {
 		if err != nil {
 			return nil, err
 		}
-		row.Status, row.ApprovedAt, row.TokenHash, row.TokenPrefix, row.ExpiresAt = int64(apigen.AgentSessionStatus_AGENT_SESSION_APPROVED), 1_700_000_100, []byte{9, 9}, "a_abcd", 1_700_100_000
+		row.Status, row.ApprovedAt, row.TokenHash, row.TokenPrefix, row.ExpiresAt = int64(apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED), 1_700_000_100, []byte{9, 9}, "a_abcd", 1_700_100_000
 		return pq.NewUpdate(pq.AgentSessionMutation(pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(row.UserID), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}, row.ID, row.Entity())), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func createUserSessionForTest(t *testing.T, s *Service, sessionID string, userID int32, revoked bool) int64 {
+func createUserSessionForTest(t *testing.T, s *Service, sessionID string, userID uint64, revoked bool) uint64 {
 	t.Helper()
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		var err error
 		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION)
 		if err != nil {
 			return nil, err
 		}
-		doc := &apigen.UserSession{ID: sessionID, UserID: userID, ExpiresAt: time.Unix(1_700_200_000, 0), TokenHash: []byte{1, 2}, UserAgent: "test"}
+		doc := &apigen.UserSession{SessionID: sessionID, UserID: userID, ExpiresAt: time.Unix(1_700_200_000, 0), TokenHash: apigen.Some([]byte{1, 2}), UserAgent: "test"}
 		return pq.NewUpdate(pq.UserSessionMutation(pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(userID), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, id, doc)), nil
 	}); err != nil {
 		t.Fatal(err)
@@ -788,7 +805,7 @@ func requestNixStoreResetForTest(t *testing.T, s *Service, repo string, requeste
 	ctx := context.Background()
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: requestedAt, Author: 1, EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
-		var id int64
+		var id uint64
 		switch previous, err := q.GetNixStoreReset(ctx, repo); {
 		case errors.Is(err, sql.ErrNoRows):
 			meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
@@ -800,26 +817,48 @@ func requestNixStoreResetForTest(t *testing.T, s *Service, repo string, requeste
 		default:
 			id = previous.ID
 		}
-		return pq.NewUpdate(pq.NixStoreResetMutation(meta, id, &apigen.NixStoreReset{Repo: repo, RequestedAt: requestedAt})), nil
+		return pq.NewUpdate(pq.NixStoreResetMutation(meta, id, &apigen.NixStoreReset{Repo: repo})), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func writeKeyslotForTest(t *testing.T, s *Service, kind apigen.SecretKeyslotKind, nodeID int64, smkVersion int64) {
+func machineKeyslot(nodeID uint64) apigen.KeyslotWrapping {
+	return apigen.KeyslotWrapping{Value: apigen.KeyslotWrappingValueOneof{MachineKey: &apigen.MachineKey{NodeID: nodeID}}}
+}
+
+func recoveryKeyslot() apigen.KeyslotWrapping {
+	return apigen.KeyslotWrapping{Value: apigen.KeyslotWrappingValueOneof{RecoveryCode: &apigen.RecoveryCode{KdfSalt: []byte{3}}}}
+}
+
+func sameKeyslotWrapping(a, b apigen.KeyslotWrapping) bool {
+	switch {
+	case a.Value.MachineKey != nil && b.Value.MachineKey != nil:
+		return a.Value.MachineKey.NodeID == b.Value.MachineKey.NodeID
+	case a.Value.RecoveryCode != nil && b.Value.RecoveryCode != nil:
+		return true
+	}
+	return false
+}
+
+func writeKeyslotForTest(t *testing.T, s *Service, wrapping apigen.KeyslotWrapping, smkVersion uint32) {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
 		now := time.Now().UnixMilli()
-		slot := pq.SecretKeyslot{Kind: kind, NodeID: nodeID, SmkVersion: smkVersion, WrappedSmk: []byte{byte(smkVersion)}, Nonce: []byte{2}, UpdatedAt: now}
-		if kind == apigen.SecretKeyslotKind_SECRET_KEYSLOT_RECOVERY {
-			slot.KdfSalt = []byte{3}
-		}
+		slot := apigen.SecretKeyslot{SmkVersion: smkVersion, WrappedSmk: []byte{byte(smkVersion)}, Nonce: []byte{2}, Wrapping: wrapping}
 		verb := apigen.AuthzVerb_AUTHZ_VERB_CREATE
 		for _, k := range erru.Must(q.ListSecretKeyslots(ctx)) {
-			if k.Kind == kind && k.NodeID == nodeID {
-				verb = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
+			if sameKeyslotWrapping(k.Wrapping, wrapping) {
+				verb, slot.ID = apigen.AuthzVerb_AUTHZ_VERB_UPDATE, k.ID
 			}
+		}
+		if slot.ID == 0 {
+			id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT)
+			if err != nil {
+				return nil, err
+			}
+			slot.ID = id
 		}
 		return pq.NewUpdate(pq.SecretKeyslotMutation(pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: 7, EventType: verb}, slot)), nil
 	}); err != nil {
@@ -827,7 +866,7 @@ func writeKeyslotForTest(t *testing.T, s *Service, kind apigen.SecretKeyslotKind
 	}
 }
 
-func deleteKeyslotsForTest(t *testing.T, s *Service, nodeID int64) {
+func deleteKeyslotsForTest(t *testing.T, s *Service, nodeID uint64) {
 	t.Helper()
 	ctx := context.Background()
 	if err := s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
@@ -841,6 +880,31 @@ func deleteKeyslotsForTest(t *testing.T, s *Service, nodeID int64) {
 	}
 }
 
+func boolSetting(v bool) apigen.BoolSetting {
+	return apigen.BoolSetting{Value: apigen.BoolSettingValue{Value: apigen.BoolSettingValueValueOneof{Literal: &v}}}
+}
+
+func stringSetting(v string) apigen.StringSetting {
+	return apigen.StringSetting{Value: apigen.StringSettingValue{Value: apigen.StringSettingValueValueOneof{Literal: &v}}}
+}
+
+func testSystemConfig(hash string) *apigen.SystemConfig {
+	return &apigen.SystemConfig{
+		MasterPasswordHash: apigen.Some(hash),
+		NetworkUlaPrefix:   []byte{0xfd, 1, 2, 3, 4, 5},
+		Settings: apigen.ClusterSettings{
+			HttpWeb:  apigen.HttpWebSettings{Enabled: boolSetting(true), Listen: stringSetting(":8080")},
+			HttpsWeb: apigen.HttpsWebSettings{Enabled: boolSetting(false), Listen: stringSetting(":8443"), TlsSelfManaged: boolSetting(true), AcmeHosts: stringSetting(""), AcmeEmail: stringSetting("")},
+			Cluster:  apigen.ClusterListenSettings{Listen: stringSetting(":7443"), EnrollmentListen: stringSetting(":7444")},
+			Backup: apigen.BackupSettings{Enabled: boolSetting(false), S3AccessKeyID: stringSetting(""), S3Bucket: stringSetting(""), S3Path: stringSetting(""),
+				S3Region: stringSetting(""), S3Endpoint: stringSetting("")},
+			LargeAssets: apigen.LargeAssetsSettings{UseSeparateS3: boolSetting(false), S3AccessKeyID: stringSetting(""), S3Bucket: stringSetting(""), S3Path: stringSetting(""),
+				S3Region: stringSetting(""), S3Endpoint: stringSetting(""), KeepLocalCopy: boolSetting(true)},
+			Auth: apigen.AuthSettings{PasswordLoginEnabled: boolSetting(false)},
+		},
+	}
+}
+
 func writeSystemConfigForTest(t *testing.T, s *Service, hash string) {
 	t.Helper()
 	ctx := context.Background()
@@ -851,7 +915,7 @@ func writeSystemConfigForTest(t *testing.T, s *Service, hash string) {
 		} else if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.SystemConfigMutation(pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: 1, EventType: verb}, &apigen.SystemConfig{MasterPasswordHash: hash})), nil
+		return pq.NewUpdate(pq.SystemConfigMutation(pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: 1, EventType: verb}, testSystemConfig(hash))), nil
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -869,10 +933,10 @@ func seedLatestOnlyHistory(t *testing.T, s *Service) {
 	requestNixStoreResetForTest(t, s, "github.com/acme/app", 1_000)
 	requestNixStoreResetForTest(t, s, "github.com/acme/app", 2_000)
 	requestNixStoreResetForTest(t, s, "github.com/acme/lib", 3_000)
-	writeKeyslotForTest(t, s, apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE, 1, 1)
-	writeKeyslotForTest(t, s, apigen.SecretKeyslotKind_SECRET_KEYSLOT_MACHINE, 2, 1)
-	writeKeyslotForTest(t, s, apigen.SecretKeyslotKind_SECRET_KEYSLOT_RECOVERY, 0, 1)
-	writeKeyslotForTest(t, s, apigen.SecretKeyslotKind_SECRET_KEYSLOT_RECOVERY, 0, 2)
+	writeKeyslotForTest(t, s, machineKeyslot(1), 1)
+	writeKeyslotForTest(t, s, machineKeyslot(2), 1)
+	writeKeyslotForTest(t, s, recoveryKeyslot(), 1)
+	writeKeyslotForTest(t, s, recoveryKeyslot(), 2)
 	deleteKeyslotsForTest(t, s, 2)
 	writeSystemConfigForTest(t, s, "one")
 	writeSystemConfigForTest(t, s, "two")

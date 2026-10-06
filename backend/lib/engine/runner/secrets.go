@@ -12,7 +12,7 @@ import (
 
 const implicitAssetContainerDir = "/opendeploy-env-assets"
 
-func resolveEnv(inputs *runtimeinputs.RuntimeInputs, env map[string]*apigen.EnvVarValue) ([]string, error) {
+func resolveEnv(inputs *runtimeinputs.RuntimeInputs, env map[string]apigen.EnvVar) ([]string, error) {
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)
@@ -29,57 +29,52 @@ func resolveEnv(inputs *runtimeinputs.RuntimeInputs, env map[string]*apigen.EnvV
 	return out, nil
 }
 
-func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v *apigen.EnvVarValue) (string, error) {
-	if v == nil {
-		return "", fmt.Errorf("value is required")
-	}
+func resolveEnvValue(inputs *runtimeinputs.RuntimeInputs, key string, v apigen.EnvVar) (string, error) {
 	set := 0
-	if v.Value != nil {
+	if v.Value.Literal != nil {
 		set++
 	}
-	if v.Secret != nil {
+	if v.Value.Secret != nil {
 		set++
 	}
-	if v.Config != nil {
+	if v.Value.Config != nil {
 		set++
 	}
-	if v.AssetRef != nil {
+	if v.Value.Asset != nil {
 		set++
 	}
-	if v.AddressDeploymentID != nil || v.AddressSpaceID != nil {
+	if v.Value.Address != nil {
 		set++
 	}
 	if set != 1 {
-		return "", fmt.Errorf("exactly one of value, secret, config, assetRef, or address is required")
+		return "", fmt.Errorf("exactly one of literal, secret, config, asset, or address is required")
 	}
-	if v.Value != nil {
-		return *v.Value, nil
+	switch {
+	case v.Value.Literal != nil:
+		return v.Value.Literal.Value, nil
+	case v.Value.Secret != nil:
+		return resolveSecretRef(inputs, v.Value.Secret.Secret.Ref())
+	case v.Value.Asset != nil:
+		if !v.Value.Asset.Asset.Valid() {
+			return "", fmt.Errorf("asset reference is unresolved")
+		}
+		return implicitAssetContainerPath(v.Value.Asset.Asset.Ref()), nil
+	case v.Value.Address != nil:
+		return resolveAddressRef(v.Value.Address)
+	default:
+		return resolveConfigRef(inputs, v.Value.Config.Config.Ref())
 	}
-	if v.Secret != nil {
-		return resolveSecretRef(inputs, *v.Secret)
-	}
-	if v.AssetRef != nil {
-		return implicitAssetContainerPath(*v.AssetRef), nil
-	}
-	if v.AddressDeploymentID != nil || v.AddressSpaceID != nil {
-		return resolveAddressRef(v)
-	}
-	return resolveConfigRef(inputs, *v.Config)
 }
 
-func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {
-	if v.AddressDeploymentID == nil || v.AddressSpaceID == nil {
-		return "", fmt.Errorf("addressDeploymentId and addressSpaceId are required together")
-	}
-	if *v.AddressDeploymentID <= 0 || *v.AddressDeploymentID > network.MaxDeploymentID ||
-		*v.AddressSpaceID < 0 || *v.AddressSpaceID > network.MaxSpaceID {
+func resolveAddressRef(v *apigen.AddressEnv) (string, error) {
+	if v.DeploymentID == 0 || v.DeploymentID > uint64(network.MaxDeploymentID) || v.SpaceID > uint64(network.MaxSpaceID) {
 		return "", fmt.Errorf("invalid address reference")
 	}
 	prefix, ok := network.Default.PrefixValue()
 	if !ok {
 		return "", fmt.Errorf("cluster network prefix is unavailable")
 	}
-	addr, err := prefix.InboundAddr(*v.AddressSpaceID, *v.AddressDeploymentID, 0)
+	addr, err := prefix.InboundAddr(int32(v.SpaceID), int32(v.DeploymentID), 0)
 	if err != nil {
 		return "", fmt.Errorf("derive deployment address: %w", err)
 	}
@@ -87,7 +82,7 @@ func resolveAddressRef(v *apigen.EnvVarValue) (string, error) {
 }
 
 func implicitAssetContainerPath(ref apigen.ValueRef) string {
-	return implicitAssetContainerDir + "/" + strconv.Itoa(int(ref.ID)) + "_" + strconv.Itoa(int(ref.Version))
+	return implicitAssetContainerDir + "/" + strconv.FormatUint(ref.ID, 10) + "_" + strconv.FormatUint(uint64(ref.Version), 10)
 }
 
 func resolveSecretRef(inputs *runtimeinputs.RuntimeInputs, ref apigen.ValueRef) (string, error) {

@@ -16,23 +16,23 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
-const DefaultSpaceID int32 = 1
+const DefaultSpaceID uint64 = 1
 
-func NormalizedUserSpaceID(spaceID int32) int32 {
-	if spaceID <= 0 {
+func NormalizedUserSpaceID(spaceID uint64) uint64 {
+	if spaceID == 0 {
 		return DefaultSpaceID
 	}
 	return spaceID
 }
 
-func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, error) {
-	if nodeID <= 0 {
+func InvalidateNodeRuntimeState(store *state.Service, nodeID uint64) (int64, error) {
+	if nodeID == 0 {
 		return 0, fmt.Errorf("deployment node ID must be positive")
 	}
 	ctx := context.Background()
 	var invalidated int64
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		if _, err := q.GetNodeRowByID(ctx, int64(nodeID)); err != nil {
+		if _, err := q.GetNodeRowByID(ctx, nodeID); err != nil {
 			return nil, err
 		}
 		now := time.Now().UnixMilli()
@@ -46,7 +46,7 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 			if inst.NodeID != nodeID {
 				continue
 			}
-			cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(inst.DeploymentID), Version: int64(inst.DeploymentVersion)})
+			cfg, err := q.GetDeploymentVersion(ctx, inst.Deployment.DeploymentID, inst.Deployment.Version)
 			if err != nil {
 				return nil, err
 			}
@@ -60,7 +60,7 @@ func InvalidateNodeRuntimeState(store *state.Service, nodeID int32) (int64, erro
 			if err != nil {
 				return nil, err
 			}
-			tombstone := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: inst.ID, DeploymentID: inst.DeploymentID, UpdatedAt: previous.UpdatedAt}
+			tombstone := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: inst.ID, UpdatedAt: previous.UpdatedAt}
 			tombstone.BumpUpdatedAt()
 			pq.AppendMutations(update, pq.ScheduledInstanceStatusMutation(seq, now, tombstone))
 			invalidated++
@@ -92,11 +92,11 @@ func ListSpaces(q *pq.Queries) []*apigen.Space {
 	return out
 }
 
-func spaceMeta(seq, now int64, author int32) pq.EventMeta {
-	return pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(author), EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
+func spaceMeta(seq, now int64, author int64) pq.EventMeta {
+	return pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: author, EventType: apigen.AuthzVerb_AUTHZ_VERB_UPDATE}
 }
 
-func CreateSpace(store *state.Service, name string, author int32) (*apigen.Space, error) {
+func CreateSpace(store *state.Service, name string, author int64) (*apigen.Space, error) {
 	ctx := context.Background()
 	var space *apigen.Space
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
@@ -106,8 +106,8 @@ func CreateSpace(store *state.Service, name string, author int32) (*apigen.Space
 		}
 		meta := spaceMeta(seq, time.Now().UnixMilli(), author)
 		meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
-		space = &apigen.Space{ID: int32(id), Name: name}
-		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, meta.EventTime, func(spaces []int32) []int32 { return append(spaces, space.ID) })
+		space = &apigen.Space{ID: id, Name: name}
+		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, meta.EventTime, func(spaces []uint64) []uint64 { return append(spaces, space.ID) })
 		if err != nil {
 			return nil, err
 		}
@@ -118,11 +118,11 @@ func CreateSpace(store *state.Service, name string, author int32) (*apigen.Space
 	return space, err
 }
 
-func UpdateSpace(store *state.Service, id int32, name string, author int32) (*apigen.Space, error) {
+func UpdateSpace(store *state.Service, id uint64, name string, author int64) (*apigen.Space, error) {
 	ctx := context.Background()
 	var space *apigen.Space
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		if _, err := q.GetSpace(ctx, int64(id)); err != nil {
+		if _, err := q.GetSpace(ctx, id); err != nil {
 			return nil, err
 		}
 		space = &apigen.Space{ID: id, Name: name}
@@ -131,14 +131,14 @@ func UpdateSpace(store *state.Service, id int32, name string, author int32) (*ap
 	return space, err
 }
 
-func DeleteSpace(store *state.Service, id int32, author int32) error {
+func DeleteSpace(store *state.Service, id uint64, author int64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		if _, err := q.GetSpace(ctx, int64(id)); err != nil {
+		if _, err := q.GetSpace(ctx, id); err != nil {
 			return nil, err
 		}
 		meta := spaceMeta(seq, time.Now().UnixMilli(), author)
-		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, meta.EventTime, func(spaces []int32) []int32 {
+		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, meta.EventTime, func(spaces []uint64) []uint64 {
 			out := spaces[:0:0]
 			for _, space := range spaces {
 				if space != id {
@@ -150,20 +150,20 @@ func DeleteSpace(store *state.Service, id int32, author int32) error {
 		if err != nil {
 			return nil, err
 		}
-		update := pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_SPACE, int64(id)))
+		update := pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_SPACE, id))
 		pq.AppendMutations(update, nodes...)
 		return update, nil
 	})
 }
 
-func CountDeploymentsForSpace(q *pq.Queries, id int32) (int64, error) {
+func CountDeploymentsForSpace(q *pq.Queries, id uint64) (int64, error) {
 	deployments, err := q.ListActiveDeployments(context.Background())
 	if err != nil {
 		return 0, err
 	}
 	var count int64
 	for _, cfg := range deployments {
-		if cfg.Value.SpaceID == id {
+		if cfg.Deployment.SpaceID == id {
 			count++
 		}
 	}

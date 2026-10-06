@@ -95,7 +95,7 @@ func TestMergedReadThenWriteConcurrentWithSessionCommits(t *testing.T) {
 					return nil, err
 				}
 				meta := pq.EventMeta{GlobalSeq: seq, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
-				return pq.NewUpdate(pq.AgentSessionMutation(meta, entityID, &apigen.AgentSession{ID: id, UserID: 1, Status: apigen.AgentSessionStatus_AGENT_SESSION_PENDING})), nil
+				return pq.NewUpdate(pq.AgentSessionMutation(meta, entityID, &apigen.AgentSession{SessionID: id, UserID: 1, Status: apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING})), nil
 			})
 			if err != nil {
 				failures <- err

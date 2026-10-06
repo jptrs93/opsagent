@@ -3,6 +3,8 @@ syntax = "proto3";
 package opsagent.v1;
 
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
@@ -20,15 +22,14 @@ message MasterPasswordSaveRequest {
 }
 
 // PasswordLoginRequest signs in with the cluster master password. The named
-// user is created on first use, exactly as first-time setup does.
+// user is created on first use.
 message PasswordLoginRequest {
   string username = 1;
   string password = 2;
 }
 
-// AuthMethodsResponse tells the unauthenticated login page which methods the
-// server currently accepts and whether a locally generated Web UI CA can be
-// downloaded from /v1/tls/ca.crt for the browser to trust.
+// AuthMethodsResponse tells the login page which methods the server accepts
+// and whether a locally generated Web UI CA is served at /v1/tls/ca.crt.
 message AuthMethodsResponse {
   bool passkey_login_enabled = 1;
   bool password_login_enabled = 2;
@@ -37,12 +38,11 @@ message AuthMethodsResponse {
 
 message LoginResponse {
   string token = 1;
-  int32 user_id = 2;
-  reserved 3; // scopes
-  string name = 4;
-  int64 expiry = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  string session_id = 6;
-  UserSessionKind kind = 7;  // FULL for agent tokens too
+  uint64 user_id = 2 [(cp.js_type) = "number"];
+  string name = 3;
+  int64 expiry = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string session_id = 5;
+  UserSessionKind kind = 6; // FULL for agent tokens too
 }
 
 message WebAuthNOptionsResponse {

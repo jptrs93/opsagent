@@ -2,7 +2,6 @@ package webuihandler
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -14,8 +13,9 @@ func writtenMutation(u *apigen.CoreWriteUpdate, t apigen.CoreEntityType) *apigen
 	if u == nil {
 		return nil
 	}
-	for _, m := range u.Mutations {
-		if m.Delete != nil || m.Type() != t {
+	for i := range u.Mutations {
+		m := &u.Mutations[i]
+		if m.Value.Delete != nil || m.Type() != t {
 			continue
 		}
 		if m.Meta() == nil || m.Meta().CreatedTime == 0 {
@@ -26,74 +26,71 @@ func writtenMutation(u *apigen.CoreWriteUpdate, t apigen.CoreEntityType) *apigen
 	return nil
 }
 
-func writtenVerb(m *apigen.CoreMutation) apigen.EventType {
-	if m.Create != nil {
-		return apigen.EventType_EVENT_TYPE_CREATE
-	}
-	return apigen.EventType_EVENT_TYPE_UPDATE
+func writtenVerb(m *apigen.CoreMutation) apigen.AuthzVerb {
+	return m.Kind()
 }
 
-func deploymentOf(u *apigen.CoreWriteUpdate) *apigen.DeploymentEvent {
+func deploymentOf(u *apigen.CoreWriteUpdate) *apigen.DeploymentRecord {
 	m := writtenMutation(u, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT)
-	if m == nil || m.Entity().Deployment == nil {
+	if m == nil || m.Entity().Value.Deployment == nil {
 		return nil
 	}
-	d, meta := *m.Entity().Deployment, m.Meta()
-	return &apigen.DeploymentEvent{DeploymentID: int32(m.EntityID()), Version: meta.Version, Seq: u.Seq, Author: u.Actor, EventType: writtenVerb(m),
-		CreatedTime: time.UnixMilli(meta.CreatedTime), EventTime: time.UnixMilli(u.Time), SpecVersion: meta.SpecVersion, Value: d}
+	d, meta := *m.Entity().Value.Deployment, *m.Meta()
+	d.ID = m.EntityID()
+	return &apigen.DeploymentRecord{Deployment: d, Meta: meta}
 }
 
 func secretOf(u *apigen.CoreWriteUpdate) *pq.SecretEvent {
 	m := writtenMutation(u, apigen.CoreEntityType_CORE_ENTITY_SECRET)
-	if m == nil || m.Entity().Secret == nil {
+	if m == nil || m.Entity().Value.Secret == nil {
 		return nil
 	}
-	s, meta := *m.Entity().Secret, m.Meta()
-	return &pq.SecretEvent{SecretID: int32(m.EntityID()), Seq: u.Seq, Author: u.Actor, CreatedTime: meta.CreatedTime, EventTime: u.Time, ValueVersion: meta.ValueVersion, Value: s}
+	s, meta := *m.Entity().Value.Secret, m.Meta()
+	return &pq.SecretEvent{SecretID: m.EntityID(), Seq: u.Seq, Author: u.Actor, CreatedTime: meta.CreatedTime, EventTime: u.Time, ValueVersion: meta.ValueVersion, Value: s}
 }
 
 func configOf(u *apigen.CoreWriteUpdate) *pq.ConfigEvent {
 	m := writtenMutation(u, apigen.CoreEntityType_CORE_ENTITY_CONFIG)
-	if m == nil || m.Entity().Config == nil {
+	if m == nil || m.Entity().Value.Config == nil {
 		return nil
 	}
-	c, meta := *m.Entity().Config, m.Meta()
-	return &pq.ConfigEvent{ConfigID: int32(m.EntityID()), Seq: u.Seq, Author: u.Actor, CreatedTime: meta.CreatedTime, EventTime: u.Time, ValueVersion: meta.ValueVersion, Value: c}
+	c, meta := *m.Entity().Value.Config, m.Meta()
+	return &pq.ConfigEvent{ConfigID: m.EntityID(), Seq: u.Seq, Author: u.Actor, CreatedTime: meta.CreatedTime, EventTime: u.Time, ValueVersion: meta.ValueVersion, Value: c}
 }
 
 func assetOf(u *apigen.CoreWriteUpdate) *pq.AssetEvent {
 	m := writtenMutation(u, apigen.CoreEntityType_CORE_ENTITY_ASSET)
-	if m == nil || m.Entity().Asset == nil {
+	if m == nil || m.Entity().Value.Asset == nil {
 		return nil
 	}
-	a, meta := *m.Entity().Asset, m.Meta()
-	return &pq.AssetEvent{AssetID: int32(m.EntityID()), Seq: u.Seq, Author: u.Actor, CreatedTime: meta.CreatedTime, EventTime: u.Time, ValueVersion: meta.ValueVersion, Value: a}
+	a, meta := *m.Entity().Value.Asset, m.Meta()
+	return &pq.AssetEvent{AssetID: m.EntityID(), Seq: u.Seq, Author: u.Actor, CreatedTime: meta.CreatedTime, EventTime: u.Time, ValueVersion: meta.ValueVersion, Value: a}
 }
 
 func nodeOf(u *apigen.CoreWriteUpdate) *pq.NodeEvent {
 	m := writtenMutation(u, apigen.CoreEntityType_CORE_ENTITY_NODE)
-	if m == nil || m.Entity().Node == nil {
+	if m == nil || m.Entity().Value.Node == nil {
 		return nil
 	}
-	n := *m.Entity().Node
-	return &pq.NodeEvent{NodeID: int32(m.EntityID()), Seq: u.Seq, Author: u.Actor, CreatedTime: m.Meta().CreatedTime, EventTime: u.Time, Value: n}
+	n := *m.Entity().Value.Node
+	return &pq.NodeEvent{NodeID: m.EntityID(), Seq: u.Seq, Author: u.Actor, CreatedTime: m.Meta().CreatedTime, EventTime: u.Time, Value: n}
 }
 
 func networkPolicyOf(u *apigen.CoreWriteUpdate) *pq.NetworkPolicyEvent {
 	m := writtenMutation(u, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY)
-	if m == nil || m.Entity().NetworkPolicy == nil {
+	if m == nil || m.Entity().Value.NetworkPolicy == nil {
 		return nil
 	}
-	p := *m.Entity().NetworkPolicy
-	return &pq.NetworkPolicyEvent{NetworkPolicyID: int32(m.EntityID()), Seq: u.Seq, Author: u.Actor, CreatedTime: m.Meta().CreatedTime, EventTime: u.Time, Value: p}
+	p := *m.Entity().Value.NetworkPolicy
+	return &pq.NetworkPolicyEvent{NetworkPolicyID: m.EntityID(), Seq: u.Seq, Author: u.Actor, CreatedTime: m.Meta().CreatedTime, EventTime: u.Time, Value: p}
 }
 
-func ruleTemplateOf(u *apigen.CoreWriteUpdate) *apigen.AuthzRuleTemplate {
-	m := writtenMutation(u, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE)
+func grantTemplateOf(u *apigen.CoreWriteUpdate) *apigen.AuthzGrantTemplate {
+	m := writtenMutation(u, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE)
 	if m == nil {
 		return nil
 	}
-	return m.Entity().AuthzRuleTemplate
+	return m.Entity().Value.AuthzGrantTemplate
 }
 
 func grantOf(u *apigen.CoreWriteUpdate) *apigen.AuthzGrant {
@@ -101,7 +98,7 @@ func grantOf(u *apigen.CoreWriteUpdate) *apigen.AuthzGrant {
 	if m == nil {
 		return nil
 	}
-	return m.Entity().AuthzGrant
+	return m.Entity().Value.AuthzGrant
 }
 
 func globalRuleOf(u *apigen.CoreWriteUpdate) *apigen.AuthzGlobalRule {
@@ -109,10 +106,10 @@ func globalRuleOf(u *apigen.CoreWriteUpdate) *apigen.AuthzGlobalRule {
 	if m == nil {
 		return nil
 	}
-	return m.Entity().AuthzGlobalRule
+	return m.Entity().Value.AuthzGlobalRule
 }
 
-func (h *Handler) deploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentEvent, error) {
+func (h *Handler) deploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCreateRequest) (*apigen.DeploymentRecord, error) {
 	u, err := h.PostV1DeploymentsCreate(ctx, req)
 	if err != nil {
 		return nil, err
@@ -120,8 +117,8 @@ func (h *Handler) deploymentsCreate(ctx apigen.Context, req *apigen.DeploymentCr
 	return deploymentOf(u), nil
 }
 
-func (h *Handler) deploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequestV2) (*apigen.DeploymentEvent, error) {
-	u, err := h.PostV2DeploymentsUpdate(ctx, req)
+func (h *Handler) deploymentsUpdate(ctx apigen.Context, req *apigen.DeploymentUpdateRequest) (*apigen.DeploymentRecord, error) {
+	u, err := h.PostV1DeploymentsUpdate(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -240,20 +237,20 @@ func (h *Handler) assetsMove(ctx apigen.Context, req *apigen.AssetMoveRequest) (
 	return assetOf(u), nil
 }
 
-func (h *Handler) accessRuleTemplatesCreate(ctx apigen.Context, req *apigen.AuthzRuleTemplateCreateRequest) (*apigen.AuthzRuleTemplate, error) {
-	u, err := h.PostV1AccessRuleTemplatesCreate(ctx, req)
+func (h *Handler) accessGrantTemplatesCreate(ctx apigen.Context, req *apigen.AuthzGrantTemplateCreateRequest) (*apigen.AuthzGrantTemplate, error) {
+	u, err := h.PostV1AccessGrantTemplatesCreate(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return ruleTemplateOf(u), nil
+	return grantTemplateOf(u), nil
 }
 
-func (h *Handler) accessRuleTemplatesUpdate(ctx apigen.Context, req *apigen.AuthzRuleTemplateUpdateRequest) (*apigen.AuthzRuleTemplate, error) {
-	u, err := h.PostV1AccessRuleTemplatesUpdate(ctx, req)
+func (h *Handler) accessGrantTemplatesUpdate(ctx apigen.Context, req *apigen.AuthzGrantTemplateUpdateRequest) (*apigen.AuthzGrantTemplate, error) {
+	u, err := h.PostV1AccessGrantTemplatesUpdate(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return ruleTemplateOf(u), nil
+	return grantTemplateOf(u), nil
 }
 
 func (h *Handler) accessGrantsCreate(ctx apigen.Context, req *apigen.AuthzGrantCreateRequest) (*apigen.AuthzGrant, error) {

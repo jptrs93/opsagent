@@ -61,13 +61,10 @@ CREATE TABLE IF NOT EXISTS local_scheduled_instance_cache (
 -- primary's table of the same name; the secondary's rows are forwarded to the
 -- primary over the cluster stream but this local copy is never replicated.
 --
--- Unlike the primary, there is no deployment_id index: the per-deployment
--- history query is a primary-side display concern, and every secondary read here
--- is covered by the primary key.
+-- Every secondary read here is covered by the primary key.
 CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     scheduled_instance_id   INTEGER NOT NULL,
     updated_at              INTEGER NOT NULL,  -- HLC clock, unix nanoseconds
-    deployment_id           INTEGER NOT NULL DEFAULT 0,
     preparer_spec_version   INTEGER,
     preparer_artifact       TEXT,
     -- The two preparation stages. There is no stored rollup: it is derived from
@@ -77,12 +74,12 @@ CREATE TABLE IF NOT EXISTS scheduled_instance_status (
     preparer_inputs_status  INTEGER NOT NULL DEFAULT 0,  -- stage 1: assets/secrets/configs
     preparer_image_status   INTEGER NOT NULL DEFAULT 0,  -- stage 2: build, pull, or download
     runner_spec_version     INTEGER,
-    runner_pid              INTEGER,
+    runner_pid              INTEGER,  -- NULL while no process is running
     runner_artifact         TEXT,
     runner_status           INTEGER,
     runner_num_restarts     INTEGER,
     runner_last_restart_at  INTEGER,  -- epoch ms
-    runner_extra_blob       BLOB    NOT NULL DEFAULT x'',
+    runner_extra_blob       BLOB    NOT NULL DEFAULT x'',  -- JSON list of network diagnostics, empty when none
     runner_exit_code        INTEGER,
     PRIMARY KEY (scheduled_instance_id, updated_at)
 );

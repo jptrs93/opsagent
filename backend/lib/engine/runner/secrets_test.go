@@ -24,21 +24,19 @@ func (f fakeRuntimeInputProvider) FetchConfigs(context.Context, []apigen.ValueRe
 }
 
 func TestResolveEnv(t *testing.T) {
-	in := map[string]*apigen.EnvVarValue{
-		"PLAIN":   {Value: ptrString("value")},
-		"DB_PASS": {Secret: &apigen.ValueRef{ID: 1, Version: 1}},
-		"TOKEN":   {Secret: &apigen.ValueRef{ID: 2, Version: 1}},
-		"HOST":    {Config: &apigen.ValueRef{ID: 3, Version: 1}},
-		"CONFIG":  {Asset: "app.conf", AssetRef: &apigen.ValueRef{ID: 12, Version: 1}},
+	in := map[string]apigen.EnvVar{
+		"PLAIN":   literalEnv("value"),
+		"DB_PASS": secretEnv(1, 1),
+		"TOKEN":   secretEnv(2, 1),
+		"HOST":    configEnv(3, 1),
+		"CONFIG":  assetEnv("app.conf", 12, 1),
 	}
 	provider := fakeRuntimeInputProvider{
 		secrets: map[apigen.ValueRef]string{{ID: 1, Version: 1}: "s3cret", {ID: 2, Version: 1}: "abc"},
 		configs: map[apigen.ValueRef]string{{ID: 3, Version: 1}: "db.local"},
 	}
 	inputs := runtimeinputs.New(nil, provider, provider)
-	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: in}}}},
-	}
+	dep := containerDeployment(0, 0, apigen.ContainerRuntime{EnvVars: in})
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
 	}
@@ -63,26 +61,31 @@ func TestResolveEnv(t *testing.T) {
 
 func TestResolveEnvUnknownSecretFailsClosed(t *testing.T) {
 	inputs := runtimeinputs.New(nil, nil, nil)
-	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {Secret: &apigen.ValueRef{ID: 1, Version: 1}}}); err == nil {
+	if _, err := resolveEnv(inputs, map[string]apigen.EnvVar{"X": secretEnv(1, 1)}); err == nil {
 		t.Fatal("expected error for unknown secret")
 	}
 }
 
 func TestResolveEnvUnknownConfigFailsClosed(t *testing.T) {
 	inputs := runtimeinputs.New(nil, nil, nil)
-	if _, err := resolveEnv(inputs, map[string]*apigen.EnvVarValue{"X": {Config: &apigen.ValueRef{ID: 1, Version: 1}}}); err == nil {
+	if _, err := resolveEnv(inputs, map[string]apigen.EnvVar{"X": configEnv(1, 1)}); err == nil {
 		t.Fatal("expected error for unknown config")
 	}
 }
 
 func TestResolveEnvRejectsAmbiguousValue(t *testing.T) {
-	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Value: ptrString("plain"), Secret: &apigen.ValueRef{ID: 1, Version: 1}}}); err == nil {
+	ambiguous := literalEnv("plain")
+	ambiguous.Value.Secret = &apigen.SecretEnv{Secret: apigen.SecretRef{SecretID: 1, Version: 1}}
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]apigen.EnvVar{"X": ambiguous}); err == nil {
 		t.Fatal("expected error for ambiguous env value")
+	}
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]apigen.EnvVar{"X": {}}); err == nil {
+		t.Fatal("expected error for an empty env value")
 	}
 }
 
 func TestResolveEnvRejectsUnresolvedAsset(t *testing.T) {
-	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{"X": {Asset: "app.conf"}}); err == nil {
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]apigen.EnvVar{"X": assetEnv("app.conf", 0, 0)}); err == nil {
 		t.Fatal("expected error for unresolved asset")
 	}
 }
@@ -93,15 +96,13 @@ func TestResolveEnvAddressRefDerivesStableAddress(t *testing.T) {
 	network.SetDefault(network.New(prefix, 0))
 	t.Cleanup(func() { network.SetDefault(previous) })
 
-	deploymentID := int32(7)
-	spaceID := int32(5)
-	out, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{
-		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID, AddressSpaceID: &spaceID},
+	out, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]apigen.EnvVar{
+		"UPSTREAM_ADDR": addressEnv(7, 5),
 	})
 	if err != nil {
 		t.Fatalf("resolveEnv: %v", err)
 	}
-	addr, err := prefix.InboundAddr(spaceID, deploymentID, 0)
+	addr, err := prefix.InboundAddr(5, 7, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +113,10 @@ func TestResolveEnvAddressRefDerivesStableAddress(t *testing.T) {
 }
 
 func TestResolveEnvAddressRefFailsClosed(t *testing.T) {
-	deploymentID := int32(7)
-	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{
-		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID},
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]apigen.EnvVar{
+		"UPSTREAM_ADDR": addressEnv(0, 5),
 	}); err == nil {
-		t.Fatal("expected incomplete address reference to fail")
+		t.Fatal("expected address reference without a deployment to fail")
 	}
 }
 
@@ -126,19 +126,15 @@ func TestResolveEnvAddressRefRejectsOutOfRangeIdentity(t *testing.T) {
 	network.SetDefault(network.New(prefix, 0))
 	t.Cleanup(func() { network.SetDefault(previous) })
 
-	deploymentID := network.MaxDeploymentID + 1
-	spaceID := int32(1)
-	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]*apigen.EnvVarValue{
-		"UPSTREAM_ADDR": {AddressDeploymentID: &deploymentID, AddressSpaceID: &spaceID},
+	if _, err := resolveEnv(runtimeinputs.New(nil, nil, nil), map[string]apigen.EnvVar{
+		"UPSTREAM_ADDR": addressEnv(uint64(network.MaxDeploymentID)+1, 1),
 	}); err == nil {
 		t.Fatal("expected oversized deployment id to fail")
 	}
 }
 
 func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
-	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, EnvVars: map[string]*apigen.EnvVarValue{"APP_CONFIG": {Asset: "app.conf", AssetRef: &apigen.ValueRef{ID: 12, Version: 1}}, "APP_CONFIG_2": {Asset: "app.conf", AssetRef: &apigen.ValueRef{ID: 12, Version: 1}}}}}}},
-	}
+	dep := containerDeployment(0, 0, apigen.ContainerRuntime{DefaultVolume: apigen.DefaultVolumeMount{Disabled: true}, EnvVars: map[string]apigen.EnvVar{"APP_CONFIG": assetEnv("app.conf", 12, 1), "APP_CONFIG_2": assetEnv("app.conf", 12, 1)}})
 	mounts, _ := containerMounts(dep)
 	if len(mounts) != 1 {
 		t.Fatalf("mounts len = %d; want 1", len(mounts))
@@ -148,5 +144,42 @@ func TestContainerMountsIncludesImplicitAssetEnvMount(t *testing.T) {
 	}
 }
 
-func ptrString(v string) *string { return &v }
-func ptrInt32(v int32) *int32    { return &v }
+func literalEnv(value string) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Literal: &apigen.LiteralEnv{Value: value}}}
+}
+
+func secretEnv(id uint64, version uint32) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Secret: &apigen.SecretEnv{Secret: apigen.SecretRef{SecretID: id, Version: version}}}}
+}
+
+func configEnv(id uint64, version uint32) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Config: &apigen.ConfigEnv{Config: apigen.ConfigRef{ConfigID: id, Version: version}}}}
+}
+
+func assetEnv(key string, id uint64, version uint32) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Asset: &apigen.AssetEnv{Key: key, Asset: apigen.AssetRef{AssetID: id, Version: version}}}}
+}
+
+func addressEnv(deploymentID, spaceID uint64) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Address: &apigen.AddressEnv{DeploymentID: deploymentID, SpaceID: spaceID}}}
+}
+
+func containerDeployment(id uint64, specVersion uint32, runtime apigen.ContainerRuntime) *apigen.DeploymentRecord {
+	return &apigen.DeploymentRecord{
+		Deployment: apigen.Deployment{
+			ID:   id,
+			Name: "app",
+			Spec: apigen.DeploymentSpec{
+				Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+					Source:          apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: "registry.example/app"}}},
+					Runtime:         runtime,
+					Version:         "v1",
+					UpgradeStrategy: apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE,
+				}}},
+				Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL},
+			},
+			Scheduling: apigen.DedicatedScheduling(true, 1),
+		},
+		Meta: apigen.EntityMeta{Version: specVersion, SpecVersion: specVersion},
+	}
+}

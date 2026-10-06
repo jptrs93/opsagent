@@ -19,33 +19,32 @@ func isRefOutsideSpaceErr(err error, want apigen.ApiErr) bool {
 
 func configEnvSpec(image string, ref apigen.ValueRef) apigen.DeploymentSpec {
 	spec := remoteDeploymentSpec(image, hostNetworking())
-	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"ENDPOINT": {Config: &ref},
+	spec.Workload.Value.Container.Runtime.EnvVars = map[string]apigen.EnvVar{
+		"ENDPOINT": configEnv(ref),
 	}
 	return spec
 }
 
 func assetMountSpec(image string, ref apigen.ValueRef) apigen.DeploymentSpec {
 	spec := remoteDeploymentSpec(image, hostNetworking())
-	spec.Container1Spec.Runtime.AssetMounts = []*apigen.AssetMount{{
-		Asset: ref, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_READ_ONLY,
+	spec.Workload.Value.Container.Runtime.AssetMounts = []apigen.AssetMount{{
+		Asset: apigen.AssetRef{AssetID: ref.ID, Version: ref.Version}, ContainerPath: "/etc/app.conf", Permission: apigen.FilePermission_FILE_PERMISSION_READ_ONLY,
 	}}
 	return spec
 }
 
-func addressEnvSpec(image string, deploymentID, spaceID int32) apigen.DeploymentSpec {
+func addressEnvSpec(image string, deploymentID, spaceID uint64) apigen.DeploymentSpec {
 	spec := remoteDeploymentSpec(image, hostNetworking())
-	id, space := deploymentID, spaceID
-	spec.Container1Spec.Runtime.EnvVars = map[string]*apigen.EnvVarValue{
-		"API_ADDR": {AddressDeploymentID: &id, AddressSpaceID: &space},
+	spec.Workload.Value.Container.Runtime.EnvVars = map[string]apigen.EnvVar{
+		"API_ADDR": addressEnv(deploymentID, spaceID),
 	}
 	return spec
 }
 
-func crossMountSpec(image string, sourceDeploymentID int32) apigen.DeploymentSpec {
+func crossMountSpec(image string, sourceDeploymentID uint64) apigen.DeploymentSpec {
 	spec := remoteDeploymentSpec(image, hostNetworking())
-	spec.Container1Spec.Runtime.CrossDeploymentMounts = []*apigen.CrossDeploymentMount{{
-		DeploymentID: sourceDeploymentID, ContainerPath: "/mnt/shared", Permission: apigen.FilePermission_READ_ONLY,
+	spec.Workload.Value.Container.Runtime.CrossDeploymentMounts = []apigen.CrossDeploymentMount{{
+		DeploymentID: sourceDeploymentID, ContainerPath: "/mnt/shared", Permission: apigen.FilePermission_FILE_PERMISSION_READ_ONLY,
 	}}
 	return spec
 }
@@ -65,7 +64,7 @@ func TestDeploymentRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod config: %v", err)
 	}
 
-	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
+	create := func(name string, spaceID uint64, ref apigen.ValueRef) (*apigen.DeploymentRecord, error) {
 		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
@@ -100,7 +99,7 @@ func TestDeploymentAssetRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 		t.Fatalf("creating prod asset: %v", err)
 	}
 
-	create := func(name string, spaceID int32, ref apigen.ValueRef) (*apigen.DeploymentEvent, error) {
+	create := func(name string, spaceID uint64, ref apigen.ValueRef) (*apigen.DeploymentRecord, error) {
 		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
@@ -134,11 +133,11 @@ func TestDeploymentAddressRefsScopedToOwnOrGlobalSpace(t *testing.T) {
 	prodSpec := remoteDeploymentSpec("api", virtualNetworking())
 	prodTarget := createTestDeployment(h.Store, "primary", prod.ID, "prod-api", &prodSpec)
 
-	create := func(name string, spaceID int32, target *apigen.DeploymentEvent) (*apigen.DeploymentEvent, error) {
+	create := func(name string, spaceID uint64, target *apigen.DeploymentRecord) (*apigen.DeploymentRecord, error) {
 		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
-			Spec:       addressEnvSpec("nginx", target.DeploymentID, target.Value.SpaceID),
+			Spec:       addressEnvSpec("nginx", target.Deployment.ID, target.Deployment.SpaceID),
 		})
 	}
 
@@ -168,7 +167,7 @@ func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 	prodSpec := remoteDeploymentSpec("db", hostNetworking())
 	prodSource := createTestDeployment(h.Store, "primary", prod.ID, "prod-db", &prodSpec)
 
-	create := func(name string, spaceID, sourceID int32) (*apigen.DeploymentEvent, error) {
+	create := func(name string, spaceID, sourceID uint64) (*apigen.DeploymentRecord, error) {
 		return h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 			SpaceID: spaceID, Name: name,
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),
@@ -176,13 +175,13 @@ func TestDeploymentCrossMountSourcesScopedToOwnOrGlobalSpace(t *testing.T) {
 		})
 	}
 
-	if _, err := create("own-space", prod.ID, prodSource.DeploymentID); err != nil {
+	if _, err := create("own-space", prod.ID, prodSource.Deployment.ID); err != nil {
 		t.Fatalf("own-space mount source rejected: %v", err)
 	}
-	if _, err := create("global-ref", staging.ID, globalSource.DeploymentID); err != nil {
+	if _, err := create("global-ref", staging.ID, globalSource.Deployment.ID); err != nil {
 		t.Fatalf("global mount source rejected: %v", err)
 	}
-	if _, err := create("staging-deploy", staging.ID, prodSource.DeploymentID); err == nil {
+	if _, err := create("staging-deploy", staging.ID, prodSource.Deployment.ID); err == nil {
 		t.Fatal("staging deployment mounting prod source accepted, want error")
 	}
 }
@@ -209,26 +208,26 @@ func TestDeploymentSpaceMoveRevalidatesRefLocality(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating referencing deployment: %v", err)
 	}
-	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: referrer.DeploymentID, ExpectedSeq: referrer.Seq,
-		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: referrer.Deployment.ID, ExpectedSeq: referrer.Meta.UpdatedSeq,
+		Update: apigen.DeploymentUpdateRequestUpdateOneof{AssignedSpace: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID}},
 	}); !isRefOutsideSpaceErr(err, deployments.ConfigRefOutsideSpaceErr) {
 		t.Fatalf("move with prod config ref err = %v, want %v", err, deployments.ConfigRefOutsideSpaceErr)
 	}
 
 	sourceSpec := remoteDeploymentSpec("db", hostNetworking())
 	source := createTestDeployment(h.Store, "primary", prod.ID, "db", &sourceSpec)
-	mounterSpec := crossMountSpec("nginx", source.DeploymentID)
+	mounterSpec := crossMountSpec("nginx", source.Deployment.ID)
 	createTestDeployment(h.Store, "primary", prod.ID, "mounter", &mounterSpec)
-	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: source.DeploymentID, ExpectedSeq: source.Seq,
-		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID},
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: source.Deployment.ID, ExpectedSeq: source.Meta.UpdatedSeq,
+		Update: apigen.DeploymentUpdateRequestUpdateOneof{AssignedSpace: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID}},
 	}); !errors.Is(err, deployments.MoveReferencesOutsideSpaceErr) {
 		t.Fatalf("mounted source move to staging err = %v, want %v", err, deployments.MoveReferencesOutsideSpaceErr)
 	}
-	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequestV2{
-		DeploymentID: source.DeploymentID, ExpectedSeq: source.Seq,
-		AssignedSpaceUpdate: &apigen.AssignedSpaceUpdate{SpaceID: nodes.DefaultSpaceID},
+	if _, err := h.deploymentsUpdate(apigen.Context{}, &apigen.DeploymentUpdateRequest{
+		DeploymentID: source.Deployment.ID, ExpectedSeq: source.Meta.UpdatedSeq,
+		Update: apigen.DeploymentUpdateRequestUpdateOneof{AssignedSpace: &apigen.AssignedSpaceUpdate{SpaceID: nodes.DefaultSpaceID}},
 	}); err != nil {
 		t.Fatalf("mounted source move to global: %v", err)
 	}

@@ -13,13 +13,13 @@ export const formatDeploymentLabel = (deploymentRow) => {
     return parts.length > 0 ? parts.join(' / ') : `#${deploymentRow.id}`;
 };
 
-// restartDeploymentPayload is the DeploymentUpdateRequestV2 for a restart at
+// restartDeploymentPayload is the DeploymentUpdateRequest for a restart at
 // the seq the caller last saw.
 export function restartDeploymentPayload(deploymentRow) {
     return {
         deploymentId: deploymentRow.id,
         expectedSeq: Number(deploymentRow.seq || 0),
-        restartUpdate: {},
+        update: {restart: {}},
     };
 }
 

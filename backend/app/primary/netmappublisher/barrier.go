@@ -11,8 +11,8 @@ package netmappublisher
 // unprompted after accepting each map, and the primary's in-process applier
 // records after reconciling its own targeted map, so the barrier advances on
 // its own.
-func (p *Publisher) RecordApplied(nodeID int32, appliedSeq int64) {
-	if nodeID <= 0 {
+func (p *Publisher) RecordApplied(nodeID uint64, appliedSeq int64) {
+	if nodeID == 0 {
 		return
 	}
 	p.ackMu.Lock()
@@ -28,7 +28,7 @@ func (p *Publisher) RecordApplied(nodeID int32, appliedSeq int64) {
 // ForgetNode drops a secondary's acknowledgement when its session ends. A
 // disconnected secondary cannot hold the barrier: it is served a complete snapshot
 // on reconnect, so it has no way to keep acting on a map it never applied.
-func (p *Publisher) ForgetNode(nodeID int32) {
+func (p *Publisher) ForgetNode(nodeID uint64) {
 	p.ackMu.Lock()
 	_, tracked := p.applied[nodeID]
 	delete(p.applied, nodeID)

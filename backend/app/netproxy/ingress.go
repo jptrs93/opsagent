@@ -134,10 +134,10 @@ func ingressStateFromSnapshot(netState *apigen.NetState) *ingressState {
 		routes: make(map[uint16]map[string]*ingressRoute),
 	}
 	for _, ingress := range netState.Ingress {
-		if ingress == nil || ingress.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || ingress.TlsPassthrough == nil {
+		if ingress.Kind != apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH || !ingress.TlsPassthrough.Present {
 			continue
 		}
-		port := ingress.TlsPassthrough.HostPort
+		port := ingress.TlsPassthrough.Value.HostPort
 		hostname, ok := ingressHostnameForProxy(ingress.Hostname)
 		if port == netproxyDNSPort || port < 1 || port > 65535 || !ok {
 			continue
@@ -151,8 +151,8 @@ func ingressStateFromSnapshot(netState *apigen.NetState) *ingressState {
 			continue
 		}
 		route := &ingressRoute{}
-		for _, backend := range ingress.TlsPassthrough.Backends {
-			if backend == nil || backend.Port < 1 || backend.Port > 65535 {
+		for _, backend := range ingress.TlsPassthrough.Value.Backends {
+			if backend.Port < 1 || backend.Port > 65535 {
 				continue
 			}
 			if _, err := netip.ParseAddr(backend.Address); err != nil {

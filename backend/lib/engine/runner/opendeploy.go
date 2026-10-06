@@ -25,8 +25,7 @@ type opendeployRunner struct {
 	done   chan struct{}
 
 	store               storage.OperatorStore
-	scheduledInstanceID int32
-	deploymentID        int32
+	scheduledInstanceID uint64
 
 	status apigen.RunnerStatus
 }
@@ -39,22 +38,22 @@ var (
 // attachOpendeployRunner publishes the current process as the running
 // opendeploy deployment. Reaching this code proves the service is running;
 // polling systemd only adds transient restart-state races.
-func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentEvent, prev apigen.RunnerStatus) *opendeployRunner {
+func attachOpendeployRunner(store storage.OperatorStore, instanceID uint64, dep *apigen.DeploymentRecord, prev apigen.Maybe[apigen.RunnerStatus]) *opendeployRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
-	if prev.IsZero() {
-		prev.DeploymentSpecVersion = dep.SpecVersion
+	status := prev.Value
+	if !prev.Present {
+		status.DeploymentSpecVersion = dep.Meta.SpecVersion
 	}
-	prev.RunningArtifact = resolveOpendeployArtifact()
-	prev.RunningPid = int32(os.Getpid())
-	prev.Status = apigen.RunningStatus_RUNNING
+	status.RunningArtifact = resolveOpendeployArtifact()
+	status.RunningPid = runningPid(os.Getpid())
+	status.Status = apigen.RunningStatus_RUNNING_STATUS_RUNNING
 	r := &opendeployRunner{
 		ctx:                 ctx,
 		cancel:              cancel,
 		done:                make(chan struct{}),
 		store:               store,
 		scheduledInstanceID: instanceID,
-		deploymentID:        dep.DeploymentID,
-		status:              prev,
+		status:              status,
 	}
 	close(r.done)
 	r.writeStatus()
@@ -66,7 +65,7 @@ func attachOpendeployRunner(store storage.OperatorStore, instanceID int32, dep *
 // process reattaches and publishes RUNNING.
 // Called only from runner.Create when the operator has a new artifact ready.
 // No retries — if install or restart fails, it writes CRASHED and exits.
-func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentEvent, preparerStatus apigen.PreparerStatus) *opendeployRunner {
+func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID uint64, dep *apigen.DeploymentRecord, preparerStatus apigen.PreparerStatus) *opendeployRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	r := &opendeployRunner{
 		ctx:                 ctx,
@@ -74,14 +73,11 @@ func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int3
 		done:                make(chan struct{}),
 		store:               store,
 		scheduledInstanceID: instanceID,
-		deploymentID:        dep.DeploymentID,
 		status: apigen.RunnerStatus{
 			DeploymentSpecVersion: preparerStatus.DeploymentSpecVersion,
-			RunningPid:            0,
 			RunningArtifact:       preparerStatus.Artifact,
-			Status:                apigen.RunningStatus_STARTING,
-			NumberOfRestarts:      0,
-			LastRestartAt:         time.Now(),
+			Status:                apigen.RunningStatus_RUNNING_STATUS_STARTING,
+			LastRestartAt:         apigen.Some(time.Now()),
 		},
 	}
 	r.writeStatus()
@@ -89,7 +85,7 @@ func newOpendeployRunnerWithRestart(store storage.OperatorStore, instanceID int3
 	return r
 }
 
-func (r *opendeployRunner) SpecVersion() int32               { return r.status.DeploymentSpecVersion }
+func (r *opendeployRunner) SpecVersion() uint32              { return r.status.DeploymentSpecVersion }
 func (r *opendeployRunner) ArtifactMissing() <-chan struct{} { return nil }
 
 // Serve is a no-op: the self deployment runs in the host network namespace and
@@ -107,7 +103,7 @@ func (r *opendeployRunner) installAndRestart() {
 
 	if err := atomicSymlink(r.status.RunningArtifact, opendeployBinPath); err != nil {
 		slog.ErrorContext(r.ctx, "symlinking artifact failed", "err", err)
-		r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+		r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 		return
 	}
 	slog.InfoContext(r.ctx, fmt.Sprintf("opendeploy runner symlinked artifact %s to %s", r.status.RunningArtifact, opendeployBinPath))
@@ -115,7 +111,7 @@ func (r *opendeployRunner) installAndRestart() {
 	out, err := systemctlRestartCommand(r.ctx, internaldeploy.SelfUnit)
 	if err != nil {
 		slog.ErrorContext(r.ctx, fmt.Sprintf("systemctl restart of %s failed output=%q", internaldeploy.SelfUnit, out), "err", err)
-		r.updateStatus(apigen.RunningStatus_CRASHED, 0)
+		r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 		return
 	}
 	slog.InfoContext(r.ctx, fmt.Sprintf("opendeploy runner restart of %s issued", internaldeploy.SelfUnit))
@@ -128,22 +124,21 @@ func resolveOpendeployArtifact() string {
 	return opendeployBinPath
 }
 
-func (r *opendeployRunner) updateStatus(status apigen.RunningStatus, pid int32) {
+func (r *opendeployRunner) updateStatus(status apigen.RunningStatus, pid int) {
 	r.status.Status = status
-	r.status.RunningPid = pid
+	r.status.RunningPid = runningPid(pid)
 	r.writeStatus()
 }
 
 func (r *opendeployRunner) writeStatus() {
 	r.store.MustWriteScheduledInstanceStatus(r.scheduledInstanceID, func(s *apigen.ScheduledInstanceStatus) bool {
-		if !s.Runner.IsZero() && s.Runner.DeploymentSpecVersion > r.status.DeploymentSpecVersion {
+		if s.Runner.Present && s.Runner.Value.DeploymentSpecVersion > r.status.DeploymentSpecVersion {
 			slog.InfoContext(r.ctx, "discarding status update from superseded runner")
 			return false
 		}
 		s.BumpUpdatedAt()
 		s.ScheduledInstanceID = r.scheduledInstanceID
-		s.DeploymentID = r.deploymentID
-		s.Runner = r.status
+		s.Runner = apigen.Some(r.status)
 		return true
 	})
 }

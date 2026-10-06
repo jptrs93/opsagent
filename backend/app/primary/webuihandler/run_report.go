@@ -16,7 +16,7 @@ import (
 var RunNotFoundErr = apigen.NewApiErr("Run not found", "run_not_found", http.StatusNotFound)
 
 func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.DeploymentRunReportRequest) (*apigen.DeploymentRunReport, error) {
-	if req.ScheduledInstanceID <= 0 || req.Run <= 0 {
+	if req.ScheduledInstanceID == 0 || req.Run <= 0 {
 		return nil, MissingKeyErr
 	}
 	event, err := h.Queries.GetScheduledInstance(ctx, req.ScheduledInstanceID)
@@ -36,39 +36,44 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 		current = *history[len(history)-1]
 	}
 
-	cfg := h.findConfigByID(inst.DeploymentID)
+	cfg := h.findConfigByID(inst.Deployment.DeploymentID)
 	if cfg == nil {
 		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vViewLogs, eDeployment, cfg.Deployment.SpaceID, cfg.Deployment.ID, deployments.NotFoundErr); err != nil {
 		return nil, err
+	}
+	specVersion := cfg.Meta.SpecVersion
+	if pinned, err := h.Queries.GetDeploymentVersion(ctx, inst.Deployment.DeploymentID, inst.Deployment.Version); err == nil {
+		specVersion = pinned.Meta.SpecVersion
 	}
 
 	latest := current.Runner
 	currentRun := int32(0)
-	if !latest.IsZero() {
-		currentRun = latest.NumberOfRestarts + 1
+	if latest.Present {
+		currentRun = int32(latest.Value.NumberOfRestarts) + 1
 	}
 	if req.Run > currentRun {
 		return nil, RunNotFoundErr
 	}
 	running := req.Run == currentRun &&
-		(latest.Status == apigen.RunningStatus_RUNNING || latest.Status == apigen.RunningStatus_STARTING)
+		(latest.Value.Status == apigen.RunningStatus_RUNNING_STATUS_RUNNING || latest.Value.Status == apigen.RunningStatus_RUNNING_STATUS_STARTING)
 
-	var startedAt, stoppedAt time.Time
-	var exitCode *int32
+	var startedAt time.Time
+	var stoppedAt apigen.Maybe[time.Time]
+	var exitCode apigen.Maybe[int32]
 	var finalStatus apigen.RunningStatus
 	found := false
 	for _, st := range history {
-		r := st.Runner
-		if r.IsZero() || r.NumberOfRestarts != req.Run-1 {
+		if !st.Runner.Present || int32(st.Runner.Value.NumberOfRestarts) != req.Run-1 {
 			continue
 		}
+		r := st.Runner.Value
 		found = true
-		if startedAt.IsZero() {
-			startedAt = r.LastRestartAt
+		if startedAt.IsZero() && r.LastRestartAt.Present {
+			startedAt = r.LastRestartAt.Value
 		}
-		if stoppedAt.IsZero() && (r.Status == apigen.RunningStatus_STOPPED || r.Status == apigen.RunningStatus_CRASHED) {
+		if !stoppedAt.Present && (r.Status == apigen.RunningStatus_RUNNING_STATUS_STOPPED || r.Status == apigen.RunningStatus_RUNNING_STATUS_CRASHED) {
 			stoppedAt = st.UpdatedAt
 			exitCode = r.ExitCode
 			finalStatus = r.Status
@@ -76,9 +81,9 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 	}
 
 	report := &apigen.DeploymentRunReport{
-		DeploymentID:          inst.DeploymentID,
-		DeploymentSpecVersion: inst.DeploymentSpecVersion,
-		DeploymentVersion:     inst.DeploymentVersion,
+		DeploymentID:          inst.Deployment.DeploymentID,
+		DeploymentSpecVersion: specVersion,
+		DeploymentVersion:     inst.Deployment.Version,
 		NodeID:                inst.NodeID,
 		InstanceOrdinal:       inst.InstanceOrdinal,
 		Run:                   req.Run,
@@ -89,21 +94,21 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 		Status:                finalStatus,
 	}
 	if running {
-		report.Status = latest.Status
+		report.Status = latest.Value.Status
 	}
 	if !found {
 		report.Warnings = append(report.Warnings, fmt.Sprintf("no status history recorded for run %d", req.Run))
 		return report, nil
 	}
-	if running || stoppedAt.IsZero() {
+	if running || !stoppedAt.Present {
 		return report, nil
 	}
 
 	lq := &apigen.LogQueryRequest{
-		DeploymentID:      inst.DeploymentID,
-		DeploymentVersion: inst.DeploymentVersion,
-		TimeEnd:           stoppedAt.Add(time.Minute),
-		Filters: []*apigen.LogFilter{
+		DeploymentID:      inst.Deployment.DeploymentID,
+		DeploymentVersion: inst.Deployment.Version,
+		TimeEnd:           apigen.TimeOf(stoppedAt.Value.Add(time.Minute)),
+		Filters: []apigen.LogFilter{
 			{Field: "run", Op: "eq", Value: strconv.Itoa(int(req.Run))},
 			{Field: "instance", Op: "eq", Value: strconv.Itoa(int(inst.InstanceOrdinal))},
 		},
@@ -112,7 +117,7 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 		IncludeRaw: true,
 	}
 	if !startedAt.IsZero() {
-		lq.TimeStart = startedAt.Add(-time.Minute)
+		lq.TimeStart = apigen.TimeOf(startedAt.Add(-time.Minute))
 	}
 	var resp *apigen.LogQueryResponse
 	switch {

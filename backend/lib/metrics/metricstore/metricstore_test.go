@@ -25,7 +25,7 @@ func mkSample(dep, run int32, t time.Time, cpu int64) *apigen.MetricsSample {
 		DeploymentVersion:   1,
 		Run:                 run,
 		NodeID:              7,
-		CpuUsageUsec:        &cpu,
+		CpuUsageUsec:        apigen.Some(cpu),
 	}
 }
 
@@ -43,13 +43,22 @@ func writeWAL(t *testing.T, dir string, samples ...*apigen.MetricsSample) {
 func TestRowMirrorsMetricsSample(t *testing.T) {
 	rt := reflect.TypeFor[row]()
 	st := reflect.TypeFor[apigen.MetricsSample]()
-	if rt.NumField() != st.NumField() || len(rowFieldPairs) != st.NumField() {
-		t.Fatalf("row has %d fields, MetricsSample has %d, %d paired", rt.NumField(), st.NumField(), len(rowFieldPairs))
+	exported := 0
+	for i := range st.NumField() {
+		if st.Field(i).IsExported() {
+			exported++
+		}
+	}
+	if rt.NumField() != exported || len(rowFieldPairs) != exported {
+		t.Fatalf("row has %d fields, MetricsSample has %d exported, %d paired", rt.NumField(), exported, len(rowFieldPairs))
 	}
 	for i := range st.NumField() {
 		sf := st.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
 		rf, ok := rt.FieldByName(sf.Name)
-		if !ok || rf.Type != sf.Type {
+		if !ok || !rowTypeMirrors(rf.Type, sf.Type) {
 			t.Errorf("row field %s missing or mistyped", sf.Name)
 		}
 	}
@@ -269,14 +278,14 @@ func TestToSampleEncodesPresence(t *testing.T) {
 	if Key(out) != s.Key || out.NodeID != 7 || out.Time != s.Time.UnixMilli() {
 		t.Fatalf("identity mismatch: %+v", out)
 	}
-	if *out.CpuUsageUsec != 10 || *out.MemPeak != 42 || *out.Pids != 3 || *out.PsiCpuSomeAvg10 != 1.5 || *out.PsiCpuSomeTotalUsec != 7 || *out.NetRxBytes != 5 || *out.TcpEstablished != 2 || *out.OpenFds != 9 {
+	if out.CpuUsageUsec != apigen.Some[int64](10) || out.MemPeak != apigen.Some[int64](42) || out.Pids != apigen.Some[int64](3) || out.PsiCpuSomeAvg10 != apigen.Some(1.5) || out.PsiCpuSomeTotalUsec != apigen.Some[int64](7) || out.NetRxBytes != apigen.Some[int64](5) || out.TcpEstablished != apigen.Some[int64](2) || out.OpenFds != apigen.Some[int64](9) {
 		t.Fatalf("values not carried: %+v", out)
 	}
-	if out.IoReadBytes != nil || out.PsiMemSomeAvg10 != nil {
+	if out.IoReadBytes.Present || out.PsiMemSomeAvg10.Present {
 		t.Fatalf("absent sections encoded as present: %+v", out)
 	}
 	host := metrics.Sample{Key: s.Key, Time: s.Time}
-	if h := toSample(&host, 7); h.NetRxBytes != nil || h.CpuUsageUsec != nil || h.MemCurrent != nil {
+	if h := toSample(&host, 7); h.NetRxBytes.Present || h.CpuUsageUsec.Present || h.MemCurrent.Present {
 		t.Fatalf("empty sample encoded values: %+v", h)
 	}
 }
@@ -333,4 +342,11 @@ func TestRateRejectsCrossKeyAndReset(t *testing.T) {
 	if _, ok := Rate(a, b, mem); ok {
 		t.Fatal("rate of a gauge accepted")
 	}
+}
+
+func rowTypeMirrors(rowType, sampleType reflect.Type) bool {
+	if rowType == sampleType {
+		return true
+	}
+	return rowType.Kind() == reflect.Pointer && isMaybeOf(sampleType, rowType.Elem())
 }

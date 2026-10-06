@@ -43,9 +43,7 @@ func (f *fakeConfigProvider) FetchConfigs(ctx context.Context, refs []apigen.Val
 }
 
 func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
-	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"DB": {Secret: ref(6, 1)}, "MIX": {Config: ref(3, 1)}, "TOKEN": {Secret: ref(2, 1)}, "DUP": {Secret: ref(6, 1)}}}}}},
-	}
+	dep := containerDeployment(apigen.ContainerRuntime{EnvVars: map[string]apigen.EnvVar{"DB": secretEnv(6, 1), "MIX": configEnv(3, 1), "TOKEN": secretEnv(2, 1), "DUP": secretEnv(6, 1)}})
 
 	want := []apigen.ValueRef{vr(2), vr(6)}
 	if got := SecretRefs(dep); !reflect.DeepEqual(got, want) {
@@ -54,9 +52,7 @@ func TestSecretRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 }
 
 func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
-	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"URL": {Config: ref(18, 1)}, "DUP": {Config: ref(18, 1)}, "OTHER": {Config: ref(2, 1)}, "SECRET": {Secret: ref(9, 1)}}}}}},
-	}
+	dep := containerDeployment(apigen.ContainerRuntime{EnvVars: map[string]apigen.EnvVar{"URL": configEnv(18, 1), "DUP": configEnv(18, 1), "OTHER": configEnv(2, 1), "SECRET": secretEnv(9, 1)}})
 
 	want := []apigen.ValueRef{vr(2), vr(18)}
 	if got := ConfigRefs(dep); !reflect.DeepEqual(got, want) {
@@ -65,9 +61,7 @@ func TestConfigRefsFindsUniqueSortedEnvRefs(t *testing.T) {
 }
 
 func TestRequiredAssetRefsIncludesExplicitAndEnvAssets(t *testing.T) {
-	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{Asset: vr(8), Permission: apigen.FilePermission_READ_EXECUTE}}, EnvVars: map[string]*apigen.EnvVarValue{"APP_CONFIG": {Asset: "implicit.conf", AssetRef: ref(12, 1)}, "PLAIN": {Value: ptrString("value")}}}}}},
-	}
+	dep := containerDeployment(apigen.ContainerRuntime{AssetMounts: []apigen.AssetMount{{Asset: vr(8).Asset(), Permission: apigen.FilePermission_FILE_PERMISSION_READ_EXECUTE}}, EnvVars: map[string]apigen.EnvVar{"APP_CONFIG": assetEnv("implicit.conf", 12, 1), "PLAIN": literalEnv("value")}})
 
 	refs := RequiredAssetRefs(dep)
 	if len(refs) != 2 {
@@ -99,9 +93,7 @@ func TestEnsureSecretsReadyFetchesBatch(t *testing.T) {
 	fake := &fakeSecretProvider{}
 	inputs := New(nil, fake, nil)
 
-	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {Secret: ref(1, 1)}, "B": {Secret: ref(2, 1)}}}}}},
-	}
+	dep := containerDeployment(apigen.ContainerRuntime{EnvVars: map[string]apigen.EnvVar{"A": secretEnv(1, 1), "B": secretEnv(2, 1)}})
 
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureSecretsReady: %v", err)
@@ -119,9 +111,7 @@ func TestEnsureConfigsReadyFetchesBatch(t *testing.T) {
 	fake := &fakeConfigProvider{}
 	inputs := New(nil, nil, fake)
 
-	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {Config: ref(1, 1)}, "B": {Config: ref(2, 1)}}}}}},
-	}
+	dep := containerDeployment(apigen.ContainerRuntime{EnvVars: map[string]apigen.EnvVar{"A": configEnv(1, 1), "B": configEnv(2, 1)}})
 
 	if err := inputs.EnsureConfigsReady(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureConfigsReady: %v", err)
@@ -138,9 +128,7 @@ func TestEnsureConfigsReadyFetchesBatch(t *testing.T) {
 func TestEnsureSecretsReadyDoesNotCacheIncompleteBatch(t *testing.T) {
 	fake := &fakeSecretProvider{values: map[apigen.ValueRef]string{vr(1): "one"}}
 	inputs := New(nil, fake, nil)
-	dep := &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: map[string]*apigen.EnvVarValue{"A": {Secret: ref(1, 1)}, "B": {Secret: ref(2, 1)}}}}}},
-	}
+	dep := containerDeployment(apigen.ContainerRuntime{EnvVars: map[string]apigen.EnvVar{"A": secretEnv(1, 1), "B": secretEnv(2, 1)}})
 
 	if err := inputs.EnsureSecretsReady(context.Background(), dep); err == nil {
 		t.Fatal("expected incomplete secret batch to fail")
@@ -204,15 +192,12 @@ func (f *fakePersistence) RetainRuntimeInputs(secrets, configs map[apigen.ValueR
 	return removed, nil
 }
 
-func secretRefDeployment(refs ...apigen.ValueRef) *apigen.DeploymentEvent {
-	env := map[string]*apigen.EnvVarValue{}
+func secretRefDeployment(refs ...apigen.ValueRef) *apigen.DeploymentRecord {
+	env := map[string]apigen.EnvVar{}
 	for i, ref := range refs {
-		ref := ref
-		env[string(rune('A'+i))] = &apigen.EnvVarValue{Secret: &ref}
+		env[string(rune('A'+i))] = secretEnv(ref.ID, ref.Version)
 	}
-	return &apigen.DeploymentEvent{
-		Value: apigen.Deployment{Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{EnvVars: env}}}},
-	}
+	return containerDeployment(apigen.ContainerRuntime{EnvVars: env})
 }
 
 // The whole point of persisting runtime inputs: a restarted secondary resolves
@@ -325,9 +310,37 @@ func TestRetainDropsUnreferencedValuesFromMemoryAndPersistence(t *testing.T) {
 	}
 }
 
-func ptrInt32(v int32) *int32     { return &v }
-func vr(id int32) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }
-func ref(id, version int32) *apigen.ValueRef {
-	return &apigen.ValueRef{ID: id, Version: version}
+func vr(id uint64) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }
+
+func secretEnv(id uint64, version uint32) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Secret: &apigen.SecretEnv{Secret: apigen.SecretRef{SecretID: id, Version: version}}}}
 }
-func ptrString(v string) *string { return &v }
+
+func configEnv(id uint64, version uint32) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Config: &apigen.ConfigEnv{Config: apigen.ConfigRef{ConfigID: id, Version: version}}}}
+}
+
+func assetEnv(key string, id uint64, version uint32) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Asset: &apigen.AssetEnv{Key: key, Asset: apigen.AssetRef{AssetID: id, Version: version}}}}
+}
+
+func literalEnv(value string) apigen.EnvVar {
+	return apigen.EnvVar{Value: apigen.EnvVarValueOneof{Literal: &apigen.LiteralEnv{Value: value}}}
+}
+
+func containerDeployment(runtime apigen.ContainerRuntime) *apigen.DeploymentRecord {
+	return &apigen.DeploymentRecord{Deployment: apigen.Deployment{Spec: apigen.DeploymentSpec{Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{Runtime: runtime}}}}}}
+}
+
+func TestSecretRefsIncludesIngressCertificateSecrets(t *testing.T) {
+	dep := containerDeployment(apigen.ContainerRuntime{EnvVars: map[string]apigen.EnvVar{"TOKEN": secretEnv(4, 2)}})
+	dep.Deployment.Spec.Networking.Ingress = []apigen.Ingress{
+		{Hostname: "acme.example", Config: apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{Https: &apigen.HttpsConfig{ContainerPort: 8080, CertSource: apigen.Some(apigen.CertSource{Value: apigen.CertSourceValueOneof{Acme: &apigen.AcmeCertSource{Challenge: apigen.AcmeChallenge_ACME_CHALLENGE_HTTP_01}}})}}}},
+		{Hostname: "pinned.example", Config: apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{Https: &apigen.HttpsConfig{ContainerPort: 8080, CertSource: apigen.Some(apigen.CertSource{Value: apigen.CertSourceValueOneof{Secret: &apigen.SecretCertSource{Secret: apigen.SecretRef{SecretID: 9, Version: 3}}}})}}}},
+		{Hostname: "raw.example", Config: apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{TlsPassthrough: &apigen.TlsPassthroughConfig{ContainerPort: 8443}}}},
+	}
+	want := []apigen.ValueRef{{ID: 4, Version: 2}, {ID: 9, Version: 3}}
+	if got := SecretRefs(dep); !reflect.DeepEqual(got, want) {
+		t.Fatalf("SecretRefs() = %#v; want %#v", got, want)
+	}
+}

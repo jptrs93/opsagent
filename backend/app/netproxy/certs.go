@@ -89,7 +89,7 @@ func (cs *certStore) reload(ctx context.Context) error {
 	}
 	next := &certStoreState{seq: bundle.Seq, certs: make(map[string]*tls.Certificate, len(bundle.Certs))}
 	for _, entry := range bundle.Certs {
-		if entry == nil || entry.CertID == "" {
+		if entry.CertID == "" {
 			continue
 		}
 		cert, err := tls.X509KeyPair(entry.Pem, entry.Pem)

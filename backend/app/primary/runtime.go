@@ -11,6 +11,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/scheduledinstances"
 	"io"
 	"log/slog"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -100,7 +101,7 @@ func newRuntime() (*runtime, error) {
 	githubCredentials := secrets.GithubCredentialsProvider{
 		Secrets: secretsMgr,
 		SecretRef: func(context.Context) apigen.SecretRef {
-			return configService.Snapshot().Settings.Repo.GithubToken
+			return configService.Snapshot().Settings.Repo.GithubToken.Value
 		},
 	}
 
@@ -112,7 +113,7 @@ func newRuntime() (*runtime, error) {
 	tlsIssuer := &pki.Issuer{Secrets: secretsMgr}
 	runtimeInputs.SetIssuedTLSProvider(&pki.IssuedTLSProvider{
 		Issuer: tlsIssuer,
-		Snapshot: func() []apigen.DeploymentEvent {
+		Snapshot: func() []apigen.DeploymentRecord {
 			return deployments.Active(store.Queries(), nil)
 		},
 	})
@@ -130,7 +131,7 @@ func newRuntime() (*runtime, error) {
 		return nil, fmt.Errorf("loading nix store resets: %w", err)
 	}
 	acmeHolder := acmestate.NewHolder()
-	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.DeploymentEvent {
+	acmeIssuer := acmeissue.New(secretsMgr, func() []apigen.DeploymentRecord {
 		return deployments.Active(store.Queries(), nil)
 	}, store, acmeHolder)
 
@@ -173,13 +174,13 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 	}
 }
 
-func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string, networkMaps *netmappublisher.Publisher) {
+func (r *runtime) start(ctx context.Context, nodeID uint64, nodeIdentifier string, networkMaps *netmappublisher.Publisher) {
 	deployments.EnsureSystem(r.store, nodeID, version.Version)
 	nodes.SetNodeStatusByIdentifier(r.store, nodeIdentifier, true, time.Now())
 	nodes.UpdateNodeObservedMeta(r.store, nodeIdentifier, "", version.Version, runtimebin.InstalledSummary())
 	go r.runHostAddressInventory(ctx, nodeIdentifier)
 	netproxyCfg := deployments.EnsureNetproxy(r.store, nodeID, version.Version)
-	network.Default.SetNetproxyDeploymentID(netproxyCfg.DeploymentID)
+	network.Default.SetNetproxyDeploymentID(int32(netproxyCfg.Deployment.ID))
 	for _, node := range nodes.ListNodes(r.store.Queries()) {
 		if node.ID != nodeID {
 			deployments.EnsureNetproxy(r.store, node.ID, version.Version)
@@ -201,7 +202,7 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, netMapSource, nil)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
 	go r.nixDocker.RunMaintenance(ctx)
-	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, nodeID)
+	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, int32(nodeID))
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
 	go func() {
 		runner.SweepForeignContainers(ctx, scheduledinstances.Store{Service: r.store}, predicate)
@@ -214,18 +215,18 @@ func (r *runtime) start(ctx context.Context, nodeID int32, nodeIdentifier string
 // mirroring what secondaries report through ClusterHello.
 func (r *runtime) runHostAddressInventory(ctx context.Context, nodeIdentifier string) {
 	ctx = logu.AddTag(ctx, "HostAddresses")
-	var last []string
+	var last []netip.Addr
 	haveInventory := false
 	for {
 		prefix, hasPrefix := network.Default.PrefixValue()
 		addrs, err := network.EnumerateHostAddresses(prefix, hasPrefix)
 		if err != nil {
 			slog.WarnContext(ctx, "enumerating host addresses failed", "err", err)
-		} else if current := network.HostAddressStrings(addrs); !haveInventory || !slices.Equal(current, last) {
+		} else if current := addrs; !haveInventory || !slices.Equal(current, last) {
 			for _, node := range nodes.ListNodes(r.store.Queries()) {
 				if node.Identifier == nodeIdentifier {
 					reported := node.Reported()
-					reported.HostAddresses = current
+					reported.HostAddresses = hostAddressesOf(current)
 					nodes.ReportNode(r.store, nodeIdentifier, reported)
 					break
 				}
@@ -239,6 +240,14 @@ func (r *runtime) runHostAddressInventory(ctx context.Context, nodeIdentifier st
 		case <-time.After(network.HostAddressPollInterval):
 		}
 	}
+}
+
+func hostAddressesOf(addrs []netip.Addr) []apigen.IpAddress {
+	out := make([]apigen.IpAddress, 0, len(addrs))
+	for _, addr := range addrs {
+		out = append(out, apigen.AddrOf(addr))
+	}
+	return out
 }
 
 // localAssetProvider narrows the assets package's OpenAsset to the operator's pure

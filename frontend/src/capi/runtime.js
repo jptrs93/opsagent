@@ -14,7 +14,11 @@ const scratchBytes = new Uint8Array(scratch);
 function toBigInt(value) {
   if (typeof value === "bigint") return value;
   if (typeof value === "string") return BigInt(value);
-  return BigInt(Math.trunc(value));
+  const n = Math.trunc(value);
+  if (!Number.isSafeInteger(n)) {
+    throw new Error("cleanproto runtime: " + value + " is outside the safe integer range");
+  }
+  return BigInt(n);
 }
 
 export class Writer {

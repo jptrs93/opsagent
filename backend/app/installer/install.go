@@ -513,10 +513,15 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 	if opts.webTLSCertPEM != nil {
 		webTLSCertPEM = []byte(*opts.webTLSCertPEM)
 	}
+	underlayAddress := ""
+	if opts.underlayAddress != nil {
+		underlayAddress = *opts.underlayAddress
+	}
 	if _, err := service.Initialize(context.Background(), primarybootstrap.Options{
-		Initial:       initial,
-		PrimaryName:   primaryName,
-		WebTLSCertPEM: webTLSCertPEM,
+		Initial:         initial,
+		PrimaryName:     primaryName,
+		WebTLSCertPEM:   webTLSCertPEM,
+		UnderlayAddress: underlayAddress,
 	}); err != nil {
 		return nil, fmt.Errorf("initializing primary: %w", err)
 	}

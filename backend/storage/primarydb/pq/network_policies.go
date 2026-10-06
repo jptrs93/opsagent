@@ -23,11 +23,12 @@ func scanNetworkPolicy(row scanner) (*NetworkPolicyEvent, error) {
 		return nil, err
 	}
 	e.Value = *value
+	e.Value.ID = e.NetworkPolicyID
 	return &e, nil
 }
 
 // GetNetworkPolicy returns the live policy, or sql.ErrNoRows.
-func (q *Queries) GetNetworkPolicy(ctx context.Context, id int64) (*NetworkPolicyEvent, error) {
+func (q *Queries) GetNetworkPolicy(ctx context.Context, id uint64) (*NetworkPolicyEvent, error) {
 	return scanNetworkPolicy(q.db.QueryRowContext(ctx, `SELECT `+networkPolicyColumns+` FROM network_policies WHERE id = ?`, id))
 }
 
@@ -48,7 +49,7 @@ func (q *Queries) ListNetworkPolicies(ctx context.Context) ([]*NetworkPolicyEven
 	return out, rows.Err()
 }
 
-func (q *Queries) reduceNetworkPolicy(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, p *apigen.NetworkPolicy) error {
+func (q *Queries) reduceNetworkPolicy(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, p *apigen.NetworkPolicy) error {
 	if p == nil {
 		return fmt.Errorf("payload has no policy")
 	}
@@ -60,7 +61,7 @@ RETURNING created_time`,
 		id, notNullBlob(value.Encode()), env.EventTime, env.Seq, env.EventTime, env.Author)
 }
 
-func (q *Queries) deleteNetworkPolicyRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteNetworkPolicyRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM network_policies WHERE id = ?`, id)
 	return err
 }

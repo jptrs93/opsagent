@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model/assets.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message AssetRenameRequest {
+  int32 asset_id = 1;
+  string new_key = 2;
+}
+
+message AssetDeleteRequest {
+  int32 asset_id = 1;
+}
+
+message AssetMoveRequest {
+  int32 asset_id = 1;
+  int32 asset_directory_id = 2; // 0 = the root of the target space
+  int32 space_id = 3; // Target space; 0 keeps the asset where it is.
+}

@@ -3,63 +3,11 @@
 -- duplicate column, no such column, no such table). Comments must not contain
 -- semicolons — statements are split on them.
 --
--- History note: all migrations accumulated up to v0.0.541 (2026-08-31),
--- ending with the node_versions split and the merge of enrollment_requests
--- into nodes, were removed after every active cluster had been rolled
--- forward. The spec-version column renames and the one-time deployment event
--- log migration (v0.0.549) were removed likewise after the v0.0.550 rollout,
--- the legacy deployment table drops plus the event_time rename and
--- created_time backfill (v0.0.553 Deployment/DeploymentDef split) after the
--- v0.0.553 rollout, the scheduled_instances deployment_version column
--- add with its Go-side backfill (v0.0.554) after the v0.0.555 rollout,
--- the merge of scheduled_instances + scheduled_instance_versions into
--- scheduled_instance_event_log with the legacy table drops (v0.0.559) after
--- the v0.0.559 rollout, and the event log consolidation of secrets, configs,
--- assets, network policies and nodes (v0.0.563: Go-side value-entity copies
--- in pq/migrate_values.go, node/policy SQL copies with synthetic policy
--- delete events, and the 13 legacy table drops) after the v0.0.563 rollout,
--- and the authz event log merge (v0.0.566: template/grant/global-rule copies
--- with synthetic delete events and the 4 legacy table drops) after the
--- v0.0.566 rollout, and the event-log changed-flag rebuild (v0.0.569:
--- *_changed columns plus NOT NULL carried-forward payloads on the
--- deployment/asset/secret/config logs, a Go shape migration in
--- pq/migrate_event_flags.go) after the v0.0.570 rollout, and the node
--- observation move (v0.0.587: node_event_log host_addresses and
--- enrollment_requested_at columns, the one-time copy of the last legacy
--- node_statuses row into node_status_log, and the global_seq columns on the
--- two observed status logs) after the v0.0.587 rollout, and the deployment
--- scheduling facet (v0.0.611: scheduling_version and scheduling_changed
--- columns on deployment_event_log plus the Go shape migration in
--- pq/migrate_scheduling.go that lifted node_id and ContainerSpec.running
--- into Deployment.scheduling) after the v0.0.611 rollout. A database from
--- before v0.0.611 fails at startup on the missing columns rather than
--- opening with every deployment read as stopped.
--- The v0.0.613 and v0.0.614 statements (the value-log space facet drop, the
--- asset storage_key backfill, the JWT key and personal_sessions drops, the
--- legacy table drops) and the v0.0.615 status event_time columns were removed
--- on 2026-10-01, once v0.0.614 was tagged and before any cluster ran it,
--- together with the Go-side one-time migrations of that release
--- (pq/migrate_event_tables.go, pq/migrate_value_refs.go,
--- pq/migrate_inline_assets.go with assets.MigrateInlineContent, and
--- pq/migrate_secret_seals.go with secrets.Manager.migrateSealsLocked), and
--- the write log backfill that pq.Open ran on every start was replaced by an
--- open-time check that the log reaches global_seq. A cluster on v0.0.612
--- therefore has to run v0.0.614 once before v0.0.615: pq.Open refuses an
--- older database before it touches the file, naming that step. The one
--- startup migration that remains is pq/migrate_materialise.go
--- (materialiseLegacyTables with the pre-schema renameLegacyStatusLog step
--- and the file copy backupLegacyDatabase takes first): the one-time move of
--- every entity type from its append-only event table (secrets, configs,
--- assets, both directory kinds, spaces, users, network policies, authz rule
--- templates, authz grants, authz global rules, agent and user sessions, Nix
--- store resets, keyslots, the system config, nodes, node statuses,
--- deployments, scheduled instances, and instance statuses) to the
--- materialised tables rebuilt from the write log, which drops the
--- twenty-one old tables, with the repair of what the v0.0.614 backfill had
--- logged out of order (repairLegacyLog) and the logged deployment counters
--- the reducer keeps during a rebuild (loggedDeploymentCounters). Remove it
--- after every active cluster has rolled forward past v0.0.615.
--- Upgrading a database from before then requires stepping through a release
--- that still carried them. Databases migrated through v0.0.541 keep a dead
--- NULL-only nodes.enrollment_id column: its UNIQUE constraint blocks
--- ALTER TABLE DROP COLUMN, and no query references it.
+-- History note: every migration and Go-side startup migration up to and
+-- including the v0.0.615 write log materialisation was removed on 2026-10-05,
+-- once every active cluster ran v0.0.615. pq.Open refuses a database that
+-- v0.0.615 never opened (one that still has a deployment_event_log table).
+-- Upgrading an older database requires stepping through v0.0.614 and then
+-- v0.0.615 first. Databases migrated through v0.0.541 keep a dead NULL-only
+-- nodes.enrollment_id column: its UNIQUE constraint blocks ALTER TABLE DROP
+-- COLUMN, and no query references it.

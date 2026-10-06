@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
@@ -29,13 +30,12 @@ func (e *ErrNodeHasDeployments) Error() string {
 	return fmt.Sprintf("%d deployments still target this node", e.Count)
 }
 
-func MemberNodeIDByIdentifier(q *pq.Queries, identifier string) (int32, error) {
-	nodeID, err := q.GetNodeIDByIdentifierWithStatus(context.Background(), identifier, pq.MemberNodeStatuses)
-	return int32(nodeID), err
+func MemberNodeIDByIdentifier(q *pq.Queries, identifier string) (uint64, error) {
+	return q.GetNodeIDByIdentifierWithStatus(context.Background(), identifier, pq.MemberNodeStatuses)
 }
 
 func IsEvictedIdentifier(q *pq.Queries, identifier string) bool {
-	_, err := q.GetNodeIDByIdentifierWithStatus(context.Background(), identifier, []int64{int64(apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED)})
+	_, err := q.GetNodeIDByIdentifierWithStatus(context.Background(), identifier, []int64{int64(apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED)})
 	return err == nil
 }
 
@@ -56,10 +56,10 @@ func SetNodeDraining(ctx apigen.Context, store *state.Service, identifier string
 		if isPrimaryRow(current) {
 			return nil, ErrNodeIsPrimary
 		}
-		target := apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL
+		target := apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL
 		if draining {
-			target = apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING
-		} else if current.Event.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_DRAINING {
+			target = apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_DRAINING
+		} else if current.Event.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_DRAINING {
 			row = current
 			return nil, nil
 		}
@@ -105,7 +105,7 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 		}
 		pinned := 0
 		for _, cfg := range active {
-			if cfg.Value.PlacementNodeID() != nodeID {
+			if cfg.Deployment.PlacementNodeID() != nodeID {
 				continue
 			}
 			if !internaldeploy.IsInternalConfig(cfg) {
@@ -116,14 +116,14 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			return nil, &ErrNodeHasDeployments{Count: pinned}
 		}
 		for _, cfg := range active {
-			if cfg.Value.PlacementNodeID() != nodeID || !internaldeploy.IsInternalConfig(cfg) {
+			if cfg.Deployment.PlacementNodeID() != nodeID || !internaldeploy.IsInternalConfig(cfg) {
 				continue
 			}
-			event, err := q.DeploymentDeleteEvent(ctx, int64(cfg.DeploymentID), seq, now)
+			record, err := q.DeploymentDeleteRecord(ctx, cfg.Deployment.ID, seq, now)
 			if err != nil {
 				return nil, err
 			}
-			pq.AppendMutations(update, pq.DeploymentMutation(event))
+			pq.AppendMutations(update, pq.DeploymentMutation(record))
 		}
 		instances, err := q.ListNonFinalScheduledInstances(ctx)
 		if err != nil {
@@ -143,7 +143,7 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			if err != nil {
 				return nil, err
 			}
-			tombstone := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: inst.ID, DeploymentID: inst.DeploymentID, UpdatedAt: previous.UpdatedAt}
+			tombstone := &apigen.ScheduledInstanceStatus{ScheduledInstanceID: inst.ID, UpdatedAt: previous.UpdatedAt}
 			tombstone.BumpUpdatedAt()
 			pq.AppendMutations(update, pq.ScheduledInstanceStatusMutation(seq, now.UnixMilli(), tombstone))
 		}
@@ -157,13 +157,13 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 		}
 		statusTombstone.BumpUpdatedAt()
 		pq.AppendMutations(update, pq.NodeStatusMutation(seq, now.UnixMilli(), statusTombstone))
-		keyslots, err := q.NodeSecretKeyslotDeletes(ctx, pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: int64(ctx.AttributionUserID())}, int64(nodeID))
+		keyslots, err := q.NodeSecretKeyslotDeletes(ctx, pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: ctx.AttributionUserID()}, nodeID)
 		if err != nil {
 			return nil, err
 		}
 		pq.AppendMutations(update, keyslots...)
 		row, _ = appendNodeVersion(seq, now.UnixMilli(), current, ctx.AttributionUserID(), func(spec *nodeEventSpec) {
-			spec.Status = apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED
+			spec.Status = apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED
 			spec.EnrollmentRequestedAt = 0
 		})
 		pq.AppendMutations(update, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event))
@@ -176,23 +176,23 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 }
 
 type Exposure struct {
-	NodeID               int32
-	Deployments          []*apigen.DeploymentEvent
+	NodeID               uint64
+	Deployments          []*apigen.DeploymentRecord
 	Secrets              []apigen.ValueRef
 	Configs              []apigen.ValueRef
-	IssuedTLSDeployments []*apigen.DeploymentEvent
+	IssuedTLSDeployments []*apigen.DeploymentRecord
 	AcmeHostnames        []string
 	GithubToken          bool
 }
 
-func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, error) {
+func NodeExposure(ctx context.Context, q *pq.Queries, nodeID uint64) (Exposure, error) {
 	out := Exposure{NodeID: nodeID}
 	active, err := q.ListActiveDeployments(ctx)
 	if err != nil {
 		return out, err
 	}
 	for _, cfg := range active {
-		if cfg.Value.PlacementNodeID() == nodeID && !internaldeploy.IsInternalConfig(cfg) {
+		if cfg.Deployment.PlacementNodeID() == nodeID && !internaldeploy.IsInternalConfig(cfg) {
 			out.Deployments = append(out.Deployments, cfg)
 		}
 	}
@@ -202,16 +202,20 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 	}
 	secrets := map[apigen.ValueRef]struct{}{}
 	configs := map[apigen.ValueRef]struct{}{}
-	issued := map[int32]*apigen.DeploymentEvent{}
+	issued := map[uint64]*apigen.DeploymentRecord{}
 	hostnames := map[string]struct{}{}
-	seen := map[[2]int32]struct{}{}
+	type pinnedVersion struct {
+		deploymentID uint64
+		version      uint32
+	}
+	seen := map[pinnedVersion]struct{}{}
 	for _, event := range events {
-		key := [2]int32{event.Value.DeploymentID, event.Value.DeploymentVersion}
+		key := pinnedVersion{event.Value.Deployment.DeploymentID, event.Value.Deployment.Version}
 		if _, dup := seen[key]; dup {
 			continue
 		}
 		seen[key] = struct{}{}
-		cfg, err := q.GetDeploymentEventByVersion(ctx, pq.GetDeploymentEventByVersionParams{DeploymentID: int64(event.Value.DeploymentID), Version: int64(event.Value.DeploymentVersion)})
+		cfg, err := q.GetDeploymentVersion(ctx, key.deploymentID, key.version)
 		if errors.Is(err, sql.ErrNoRows) {
 			continue
 		}
@@ -219,10 +223,10 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 			return out, err
 		}
 		collectSpecExposure(cfg, secrets, configs, hostnames, &out.GithubToken)
-		container := cfg.Value.Spec.Container()
-		if container != nil && container.Runtime.IssuedTlsMount != nil {
-			if existing, ok := issued[cfg.DeploymentID]; !ok || cfg.Version > existing.Version {
-				issued[cfg.DeploymentID] = cfg
+		container := cfg.Deployment.Spec.Container()
+		if container != nil && container.Runtime.IssuedTlsMount.Present {
+			if existing, ok := issued[cfg.Deployment.ID]; !ok || cfg.Meta.Version > existing.Meta.Version {
+				issued[cfg.Deployment.ID] = cfg
 			}
 		}
 	}
@@ -231,7 +235,7 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 	for _, cfg := range issued {
 		out.IssuedTLSDeployments = append(out.IssuedTLSDeployments, cfg)
 	}
-	slices.SortFunc(out.IssuedTLSDeployments, func(a, b *apigen.DeploymentEvent) int { return int(a.DeploymentID - b.DeploymentID) })
+	slices.SortFunc(out.IssuedTLSDeployments, func(a, b *apigen.DeploymentRecord) int { return cmp.Compare(a.Deployment.ID, b.Deployment.ID) })
 	for hostname := range hostnames {
 		out.AcmeHostnames = append(out.AcmeHostnames, hostname)
 	}
@@ -239,15 +243,16 @@ func NodeExposure(ctx context.Context, q *pq.Queries, nodeID int32) (Exposure, e
 	return out, nil
 }
 
-func collectSpecExposure(cfg *apigen.DeploymentEvent, secrets, configs map[apigen.ValueRef]struct{}, hostnames map[string]struct{}, github *bool) {
-	for _, route := range cfg.Value.Spec.Networking.Ingress {
-		if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
+func collectSpecExposure(cfg *apigen.DeploymentRecord, secrets, configs map[apigen.ValueRef]struct{}, hostnames map[string]struct{}, github *bool) {
+	for i := range cfg.Deployment.Spec.Networking.Ingress {
+		route := &cfg.Deployment.Spec.Networking.Ingress[i]
+		https := route.Config.Value.Https
+		if https == nil {
 			continue
 		}
-		source := route.HttpsConfig.CertSource
-		if source != nil && source.Secret != nil {
-			if source.Secret.Secret.Valid() {
-				secrets[source.Secret.Secret] = struct{}{}
+		if https.CertSource.Present && https.CertSource.Value.Value.Secret != nil {
+			if ref := https.CertSource.Value.Value.Secret.Secret; ref.Valid() {
+				secrets[ref.Ref()] = struct{}{}
 			}
 			continue
 		}
@@ -256,27 +261,24 @@ func collectSpecExposure(cfg *apigen.DeploymentEvent, secrets, configs map[apige
 			hostnames[hostname] = struct{}{}
 		}
 	}
-	container := cfg.Value.Spec.Container()
+	container := cfg.Deployment.Spec.Container()
 	if container == nil {
 		return
 	}
-	if container.Source.NixDockerBuild != nil {
+	if container.Source.Value.NixImageBuild != nil {
 		*github = true
 	}
-	if image := container.Source.RemoteImage; image != nil {
+	if image := container.Source.Value.RemoteImage; image != nil {
 		if ref, err := imageref.Parse(image.Image); err == nil && strings.EqualFold(ref.Registry, "ghcr.io") {
 			*github = true
 		}
 	}
 	for _, value := range container.Runtime.EnvVars {
-		if value == nil {
-			continue
+		if secret := value.Value.Secret; secret != nil && secret.Secret.Valid() {
+			secrets[secret.Secret.Ref()] = struct{}{}
 		}
-		if value.Secret != nil && value.Secret.Valid() {
-			secrets[*value.Secret] = struct{}{}
-		}
-		if value.Config != nil && value.Config.Valid() {
-			configs[*value.Config] = struct{}{}
+		if config := value.Value.Config; config != nil && config.Config.Valid() {
+			configs[config.Config.Ref()] = struct{}{}
 		}
 	}
 }

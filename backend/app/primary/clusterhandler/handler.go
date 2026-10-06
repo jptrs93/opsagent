@@ -81,7 +81,7 @@ func requireMachine(ctx context.Context) (string, error) {
 	return machine, nil
 }
 
-func scheduledInstancePredicateForNode(nodeID int32) storage.ScheduledInstancePredicate {
+func scheduledInstancePredicateForNode(nodeID uint64) storage.ScheduledInstancePredicate {
 	return func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == nodeID
 	}
@@ -114,8 +114,8 @@ type Handler struct {
 	issuedTLS         *pki.Issuer
 
 	mu          sync.RWMutex
-	sessions    map[int32]*Session  // node ID → session
-	connectedAt map[int32]time.Time // node ID → when session was accepted
+	sessions    map[uint64]*Session  // node ID → session
+	connectedAt map[uint64]time.Time // node ID → when session was accepted
 }
 
 type assetProvider interface {
@@ -127,12 +127,12 @@ type nixStoreResetProvider interface {
 }
 
 type networkMapProvider interface {
-	SnapshotAndSubscribe(nodeID int32) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
+	SnapshotAndSubscribe(nodeID uint64) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
 	// RecordApplied and ForgetNode drive the barrier that holds back retiring a
 	// draining placement until every secondary has programmed the routing that
 	// replaced it.
-	RecordApplied(nodeID int32, appliedSequence int64)
-	ForgetNode(nodeID int32)
+	RecordApplied(nodeID uint64, appliedSequence int64)
+	ForgetNode(nodeID uint64)
 }
 
 func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder, nixStores nixStoreResetProvider, issuedTLS *pki.Issuer) *Handler {
@@ -146,8 +146,8 @@ func New(store *state.Service, assets assetProvider, githubCredentials githubcre
 		acme:              acme,
 		nixStores:         nixStores,
 		issuedTLS:         issuedTLS,
-		sessions:          make(map[int32]*Session),
-		connectedAt:       make(map[int32]time.Time),
+		sessions:          make(map[uint64]*Session),
+		connectedAt:       make(map[uint64]time.Time),
 	}
 }
 
@@ -167,15 +167,15 @@ func (p *Handler) GetV1ClusterGithubCredentials(authCtx apigen.Context) (*apigen
 }
 
 func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w http.ResponseWriter) error {
-	assetID, err := int32QueryParam(r, "asset_id")
+	assetID, err := uintQueryParam(r, "asset_id", 64)
 	if err != nil {
 		return err
 	}
-	version, err := int32QueryParam(r, "version")
+	version, err := uintQueryParam(r, "version", 32)
 	if err != nil {
 		return err
 	}
-	ref := apigen.ValueRef{ID: assetID, Version: version}
+	ref := apigen.ValueRef{ID: assetID, Version: uint32(version)}
 	predicate, err := p.requireScheduledInstancePredicate(authCtx)
 	if err != nil {
 		return err
@@ -197,21 +197,21 @@ func (p *Handler) GetV1ClusterAsset(authCtx apigen.Context, r *http.Request, w h
 	return nil
 }
 
-func int32QueryParam(r *http.Request, name string) (int32, error) {
+func uintQueryParam(r *http.Request, name string, bits int) (uint64, error) {
 	raw := r.URL.Query().Get(name)
 	if raw == "" {
 		return 0, fmt.Errorf("%s is required", name)
 	}
-	value, err := strconv.ParseInt(raw, 10, 32)
-	if err != nil || value <= 0 {
-		return 0, fmt.Errorf("%s must be a positive int32", name)
+	value, err := strconv.ParseUint(raw, 10, bits)
+	if err != nil || value == 0 {
+		return 0, fmt.Errorf("%s must be a positive uint%d", name, bits)
 	}
-	return int32(value), nil
+	return value, nil
 }
 
 type clusterAllowedRefs struct {
-	scheduledInstanceIDs map[int32]struct{}
-	deploymentIDs        map[int32]struct{}
+	scheduledInstanceIDs map[uint64]struct{}
+	deploymentIDs        map[uint64]struct{}
 	secrets              map[apigen.ValueRef]struct{}
 	configs              map[apigen.ValueRef]struct{}
 	assets               map[apigen.ValueRef]struct{}
@@ -231,14 +231,14 @@ func (p *Handler) allowedRefs(predicate storage.ScheduledInstancePredicate) clus
 
 func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInstanceState, bindings map[string]apigen.ValueRef) {
 	for _, state := range snapshot {
-		for _, route := range state.Config.Value.Spec.Networking.Ingress {
-			if route == nil || route.Kind != apigen.IngressKind_INGRESS_KIND_HTTPS || route.HttpsConfig == nil {
+		for _, route := range state.Config.Deployment.Spec.Networking.Ingress {
+			https := route.Config.Value.Https
+			if https == nil {
 				continue
 			}
-			source := route.HttpsConfig.CertSource
-			if source != nil && source.Secret != nil {
-				if source.Secret.Secret.Valid() {
-					refs.secrets[source.Secret.Secret] = struct{}{}
+			if source := https.CertSource; source.Present && source.Value.Value.Secret != nil {
+				if ref := source.Value.Value.Secret.Secret.Ref(); ref.Valid() {
+					refs.secrets[ref] = struct{}{}
 				}
 				continue
 			}
@@ -252,8 +252,8 @@ func addIngressCertRefs(refs clusterAllowedRefs, snapshot []apigen.ScheduledInst
 
 func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRefs {
 	refs := clusterAllowedRefs{
-		scheduledInstanceIDs: make(map[int32]struct{}),
-		deploymentIDs:        make(map[int32]struct{}),
+		scheduledInstanceIDs: make(map[uint64]struct{}),
+		deploymentIDs:        make(map[uint64]struct{}),
 		secrets:              make(map[apigen.ValueRef]struct{}),
 		configs:              make(map[apigen.ValueRef]struct{}),
 		assets:               make(map[apigen.ValueRef]struct{}),
@@ -263,60 +263,61 @@ func buildAllowedRefs(snapshot []apigen.ScheduledInstanceState) clusterAllowedRe
 		if state.Instance.ID != 0 {
 			refs.scheduledInstanceIDs[state.Instance.ID] = struct{}{}
 		}
-		if cfg.DeploymentID != 0 {
-			refs.deploymentIDs[cfg.DeploymentID] = struct{}{}
+		if cfg.Deployment.ID != 0 {
+			refs.deploymentIDs[cfg.Deployment.ID] = struct{}{}
 		}
-		container := cfg.Value.Spec.Container()
-		if container != nil && container.Source.NixDockerBuild != nil {
+		container := cfg.Deployment.Spec.Container()
+		if container != nil && container.Source.Value.NixImageBuild != nil {
 			refs.usesGithub = true
 		}
 		if container == nil {
 			continue
 		}
-		if image := container.Source.RemoteImage; image != nil {
+		if image := container.Source.Value.RemoteImage; image != nil {
 			if ref, err := imageref.Parse(image.Image); err == nil && strings.EqualFold(ref.Registry, "ghcr.io") {
 				refs.usesGithub = true
 			}
 		}
 		for _, value := range container.Runtime.EnvVars {
-			if value == nil {
-				continue
-			}
-			if value.Secret != nil && value.Secret.Valid() {
-				refs.secrets[*value.Secret] = struct{}{}
-			}
-			if value.Config != nil && value.Config.Valid() {
-				refs.configs[*value.Config] = struct{}{}
-			}
-			if value.AssetRef != nil && value.AssetRef.Valid() {
-				refs.assets[*value.AssetRef] = struct{}{}
+			switch v := value.Value; {
+			case v.Secret != nil:
+				if ref := v.Secret.Secret.Ref(); ref.Valid() {
+					refs.secrets[ref] = struct{}{}
+				}
+			case v.Config != nil:
+				if ref := v.Config.Config.Ref(); ref.Valid() {
+					refs.configs[ref] = struct{}{}
+				}
+			case v.Asset != nil:
+				if ref := v.Asset.Asset.Ref(); ref.Valid() {
+					refs.assets[ref] = struct{}{}
+				}
 			}
 		}
 		for _, mount := range container.Runtime.AssetMounts {
-			if mount == nil || !mount.Asset.Valid() {
-				continue
+			if ref := mount.Asset.Ref(); ref.Valid() {
+				refs.assets[ref] = struct{}{}
 			}
-			refs.assets[mount.Asset] = struct{}{}
 		}
 	}
 	return refs
 }
 
-func (r clusterAllowedRefs) scheduledInstanceAllowed(id int32) bool {
+func (r clusterAllowedRefs) scheduledInstanceAllowed(id uint64) bool {
 	_, ok := r.scheduledInstanceIDs[id]
 	return ok
 }
 
-func (r clusterAllowedRefs) deploymentAllowed(id int32) bool {
+func (r clusterAllowedRefs) deploymentAllowed(id uint64) bool {
 	_, ok := r.deploymentIDs[id]
 	return ok
 }
 
-func (r clusterAllowedRefs) allSecretsAllowed(refs []*apigen.ValueRef) bool {
+func (r clusterAllowedRefs) allSecretsAllowed(refs []apigen.ValueRef) bool {
 	return allValueRefsAllowed(refs, r.secrets)
 }
 
-func (r clusterAllowedRefs) allConfigsAllowed(refs []*apigen.ValueRef) bool {
+func (r clusterAllowedRefs) allConfigsAllowed(refs []apigen.ValueRef) bool {
 	return allValueRefsAllowed(refs, r.configs)
 }
 
@@ -325,22 +326,30 @@ func (r clusterAllowedRefs) assetAllowed(ref apigen.ValueRef) bool {
 	return ok
 }
 
-func allValueRefsAllowed(refs []*apigen.ValueRef, allowed map[apigen.ValueRef]struct{}) bool {
+func allValueRefsAllowed(refs []apigen.ValueRef, allowed map[apigen.ValueRef]struct{}) bool {
 	for _, ref := range refs {
-		if ref == nil || !ref.Valid() {
+		if !ref.Valid() {
 			return false
 		}
-		if _, ok := allowed[*ref]; !ok {
+		if _, ok := allowed[ref]; !ok {
 			return false
 		}
 	}
 	return true
 }
 
-func derefValueRefs(refs []*apigen.ValueRef) []apigen.ValueRef {
+func secretValueRefs(refs []apigen.SecretRef) []apigen.ValueRef {
 	out := make([]apigen.ValueRef, 0, len(refs))
 	for _, ref := range refs {
-		out = append(out, *ref)
+		out = append(out, ref.Ref())
+	}
+	return out
+}
+
+func configValueRefs(refs []apigen.ConfigRef) []apigen.ValueRef {
+	out := make([]apigen.ValueRef, 0, len(refs))
+	for _, ref := range refs {
+		out = append(out, ref.Ref())
 	}
 	return out
 }
@@ -356,16 +365,17 @@ func (p *Handler) GetV1ClusterSecrets(authCtx apigen.Context, req *apigen.Cluste
 	if err != nil {
 		return nil, err
 	}
-	if !p.allowedRefs(predicate).allSecretsAllowed(req.Refs) {
+	refs := secretValueRefs(req.Refs)
+	if !p.allowedRefs(predicate).allSecretsAllowed(refs) {
 		return nil, clusterForbiddenErr
 	}
-	values, err := p.secrets.ResolveMany(derefValueRefs(req.Refs))
+	values, err := p.secrets.ResolveMany(refs)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]*apigen.ClusterSecretValue, 0, len(values))
+	items := make([]apigen.ClusterSecretValue, 0, len(values))
 	for ref, value := range values {
-		items = append(items, &apigen.ClusterSecretValue{Ref: ref, Value: []byte(value)})
+		items = append(items, apigen.ClusterSecretValue{Ref: ref.Secret(), Value: []byte(value)})
 	}
 	return &apigen.ClusterSecretsResponse{Items: items}, nil
 }
@@ -378,16 +388,17 @@ func (p *Handler) GetV1ClusterConfigs(authCtx apigen.Context, req *apigen.Cluste
 	if err != nil {
 		return nil, err
 	}
-	if !p.allowedRefs(predicate).allConfigsAllowed(req.Refs) {
+	refs := configValueRefs(req.Refs)
+	if !p.allowedRefs(predicate).allConfigsAllowed(refs) {
 		return nil, clusterForbiddenErr
 	}
-	values, err := values.ResolveConfigs(p.store.Queries(), derefValueRefs(req.Refs))
+	values, err := values.ResolveConfigs(p.store.Queries(), refs)
 	if err != nil {
 		return nil, err
 	}
-	items := make([]*apigen.ClusterConfigValue, 0, len(values))
+	items := make([]apigen.ClusterConfigValue, 0, len(values))
 	for ref, value := range values {
-		items = append(items, &apigen.ClusterConfigValue{Ref: ref, Value: value})
+		items = append(items, apigen.ClusterConfigValue{Ref: ref.Config(), Value: value})
 	}
 	return &apigen.ClusterConfigsResponse{Items: items}, nil
 }
@@ -396,7 +407,7 @@ func (p *Handler) GetV1ClusterIssuedTls(authCtx apigen.Context, req *apigen.Clus
 	if p.issuedTLS == nil {
 		return nil, fmt.Errorf("issued TLS is not configured")
 	}
-	if req == nil || req.DeploymentID <= 0 {
+	if req == nil || req.DeploymentID == 0 {
 		return nil, fmt.Errorf("deployment_id is required")
 	}
 	predicate, err := p.requireScheduledInstancePredicate(authCtx)
@@ -404,10 +415,10 @@ func (p *Handler) GetV1ClusterIssuedTls(authCtx apigen.Context, req *apigen.Clus
 		return nil, err
 	}
 	for _, instance := range p.store.FetchScheduledSnapshot(predicate) {
-		if instance.Config.DeploymentID != req.DeploymentID {
+		if instance.Config.Deployment.ID != req.DeploymentID {
 			continue
 		}
-		if instance.Config.Value.Spec.Container() == nil || instance.Config.Value.Spec.Container().Runtime.IssuedTlsMount == nil {
+		if container := instance.Config.Deployment.Spec.Container(); container == nil || !container.Runtime.IssuedTlsMount.Present {
 			return nil, clusterForbiddenErr
 		}
 		return p.issuedTLS.Issue(&instance.Config)
@@ -489,15 +500,15 @@ func (p *Handler) RunEvictionWatch(ctx context.Context) {
 				continue
 			}
 			for _, m := range update.Mutations {
-				if e := m.Entity(); e != nil && e.Node != nil && e.Node.Status == apigen.NodeLifecycleStatus_NODE_MEMBER_EVICTED {
-					p.evictSession(int32(m.EntityID()))
+				if e := m.Entity(); e != nil && e.Value.Node != nil && e.Value.Node.Status == apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED {
+					p.evictSession(m.EntityID())
 				}
 			}
 		}
 	}
 }
 
-func (p *Handler) evictSession(nodeID int32) {
+func (p *Handler) evictSession(nodeID uint64) {
 	p.mu.RLock()
 	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
@@ -508,7 +519,7 @@ func (p *Handler) evictSession(nodeID int32) {
 	sess.evict()
 }
 
-func (p *Handler) registerSession(nodeID int32, identifier string, sess *Session) {
+func (p *Handler) registerSession(nodeID uint64, identifier string, sess *Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if old, ok := p.sessions[nodeID]; ok {
@@ -520,7 +531,7 @@ func (p *Handler) registerSession(nodeID int32, identifier string, sess *Session
 	nodes.SetNodeStatusByIdentifier(p.store, identifier, true, connectedAt)
 }
 
-func (p *Handler) unregisterSession(nodeID int32, identifier string, expected *Session) {
+func (p *Handler) unregisterSession(nodeID uint64, identifier string, expected *Session) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if current, ok := p.sessions[nodeID]; ok && current == expected {
@@ -532,7 +543,7 @@ func (p *Handler) unregisterSession(nodeID int32, identifier string, expected *S
 
 // RequestLogs's caller must read the returned reader until EOF, or close it to
 // abort.
-func (p *Handler) RequestLogs(nodeID int32, req *apigen.MsgToSecondary) (io.ReadCloser, error) {
+func (p *Handler) RequestLogs(nodeID uint64, req *apigen.MsgToSecondary) (io.ReadCloser, error) {
 	p.mu.RLock()
 	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
@@ -544,7 +555,7 @@ func (p *Handler) RequestLogs(nodeID int32, req *apigen.MsgToSecondary) (io.Read
 
 // RequestLogQuery runs a one-shot structured log query on a secondary and
 // returns its complete response.
-func (p *Handler) RequestLogQuery(ctx context.Context, nodeID int32, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
+func (p *Handler) RequestLogQuery(ctx context.Context, nodeID uint64, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
 	p.mu.RLock()
 	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
@@ -555,7 +566,7 @@ func (p *Handler) RequestLogQuery(ctx context.Context, nodeID int32, req *apigen
 }
 
 // RequestMetricsQuery runs a one-shot metrics rollup on a secondary.
-func (p *Handler) RequestMetricsQuery(ctx context.Context, nodeID int32, req *apigen.MetricsQueryRequest) (*apigen.MetricsQueryResponse, error) {
+func (p *Handler) RequestMetricsQuery(ctx context.Context, nodeID uint64, req *apigen.MetricsQueryRequest) (*apigen.MetricsQueryResponse, error) {
 	p.mu.RLock()
 	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
@@ -567,7 +578,7 @@ func (p *Handler) RequestMetricsQuery(ctx context.Context, nodeID int32, req *ap
 
 // RequestMetricsLatest fetches the latest sample per running container from
 // a secondary.
-func (p *Handler) RequestMetricsLatest(ctx context.Context, nodeID int32) (*apigen.MetricsLatestResponse, error) {
+func (p *Handler) RequestMetricsLatest(ctx context.Context, nodeID uint64) (*apigen.MetricsLatestResponse, error) {
 	p.mu.RLock()
 	sess, ok := p.sessions[nodeID]
 	p.mu.RUnlock()
@@ -577,10 +588,10 @@ func (p *Handler) RequestMetricsLatest(ctx context.Context, nodeID int32) (*apig
 	return sess.requestMetricsLatest(ctx)
 }
 
-func (p *Handler) ConnectedNodes() map[int32]time.Time {
+func (p *Handler) ConnectedNodes() map[uint64]time.Time {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	out := make(map[int32]time.Time, len(p.sessions))
+	out := make(map[uint64]time.Time, len(p.sessions))
 	for nodeID := range p.sessions {
 		out[nodeID] = p.connectedAt[nodeID]
 	}
@@ -590,7 +601,7 @@ func (p *Handler) ConnectedNodes() map[int32]time.Time {
 // NodeNotConnectedError is returned when a log proxy request targets a node
 // that has no active cluster session.
 type NodeNotConnectedError struct {
-	NodeID int32
+	NodeID uint64
 }
 
 func (e *NodeNotConnectedError) Error() string {

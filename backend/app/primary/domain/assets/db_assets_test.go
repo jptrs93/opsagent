@@ -56,14 +56,14 @@ func openTestStore(t *testing.T) *state.Service {
 
 // SetAssetByKey creates the asset in spaceID's root on first use and appends a
 // version on each later call. Test-only convenience over the public write API.
-func setAssetByKey(s *state.Service, key string, blob []byte, spaceIDs ...int32) *pq.AssetEvent {
+func setAssetByKey(s *state.Service, key string, blob []byte, spaceIDs ...uint64) *pq.AssetEvent {
 	spaceID := nodes.DefaultSpaceID
 	if len(spaceIDs) > 0 {
 		spaceID = nodes.NormalizedUserSpaceID(spaceIDs[0])
 	}
 	sha, storageKey := mustPutAssetContent(s, blob)
 	if existing, ok := GetAssetInDirectory(s.Queries(), spaceID, 0, key); ok {
-		a, err := AppendAssetVersion(s, int32(existing.ID), 0, sha, storageKey, int64(len(blob)))
+		a, err := AppendAssetVersion(s, existing.ID, 0, sha, storageKey, int64(len(blob)))
 		if err != nil {
 			panic(fmt.Sprintf("SetAssetByKey append: %v", err))
 		}
@@ -242,10 +242,10 @@ func TestRenameAssetRejectsExistingKey(t *testing.T) {
 	if _, err := RenameAssetKey(store, source.AssetID, "destination"); !errors.Is(err, ErrAssetAlreadyExists) {
 		t.Fatalf("rename collision error = %v, want %v", err, ErrAssetAlreadyExists)
 	}
-	if got, ok := GetAssetInDirectory(store.Queries(), nodes.DefaultSpaceID, 0, "source"); !ok || int32(got.ID) != source.AssetID {
+	if got, ok := GetAssetInDirectory(store.Queries(), nodes.DefaultSpaceID, 0, "source"); !ok || got.ID != source.AssetID {
 		t.Fatalf("source after collision = %+v, ok=%v", got, ok)
 	}
-	if got, ok := GetAssetInDirectory(store.Queries(), nodes.DefaultSpaceID, 0, "destination"); !ok || int32(got.ID) != destination.AssetID {
+	if got, ok := GetAssetInDirectory(store.Queries(), nodes.DefaultSpaceID, 0, "destination"); !ok || got.ID != destination.AssetID {
 		t.Fatalf("destination after collision = %+v, ok=%v", got, ok)
 	}
 	if _, err := RenameAssetKey(store, 999_999, "unused"); !errors.Is(err, ErrAssetNotFound) {

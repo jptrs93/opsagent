@@ -14,10 +14,11 @@ func notNullBlob(b []byte) []byte {
 	return b
 }
 
-// AuthzRuleTemplateRow is one live rule template: the entity facts with the
-// encoded AuthzRuleTemplateSpec as DataBlob, and the envelope of the last write.
-type AuthzRuleTemplateRow struct {
-	ID          int64
+// AuthzGrantTemplateRow is one live grant template: the entity facts with
+// the encoded AuthzGrantTemplateSpec as DataBlob, and the envelope of the
+// last write.
+type AuthzGrantTemplateRow struct {
+	ID          uint64
 	Name        string
 	Builtin     bool
 	DataBlob    []byte
@@ -27,37 +28,37 @@ type AuthzRuleTemplateRow struct {
 	Author      int64
 }
 
-// AuthzRuleTemplateEntity is the row as the event stream carries it.
-func AuthzRuleTemplateEntity(r AuthzRuleTemplateRow) (apigen.AuthzRuleTemplate, error) {
-	template, err := apigen.DecodeAuthzRuleTemplateSpec(r.DataBlob)
+// AuthzGrantTemplateEntity is the row as the event stream carries it.
+func AuthzGrantTemplateEntity(r AuthzGrantTemplateRow) (apigen.AuthzGrantTemplate, error) {
+	spec, err := apigen.DecodeAuthzGrantTemplateSpec(r.DataBlob)
 	if err != nil {
-		return apigen.AuthzRuleTemplate{}, err
+		return apigen.AuthzGrantTemplate{}, err
 	}
-	return apigen.AuthzRuleTemplate{ID: r.ID, Name: r.Name, Builtin: r.Builtin, Spec: template}, nil
+	return apigen.AuthzGrantTemplate{ID: r.ID, Name: r.Name, Builtin: r.Builtin, Spec: *spec}, nil
 }
 
-const authzRuleTemplateColumns = `id, name, builtin, data_blob, created_time, seq, event_time, author`
+const authzGrantTemplateColumns = `id, name, builtin, data_blob, created_time, seq, event_time, author`
 
-func scanAuthzRuleTemplateRow(row scanner) (AuthzRuleTemplateRow, error) {
-	var r AuthzRuleTemplateRow
+func scanAuthzGrantTemplateRow(row scanner) (AuthzGrantTemplateRow, error) {
+	var r AuthzGrantTemplateRow
 	err := row.Scan(&r.ID, &r.Name, &r.Builtin, &r.DataBlob, &r.CreatedTime, &r.Seq, &r.EventTime, &r.Author)
 	return r, err
 }
 
-// GetAuthzRuleTemplate returns the live template, or sql.ErrNoRows.
-func (q *Queries) GetAuthzRuleTemplate(ctx context.Context, id int64) (AuthzRuleTemplateRow, error) {
-	return scanAuthzRuleTemplateRow(q.db.QueryRowContext(ctx, `SELECT `+authzRuleTemplateColumns+` FROM authz_rule_templates WHERE id = ?`, id))
+// GetAuthzGrantTemplate returns the live template, or sql.ErrNoRows.
+func (q *Queries) GetAuthzGrantTemplate(ctx context.Context, id uint64) (AuthzGrantTemplateRow, error) {
+	return scanAuthzGrantTemplateRow(q.db.QueryRowContext(ctx, `SELECT `+authzGrantTemplateColumns+` FROM authz_grant_templates WHERE id = ?`, id))
 }
 
-func (q *Queries) ListAuthzRuleTemplates(ctx context.Context) ([]AuthzRuleTemplateRow, error) {
-	rows, err := q.db.QueryContext(ctx, `SELECT `+authzRuleTemplateColumns+` FROM authz_rule_templates ORDER BY id`)
+func (q *Queries) ListAuthzGrantTemplates(ctx context.Context) ([]AuthzGrantTemplateRow, error) {
+	rows, err := q.db.QueryContext(ctx, `SELECT `+authzGrantTemplateColumns+` FROM authz_grant_templates ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []AuthzRuleTemplateRow
+	var out []AuthzGrantTemplateRow
 	for rows.Next() {
-		r, err := scanAuthzRuleTemplateRow(rows)
+		r, err := scanAuthzGrantTemplateRow(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -66,32 +67,29 @@ func (q *Queries) ListAuthzRuleTemplates(ctx context.Context) ([]AuthzRuleTempla
 	return out, rows.Err()
 }
 
-func (q *Queries) reduceAuthzRuleTemplate(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, t *apigen.AuthzRuleTemplate) error {
+func (q *Queries) reduceAuthzGrantTemplate(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, t *apigen.AuthzGrantTemplate) error {
 	if t == nil {
 		return fmt.Errorf("payload has no template")
 	}
-	var blob []byte
-	if t.Spec != nil {
-		blob = t.Spec.Encode()
-	}
-	return q.upsert(ctx, meta, `INSERT INTO authz_rule_templates (id, name, builtin, data_blob, created_time, seq, event_time, author) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	return q.upsert(ctx, meta, `INSERT INTO authz_grant_templates (id, name, builtin, data_blob, created_time, seq, event_time, author) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET name = excluded.name, builtin = excluded.builtin, data_blob = excluded.data_blob,
   seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,
-		id, t.Name, t.Builtin, notNullBlob(blob), env.EventTime, env.Seq, env.EventTime, env.Author)
+		id, t.Name, t.Builtin, notNullBlob(t.Spec.Encode()), env.EventTime, env.Seq, env.EventTime, env.Author)
 }
 
-func (q *Queries) deleteAuthzRuleTemplateRow(ctx context.Context, id int64) error {
-	_, err := q.db.ExecContext(ctx, `DELETE FROM authz_rule_templates WHERE id = ?`, id)
+func (q *Queries) deleteAuthzGrantTemplateRow(ctx context.Context, id uint64) error {
+	_, err := q.db.ExecContext(ctx, `DELETE FROM authz_grant_templates WHERE id = ?`, id)
 	return err
 }
 
 // AuthzGrantRow is one live grant: the entity facts with the encoded
-// AuthzGrantSpec as DataBlob, and the envelope of the last write.
+// AuthzGrantSource as DataBlob, and the envelope of the last write.
+// TemplateID is 0 for a grant that carries its own rule.
 type AuthzGrantRow struct {
-	ID          int64
-	UserID      int64
-	TemplateID  int64
+	ID          uint64
+	UserID      uint64
+	TemplateID  uint64
 	DataBlob    []byte
 	CreatedTime int64
 	Seq         int64
@@ -101,11 +99,11 @@ type AuthzGrantRow struct {
 
 // AuthzGrantEntity is the row as the event stream carries it.
 func AuthzGrantEntity(r AuthzGrantRow) (apigen.AuthzGrant, error) {
-	grant, err := apigen.DecodeAuthzGrantSpec(r.DataBlob)
+	source, err := apigen.DecodeAuthzGrantSource(r.DataBlob)
 	if err != nil {
 		return apigen.AuthzGrant{}, err
 	}
-	return apigen.AuthzGrant{ID: r.ID, UserID: r.UserID, TemplateID: r.TemplateID, Spec: grant}, nil
+	return apigen.AuthzGrant{ID: r.ID, UserID: r.UserID, Grant: *source}, nil
 }
 
 const authzGrantColumns = `id, user_id, template_id, data_blob, created_time, seq, event_time, author`
@@ -117,7 +115,7 @@ func scanAuthzGrantRow(row scanner) (AuthzGrantRow, error) {
 }
 
 // GetAuthzGrant returns the live grant, or sql.ErrNoRows.
-func (q *Queries) GetAuthzGrant(ctx context.Context, id int64) (AuthzGrantRow, error) {
+func (q *Queries) GetAuthzGrant(ctx context.Context, id uint64) (AuthzGrantRow, error) {
 	return scanAuthzGrantRow(q.db.QueryRowContext(ctx, `SELECT `+authzGrantColumns+` FROM authz_grants WHERE id = ?`, id))
 }
 
@@ -138,30 +136,30 @@ func (q *Queries) ListAuthzGrants(ctx context.Context) ([]AuthzGrantRow, error) 
 	return out, rows.Err()
 }
 
-func (q *Queries) reduceAuthzGrant(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, g *apigen.AuthzGrant) error {
+func (q *Queries) reduceAuthzGrant(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, g *apigen.AuthzGrant) error {
 	if g == nil {
 		return fmt.Errorf("payload has no grant")
 	}
-	var blob []byte
-	if g.Spec != nil {
-		blob = g.Spec.Encode()
+	var templateID uint64
+	if t := g.Grant.Value.Template; t != nil {
+		templateID = t.TemplateID
 	}
 	return q.upsert(ctx, meta, `INSERT INTO authz_grants (id, user_id, template_id, data_blob, created_time, seq, event_time, author) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET user_id = excluded.user_id, template_id = excluded.template_id, data_blob = excluded.data_blob,
   seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,
-		id, g.UserID, g.TemplateID, notNullBlob(blob), env.EventTime, env.Seq, env.EventTime, env.Author)
+		id, g.UserID, templateID, notNullBlob(g.Grant.Encode()), env.EventTime, env.Seq, env.EventTime, env.Author)
 }
 
-func (q *Queries) deleteAuthzGrantRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteAuthzGrantRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM authz_grants WHERE id = ?`, id)
 	return err
 }
 
 // AuthzGlobalRuleRow is one live global rule: the entity facts with the
-// encoded AuthzGlobalRuleSpec as DataBlob, and the envelope of the last write.
+// encoded AuthzRule as DataBlob, and the envelope of the last write.
 type AuthzGlobalRuleRow struct {
-	ID          int64
+	ID          uint64
 	Name        string
 	DataBlob    []byte
 	CreatedTime int64
@@ -172,11 +170,11 @@ type AuthzGlobalRuleRow struct {
 
 // AuthzGlobalRuleEntity is the row as the event stream carries it.
 func AuthzGlobalRuleEntity(r AuthzGlobalRuleRow) (apigen.AuthzGlobalRule, error) {
-	rule, err := apigen.DecodeAuthzGlobalRuleSpec(r.DataBlob)
+	rule, err := apigen.DecodeAuthzRule(r.DataBlob)
 	if err != nil {
 		return apigen.AuthzGlobalRule{}, err
 	}
-	return apigen.AuthzGlobalRule{ID: r.ID, Name: r.Name, Spec: rule}, nil
+	return apigen.AuthzGlobalRule{ID: r.ID, Name: r.Name, Rule: *rule}, nil
 }
 
 const authzGlobalRuleColumns = `id, name, data_blob, created_time, seq, event_time, author`
@@ -188,7 +186,7 @@ func scanAuthzGlobalRuleRow(row scanner) (AuthzGlobalRuleRow, error) {
 }
 
 // GetAuthzGlobalRule returns the live rule, or sql.ErrNoRows.
-func (q *Queries) GetAuthzGlobalRule(ctx context.Context, id int64) (AuthzGlobalRuleRow, error) {
+func (q *Queries) GetAuthzGlobalRule(ctx context.Context, id uint64) (AuthzGlobalRuleRow, error) {
 	return scanAuthzGlobalRuleRow(q.db.QueryRowContext(ctx, `SELECT `+authzGlobalRuleColumns+` FROM authz_global_rules WHERE id = ?`, id))
 }
 
@@ -227,28 +225,24 @@ func (q *Queries) AuthzGlobalRuleNameEverLogged(ctx context.Context, name string
 		if err != nil {
 			return false, err
 		}
-		if e.AuthzGlobalRule != nil && e.AuthzGlobalRule.Name == name {
+		if r := e.Value.AuthzGlobalRule; r != nil && r.Name == name {
 			return true, nil
 		}
 	}
 	return false, rows.Err()
 }
 
-func (q *Queries) reduceAuthzGlobalRule(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, r *apigen.AuthzGlobalRule) error {
+func (q *Queries) reduceAuthzGlobalRule(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, r *apigen.AuthzGlobalRule) error {
 	if r == nil {
 		return fmt.Errorf("payload has no rule")
-	}
-	var blob []byte
-	if r.Spec != nil {
-		blob = r.Spec.Encode()
 	}
 	return q.upsert(ctx, meta, `INSERT INTO authz_global_rules (id, name, data_blob, created_time, seq, event_time, author) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET name = excluded.name, data_blob = excluded.data_blob, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,
-		id, r.Name, notNullBlob(blob), env.EventTime, env.Seq, env.EventTime, env.Author)
+		id, r.Name, notNullBlob(r.Rule.Encode()), env.EventTime, env.Seq, env.EventTime, env.Author)
 }
 
-func (q *Queries) deleteAuthzGlobalRuleRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteAuthzGlobalRuleRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM authz_global_rules WHERE id = ?`, id)
 	return err
 }

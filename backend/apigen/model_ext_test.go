@@ -7,15 +7,15 @@ import (
 
 func TestScheduledInstanceStatusBumpUpdatedAtUsesWallClock(t *testing.T) {
 	previous := time.Now().Add(time.Hour)
-	status := ScheduledInstanceStatus{UpdatedAt: previous}
+	status := ScheduledInstanceStatus{UpdatedAt: Some(previous)}
 
 	status.BumpUpdatedAt()
 
 	want := previous.Round(0).Add(time.Nanosecond)
-	if !status.UpdatedAt.Equal(want) {
+	if !status.UpdatedAt.Value.Equal(want) {
 		t.Fatalf("UpdatedAt = %v, want %v", status.UpdatedAt, want)
 	}
-	if status.UpdatedAt != status.UpdatedAt.Round(0) {
+	if status.UpdatedAt.Value != status.UpdatedAt.Value.Round(0) {
 		t.Fatal("UpdatedAt retained a monotonic clock reading")
 	}
 }
@@ -29,18 +29,18 @@ func TestPreparerStatusRollup(t *testing.T) {
 		status PreparerStatus
 		want   PreparationStatus
 	}{
-		{"nothing started", PreparerStatus{}, PreparationStatus_PREPARATION_STATUS_UNKNOWN},
-		{"resolving inputs", PreparerStatus{Inputs: InputsStatus_INPUTS_RESOLVING}, PreparationStatus_PREPARING},
-		{"inputs failed", PreparerStatus{Inputs: InputsStatus_INPUTS_FAILED}, PreparationStatus_FAILED},
-		{"between stages", PreparerStatus{Inputs: InputsStatus_INPUTS_READY}, PreparationStatus_PREPARING},
-		{"building", PreparerStatus{Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_BUILDING}, PreparationStatus_PREPARING},
-		{"pulling", PreparerStatus{Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_PULLING}, PreparationStatus_PULLING},
-		{"downloading", PreparerStatus{Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_DOWNLOADING}, PreparationStatus_DOWNLOADING},
-		{"ready", PreparerStatus{Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_READY}, PreparationStatus_READY},
-		{"image failed", PreparerStatus{Inputs: InputsStatus_INPUTS_READY, Image: ImageStatus_IMAGE_FAILED}, PreparationStatus_FAILED},
+		{"nothing started", PreparerStatus{}, PreparationStatus_PREPARATION_STATUS_UNSPECIFIED},
+		{"resolving inputs", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_RESOLVING}, PreparationStatus_PREPARATION_STATUS_PREPARING},
+		{"inputs failed", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_FAILED}, PreparationStatus_PREPARATION_STATUS_FAILED},
+		{"between stages", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_READY}, PreparationStatus_PREPARATION_STATUS_PREPARING},
+		{"building", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_READY, Image: Some(ImageStatus_IMAGE_STATUS_BUILDING)}, PreparationStatus_PREPARATION_STATUS_PREPARING},
+		{"pulling", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_READY, Image: Some(ImageStatus_IMAGE_STATUS_PULLING)}, PreparationStatus_PREPARATION_STATUS_PULLING},
+		{"downloading", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_READY, Image: Some(ImageStatus_IMAGE_STATUS_DOWNLOADING)}, PreparationStatus_PREPARATION_STATUS_DOWNLOADING},
+		{"ready", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_READY, Image: Some(ImageStatus_IMAGE_STATUS_READY)}, PreparationStatus_PREPARATION_STATUS_READY},
+		{"image failed", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_READY, Image: Some(ImageStatus_IMAGE_STATUS_FAILED)}, PreparationStatus_PREPARATION_STATUS_FAILED},
 		// An input retry on an already-prepared instance must not demote the
 		// rollup: the artifact is built and the runner gate reads the rollup.
-		{"input retry keeps ready", PreparerStatus{Inputs: InputsStatus_INPUTS_RESOLVING, Image: ImageStatus_IMAGE_READY}, PreparationStatus_READY},
+		{"input retry keeps ready", PreparerStatus{Inputs: InputsStatus_INPUTS_STATUS_RESOLVING, Image: Some(ImageStatus_IMAGE_STATUS_READY)}, PreparationStatus_PREPARATION_STATUS_READY},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

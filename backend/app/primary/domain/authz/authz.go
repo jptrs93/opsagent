@@ -1,6 +1,7 @@
 package authz
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -8,14 +9,15 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
 var (
 	ErrNotFound      = errors.New("authz: not found")
-	ErrBuiltin       = errors.New("authz: builtin rule template is read-only")
-	ErrNameTaken     = errors.New("authz: rule template name already in use")
-	ErrTemplateInUse = errors.New("authz: rule template is referenced by grants")
+	ErrBuiltin       = errors.New("authz: builtin grant template is read-only")
+	ErrNameTaken     = errors.New("authz: grant template name already in use")
+	ErrTemplateInUse = errors.New("authz: grant template is referenced by grants")
 	ErrInvalid       = errors.New("authz: invalid")
 	ErrLastAdmin     = errors.New("authz: cannot delete the last access-managing grant")
 )
@@ -23,37 +25,32 @@ var (
 var adminAccess = RequestedAccess{
 	Verb:       apigen.AuthzVerb_AUTHZ_VERB_CREATE,
 	SpaceID:    0,
-	EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS,
+	EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS,
 }
 
 type RequestedAccess struct {
 	Verb       apigen.AuthzVerb
-	SpaceID    int64
-	EntityType apigen.AuthzEntity
-	EntityID   int64
+	SpaceID    uint64
+	EntityType apigen.AuthzEntityKind
+	EntityID   uint64
 	Delegated  bool
 }
 
-type RuleTemplateRow struct {
-	ID        int64
+type GrantTemplateRow struct {
 	Name      string
-	Builtin   bool
 	Author    int64
 	CreatedAt int64
 	Blob      []byte
 }
 
 type GrantRow struct {
-	ID         int64
-	UserID     int64
-	TemplateID int64
-	Author     int64
-	CreatedAt  int64
-	Blob       []byte
+	UserID    uint64
+	Author    int64
+	CreatedAt int64
+	Blob      []byte
 }
 
 type GlobalRuleRow struct {
-	ID        int64
 	Name      string
 	Author    int64
 	CreatedAt int64
@@ -63,8 +60,8 @@ type GlobalRuleRow struct {
 type Service struct {
 	mu           sync.RWMutex
 	store        *state.Service
-	templates    map[int64]*apigen.AuthzRuleTemplate
-	grantsByUser map[int64][]*apigen.AuthzGrant
+	templates    map[uint64]*apigen.AuthzGrantTemplate
+	grantsByUser map[uint64][]*apigen.AuthzGrant
 	globalRules  []*apigen.AuthzGlobalRule
 	now          func() time.Time
 }
@@ -72,106 +69,99 @@ type Service struct {
 func Open(store *state.Service) (*Service, error) {
 	s := &Service{
 		store:        store,
-		templates:    make(map[int64]*apigen.AuthzRuleTemplate),
-		grantsByUser: make(map[int64][]*apigen.AuthzGrant),
+		templates:    make(map[uint64]*apigen.AuthzGrantTemplate),
+		grantsByUser: make(map[uint64][]*apigen.AuthzGrant),
 		now:          time.Now,
 	}
+	ctx := context.Background()
 	for _, b := range builtinTemplates() {
-		if err := upsertBuiltinRuleTemplate(store, b.ID, b.Name, b.Spec.Encode()); err != nil {
+		if err := upsertBuiltinGrantTemplate(store, b.ID, b.Name, b.Spec.Encode()); err != nil {
 			return nil, fmt.Errorf("authz: seed builtin %s: %w", b.Name, err)
 		}
 	}
-	templateRows, err := listRuleTemplates(store.Queries())
+	templateRows, err := store.Queries().ListAuthzGrantTemplates(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, row := range templateRows {
-		content, err := apigen.DecodeAuthzRuleTemplateSpec(row.Blob)
+		rec, err := pq.AuthzGrantTemplateEntity(row)
 		if err != nil {
-			return nil, fmt.Errorf("authz: decode rule template %d: %w", row.ID, err)
+			return nil, fmt.Errorf("authz: decode grant template %d: %w", row.ID, err)
 		}
-		s.templates[row.ID] = &apigen.AuthzRuleTemplate{
-			ID:      row.ID,
-			Name:    row.Name,
-			Builtin: row.Builtin,
-			Spec:    content,
-		}
+		s.templates[rec.ID] = &rec
 	}
-	grantRows, err := listGrants(store.Queries())
+	grantRows, err := store.Queries().ListAuthzGrants(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, row := range grantRows {
-		content, err := apigen.DecodeAuthzGrantSpec(row.Blob)
+		rec, err := pq.AuthzGrantEntity(row)
 		if err != nil {
 			return nil, fmt.Errorf("authz: decode grant %d: %w", row.ID, err)
 		}
-		rec := &apigen.AuthzGrant{
-			ID:         row.ID,
-			UserID:     row.UserID,
-			TemplateID: row.TemplateID,
-			Spec:       content,
-		}
-		s.grantsByUser[rec.UserID] = append(s.grantsByUser[rec.UserID], rec)
+		s.grantsByUser[rec.UserID] = append(s.grantsByUser[rec.UserID], &rec)
 	}
 	for _, grants := range s.grantsByUser {
-		sortByID(grants, func(g *apigen.AuthzGrant) int64 { return g.ID })
+		sortByID(grants, func(g *apigen.AuthzGrant) uint64 { return g.ID })
 	}
 	if err := seedGlobalRule(store, DefaultUserVisibilityRuleName, defaultUserVisibilityRule().Encode()); err != nil {
 		return nil, fmt.Errorf("authz: seed %s: %w", DefaultUserVisibilityRuleName, err)
 	}
-	globalRuleRows, err := listGlobalRules(store.Queries())
+	globalRuleRows, err := store.Queries().ListAuthzGlobalRules(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, row := range globalRuleRows {
-		content, err := apigen.DecodeAuthzGlobalRuleSpec(row.Blob)
+		rec, err := pq.AuthzGlobalRuleEntity(row)
 		if err != nil {
 			return nil, fmt.Errorf("authz: decode global rule %d: %w", row.ID, err)
 		}
-		s.globalRules = append(s.globalRules, &apigen.AuthzGlobalRule{
-			ID:   row.ID,
-			Name: row.Name,
-			Spec: content,
-		})
+		s.globalRules = append(s.globalRules, &rec)
 	}
-	sortByID(s.globalRules, func(r *apigen.AuthzGlobalRule) int64 { return r.ID })
+	sortByID(s.globalRules, func(r *apigen.AuthzGlobalRule) uint64 { return r.ID })
 	return s, nil
 }
 
-func (s *Service) HasAccess(userID int64, req RequestedAccess) bool {
-	if req.Verb == apigen.AuthzVerb_AUTHZ_VERB_UNKNOWN || req.EntityType == apigen.AuthzEntity_AUTHZ_ENTITY_UNKNOWN || !SystemSpaceAllows(req) {
+func (s *Service) HasAccess(userID uint64, req RequestedAccess) bool {
+	if req.Verb == apigen.AuthzVerb_AUTHZ_VERB_UNSPECIFIED || req.EntityType == apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_UNSPECIFIED || !SystemSpaceAllows(req) {
 		return false
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if req.EntityType != apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS {
+	// Denies never apply to access management, so a rule that locks the
+	// cluster out stays removable.
+	if req.EntityType != apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS {
 		for _, r := range s.globalRules {
-			if globalDenyMatches(r.Spec, req) {
+			if ruleMatches(&r.Rule, req, true) {
+				return false
+			}
+		}
+		for _, g := range s.grantsByUser[userID] {
+			if s.grantMatchesLocked(g, req, true) {
 				return false
 			}
 		}
 	}
 	for _, g := range s.grantsByUser[userID] {
-		if s.grantMatchesLocked(g, req) {
+		if s.grantMatchesLocked(g, req, false) {
 			return true
 		}
 	}
 	// Allow-mode global rules are grants everyone holds; denies above still
 	// beat them.
 	for _, r := range s.globalRules {
-		if globalAllowMatches(r.Spec, req) {
+		if ruleMatches(&r.Rule, req, false) {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Service) SpaceVisible(userID int64, spaceID int64, delegated bool) bool {
+func (s *Service) SpaceVisible(userID uint64, spaceID uint64, delegated bool) bool {
 	if s.HasAccess(userID, RequestedAccess{
 		Verb:       apigen.AuthzVerb_AUTHZ_VERB_VIEW,
 		SpaceID:    spaceID,
-		EntityType: apigen.AuthzEntity_AUTHZ_ENTITY_SPACE,
+		EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SPACE,
 		EntityID:   spaceID,
 		Delegated:  delegated,
 	}) {
@@ -185,18 +175,15 @@ func (s *Service) SpaceVisible(userID int64, spaceID int64, delegated bool) bool
 		}
 	}
 	for _, r := range s.globalRules {
-		if r.Spec == nil || r.Spec.Deny || (delegated && !r.Spec.DelegationAllowed) {
-			continue
-		}
-		if selectorMatches(r.Spec.Spaces, nil, spaceID) {
+		if allowTouchesSpace(r.Rule.Effect, delegated) && spaceMatches(r.Rule.Selector.Spaces, spaceID) {
 			return true
 		}
 	}
 	return false
 }
 
-func (s *Service) CreateRuleTemplate(name string, template *apigen.AuthzRuleTemplateSpec, author int64) (*apigen.AuthzRuleTemplate, error) {
-	if err := validateTemplate(name, template); err != nil {
+func (s *Service) CreateGrantTemplate(name string, spec *apigen.AuthzGrantTemplateSpec, author int64) (*apigen.AuthzGrantTemplate, error) {
+	if err := validateTemplate(name, spec); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
@@ -204,11 +191,11 @@ func (s *Service) CreateRuleTemplate(name string, template *apigen.AuthzRuleTemp
 	if s.templateNameTakenLocked(name, 0) {
 		return nil, ErrNameTaken
 	}
-	rec := &apigen.AuthzRuleTemplate{
+	rec := &apigen.AuthzGrantTemplate{
 		Name: name,
-		Spec: cloneTemplateSpec(template),
+		Spec: cloneTemplateSpec(spec),
 	}
-	id, err := insertRuleTemplate(s.store, RuleTemplateRow{
+	id, err := insertGrantTemplate(s.store, GrantTemplateRow{
 		Name:      rec.Name,
 		Author:    author,
 		CreatedAt: s.now().UnixMilli(),
@@ -222,8 +209,8 @@ func (s *Service) CreateRuleTemplate(name string, template *apigen.AuthzRuleTemp
 	return cloneTemplate(rec), nil
 }
 
-func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.AuthzRuleTemplateSpec, author int64) (*apigen.AuthzRuleTemplate, error) {
-	if err := validateTemplate(name, template); err != nil {
+func (s *Service) UpdateGrantTemplate(id uint64, name string, spec *apigen.AuthzGrantTemplateSpec, author int64) (*apigen.AuthzGrantTemplate, error) {
+	if err := validateTemplate(name, spec); err != nil {
 		return nil, err
 	}
 	s.mu.Lock()
@@ -240,29 +227,26 @@ func (s *Service) UpdateRuleTemplate(id int64, name string, template *apigen.Aut
 	}
 	rec := cloneTemplate(existing)
 	rec.Name = name
-	rec.Spec = cloneTemplateSpec(template)
+	rec.Spec = cloneTemplateSpec(spec)
 	for _, grants := range s.grantsByUser {
 		for _, g := range grants {
-			if g.TemplateID != id {
+			tg := g.Grant.Value.Template
+			if tg == nil || tg.TemplateID != id {
 				continue
 			}
-			var bindings []*apigen.AuthzArgumentBinding
-			if g.Spec != nil {
-				bindings = g.Spec.Args
-			}
-			if err := validateArgs(rec, bindings); err != nil {
+			if err := validateArgs(rec, tg.Args); err != nil {
 				return nil, fmt.Errorf("authz: update would invalidate grant %d: %w", g.ID, err)
 			}
 		}
 	}
-	if err := updateRuleTemplate(s.store, id, name, rec.Spec.Encode(), author, s.now().UnixMilli()); err != nil {
+	if err := updateGrantTemplate(s.store, id, name, rec.Spec.Encode(), author, s.now().UnixMilli()); err != nil {
 		return nil, err
 	}
 	s.templates[id] = rec
 	return cloneTemplate(rec), nil
 }
 
-func (s *Service) DeleteRuleTemplate(id, author int64) error {
+func (s *Service) DeleteGrantTemplate(id uint64, author int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	existing := s.templates[id]
@@ -274,19 +258,19 @@ func (s *Service) DeleteRuleTemplate(id, author int64) error {
 	}
 	for _, grants := range s.grantsByUser {
 		for _, g := range grants {
-			if g.TemplateID == id {
+			if tg := g.Grant.Value.Template; tg != nil && tg.TemplateID == id {
 				return ErrTemplateInUse
 			}
 		}
 	}
-	if err := deleteRuleTemplate(s.store, id, author); err != nil {
+	if err := deleteGrantTemplate(s.store, id, author); err != nil {
 		return err
 	}
 	delete(s.templates, id)
 	return nil
 }
 
-func (s *Service) RuleTemplate(id int64) (*apigen.AuthzRuleTemplate, error) {
+func (s *Service) GrantTemplate(id uint64) (*apigen.AuthzGrantTemplate, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rec := s.templates[id]
@@ -296,18 +280,18 @@ func (s *Service) RuleTemplate(id int64) (*apigen.AuthzRuleTemplate, error) {
 	return cloneTemplate(rec), nil
 }
 
-func (s *Service) RuleTemplates() []*apigen.AuthzRuleTemplate {
+func (s *Service) GrantTemplates() []*apigen.AuthzGrantTemplate {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]*apigen.AuthzRuleTemplate, 0, len(s.templates))
+	out := make([]*apigen.AuthzGrantTemplate, 0, len(s.templates))
 	for _, rec := range s.templates {
 		out = append(out, cloneTemplate(rec))
 	}
-	sortByID(out, func(t *apigen.AuthzRuleTemplate) int64 { return t.ID })
+	sortByID(out, func(t *apigen.AuthzGrantTemplate) uint64 { return t.ID })
 	return out
 }
 
-func (s *Service) templateNameTakenLocked(name string, excludeID int64) bool {
+func (s *Service) templateNameTakenLocked(name string, excludeID uint64) bool {
 	for _, rec := range s.templates {
 		if rec.ID != excludeID && rec.Name == name {
 			return true
@@ -317,44 +301,35 @@ func (s *Service) templateNameTakenLocked(name string, excludeID int64) bool {
 }
 
 func (s *Service) CreateGrant(g *apigen.AuthzGrant, author int64) (*apigen.AuthzGrant, error) {
-	if g == nil || g.UserID <= 0 {
+	if g == nil || g.UserID == 0 {
 		return nil, invalidf("authz: grant requires a user id")
 	}
-	content := g.Spec
-	if content == nil {
-		content = &apigen.AuthzGrantSpec{}
-	}
-	if (g.TemplateID != 0) == (content.Rule != nil) {
-		return nil, invalidf("authz: grant must set exactly one of template_id and rule")
+	if g.Grant.Value.Validate() != nil {
+		return nil, invalidf("authz: grant must set exactly one of template and rule")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	rec := cloneGrant(g)
-	if rec.Spec == nil {
-		rec.Spec = &apigen.AuthzGrantSpec{}
-	}
-	if rec.Spec.Rule != nil {
-		if len(rec.Spec.Args) != 0 {
-			return nil, invalidf("authz: args are only valid with a template")
+	switch {
+	case g.Grant.Value.Rule != nil:
+		if err := validateRule(g.Grant.Value.Rule); err != nil {
+			return nil, fmt.Errorf("authz: grant rule: %w", err)
 		}
-		if err := validateRules([]*apigen.AuthzRule{rec.Spec.Rule}, false); err != nil {
-			return nil, err
-		}
-	} else {
-		t := s.templates[rec.TemplateID]
+	case g.Grant.Value.Template != nil:
+		tg := g.Grant.Value.Template
+		t := s.templates[tg.TemplateID]
 		if t == nil {
-			return nil, fmt.Errorf("authz: rule template %d: %w", rec.TemplateID, ErrNotFound)
+			return nil, fmt.Errorf("authz: grant template %d: %w", tg.TemplateID, ErrNotFound)
 		}
-		if err := validateArgs(t, rec.Spec.Args); err != nil {
+		if err := validateArgs(t, tg.Args); err != nil {
 			return nil, err
 		}
 	}
+	rec := cloneGrant(g)
 	id, err := insertGrant(s.store, GrantRow{
-		UserID:     rec.UserID,
-		TemplateID: rec.TemplateID,
-		Author:     author,
-		CreatedAt:  s.now().UnixMilli(),
-		Blob:       rec.Spec.Encode(),
+		UserID:    rec.UserID,
+		Author:    author,
+		CreatedAt: s.now().UnixMilli(),
+		Blob:      rec.Grant.Encode(),
 	})
 	if err != nil {
 		return nil, err
@@ -364,7 +339,7 @@ func (s *Service) CreateGrant(g *apigen.AuthzGrant, author int64) (*apigen.Authz
 	return cloneGrant(rec), nil
 }
 
-func (s *Service) DeleteGrant(userID, id, author int64) error {
+func (s *Service) DeleteGrant(userID, id uint64, author int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	grants := s.grantsByUser[userID]
@@ -378,7 +353,7 @@ func (s *Service) DeleteGrant(userID, id, author int64) error {
 	if idx < 0 {
 		return ErrNotFound
 	}
-	if s.grantMatchesLocked(grants[idx], adminAccess) && !s.otherAdminGrantExistsLocked(id) {
+	if s.grantMatchesLocked(grants[idx], adminAccess, false) && !s.otherAdminGrantExistsLocked(id) {
 		return ErrLastAdmin
 	}
 	if err := deleteGrant(s.store, id, author); err != nil {
@@ -395,7 +370,7 @@ func (s *Service) DeleteGrant(userID, id, author int64) error {
 	return nil
 }
 
-func (s *Service) Grant(userID, id int64) (*apigen.AuthzGrant, error) {
+func (s *Service) Grant(userID, id uint64) (*apigen.AuthzGrant, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, g := range s.grantsByUser[userID] {
@@ -406,7 +381,7 @@ func (s *Service) Grant(userID, id int64) (*apigen.AuthzGrant, error) {
 	return nil, ErrNotFound
 }
 
-func (s *Service) GrantsForUser(userID int64) []*apigen.AuthzGrant {
+func (s *Service) GrantsForUser(userID uint64) []*apigen.AuthzGrant {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	grants := s.grantsByUser[userID]
@@ -426,11 +401,11 @@ func (s *Service) Grants() []*apigen.AuthzGrant {
 			out = append(out, cloneGrant(g))
 		}
 	}
-	sortByID(out, func(g *apigen.AuthzGrant) int64 { return g.ID })
+	sortByID(out, func(g *apigen.AuthzGrant) uint64 { return g.ID })
 	return out
 }
 
-func (s *Service) CreateGlobalRule(name string, rule *apigen.AuthzGlobalRuleSpec, author int64) (*apigen.AuthzGlobalRule, error) {
+func (s *Service) CreateGlobalRule(name string, rule *apigen.AuthzRule, author int64) (*apigen.AuthzGlobalRule, error) {
 	if err := validateGlobalRule(name, rule); err != nil {
 		return nil, err
 	}
@@ -438,13 +413,13 @@ func (s *Service) CreateGlobalRule(name string, rule *apigen.AuthzGlobalRuleSpec
 	defer s.mu.Unlock()
 	rec := &apigen.AuthzGlobalRule{
 		Name: name,
-		Spec: cloneGlobalRuleSpec(rule),
+		Rule: cloneRule(rule),
 	}
 	id, err := insertGlobalRule(s.store, GlobalRuleRow{
 		Name:      rec.Name,
 		Author:    author,
 		CreatedAt: s.now().UnixMilli(),
-		Blob:      rec.Spec.Encode(),
+		Blob:      rec.Rule.Encode(),
 	})
 	if err != nil {
 		return nil, err
@@ -454,7 +429,7 @@ func (s *Service) CreateGlobalRule(name string, rule *apigen.AuthzGlobalRuleSpec
 	return cloneGlobalRule(rec), nil
 }
 
-func (s *Service) DeleteGlobalRule(id, author int64) error {
+func (s *Service) DeleteGlobalRule(id uint64, author int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := -1
@@ -477,7 +452,7 @@ func (s *Service) DeleteGlobalRule(id, author int64) error {
 	return nil
 }
 
-func (s *Service) GlobalRule(id int64) (*apigen.AuthzGlobalRule, error) {
+func (s *Service) GlobalRule(id uint64) (*apigen.AuthzGlobalRule, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, r := range s.globalRules {
@@ -498,20 +473,20 @@ func (s *Service) GlobalRules() []*apigen.AuthzGlobalRule {
 	return out
 }
 
-func cloneTemplate(rec *apigen.AuthzRuleTemplate) *apigen.AuthzRuleTemplate {
-	c, err := apigen.DecodeAuthzRuleTemplate(rec.Encode())
+func cloneTemplate(rec *apigen.AuthzGrantTemplate) *apigen.AuthzGrantTemplate {
+	c, err := apigen.DecodeAuthzGrantTemplate(rec.Encode())
 	if err != nil {
-		panic(fmt.Sprintf("authz: clone rule template: %v", err))
+		panic(fmt.Sprintf("authz: clone grant template: %v", err))
 	}
 	return c
 }
 
-func cloneTemplateSpec(t *apigen.AuthzRuleTemplateSpec) *apigen.AuthzRuleTemplateSpec {
-	c, err := apigen.DecodeAuthzRuleTemplateSpec(t.Encode())
+func cloneTemplateSpec(t *apigen.AuthzGrantTemplateSpec) apigen.AuthzGrantTemplateSpec {
+	c, err := apigen.DecodeAuthzGrantTemplateSpec(t.Encode())
 	if err != nil {
-		panic(fmt.Sprintf("authz: clone rule template spec: %v", err))
+		panic(fmt.Sprintf("authz: clone grant template spec: %v", err))
 	}
-	return c
+	return *c
 }
 
 func cloneGrant(g *apigen.AuthzGrant) *apigen.AuthzGrant {
@@ -522,12 +497,12 @@ func cloneGrant(g *apigen.AuthzGrant) *apigen.AuthzGrant {
 	return c
 }
 
-func cloneGlobalRuleSpec(r *apigen.AuthzGlobalRuleSpec) *apigen.AuthzGlobalRuleSpec {
-	c, err := apigen.DecodeAuthzGlobalRuleSpec(r.Encode())
+func cloneRule(r *apigen.AuthzRule) apigen.AuthzRule {
+	c, err := apigen.DecodeAuthzRule(r.Encode())
 	if err != nil {
-		panic(fmt.Sprintf("authz: clone global rule spec: %v", err))
+		panic(fmt.Sprintf("authz: clone rule: %v", err))
 	}
-	return c
+	return *c
 }
 
 func cloneGlobalRule(rec *apigen.AuthzGlobalRule) *apigen.AuthzGlobalRule {
@@ -538,6 +513,6 @@ func cloneGlobalRule(rec *apigen.AuthzGlobalRule) *apigen.AuthzGlobalRule {
 	return c
 }
 
-func sortByID[T any](items []T, id func(T) int64) {
+func sortByID[T any](items []T, id func(T) uint64) {
 	sort.Slice(items, func(i, j int) bool { return id(items[i]) < id(items[j]) })
 }

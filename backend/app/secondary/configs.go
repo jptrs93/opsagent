@@ -19,16 +19,13 @@ func NewSystemConfigProvider(baseURL string, client *http.Client) *SystemConfigP
 }
 
 func (p *SystemConfigProvider) FetchConfigs(ctx context.Context, refs []apigen.ValueRef) (map[apigen.ValueRef]string, error) {
-	resp, err := p.capi.GetV1ClusterConfigs(ctx, &apigen.ClusterConfigsRequest{Refs: refPointers(refs)})
+	resp, err := p.capi.GetV1ClusterConfigs(ctx, &apigen.ClusterConfigsRequest{Refs: apigen.ConfigRefs(refs)})
 	if err != nil {
 		return nil, fmt.Errorf("fetching configs from primary: %w", err)
 	}
 	values := make(map[apigen.ValueRef]string, len(resp.Items))
 	for _, item := range resp.Items {
-		if item == nil {
-			continue
-		}
-		values[item.Ref] = item.Value
+		values[item.Ref.Ref()] = item.Value
 	}
 	return values, nil
 }

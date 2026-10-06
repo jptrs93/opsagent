@@ -2,10 +2,13 @@ syntax = "proto3";
 
 package opsagent.v1;
 
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message Space {
-  int32 id = 1;
-  string name = 2;
-  reserved 3; // deleted: a delete mutation on the event stream
+  uint64 id = 1 [(cp.js_type) = "number", (buf.validate.field).uint64.lte = 65535];
+  string name = 2 [(buf.validate.field).string.min_len = 1];
 }

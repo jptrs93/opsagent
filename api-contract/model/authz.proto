@@ -2,109 +2,253 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/deployments.proto";
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 enum AuthzVerb {
-  AUTHZ_VERB_UNKNOWN = 0;
+  AUTHZ_VERB_UNSPECIFIED = 0;
   AUTHZ_VERB_CREATE = 1;
   AUTHZ_VERB_UPDATE = 2;
   AUTHZ_VERB_DELETE = 3;
   AUTHZ_VERB_VIEW = 4;
   AUTHZ_VERB_VIEW_LOGS = 5;
   AUTHZ_VERB_REVEAL = 6;
-  // Additional deployment permissions, required on create and every update
-  // when the existing or proposed spec uses the corresponding host resource.
-  AUTHZ_VERB_USE_HOST_MOUNTS = 7;
-  AUTHZ_VERB_USE_HOST_NETWORK = 8;
+  AUTHZ_VERB_USE_HOST_MOUNTS = 7;   // required when a deployment spec uses host mounts
+  AUTHZ_VERB_USE_HOST_NETWORK = 8;  // required when a deployment spec uses host networking
 }
 
-enum AuthzEntity {
-  AUTHZ_ENTITY_UNKNOWN = 0;
-  AUTHZ_ENTITY_SPACE = 1;
-  AUTHZ_ENTITY_DEPLOYMENT = 2;
-  AUTHZ_ENTITY_SECRET = 3;
-  AUTHZ_ENTITY_CONFIG = 4;
-  AUTHZ_ENTITY_ASSET = 5;
-  AUTHZ_ENTITY_NODE = 6;
-  AUTHZ_ENTITY_CLUSTER = 7;
-  AUTHZ_ENTITY_USER = 8;
-  AUTHZ_ENTITY_ACCESS = 9;
+enum AuthzEntityKind {
+  AUTHZ_ENTITY_KIND_UNSPECIFIED = 0;
+  AUTHZ_ENTITY_KIND_SPACE = 1;
+  AUTHZ_ENTITY_KIND_DEPLOYMENT = 2;
+  AUTHZ_ENTITY_KIND_SECRET = 3;
+  AUTHZ_ENTITY_KIND_CONFIG = 4;
+  AUTHZ_ENTITY_KIND_ASSET = 5;
+  AUTHZ_ENTITY_KIND_NODE = 6;
+  AUTHZ_ENTITY_KIND_CLUSTER = 7;
+  AUTHZ_ENTITY_KIND_USER = 8;
+  AUTHZ_ENTITY_KIND_ACCESS = 9;
+}
+
+enum AuthzArgumentKind {
+  AUTHZ_ARGUMENT_KIND_UNSPECIFIED = 0;
+  AUTHZ_ARGUMENT_KIND_PERMISSION = 1;
+  AUTHZ_ARGUMENT_KIND_SPACE = 2;
+  AUTHZ_ARGUMENT_KIND_ENTITY_TYPE = 3;
+  AUTHZ_ARGUMENT_KIND_ENTITY_REF = 4;
+}
+
+// AuthzEntityRef names one instance of an entity kind.
+message AuthzEntityRef {
+  AuthzEntityRefTarget target = 1 [(cp.go_value) = true];
+}
+
+message AuthzEntityRefTarget {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    uint64 space = 1 [(cp.js_type) = "number"];
+    uint64 deployment = 2 [(cp.js_type) = "number"];
+    uint64 secret = 3 [(cp.js_type) = "number"];
+    uint64 config = 4 [(cp.js_type) = "number"];
+    uint64 asset = 5 [(cp.js_type) = "number"];
+    uint64 node = 6 [(cp.js_type) = "number"];
+    uint64 system_config = 7 [(cp.js_type) = "number"];
+    uint64 user = 8 [(cp.js_type) = "number"];
+    uint64 authz_grant_template = 9 [(cp.js_type) = "number"];
+    uint64 authz_grant = 10 [(cp.js_type) = "number"];
+    uint64 authz_global_rule = 11 [(cp.js_type) = "number"];
+  }
+}
+
+// A selector position is a record of two optional lists: exact_ lists what
+// the rule covers, all_ _excluding covers everything but the listed values,
+// where an empty list is the plain wildcard. Exactly one of the two is set.
+message AuthzPermissionSelector {
+  AuthzVerbList exact_verbs = 1;
+  AuthzVerbList all_verbs_excluding = 2;
+}
+
+message AuthzSpaceSelector {
+  SpaceIdList exact_spaces = 1;
+  SpaceIdList all_spaces_excluding = 2;
+}
+
+message AuthzEntityTypeSelector {
+  AuthzEntityKindList exact_entity_types = 1;
+  AuthzEntityKindList all_entity_types_excluding = 2;
+}
+
+message AuthzEntityRefSelector {
+  AuthzEntityRefList exact_entity_refs = 1;
+  AuthzEntityRefList all_entity_refs_excluding = 2;
+}
+
+message AuthzVerbList {
+  repeated AuthzVerb values = 1 [(buf.validate.field).repeated.items.enum = {defined_only: true, not_in: [0]}];
+}
+
+message SpaceIdList {
+  repeated uint64 values = 1 [(cp.js_type) = "number"];
+}
+
+message AuthzEntityKindList {
+  repeated AuthzEntityKind values = 1 [(buf.validate.field).repeated.items.enum = {defined_only: true, not_in: [0]}];
+}
+
+message AuthzEntityRefList {
+  repeated AuthzEntityRef values = 1;
 }
 
 message AuthzSelector {
-  bool wildcard = 1;
-  int64 argument_id = 2;
-  repeated int64 include = 3;
-  repeated int64 exclude = 4;
+  AuthzPermissionSelector permissions = 1 [(cp.go_value) = true];
+  AuthzSpaceSelector spaces = 2 [(cp.go_value) = true];
+  AuthzEntityTypeSelector entity_types = 3 [(cp.go_value) = true];
+  AuthzEntityRefSelector entity_refs = 4 [(cp.go_value) = true];
+}
+
+// AuthzArgument names the template argument that supplies a position's values.
+message AuthzArgument {
+  uint32 argument_id = 1 [(buf.validate.field).uint32.gte = 1];
+}
+
+message AuthzTemplatePermissionSelector {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    AuthzArgument argument = 1;
+    AuthzPermissionSelector selector = 2;
+  }
+}
+
+message AuthzTemplateSpaceSelector {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    AuthzArgument argument = 1;
+    AuthzSpaceSelector selector = 2;
+  }
+}
+
+message AuthzTemplateEntityTypeSelector {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    AuthzArgument argument = 1;
+    AuthzEntityTypeSelector selector = 2;
+  }
+}
+
+message AuthzTemplateEntityRefSelector {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    AuthzArgument argument = 1;
+    AuthzEntityRefSelector selector = 2;
+  }
+}
+
+message AuthzTemplateSelector {
+  AuthzTemplatePermissionSelector permissions = 1 [(cp.go_value) = true];
+  AuthzTemplateSpaceSelector spaces = 2 [(cp.go_value) = true];
+  AuthzTemplateEntityTypeSelector entity_types = 3 [(cp.go_value) = true];
+  AuthzTemplateEntityRefSelector entity_refs = 4 [(cp.go_value) = true];
+}
+
+message AuthzAllow {
+  bool delegation_allowed = 1; // whether delegated (agent) sessions also receive it
+}
+
+message AuthzDeny {
+  bool delegated_only = 1;     // fire only for delegated (agent) sessions
+}
+
+message AuthzEffect {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    AuthzAllow allow = 1;
+    AuthzDeny deny = 2;
+  }
 }
 
 message AuthzRule {
-  AuthzSelector permissions = 1;
-  AuthzSelector spaces = 2;
-  AuthzSelector entity_types = 3;
-  AuthzSelector entity_refs = 4;
-  bool delegation_allowed = 5;
+  AuthzEffect effect = 1 [(cp.go_value) = true];
+  AuthzSelector selector = 2 [(cp.go_value) = true];
+}
+
+message AuthzTemplateRule {
+  AuthzEffect effect = 1 [(cp.go_value) = true];
+  AuthzTemplateSelector selector = 2 [(cp.go_value) = true];
 }
 
 message AuthzTemplateArgument {
-  int64 id = 1;
-  string name = 2;
+  uint32 id = 1 [(buf.validate.field).uint32.gte = 1];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+  AuthzArgumentKind kind = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
 }
 
-message AuthzRuleTemplateSpec {
+message AuthzGrantTemplateSpec {
   repeated AuthzTemplateArgument arguments = 1;
-  repeated AuthzRule rules = 2;
+  repeated AuthzTemplateRule rules = 2 [(buf.validate.field).repeated.min_items = 1];
 }
 
-message AuthzRuleTemplate {
-  int64 id = 1;
-  string name = 2;
+message AuthzGrantTemplate {
+  uint64 id = 1 [(cp.js_type) = "number"];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
   bool builtin = 3;
-  reserved 4; // deleted: a delete mutation on the event stream
-  reserved 5, 6; // author, created_time: EntityMeta on the mutation
-  AuthzRuleTemplateSpec spec = 7;
+  AuthzGrantTemplateSpec spec = 4 [(cp.go_value) = true];
+}
+
+message AuthzPermissionValues {
+  repeated AuthzVerb values = 1 [(buf.validate.field).repeated = {min_items: 1, items: {enum: {defined_only: true, not_in: [0]}}}];
+}
+
+message AuthzSpaceValues {
+  repeated uint64 values = 1 [(cp.js_type) = "number", (buf.validate.field).repeated.min_items = 1];
+}
+
+message AuthzEntityValues {
+  repeated AuthzEntityKind values = 1 [(buf.validate.field).repeated = {min_items: 1, items: {enum: {defined_only: true, not_in: [0]}}}];
+}
+
+message AuthzReferenceValues {
+  repeated AuthzEntityRef values = 1 [(buf.validate.field).repeated.min_items = 1];
+}
+
+message AuthzArgumentValues {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    AuthzPermissionValues permissions = 1;
+    AuthzSpaceValues spaces = 2;
+    AuthzEntityValues entity_types = 3;
+    AuthzReferenceValues entity_refs = 4;
+  }
 }
 
 message AuthzArgumentBinding {
-  int64 argument_id = 1;
-  repeated int64 values = 2;
+  uint32 argument_id = 1 [(buf.validate.field).uint32.gte = 1];
+  AuthzArgumentValues values = 2 [(cp.go_value) = true];
 }
 
-message AuthzGrantSpec {
-  repeated AuthzArgumentBinding args = 1;
-  AuthzRule rule = 2;
+message AuthzTemplateGrant {
+  uint64 template_id = 1 [(cp.js_type) = "number"];
+  repeated AuthzArgumentBinding args = 2;
+}
+
+message AuthzGrantSource {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    AuthzRule rule = 1;
+    AuthzTemplateGrant template = 2;
+  }
 }
 
 message AuthzGrant {
-  int64 user_id = 1;
-  int64 template_id = 2;
-  AuthzGrantSpec spec = 3;
-  reserved 4, 5; // author, created_time: EntityMeta on the mutation
-  int64 id = 6;
-}
-
-message AuthzGlobalRuleSpec {
-  AuthzSelector permissions = 1;
-  AuthzSelector spaces = 2;
-  AuthzSelector entity_types = 3;
-  AuthzSelector entity_refs = 4;
-  // Deny rules only: fire only for delegated (agent) sessions.
-  bool delegated_only = 5;
-  reserved 6; // briefly held an inverted `allow` flag
-  // Allow rules only: whether delegated (agent) sessions also receive it.
-  bool delegation_allowed = 7;
-  // Deny mode: the rule blocks matching requests before any grant is
-  // considered. Unset, the rule is an allow: it grants matching requests to
-  // every user, evaluated alongside their grants, and denies still beat it.
-  bool deny = 8;
+  uint64 id = 1 [(cp.js_type) = "number"];
+  uint64 user_id = 2 [(cp.js_type) = "number"];
+  AuthzGrantSource grant = 3 [(cp.go_value) = true];
 }
 
 message AuthzGlobalRule {
-  int64 id = 1;
-  string name = 2;
-  reserved 3, 4; // author, created_time: EntityMeta on the mutation
-  AuthzGlobalRuleSpec spec = 5;
+  uint64 id = 1 [(cp.js_type) = "number"];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+  AuthzRule rule = 3 [(cp.go_value) = true];
 }

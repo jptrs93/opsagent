@@ -19,10 +19,10 @@ type Handle struct {
 	cancel                context.CancelFunc
 	done                  chan struct{}
 	complete              sync.Once
-	deploymentSpecVersion int32
+	deploymentSpecVersion uint32
 }
 
-func NewHandle(version int32) (*Handle, context.Context) {
+func NewHandle(version uint32) (*Handle, context.Context) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Handle{
 		cancel:                cancel,
@@ -33,7 +33,7 @@ func NewHandle(version int32) (*Handle, context.Context) {
 
 // Finished returns a no-op preparer handle for a deployment that should not be
 // preparing on process startup, usually because its desired state is stopped.
-func Finished(version int32) *Handle {
+func Finished(version uint32) *Handle {
 	handle, _ := NewHandle(version)
 	handle.cancel()
 	handle.Complete()
@@ -52,7 +52,7 @@ func (h *Handle) Cancel() {
 	<-h.done
 }
 
-func (h *Handle) SpecVersion() int32 { return h.deploymentSpecVersion }
+func (h *Handle) SpecVersion() uint32 { return h.deploymentSpecVersion }
 
 // StatusUpdate is one preparer transition across both preparation stages. The
 // rollup that gates runner start is derived from the pair by
@@ -76,9 +76,9 @@ type StatusUpdate struct {
 // the prepare log, and the rollup gets that case right.
 func InProgress(p apigen.PreparerStatus) bool {
 	switch p.Rollup() {
-	case apigen.PreparationStatus_PREPARING,
-		apigen.PreparationStatus_DOWNLOADING,
-		apigen.PreparationStatus_PULLING:
+	case apigen.PreparationStatus_PREPARATION_STATUS_PREPARING,
+		apigen.PreparationStatus_PREPARATION_STATUS_DOWNLOADING,
+		apigen.PreparationStatus_PREPARATION_STATUS_PULLING:
 		return true
 	default:
 		return false
@@ -94,34 +94,42 @@ func InProgress(p apigen.PreparerStatus) bool {
 // falling back — and it usually lands on the artifact already recorded.
 // Publishing that identity would bump the clock, wake every subscriber, and push
 // a no-op to the primary, for no observable change.
-func WriteStatus(store storage.OperatorStore, instanceID int32, dep *apigen.DeploymentEvent, update StatusUpdate) {
+func WriteStatus(store storage.OperatorStore, instanceID uint64, dep *apigen.DeploymentRecord, update StatusUpdate) {
 	ctx := logu.AddTag(context.Background(), "Preparer")
 	ctx = logu.AddKV(ctx, "scheduled_instance", instanceID)
-	ctx = logu.AddKV(ctx, "dep", dep.DeploymentID)
+	ctx = logu.AddKV(ctx, "dep", dep.Deployment.ID)
 	next := apigen.PreparerStatus{
-		DeploymentSpecVersion: dep.SpecVersion,
+		DeploymentSpecVersion: dep.Meta.SpecVersion,
 		Artifact:              update.Artifact,
 		Inputs:                update.Inputs,
-		Image:                 update.Image,
+	}
+	if update.Image != apigen.ImageStatus_IMAGE_STATUS_UNSPECIFIED {
+		next.SetImage(update.Image)
 	}
 	fmtNext := func() string {
-		return fmt.Sprintf("seqNo=%d status=%v inputs=%v image=%v artifact=%q", dep.SpecVersion, next.Rollup(), next.Inputs, next.Image, next.Artifact)
+		return fmt.Sprintf("seqNo=%d status=%v inputs=%v image=%v artifact=%q", dep.Meta.SpecVersion, next.Rollup(), next.Inputs, next.ImageStage(), next.Artifact)
 	}
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
-		if !s.Preparer.IsZero() && s.Preparer.DeploymentSpecVersion > dep.SpecVersion {
+		if s.Preparer.Present && s.Preparer.Value.DeploymentSpecVersion > dep.Meta.SpecVersion {
 			return false
 		}
 		// A zero status is never republished as unchanged: it means nothing has
 		// been recorded for this instance yet, so the first write must land.
-		if !s.Preparer.IsZero() && s.Preparer == next {
+		if s.Preparer.Present && samePreparerStatus(s.Preparer.Value, next) {
 			slog.DebugContext(ctx, "preparer.writePrepareStatus: unchanged, not publishing "+fmtNext())
 			return false
 		}
 		slog.InfoContext(ctx, "preparer.writePrepareStatus "+fmtNext())
 		s.BumpUpdatedAt()
 		s.ScheduledInstanceID = instanceID
-		s.DeploymentID = dep.DeploymentID
-		s.Preparer = next
+		s.Preparer = apigen.Some(next)
 		return true
 	})
+}
+
+func samePreparerStatus(a, b apigen.PreparerStatus) bool {
+	return a.DeploymentSpecVersion == b.DeploymentSpecVersion &&
+		a.Artifact == b.Artifact &&
+		a.Inputs == b.Inputs &&
+		a.Image == b.Image
 }

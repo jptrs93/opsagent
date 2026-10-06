@@ -22,7 +22,7 @@ type Service struct {
 	// assignment row, pinned spec version, and latest status. Live instances
 	// only — a finalized instance is removed, and every consumer that reconciles
 	// or routes depends on that.
-	scheduled   map[int32]*apigen.ScheduledInstanceState
+	scheduled   map[uint64]*apigen.ScheduledInstanceState
 	subscribers []*subscriber
 	closed      bool
 
@@ -34,7 +34,7 @@ type Service struct {
 func Open(dbPath string) *Service {
 	s := &Service{
 		q:         sq.Open(dbPath),
-		scheduled: make(map[int32]*apigen.ScheduledInstanceState),
+		scheduled: make(map[uint64]*apigen.ScheduledInstanceState),
 	}
 	s.loadLocalScheduledInstanceCache()
 	return s
@@ -81,7 +81,7 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 	for _, row := range statuses {
 		st := scheduledInstanceStatusRowToProto(row)
 		if state, ok := s.scheduled[st.ScheduledInstanceID]; ok {
-			state.Status = *st
+			state.Status = apigen.Some(*st)
 		}
 	}
 }
@@ -111,8 +111,8 @@ func (s *Service) MustWriteScheduledInstanceAssignment(state *apigen.ScheduledIn
 
 	cp := *state
 	// Preserve newer local status if the assignment only carries a clock watermark.
-	if existing := s.scheduled[id]; existing != nil && !existing.Status.IsZero() {
-		if cp.Status.IsZero() || existing.Status.UpdatedAt.After(cp.Status.UpdatedAt) {
+	if existing := s.scheduled[id]; existing != nil && existing.Status.Present {
+		if !cp.Status.Present || existing.Status.Value.UpdatedAt.Value.After(cp.Status.Value.UpdatedAt.Value) {
 			cp.Status = existing.Status
 		}
 	}
@@ -130,8 +130,8 @@ func (s *Service) finalizeLocked(ctx context.Context, state *apigen.ScheduledIns
 	}
 	cp := *state
 	cp.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
-	if existing := s.scheduled[id]; existing != nil && !existing.Status.IsZero() {
-		if cp.Status.IsZero() || existing.Status.UpdatedAt.After(cp.Status.UpdatedAt) {
+	if existing := s.scheduled[id]; existing != nil && existing.Status.Present {
+		if !cp.Status.Present || existing.Status.Value.UpdatedAt.Value.After(cp.Status.Value.UpdatedAt.Value) {
 			cp.Status = existing.Status
 		}
 	}
@@ -148,10 +148,10 @@ func (s *Service) finalizeLocked(ctx context.Context, state *apigen.ScheduledIns
 // knows about — and precisely because it is gone there, no FINALIZED update for it
 // can ever arrive. Reconciling only on receipt would leave the assignment, its
 // durable cache row, and its running workload alive across every restart.
-func (s *Service) MustFinalizeScheduledInstancesAbsent(present map[int32]struct{}) []int32 {
+func (s *Service) MustFinalizeScheduledInstancesAbsent(present map[uint64]struct{}) []uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	stale := make([]int32, 0)
+	stale := make([]uint64, 0)
 	for id := range s.scheduled {
 		if _, ok := present[id]; !ok {
 			stale = append(stale, id)
@@ -165,12 +165,12 @@ func (s *Service) MustFinalizeScheduledInstancesAbsent(present map[int32]struct{
 	return stale
 }
 
-func (s *Service) FetchScheduledInstanceStatusHistorySince(instanceID int32, since time.Time) []*apigen.ScheduledInstanceStatus {
+func (s *Service) FetchScheduledInstanceStatusHistorySince(instanceID uint64, since time.Time) []*apigen.ScheduledInstanceStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	rows := erru.Must(s.q.ListScheduledInstanceStatusHistorySince(context.Background(), sq.ListScheduledInstanceStatusHistorySinceParams{
 		ScheduledInstanceID: int64(instanceID),
-		UpdatedAt:           clockToNanos(since),
+		UpdatedAt:           clockToNanos(apigen.Some(since)),
 	}))
 	out := make([]*apigen.ScheduledInstanceStatus, 0, len(rows))
 	for _, r := range rows {

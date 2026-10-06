@@ -2,141 +2,105 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/deployments.proto";
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 enum RunningStatus {
-  DEPLOYMENT_STATUS_UNKNOWN = 0;
-  NO_DEPLOYMENT = 1;
-  RUNNING = 2;
-  STOPPED = 3;
-  STARTING = 4;
-  CRASHED = 5;
+  RUNNING_STATUS_UNSPECIFIED = 0;
+  RUNNING_STATUS_NO_DEPLOYMENT = 1;
+  RUNNING_STATUS_RUNNING = 2;
+  RUNNING_STATUS_STOPPED = 3;
+  RUNNING_STATUS_STARTING = 4;
+  RUNNING_STATUS_CRASHED = 5;
 }
 
-// PreparationStatus is the rollup across both preparation stages, and is what
-// gates runner start. It is derived from InputsStatus and ImageStatus rather
-// than stored or sent: see PreparerStatus.Rollup(). Nothing persists it, so the
-// stages can never disagree with it.
+// PreparationStatus is the rollup across both preparation stages and gates
+// runner start. It is derived from InputsStatus and ImageStatus by
+// PreparerStatus.Rollup() and never stored or sent.
 enum PreparationStatus {
-  PREPARATION_STATUS_UNKNOWN = 0;
-  PREPARING = 2;
-  DOWNLOADING = 3;
-  READY = 4;
-  FAILED = 5;
-  PULLING = 6; // pulling a container image into the content store
+  PREPARATION_STATUS_UNSPECIFIED = 0;
+  PREPARATION_STATUS_PREPARING = 1;
+  PREPARATION_STATUS_DOWNLOADING = 2;
+  PREPARATION_STATUS_READY = 3;
+  PREPARATION_STATUS_FAILED = 4;
+  PREPARATION_STATUS_PULLING = 5;
 }
 
-// InputsStatus tracks stage 1: resolving the assets, secrets, and configs the
-// workload needs at spawn. Independent of the artifact, and retried on its own
-// once the artifact is already recorded.
+// InputsStatus is stage 1: resolving the assets, secrets, and configs the
+// workload needs at spawn.
 enum InputsStatus {
-  INPUTS_STATUS_UNKNOWN = 0;
-  INPUTS_RESOLVING = 1;
-  INPUTS_READY = 2;
-  INPUTS_FAILED = 3;
+  INPUTS_STATUS_UNSPECIFIED = 0;
+  INPUTS_STATUS_RESOLVING = 1;
+  INPUTS_STATUS_READY = 2;
+  INPUTS_STATUS_FAILED = 3;
 }
 
-// ImageStatus tracks stage 2: producing the runtime artifact. Named for the
-// public case, where the artifact is always a local containerd image. The
-// internal OpenDeploy self-deployment reaches IMAGE_DOWNLOADING/IMAGE_READY for
-// an executable rather than an image; that path is redacted from public
-// responses.
+// ImageStatus is stage 2: producing the runtime artifact. The self-deployment
+// reaches DOWNLOADING and READY for an executable rather than an image.
 enum ImageStatus {
-  IMAGE_STATUS_UNKNOWN = 0;
-  IMAGE_BUILDING = 1;     // nix build
-  IMAGE_PULLING = 2;      // pulling a remote image into the content store
-  IMAGE_DOWNLOADING = 3;  // internal: downloading a GitHub release artifact
-  IMAGE_READY = 4;
-  IMAGE_FAILED = 5;
+  IMAGE_STATUS_UNSPECIFIED = 0;
+  IMAGE_STATUS_BUILDING = 1;
+  IMAGE_STATUS_PULLING = 2;
+  IMAGE_STATUS_DOWNLOADING = 3;
+  IMAGE_STATUS_READY = 4;
+  IMAGE_STATUS_FAILED = 5;
 }
 
-// ScheduledInstanceTarget is the primary-controlled desired runtime state for
-// one scheduled instance assignment.
-//
-// The three RUN_* states are identical to the node's operator: all three mean
-// "run this placement". They differ only in what the network state derives from
-// them, which is what lets cross-node routing be a pure function of assignments
-// with no status input. Exactly one placement per (deployment, ordinal) is
-// RUN_SERVING at a time, and it is the one the instance's stable inbound
-// address routes to.
+// ScheduledInstanceTarget is the primary-controlled desired state of one
+// placement. The three RUN_* states are identical to the node: all three mean
+// run this placement. They differ only in what the network state derives from
+// them. Exactly one placement per (deployment, ordinal) is RUN_SERVING.
 enum ScheduledInstanceTarget {
-  SCHEDULED_INSTANCE_TARGET_RUN_SERVING = 0;  // running and owns the inbound address
-  SCHEDULED_INSTANCE_TARGET_TERMINATE = 1;    // node should terminate
-  SCHEDULED_INSTANCE_TARGET_FINALIZED = 2;    // termination acknowledged; leave snapshot
-  SCHEDULED_INSTANCE_TARGET_RUN_STANDBY = 3;  // warming replacement, not yet serving
-  SCHEDULED_INSTANCE_TARGET_RUN_DRAINING = 4; // superseded but still running
+  SCHEDULED_INSTANCE_TARGET_RUN_SERVING = 0;
+  SCHEDULED_INSTANCE_TARGET_TERMINATE = 1;
+  SCHEDULED_INSTANCE_TARGET_FINALIZED = 2;
+  SCHEDULED_INSTANCE_TARGET_RUN_STANDBY = 3;
+  SCHEDULED_INSTANCE_TARGET_RUN_DRAINING = 4;
 }
 
-// ScheduledInstance is one placement/runtime incarnation of a deployment
-// instance ordinal on a node, pinned to one deployment version: the event-log
-// row it was scheduled against, which is the complete def snapshot it runs.
+// ScheduledInstance is one placement of a deployment ordinal on a node,
+// pinned to one deployment version.
 message ScheduledInstance {
-  int32 id = 1;
-  reserved 2; // created_at: EntityMeta on the mutation
-  int32 deployment_id = 3;
-  int32 node_id = 5;
-  int32 instance_ordinal = 6;
-  ScheduledInstanceTarget state = 7;
-  int32 deployment_version = 9;
-
-  // Denormalised from the pinned version's row. deployment_spec_version keys
-  // prepared artifacts and pre-deployment_version peers; space_id is kept for
-  // the same one-release bridge.
-  int32 deployment_spec_version = 4;
-  int32 space_id = 8;
+  uint64 id = 1 [(cp.js_type) = "number"];
+  uint64 node_id = 2 [(cp.js_type) = "number"];
+  uint32 instance_ordinal = 3;
+  ScheduledInstanceTarget state = 4 [(buf.validate.field).enum.defined_only = true];
+  uint64 space_id = 5 [(cp.js_type) = "number"];
+  DeploymentRef deployment = 6 [(cp.go_value) = true];
 }
 
+message DeploymentRef {
+  uint64 deployment_id = 1 [(cp.js_type) = "number"];
+  uint32 version = 2 [(buf.validate.field).uint32.gte = 1];
+}
+
+// ScheduledInstanceStatus is the newest observation of one placement.
+// updated_at is an HLC assigned by the owning node: max(now, prev + 1ns).
+// A half that nothing has reported yet is absent.
 message ScheduledInstanceStatus {
-  // updated_at is an HLC assigned by the owning node: max(wall_clock_now, prev+1ns). Monotonic per scheduled instance, so it doubles as wall-clock time and identity/ordering key.
-  google.protobuf.Timestamp updated_at = 1;
-  int32 scheduled_instance_id = 2;
-  int32 deployment_id = 3;
-  PreparerStatus preparer = 4 [(cp.go_value) = true];
-  RunnerStatus runner = 5 [(cp.go_value) = true];
+  uint64 scheduled_instance_id = 1 [(cp.js_type) = "number"];
+  google.protobuf.Timestamp updated_at = 2 [(buf.validate.field).required = true];
+  PreparerStatus preparer = 3;
+  RunnerStatus runner = 4;
 }
 
-// ScheduledInstanceState is the authoritative runtime assignment view: the
-// schedule row, the deployment version snapshot it references, and the
-// latest observed status for that instance.
-message ScheduledInstanceState {
-  ScheduledInstance instance = 1 [(cp.go_value) = true];
-  DeploymentEvent config = 2 [(cp.go_value) = true];
-  ScheduledInstanceStatus status = 3 [(cp.go_value) = true];
-}
-
-// Worker assignment snapshot carried on MsgToSecondary.
-message ScheduledInstanceSnapshot {
-  repeated ScheduledInstanceState items = 1;
-}
-
-// Preparation runs in two stages. The rollup that gates runner start is derived
-// from the pair via Rollup(); field 3 held it before it became derived and must
-// not be reused.
 message PreparerStatus {
-  int32 deployment_spec_version = 1;
+  uint32 deployment_spec_version = 1;
   string artifact = 2;
-  reserved 3;
-  InputsStatus inputs = 4;
-  ImageStatus image = 5;
+  InputsStatus inputs = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  optional ImageStatus image = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
 }
 
 message RunnerStatus {
-  // Status blobs are persisted; retired field numbers must not be reused.
-  reserved 5, 9;
-  int32 deployment_spec_version = 1;
-  int32 running_pid = 2;
-  string running_artifact= 3;
-  RunningStatus status = 4;
-  int32 number_of_restarts = 6;
-  int64 last_restart_at = 7 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  string running_version = 8;
-  // Networking diagnostics surfaced on the status card (e.g. an IPv4-only listener that is unreachable at its instance address).
-  repeated string network_diagnostics = 10;
-  optional int32 exit_code = 11;
+  uint32 deployment_spec_version = 1;
+  optional uint32 running_pid = 2 [(buf.validate.field).uint32.gte = 1];
+  string running_artifact = 3;
+  RunningStatus status = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  uint32 number_of_restarts = 5;
+  optional int64 last_restart_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  repeated string network_diagnostics = 7;
+  optional int32 exit_code = 8;
 }
-
-// Browser assignment event. The worker retains ScheduledInstanceState.

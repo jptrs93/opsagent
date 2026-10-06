@@ -16,7 +16,7 @@ import (
 func TestUnknownHostInventoryPreservesLastReport(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2", HostAddresses: []string{"203.0.113.2"}}
+	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: mustAddr("192.0.2.2"), HostAddresses: addrs("203.0.113.2")}
 	req, _ := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
 	before := globalSeq(t, store)
 	reported.HostAddresses = nil
@@ -26,7 +26,7 @@ func TestUnknownHostInventoryPreservesLastReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	node := ReportNode(store, reported.Identifier, *wire)
-	if !reflect.DeepEqual(node.HostAddresses, []string{"203.0.113.2"}) || node.Seq != before {
+	if !reflect.DeepEqual(addrStrings(node.HostAddresses), []string{"203.0.113.2"}) || node.Seq != before {
 		t.Fatal("unknown inventory cleared addresses or appended an event")
 	}
 	mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", *wire)
@@ -43,15 +43,15 @@ func TestUnknownHostInventoryPreservesLastReport(t *testing.T) {
 func TestEnrollmentCleanupGuardsRequestInsteadOfNodeVersion(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2"}
+	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: mustAddr("192.0.2.2")}
 	req, _ := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
 	at := req.CreatedAt.UnixMilli()
-	reported.HostAddresses = []string{"203.0.113.2"}
+	reported.HostAddresses = addrs("203.0.113.2")
 	ReportNode(store, reported.Identifier, reported)
 	if err := EndEnrollmentRequest(store, req.ID, at, false); err != nil {
 		t.Fatal(err)
 	}
-	if node := latestNodeEvent(t, store, reported.Identifier); node.Value.EnrollmentRequestedAt != 0 || nodeVersion(t, store, node.NodeID) != 3 {
+	if node := latestNodeEvent(t, store, reported.Identifier); node.Value.EnrollmentRequestedAt.Present || nodeVersion(t, store, node.NodeID) != 3 {
 		t.Fatal("an interleaved node event prevented cancellation")
 	}
 	fresh, _ := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
@@ -61,7 +61,7 @@ func TestEnrollmentCleanupGuardsRequestInsteadOfNodeVersion(t *testing.T) {
 	if err := EndEnrollmentRequest(store, req.ID, at, true); err != nil {
 		t.Fatal(err)
 	}
-	if node := latestNodeEvent(t, store, reported.Identifier); node.Value.EnrollmentRequestedAt != fresh.CreatedAt.UnixMilli() {
+	if node := latestNodeEvent(t, store, reported.Identifier); node.Value.EnrollmentRequestedAt.Value.UnixMilli() != fresh.CreatedAt.UnixMilli() {
 		t.Fatal("old session expired a newer request")
 	}
 }
@@ -69,7 +69,7 @@ func TestEnrollmentCleanupGuardsRequestInsteadOfNodeVersion(t *testing.T) {
 func TestEnrollmentReportsHaveNoTrailingEvents(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2", HostAddresses: []string{"203.0.113.2"}}
+	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: mustAddr("192.0.2.2"), HostAddresses: addrs("203.0.113.2")}
 	req, version := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
 	if version != globalSeq(t, store) || nodeVersion(t, store, latestNodeEvent(t, store, reported.Identifier).NodeID) != 1 {
 		t.Fatalf("request seq = %d, want the seq of the first node event", version)
@@ -84,12 +84,12 @@ func TestEnrollmentReportsHaveNoTrailingEvents(t *testing.T) {
 	if node := ReportNode(store, reported.Identifier, reported); nodeVersion(t, store, node.ID) != 2 {
 		t.Fatal("reconnect appended an event")
 	}
-	reported.HostAddresses = []string{"203.0.113.3", "203.0.113.2", "203.0.113.2"}
+	reported.HostAddresses = addrs("203.0.113.3", "203.0.113.2", "203.0.113.2")
 	node := ReportNode(store, reported.Identifier, reported)
 	if v := nodeVersion(t, store, node.ID); v != 3 {
 		t.Fatalf("address change version = %d, want 3", v)
 	}
-	reported.HostAddresses = []string{"203.0.113.2", "203.0.113.3"}
+	reported.HostAddresses = addrs("203.0.113.2", "203.0.113.3")
 	if node := ReportNode(store, reported.Identifier, reported); nodeVersion(t, store, node.ID) != 3 {
 		t.Fatal("equivalent address set appended an event")
 	}
@@ -115,13 +115,13 @@ func TestEnrollmentReportsHaveNoTrailingEvents(t *testing.T) {
 func TestNodeObservedClockMonotonic(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := EnsurePrimaryNode(store, "primary", "primary")
+	node := EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
 	seq := FetchNetworkMapInputs(store).Seq
 	SetNodeStatusByIdentifier(store, node.Identifier, true, node.CreatedAt)
 	first := erru.Must(store.Queries().ListLatestNodeStatuses(context.Background()))[0]
 	SetNodeStatusByIdentifier(store, node.Identifier, false, node.CreatedAt)
 	second := erru.Must(store.Queries().ListLatestNodeStatuses(context.Background()))[0]
-	if !second.UpdatedAt.After(first.UpdatedAt) || first.UpdatedAt.IsZero() {
+	if !second.UpdatedAt.Value.After(first.UpdatedAt.Value) || !first.UpdatedAt.Present {
 		t.Fatalf("node clocks: %v, %v", first.UpdatedAt, second.UpdatedAt)
 	}
 	if FetchNetworkMapInputs(store).Seq != seq+2 {
@@ -132,13 +132,13 @@ func TestNodeObservedClockMonotonic(t *testing.T) {
 func TestEnrollmentCancellationExpiryAndAcceptedSessionCleanup(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2"}
+	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: mustAddr("192.0.2.2")}
 	req, version := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
 	if err := EndEnrollmentRequest(store, req.ID, req.CreatedAt.UnixMilli(), false); err != nil {
 		t.Fatal(err)
 	}
 	node := latestNodeEvent(t, store, reported.Identifier)
-	if node.Value.EnrollmentRequestedAt != 0 || node.Value.Status != apigen.NodeLifecycleStatus_NODE_ENROLLMENT_CANCELLED {
+	if node.Value.EnrollmentRequestedAt.Present || node.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_CANCELLED {
 		t.Fatalf("cancelled node: %+v", node)
 	}
 	req, version = mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
@@ -146,7 +146,7 @@ func TestEnrollmentCancellationExpiryAndAcceptedSessionCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	node = latestNodeEvent(t, store, reported.Identifier)
-	if node.Value.EnrollmentRequestedAt != 0 || node.Value.Status != apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUEST_EXPIRED {
+	if node.Value.EnrollmentRequestedAt.Present || node.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUEST_EXPIRED {
 		t.Fatalf("expired node: %+v", node)
 	}
 	req, version = mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
@@ -169,20 +169,20 @@ func TestEnrollmentCancellationExpiryAndAcceptedSessionCleanup(t *testing.T) {
 		t.Fatalf("member hello = %v, want ErrEnrollmentIdentifierEnrolled", err)
 	}
 	node = latestNodeEvent(t, store, reported.Identifier)
-	if node.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL || node.Value.EnrollmentRequestedAt != 0 || nodeVersion(t, store, node.NodeID) != acceptedVersion {
+	if node.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL || node.Value.EnrollmentRequestedAt.Present || nodeVersion(t, store, node.NodeID) != acceptedVersion {
 		t.Fatal("rejected member hello changed admitted node lifecycle")
 	}
 }
 
 // nodeVersion counts the node's authored writes in the log: the version the
 // node row used to carry.
-func nodeVersion(t testing.TB, store *state.Service, id int32) int {
+func nodeVersion(t testing.TB, store *state.Service, id uint64) int {
 	t.Helper()
 	ctx := context.Background()
 	count := 0
 	for _, e := range erru.Must(store.Queries().WriteEventsInRange(ctx, -1, erru.Must(store.Queries().GetGlobalSeq(ctx)))) {
-		for _, m := range e.Mutations {
-			if m.Type() == apigen.CoreEntityType_CORE_ENTITY_NODE && m.EntityID() == int64(id) {
+		for i := range e.Mutations {
+			if m := &e.Mutations[i]; m.Type() == apigen.CoreEntityType_CORE_ENTITY_NODE && m.EntityID() == id {
 				count++
 			}
 		}

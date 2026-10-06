@@ -2,93 +2,82 @@ syntax = "proto3";
 
 package opsagent.v1;
 
-import "api-contract/model/assets.proto";
-import "api-contract/model/auth.proto";
-import "api-contract/model/authz.proto";
-import "api-contract/model/backup.proto";
-import "api-contract/model/configs.proto";
-import "api-contract/model/deployments.proto";
-import "api-contract/model/network_policies.proto";
-import "api-contract/model/networking.proto";
-import "api-contract/model/nodes.proto";
-import "api-contract/model/scheduled_instances.proto";
-import "api-contract/model/secrets.proto";
-import "api-contract/model_secrets_operations.proto";
-import "api-contract/model/sessions.proto";
-import "api-contract/model/spaces.proto";
-import "api-contract/model/system_config.proto";
-import "api-contract/model_cluster_operations.proto";
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 // CoreWriteUpdate is one commit: every row it wrote, as mutations over
 // entities, under one seq, one clock reading, and one actor.
 message CoreWriteUpdate {
-  int64 seq = 1;
-  int64 time = 2;                  // epoch ms, equal to event_time on every row of the commit
-  int32 actor = 3;                 // user id; 0 = system, negative = agent of user -actor
+  int64 seq = 1 [(cp.js_type) = "number"];
+  int64 time = 2 [(cp.js_type) = "number"];   // epoch ms, equal to event_time on every row of the commit
+  int64 actor = 3 [(cp.js_type) = "number"];  // user id; 0 = system, negative = agent of user -actor
   repeated CoreMutation mutations = 4;
 }
 
-message CoreMutation {              // exactly one set
-  CreateMutation create = 1;
-  UpdateMutation update = 2;
-  DeleteMutation delete = 3;
+message CoreMutation {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    CreateMutation create = 1;
+    UpdateMutation update = 2;
+    DeleteMutation delete = 3;
+  }
 }
 
 message CreateMutation {
-  CoreEntityType entity_type = 1;
-  int64 entity_id = 2;
-  CoreEntity entity = 3;
+  CoreEntityType entity_type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  uint64 entity_id = 2 [(cp.js_type) = "number"];
+  CoreEntity entity = 3 [(cp.go_value) = true];
   EntityMeta meta = 4;
 }
 
 message UpdateMutation {
-  CoreEntityType entity_type = 1;
-  int64 entity_id = 2;
-  CoreEntity entity = 3;
+  CoreEntityType entity_type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  uint64 entity_id = 2 [(cp.js_type) = "number"];
+  CoreEntity entity = 3 [(cp.go_value) = true];
   EntityMeta meta = 4;
+}
+
+message DeleteMutation {
+  CoreEntityType entity_type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  uint64 entity_id = 2 [(cp.js_type) = "number"];
 }
 
 // EntityMeta is what the write log says about an entity besides its payload,
 // derived by the reducer and never stored in the entity: when it was first
 // written, the commit that last wrote it, whether it has since been deleted,
-// and the counters that number its versions. created_time, updated_*, and
-// deleted are set for every type; the counters only for the types named.
+// and the counters that number its versions.
 message EntityMeta {
-  int64 created_time = 1;   // epoch ms of the entity's first mutation
-  int64 updated_time = 2;   // epoch ms of the newest mutation
-  int64 updated_seq = 3;
-  int32 updated_actor = 4;  // user id; 0 = system, negative = agent of user -actor
-  int32 version = 5;        // Deployment: bumps on every write
-  int32 spec_version = 6;   // Deployment: bumps when the spec changes
-  int32 value_version = 7;  // Secret, Config, Asset: bumps when the value changes
-  bool deleted = 8;         // snapshot only: a retained version of a deleted deployment; updated_* is the delete
+  int64 created_time = 1 [(cp.js_type) = "number"];   // epoch ms of the entity's first mutation
+  int64 updated_time = 2 [(cp.js_type) = "number"];   // epoch ms of the newest mutation
+  int64 updated_seq = 3 [(cp.js_type) = "number"];
+  int64 updated_actor = 4 [(cp.js_type) = "number"];  // user id; 0 = system, negative = agent of user -actor
+  uint32 version = 5;       // Deployment: bumps on every write
+  uint32 spec_version = 6;  // Deployment: bumps when the spec changes
+  uint32 value_version = 7; // Secret, Config, Asset: bumps when the value changes
+  bool deleted = 8;         // snapshot only: a retained version of a deleted deployment
 }
 
 // MaterialisedEntity is one entry of a snapshot: an entity as the tables
 // hold it with its meta. A deployment or value appears once per retained
-// version, in version order, each entry carrying that version's document.
+// version, in version order.
 message MaterialisedEntity {
-  CoreEntityType entity_type = 1;
-  int64 entity_id = 2;
-  CoreEntity entity = 3;
-  EntityMeta meta = 4;
+  CoreEntityType entity_type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  uint64 entity_id = 2 [(cp.js_type) = "number"];
+  CoreEntity entity = 3 [(cp.go_value) = true];
+  EntityMeta meta = 4 [(cp.go_value) = true];
 }
 
 // CoreSnapshot is the materialised state at seq: what a client starts from
 // before folding the commits after it.
 message CoreSnapshot {
-  int64 seq = 1;
+  int64 seq = 1 [(cp.js_type) = "number"];
   repeated MaterialisedEntity entities = 2;
 }
 
-message DeleteMutation {
-  CoreEntityType entity_type = 1;
-  int64 entity_id = 2;
-}
-
-enum CoreEntityType {                // numbers equal the CoreEntity field numbers
+enum CoreEntityType { // numbers equal the CoreEntity field numbers
   CORE_ENTITY_UNSPECIFIED = 0;
   CORE_ENTITY_DEPLOYMENT = 1;
   CORE_ENTITY_SCHEDULED_INSTANCE = 2;
@@ -101,7 +90,7 @@ enum CoreEntityType {                // numbers equal the CoreEntity field numbe
   CORE_ENTITY_USER = 9;
   CORE_ENTITY_VALUE_DIRECTORY = 10;
   CORE_ENTITY_ASSET_DIRECTORY = 11;
-  CORE_ENTITY_AUTHZ_RULE_TEMPLATE = 12;
+  CORE_ENTITY_AUTHZ_GRANT_TEMPLATE = 12;
   CORE_ENTITY_AUTHZ_GRANT = 13;
   CORE_ENTITY_AUTHZ_GLOBAL_RULE = 14;
   CORE_ENTITY_SYSTEM_CONFIG = 15;
@@ -110,52 +99,51 @@ enum CoreEntityType {                // numbers equal the CoreEntity field numbe
   CORE_ENTITY_AGENT_SESSION = 18;
   CORE_ENTITY_USER_SESSION = 19;
   CORE_ENTITY_NIX_STORE_RESET = 20;
-  CORE_ENTITY_SECRET_KEYSLOT = 21;   // replica only; never in the browser class
+  CORE_ENTITY_SECRET_KEYSLOT = 21; // replica only; never in the browser class
 }
 
-message CoreEntity {                 // exactly one set; field numbers equal CoreEntityType
-  Deployment deployment = 1;
-  ScheduledInstance scheduled_instance = 2;
-  Node node = 3;
-  Secret secret = 4;
-  Config config = 5;
-  Asset asset = 6;
-  NetworkPolicy network_policy = 7;
-  Space space = 8;
-  User user = 9;
-  ValueDirectory value_directory = 10;
-  AssetDirectory asset_directory = 11;
-  AuthzRuleTemplate authz_rule_template = 12;
-  AuthzGrant authz_grant = 13;
-  AuthzGlobalRule authz_global_rule = 14;
-  SystemConfig system_config = 15;
-  ScheduledInstanceStatus scheduled_instance_status = 16;
-  NodeStatus node_status = 17;
-  AgentSession agent_session = 18;
-  UserSession user_session = 19;
-  NixStoreReset nix_store_reset = 20;
-  SecretKeyslot secret_keyslot = 21;
+message CoreEntity {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    Deployment deployment = 1;
+    ScheduledInstance scheduled_instance = 2;
+    Node node = 3;
+    Secret secret = 4;
+    Config config = 5;
+    Asset asset = 6;
+    NetworkPolicy network_policy = 7;
+    Space space = 8;
+    User user = 9;
+    ValueDirectory value_directory = 10;
+    AssetDirectory asset_directory = 11;
+    AuthzGrantTemplate authz_grant_template = 12;
+    AuthzGrant authz_grant = 13;
+    AuthzGlobalRule authz_global_rule = 14;
+    SystemConfig system_config = 15;
+    ScheduledInstanceStatus scheduled_instance_status = 16;
+    NodeStatus node_status = 17;
+    AgentSession agent_session = 18;
+    UserSession user_session = 19;
+    NixStoreReset nix_store_reset = 20;
+    SecretKeyslot secret_keyslot = 21;
+  }
 }
 
 // EventStreamRequest opens the stream. Every opening is a snapshot followed
 // by the live commits after it.
-message EventStreamRequest {
-  reserved 1; // after_seq: replay from an arbitrary seq was dropped with the snapshot opening
-}
+message EventStreamRequest {}
 
 // EventStreamMsg is one frame of the event stream. A snapshot replaces the
 // client's tree with the materialised state at its seq; events carry commits
-// in seq order; synced marks the snapshot frame, after which everything is
-// live. The sidecars are replace-style values that ride the same connection
-// without a seq.
+// in seq order; synced marks the snapshot frame. The sidecars are
+// replace-style values that ride the same connection without a seq.
 message EventStreamMsg {
   repeated CoreWriteUpdate events = 1;
-  reserved 2; // reset: the snapshot frame replaces the tree
-  CoreSnapshot snapshot = 9;
+  CoreSnapshot snapshot = 2;
   bool synced = 3;
   bool heartbeat = 4;
   BackupStatus backup_status = 5;
   IngressDiagnosticList ingress_diagnostics = 6;
   SecretsStatusResponse secrets_status = 7;
-  int64 seq = 8;
+  int64 seq = 8 [(cp.js_type) = "number"];
 }

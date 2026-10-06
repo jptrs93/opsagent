@@ -8,6 +8,7 @@ import {formatHistoryTime} from "../lib/date.js";
 import {
     agentPrompt,
     orderSessions,
+    sessionExpiresAt,
     sessionPending,
     sessionStatus,
     sessionStoppable,
@@ -59,8 +60,8 @@ function agentSessionsTab() {
         }
     };
 
-    const approve = (session) => run(session.id, () => capi.postV1AgentSessionsApprove({id: session.id}));
-    const stop = (session) => run(session.id, () => capi.postV1AgentSessionsRevoke({id: session.id}));
+    const approve = (session) => run(session.id, () => capi.postV1AgentSessionsApprove({sessionId: session.sessionId}));
+    const stop = (session) => run(session.id, () => capi.postV1AgentSessionsRevoke({sessionId: session.sessionId}));
 
     const row = (session) => {
         const pending = sessionPending(session);
@@ -70,7 +71,7 @@ function agentSessionsTab() {
             {class: pending ? "bg-amber-500/5" : "hover:bg-gray-800/40"},
             tdCell("whitespace-nowrap text-gray-300 tabular-nums", formatHistoryTime(session.createdAt)),
             tdCell(`whitespace-nowrap ${status.tone}`,
-                status.label === "Active" ? `Active until ${formatHistoryTime(session.expiresAt)}` : status.label),
+                status.label === "Active" ? `Active until ${formatHistoryTime(sessionExpiresAt(session))}` : status.label),
             tdCell("whitespace-nowrap font-mono",
                 pending
                     ? span({class: "rounded bg-code px-1.5 py-0.5 text-gray-100"}, session.approvalCode || "")
@@ -133,13 +134,13 @@ function agentSessionsTab() {
 function userSessionsTab() {
     const busyID = van.state("");
     const error = van.state("");
-    const isCurrent = (session) => session.id === (loginS.val?.sessionId || "");
+    const isCurrent = (session) => session.sessionId === (loginS.val?.sessionId || "");
 
     const revoke = async (session) => {
         busyID.val = session.id;
         error.val = "";
         try {
-            await capi.postV1UserSessionsRevoke({id: session.id});
+            await capi.postV1UserSessionsRevoke({sessionId: session.sessionId});
             if (isCurrent(session)) clearLoginState();
         } catch (e) {
             error.val = e.message || "Request failed";

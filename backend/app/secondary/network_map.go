@@ -31,7 +31,7 @@ var (
 // (and stamps) backwards. Within a session the stream is ordered and stamps
 // only grow, so a lower stamp can only be a coalescing artifact and is
 // rejected as stale.
-func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix, sessionSnapshot bool, netMaps *netmapstate.Holder) (*apigen.NetMapStatus, error) {
+func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *apigen.ClusterNetMap, nodeID uint64, expectedPrefix network.Prefix, sessionSnapshot bool, netMaps *netmapstate.Holder) (*apigen.NetMapStatus, error) {
 	next, prefix, err := validateClusterNetMap(candidate, nodeID, expectedPrefix)
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *a
 // error is unrecoverable in both directions: it panics the secondary before it can
 // connect, and it makes acceptClusterNetMap reject the very map that would
 // replace it.
-func cachedClusterNetMap(ctx context.Context, store *state.Service, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
+func cachedClusterNetMap(ctx context.Context, store *state.Service, nodeID uint64, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
 	encoded, ok := store.FetchLocalKV(storage.LocalKVClusterNetMap)
 	if !ok {
 		return nil, network.Prefix{}, false, nil
@@ -99,7 +99,7 @@ func discardCachedClusterNetMap(ctx context.Context, store *state.Service, cause
 	return nil, network.Prefix{}, false, nil
 }
 
-func cachedClusterNetMapStatus(ctx context.Context, store *state.Service, nodeID int32, expectedPrefix network.Prefix, reconcileErr string) (*apigen.NetMapStatus, error) {
+func cachedClusterNetMapStatus(ctx context.Context, store *state.Service, nodeID uint64, expectedPrefix network.Prefix, reconcileErr string) (*apigen.NetMapStatus, error) {
 	current, _, ok, err := cachedClusterNetMap(ctx, store, nodeID, expectedPrefix)
 	if err != nil || !ok {
 		return nil, err
@@ -114,14 +114,14 @@ func statusForClusterNetMap(current *apigen.ClusterNetMap, reconcileErr string) 
 	}
 }
 
-func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, error) {
+func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID uint64, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, error) {
 	if candidate == nil {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map is nil")
 	}
 	if candidate.DerivedFromSeq < 0 {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map derived_from_seq is negative")
 	}
-	if nodeID <= 0 || candidate.TargetNodeID != nodeID {
+	if nodeID == 0 || candidate.TargetNodeID != nodeID {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map target %d does not match local node %d", candidate.TargetNodeID, nodeID)
 	}
 	prefix, err := network.ParsePrefix(candidate.UlaPrefix)
@@ -136,16 +136,17 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 		DerivedFromSeq: candidate.DerivedFromSeq,
 		TargetNodeID:   candidate.TargetNodeID,
 		UlaPrefix:      slices.Clone(candidate.UlaPrefix),
-		Nodes:          make([]*apigen.ClusterNetMapNode, 0, len(candidate.Nodes)),
-		Routes:         make([]*apigen.ClusterNetMapRoute, 0, len(candidate.Routes)),
-		PolicyRules:    make([]*apigen.NetPolicyRule, 0, len(candidate.PolicyRules)),
-		DnsServices:    make([]*apigen.ClusterNetMapService, 0, len(candidate.DnsServices)),
+		Nodes:          make([]apigen.ClusterNetMapNode, 0, len(candidate.Nodes)),
+		Routes:         make([]apigen.ClusterNetMapRoute, 0, len(candidate.Routes)),
+		PolicyRules:    make([]apigen.NetPolicyRule, 0, len(candidate.PolicyRules)),
+		DnsServices:    make([]apigen.ClusterNetMapService, 0, len(candidate.DnsServices)),
 	}
-	knownNodes := make(map[int32]struct{}, len(candidate.Nodes))
+	knownNodes := make(map[uint64]struct{}, len(candidate.Nodes))
 	targetPresent := false
 	underlayBits := 0
-	for _, node := range candidate.Nodes {
-		if node == nil || node.NodeID <= 0 {
+	for i := range candidate.Nodes {
+		node := &candidate.Nodes[i]
+		if node.NodeID == 0 {
 			return nil, network.Prefix{}, fmt.Errorf("cluster network map contains invalid node")
 		}
 		if _, exists := knownNodes[node.NodeID]; exists {
@@ -178,18 +179,16 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 		if err != nil {
 			return nil, network.Prefix{}, fmt.Errorf("node %d ingress publish: %w", node.NodeID, err)
 		}
-		normalized.Nodes = append(normalized.Nodes, &apigen.ClusterNetMapNode{NodeID: node.NodeID, UnderlayAddress: underlay, WgPublicKey: wgPublicKey, WgListenPort: wgListenPort, IngressPublish: publish})
+		normalized.Nodes = append(normalized.Nodes, apigen.ClusterNetMapNode{NodeID: node.NodeID, UnderlayAddress: underlay, WgPublicKey: wgPublicKey, WgListenPort: wgListenPort, IngressPublish: publish})
 	}
 	if !targetPresent {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map does not contain target node %d", nodeID)
 	}
-	slices.SortFunc(normalized.Nodes, func(a, b *apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
+	slices.SortFunc(normalized.Nodes, func(a, b apigen.ClusterNetMapNode) int { return cmp.Compare(a.NodeID, b.NodeID) })
 
 	logicalPrefixes := make(map[netip.Prefix]struct{}, len(candidate.Routes))
-	for _, route := range candidate.Routes {
-		if route == nil {
-			return nil, network.Prefix{}, fmt.Errorf("cluster network map contains nil route")
-		}
+	for i := range candidate.Routes {
+		route := &candidate.Routes[i]
 		if _, ok := knownNodes[route.HostingNodeID]; !ok {
 			return nil, network.Prefix{}, fmt.Errorf("route %q references unknown node %d", route.LogicalPrefix, route.HostingNodeID)
 		}
@@ -204,38 +203,40 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 			return nil, network.Prefix{}, fmt.Errorf("cluster network map contains duplicate route %s", destination)
 		}
 		logicalPrefixes[destination] = struct{}{}
-		normalized.Routes = append(normalized.Routes, &apigen.ClusterNetMapRoute{LogicalPrefix: destination.String(), HostingNodeID: route.HostingNodeID})
+		normalized.Routes = append(normalized.Routes, apigen.ClusterNetMapRoute{LogicalPrefix: destination.String(), HostingNodeID: route.HostingNodeID})
 	}
-	slices.SortFunc(normalized.Routes, func(a, b *apigen.ClusterNetMapRoute) int {
+	slices.SortFunc(normalized.Routes, func(a, b apigen.ClusterNetMapRoute) int {
 		if c := strings.Compare(a.LogicalPrefix, b.LogicalPrefix); c != 0 {
 			return c
 		}
 		return cmp.Compare(a.HostingNodeID, b.HostingNodeID)
 	})
 
-	for _, rule := range candidate.PolicyRules {
+	for i := range candidate.PolicyRules {
+		rule := &candidate.PolicyRules[i]
 		if err := network.ValidateNetMapPolicyRule(rule); err != nil {
 			return nil, network.Prefix{}, fmt.Errorf("cluster network map policy rule: %w", err)
 		}
-		normalized.PolicyRules = append(normalized.PolicyRules, &apigen.NetPolicyRule{
-			Source:      &apigen.NetPolicyPeer{SpaceID: rule.Source.SpaceID, DeploymentID: rule.Source.DeploymentID},
-			Destination: &apigen.NetPolicyPeer{SpaceID: rule.Destination.SpaceID, DeploymentID: rule.Destination.DeploymentID},
+		normalized.PolicyRules = append(normalized.PolicyRules, apigen.NetPolicyRule{
+			Source:      apigen.NetPolicyPeer{SpaceID: rule.Source.SpaceID, DeploymentID: rule.Source.DeploymentID},
+			Destination: apigen.NetPolicyPeer{SpaceID: rule.Destination.SpaceID, DeploymentID: rule.Destination.DeploymentID},
 			Ports:       slices.Clone(rule.Ports),
 		})
 	}
 
-	for _, service := range candidate.DnsServices {
-		if service == nil || service.Name == "" || service.SpaceID < 0 || service.DeploymentID <= 0 {
+	for i := range candidate.DnsServices {
+		service := &candidate.DnsServices[i]
+		if service.Name == "" || service.DeploymentID == 0 {
 			return nil, network.Prefix{}, fmt.Errorf("cluster network map contains invalid dns service")
 		}
-		ordinals := make([]*apigen.ClusterNetMapServiceOrdinal, 0, len(service.Ordinals))
+		ordinals := make([]apigen.ClusterNetMapServiceOrdinal, 0, len(service.Ordinals))
 		for _, ordinal := range service.Ordinals {
-			if ordinal == nil || ordinal.Ordinal < 0 {
+			if ordinal.Ordinal < 0 {
 				return nil, network.Prefix{}, fmt.Errorf("dns service %q contains invalid ordinal", service.Name)
 			}
-			ordinals = append(ordinals, &apigen.ClusterNetMapServiceOrdinal{Ordinal: ordinal.Ordinal})
+			ordinals = append(ordinals, apigen.ClusterNetMapServiceOrdinal{Ordinal: ordinal.Ordinal})
 		}
-		normalized.DnsServices = append(normalized.DnsServices, &apigen.ClusterNetMapService{
+		normalized.DnsServices = append(normalized.DnsServices, apigen.ClusterNetMapService{
 			Name:         service.Name,
 			SpaceID:      service.SpaceID,
 			DeploymentID: service.DeploymentID,
@@ -248,13 +249,10 @@ func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID int32, expect
 // normalizeIngressPublish validates and canonicalises one node's publish set:
 // every port in range, every non-empty address a plain IP, sorted and
 // deduplicated. An empty address is the wildcard.
-func normalizeIngressPublish(entries []*apigen.IngressPublish) ([]*apigen.IngressPublish, error) {
-	out := make([]*apigen.IngressPublish, 0, len(entries))
+func normalizeIngressPublish(entries []apigen.IngressPublish) ([]apigen.IngressPublish, error) {
+	out := make([]apigen.IngressPublish, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
-		if entry == nil {
-			return nil, fmt.Errorf("nil entry")
-		}
 		if entry.Port < 1 || entry.Port > 65535 {
 			return nil, fmt.Errorf("invalid port %d", entry.Port)
 		}
@@ -271,9 +269,9 @@ func normalizeIngressPublish(entries []*apigen.IngressPublish) ([]*apigen.Ingres
 			continue
 		}
 		seen[key] = struct{}{}
-		out = append(out, &apigen.IngressPublish{Address: address, Port: entry.Port})
+		out = append(out, apigen.IngressPublish{Address: address, Port: entry.Port})
 	}
-	slices.SortFunc(out, func(a, b *apigen.IngressPublish) int {
+	slices.SortFunc(out, func(a, b apigen.IngressPublish) int {
 		if c := cmp.Compare(a.Port, b.Port); c != 0 {
 			return c
 		}

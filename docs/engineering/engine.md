@@ -12,7 +12,7 @@ Key files:
 - `backend/lib/engine/prepare/nixdocker/` — runs a Nix flake build in a one-shot build container and imports the nix2container image it describes into containerd. `prepare/nixstore/` owns the per-repository Nix stores, the build container specification and store maintenance; `prepare/nix2container/` parses the image description and ingests its layers.
 - `backend/lib/engine/prepare/containerimage/` — pulls an ordinary registry image into containerd.
 - `backend/lib/engine/prepare/opendeployrelease/` — internal-only OpenDeploy release preparation: the self-deployment executable and the `opendeploy-net` image built from it.
-- `backend/lib/repo/git/` — Git repo/branch/commit and checkout service used by validation, version discovery, and Nix Docker builds.
+- `backend/lib/repo/git/` — Git repo/branch/commit and checkout service used by validation, version discovery, and Nix image builds.
 - `backend/lib/repo/github/` — authenticated GitHub release and asset download client.
 - `backend/lib/engine/ctrd/` — containerd client wrapper behind Linux build tags.
 - `backend/lib/engine/runner/runner.go` — `Runner` interface and factories.
@@ -22,16 +22,23 @@ Key files:
 
 ## Data Model
 
-Public deployment configs currently select exactly one workload. A container
-workload is stored in `spec.container1Spec`, with its artifact source in
-`source`, process and mount settings in `runtime`, and desired `version` and
-`running` state on the workload itself. Public source variants are
-`nixDockerBuild` and `remoteImage`.
+A deployment's `spec.workload` is a union with one alternative, `container`
+(`ContainerSpec`): the artifact source in `source` (`nix_image_build{repo,
+flake, target}` or `remote_image{image}`), process and mount settings in
+`runtime`, the desired `version` on the workload, and `running` under
+`scheduling` beside the placement.
 
-Internal exceptions:
-
-- `spec.opendeploySpec` is retained for the OpenDeploy self-deployment. It carries only the desired release version; the release source, systemd unit, and install path are compile-time constants.
-- Public create/update validation rejects the internal branch, and public state/history responses redact its `runtime` while retaining source and workload state.
+The per-node `opendeploy` self-deployment and `opendeploy-net` are ordinary
+container specs recognised by identity (space 0 and the name:
+`internaldeploy.IsSelfConfig`, `IsNetproxyConfig`). Their `remote_image.image`
+is the sentinel `opendeploy` or `opendeploy-net` (`internaldeploy.SelfImage`,
+`NetproxyImage`) and the release is the container `version`, where
+`WorkloadVersion()` reads every other deployment's. The identity, not the
+spec, selects the release-binary preparer and the systemd runner for the
+self-deployment, and `deployments.EnsureSystem` rewrites an edited self spec
+back to `internaldeploy.SelfSpec` at the primary's start. Creating a
+deployment in space 0 is refused (`SystemSpaceErr`), so no user deployment
+can take those identities.
 
 `PreparerStatus.Artifact` is the resolved runtime artifact. For public deployments this is always a local containerd image ref. For the internal system deployment it is the downloaded OpenDeploy binary path consumed by the internal opendeploy runner.
 
@@ -43,7 +50,7 @@ The rollup ranks a ready image above a resolving inputs stage. That is what lets
 
 ## Operator
 
-`DeploymentOperator` owns concrete references to the stateful artifact preparers and the runtime-input service, along with the runner reconciliation loop. It passes the runtime-input instance to every container runner it creates or reattaches. Ordinary container-image preparation is a stateless package operation; image preparation and runners use the process-wide lazy `ctrd.Default` client directly. A single private switch selects the GitHub release, Nix Docker, ordinary container image, or internal GitHub release image path. Primary constructs and starts its operator in `app/primary/runtime.go`; secondary does so in `app/secondary/secondary.go`.
+`DeploymentOperator` owns concrete references to the stateful artifact preparers and the runtime-input service, along with the runner reconciliation loop. It passes the runtime-input instance to every container runner it creates or reattaches. Ordinary container-image preparation is a stateless package operation; image preparation and runners use the process-wide lazy `ctrd.Default` client directly. A single private switch selects the preparer: the self-deployment by identity (`IsSelfConfig`, the release binary), a `nix_image_build` source, the `opendeploy-net` sentinel image (the release image built from the binary), or any other `remote_image`. Primary constructs and starts its operator in `app/primary/runtime.go`; secondary does so in `app/secondary/secondary.go`.
 
 On a secondary, the operator starts behind a boot sync gate: `RunAll` is held until the primary's first assignment snapshot has been applied to the local store, or for `bootSyncTimeout` when the primary is unreachable, after which it runs from the cached assignments exactly as before. Cached assignments can be arbitrarily stale, and acting on them seconds before a fresh snapshot arrives has caused real damage — a self-deployment runner reverting a just-installed binary to the cached version, and container network namespaces derived from cached configs that had lost their space identity. The cluster session signals the gate after `applySnapshot`; `RunAll` snapshots and subscribes atomically, so everything applied before it starts is in its initial view.
 
@@ -62,7 +69,7 @@ Decision flow:
 
 `Stop()` is synchronous. The operator waits until the runner has stopped and written terminal status before moving on. Same-version artifact repair waits until the replacement preparation has published a non-`READY` transition before accepting its terminal `READY`, so a queued runner update carrying the stale preparer status cannot restart the missing image.
 
-Container deployments can opt into `container1Spec.upgradeStrategy = ROLLOVER`. The operator starts a candidate runner for the prepared spec version, waits for its readiness signal, promotes it, and stops the old runner. The default/unspecified strategy is `RECREATE`, which preserves the stop-then-start behavior above. Virtual networking can promote without host-port bind contention; host networking requires the workload to defer binding conflicting host ports until after readiness.
+Container deployments can opt into `ContainerSpec.upgrade_strategy = ROLLOVER`. The operator starts a candidate runner for the prepared spec version, waits for its readiness signal, promotes it, and stops the old runner. `RECREATE` preserves the stop-then-start behavior above; the strategy is never unspecified (the schema rejects it). Virtual networking can promote without host-port bind contention; host networking requires the workload to defer binding conflicting host ports until after readiness.
 
 A candidate publishes status to its scheduled instance throughout, the same as any other runner. It has no incumbent to clobber: an instance's config is pinned to its version, so a candidate is only ever created when nothing is running for that instance. It publishes `STARTING` until the readiness signal arrives and `RUNNING` only after, because `RUNNING` is what tells the scheduler it may hand the placement the instance address. A candidate that crashes before signalling is recorded as `CRASHED` and respawned with the usual backoff; the readiness timeout is a deadline across every attempt, and expiring it stops the candidate and releases the operator, which keeps the old runner active. Suppressing these writes previously made a candidate that crashed during startup invisible and, because no status change was published, left the operator with nothing to react to and the rollout stalled.
 
@@ -82,7 +89,7 @@ The primary validates every effective transition to a running Nix source before 
 
 Clone URLs are credential-free. The GitHub token is supplied per invocation through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/`GIT_CONFIG_VALUE_0` as an `http.extraHeader` scoped to `https://github.com/`, so it is never written to `.git/config` by clone or `remote set-url` and never appears in `/proc/<pid>/cmdline`. `GIT_TERMINAL_PROMPT=0` makes a missing or rejected token fail rather than block. Checkouts holding a token in `.git/config` from an earlier version are rewritten on their next use, because `EnsureCheckout` and `ensureMetadataRepo` set the remote URL on every call. This requires git 2.31 or newer.
 
-`containerimage.Prepare` pulls `container1Spec.source.remoteImage.image` plus the workload version tag/digest into containerd and unpacks it. GHCR (`ghcr.io`) discovery and pulls share `registryauth.Client`, which loads the configured GitHub credential for each operation. The PAT is sent only to `https://ghcr.io/token`; image requests use the exchanged registry bearer token, and authorization is stripped from requests to other hosts or insecure URLs, including redirects and pagination. Other registries remain anonymous and never load the GitHub credential. The operator supplies the primary secret provider or the secondary’s existing primary-backed credential provider; workers assigned GHCR images are authorized to fetch the credential, as are workers assigned Nix builds.
+`containerimage.Prepare` pulls `workload.container.source.remote_image.image` plus the workload version tag/digest into containerd and unpacks it. GHCR (`ghcr.io`) discovery and pulls share `registryauth.Client`, which loads the configured GitHub credential for each operation. The PAT is sent only to `https://ghcr.io/token`; image requests use the exchanged registry bearer token, and authorization is stripped from requests to other hosts or insecure URLs, including redirects and pagination. Other registries remain anonymous and never load the GitHub credential. The operator supplies the primary secret provider or the secondary’s existing primary-backed credential provider; workers assigned GHCR images are authorized to fetch the credential, as are workers assigned Nix builds.
 
 `opendeployrelease.Preparer` is internal-only. `PrepareBinary` downloads the architecture-specific executable used by the OpenDeploy self-deployment; `PrepareImage` downloads the same release binary and packages it into the internal `opendeploy-net` OCI image. Both share one release download path on top of `repo/github.Client`, which is unauthenticated: the OpenDeploy release repository is public, so internal releases do not require distributing the GitHub token to workers.
 
@@ -108,7 +115,7 @@ Operations continue to create dynamic descendants whose names or ownership are r
 ```go
 type Runner interface {
     Stop()
-    Version() int32
+    SpecVersion() uint32
     ArtifactMissing() <-chan struct{}
     // Serve claims the instance's stable inbound address for this placement
     // (host route plus published host ports); idempotent, called by the
@@ -123,13 +130,13 @@ Run-log reads go through `lib/log/logreader`. It identifies all candidate `.logb
 
 Container runner behavior:
 
-- Environment variables are stored as typed `EnvVarValue` entries. Exactly one of literal `value`, `secret`, `config`, `assetRef` (each a `ValueRef{id, version}` of the stable entity id and value version), or Address ref is set. An asset env ref resolves to the read-only implicit mount path `/opendeploy-env-assets/<asset_id>_<version>`. An Address ref persists `{addressDeploymentId, addressSpaceId}` and, at spawn, derives the target's stable inbound virtual IPv6 address `I` from the local cluster ULA prefix without fetching target deployment state. Address refs never expose `O`. Targets must be virtual-networked on the same node; target deletion, removal of virtual networking, and space moves are rejected while references exist.
-- Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/data`, unless `runtime.defaultVolume.disabled` is set or `runtime.defaultVolume.containerPath` overrides the destination.
+- Environment variables are `EnvVar` entries whose `value` is a union: `literal{value}`, `secret{secret: SecretRef}`, `config{config: ConfigRef}`, `asset{key, asset: AssetRef}` (each ref the stable entity id and value version; `key` is the asset key copied at write time for display), or `address{deployment_id, space_id}`. An asset env ref resolves to the read-only implicit mount path `/opendeploy-env-assets/<asset_id>_<version>`. An address ref, at spawn, derives the target's stable inbound virtual IPv6 address `I` from the local cluster ULA prefix without fetching target deployment state. Address refs never expose `O`. Targets must be virtual-networked on the same node; target deletion, removal of virtual networking, and space moves are rejected while references exist.
+- Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/data`, unless `runtime.default_volume.disabled` is set or `runtime.default_volume.container_path` overrides the destination.
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
-- `devShmSizeKb` optionally resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a KiB value.
-- `fileDescriptorLimit` optionally overrides the OCI `RLIMIT_NOFILE`; when unset, OpenDeploy sets both soft and hard limits to `2048`.
-- Every virtual container run gets a netns/veth pair, stable inbound IPv6 address `I`, run-scoped preferred outbound IPv6 address `O`, machine-local IPv4 egress address, and a host `/128` route for `O`. Both IPv6 addresses are assigned before process start; `I` has `preferred_lft=0`. Activation routes `I` to the current run, and optional nftables `portForwarding` rules target that run.
-- Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. In virtual mode, OpenDeploy promotes the candidate by replacing the `I` route and `portForwarding` rules, then stops the old runner. The promoted run continues to use `O` as its preferred outbound source for its full lifetime. In host mode, rollover is cooperative: the candidate shares the host network namespace, so it must defer binding conflicting host ports until after readiness and then wait for the old runner to stop.
+- `dev_shm_size_kb` (optional, at least 1) resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a KiB value.
+- `file_descriptor_limit` (optional, at least 1) overrides the OCI `RLIMIT_NOFILE`; when absent, OpenDeploy sets both soft and hard limits to `2048`.
+- Every virtual container run gets a netns/veth pair, stable inbound IPv6 address `I`, run-scoped preferred outbound IPv6 address `O`, machine-local IPv4 egress address, and a host `/128` route for `O`. Both IPv6 addresses are assigned before process start; `I` has `preferred_lft=0`. Activation routes `I` to the current run, and optional nftables `port_forwarding` rules target that run.
+- Rollover candidates get a per-run Unix socket directory mounted at `/run/opendeploy` and `OPENDEPLOY_READINESS_SOCK_PATH=/run/opendeploy/readiness.sock`. The app signals readiness by writing `ready\n` to that socket after warmup. In virtual mode, OpenDeploy promotes the candidate by replacing the `I` route and `port_forwarding` rules, then stops the old runner. The promoted run continues to use `O` as its preferred outbound source for its full lifetime. In host mode, rollover is cooperative: the candidate shares the host network namespace, so it must defer binding conflicting host ports until after readiness and then wait for the old runner to stop.
 - Each run gets its own cgroup for free: containerd's default OCI `cgroupsPath` is `/{namespace}/{container id}`, and the id is unique per run. The runner registers the run with `lib/metrics` (node-level resource sampler) once the task is up and deregisters it in `deleteTask`; see `docs/future-work/container-metrics-implementation-plan.md`.
 - Before every start the runner removes any other container in its family, since a crash between a task delete and the next create can leave one behind.
 - At agent start, once the node's placements are known and before the operator creates runners, `runner.SweepForeignContainers` (`runner/sweep.go`) deletes containers in the namespace that belong to no scheduled instance on the node: ids outside the naming scheme and ids whose deployment and scheduled instance are unknown. Placement, not spec version, is the key, so a rollover's previous version is never touched. A foreign container with a running task is logged and left alone.

@@ -13,12 +13,12 @@ import (
 )
 
 type exportedConfigBundle struct {
-	Deployments []*apigen.DeploymentEvent `json:"deployments"`
-	Configs     []*pq.ConfigEvent         `json:"configs"`
-	Secrets     []*pq.SecretEvent         `json:"secrets"`
-	Assets      []*pq.AssetEvent          `json:"assets"`
-	Spaces      []*apigen.Space           `json:"spaces"`
-	Settings    apigen.ClusterSettings    `json:"settings"`
+	Deployments []*apigen.DeploymentRecord `json:"deployments"`
+	Configs     []*pq.ConfigEvent          `json:"configs"`
+	Secrets     []*pq.SecretEvent          `json:"secrets"`
+	Assets      []*pq.AssetEvent           `json:"assets"`
+	Spaces      []*apigen.Space            `json:"spaces"`
+	Settings    apigen.ClusterSettings     `json:"settings"`
 }
 
 func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context) (*apigen.ExportedConfigBlob, error) {
@@ -32,7 +32,7 @@ func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context) (*apigen.Export
 		return nil, err
 	}
 	if deployments == nil {
-		deployments = []*apigen.DeploymentEvent{}
+		deployments = []*apigen.DeploymentRecord{}
 	}
 	configs := values.ListConfigs(h.Store.Queries())
 	secrets := secrets.List(h.Store.Queries())
@@ -41,8 +41,8 @@ func (h *Handler) PostV1GlobalExportedConfig(ctx apigen.Context) (*apigen.Export
 	storedSettings := h.SystemConfig.Snapshot().Settings
 	settings := storedSettings
 
-	sort.Slice(configs, func(i, j int) bool { return configs[i].Value.Fs.Name < configs[j].Value.Fs.Name })
-	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Value.Fs.Name < secrets[j].Value.Fs.Name })
+	sort.Slice(configs, func(i, j int) bool { return configs[i].Value.Fs.Key < configs[j].Value.Fs.Key })
+	sort.Slice(secrets, func(i, j int) bool { return secrets[i].Value.Fs.Key < secrets[j].Value.Fs.Key })
 	sort.Slice(assets, func(i, j int) bool { return assets[i].Value.Fs.Key < assets[j].Value.Fs.Key })
 	sort.Slice(spaces, func(i, j int) bool { return spaces[i].ID < spaces[j].ID })
 

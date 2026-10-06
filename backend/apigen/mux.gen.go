@@ -94,10 +94,10 @@ type ApiServerHandler interface {
 	PostV1AgentSessionsRevoke(Context, *AgentSessionRevokeRequest) error
 	PostV1UserSessionsList(Context) (*UserSessionList, error)
 	PostV1UserSessionsRevoke(Context, *UserSessionRevokeRequest) error
-	PostV1AccessRuleTemplatesList(Context) (*AuthzRuleTemplateList, error)
-	PostV1AccessRuleTemplatesCreate(Context, *AuthzRuleTemplateCreateRequest) (*CoreWriteUpdate, error)
-	PostV1AccessRuleTemplatesUpdate(Context, *AuthzRuleTemplateUpdateRequest) (*CoreWriteUpdate, error)
-	PostV1AccessRuleTemplatesDelete(Context, *AuthzRuleTemplateDeleteRequest) error
+	PostV1AccessGrantTemplatesList(Context) (*AuthzGrantTemplateList, error)
+	PostV1AccessGrantTemplatesCreate(Context, *AuthzGrantTemplateCreateRequest) (*CoreWriteUpdate, error)
+	PostV1AccessGrantTemplatesUpdate(Context, *AuthzGrantTemplateUpdateRequest) (*CoreWriteUpdate, error)
+	PostV1AccessGrantTemplatesDelete(Context, *AuthzGrantTemplateDeleteRequest) error
 	PostV1AccessGrantsCreate(Context, *AuthzGrantCreateRequest) (*CoreWriteUpdate, error)
 	PostV1AccessGrantsDelete(Context, *AuthzGrantDeleteRequest) error
 	PostV1AccessGlobalRulesList(Context) (*AuthzGlobalRuleList, error)
@@ -108,7 +108,7 @@ type ApiServerHandler interface {
 	PostV1GlobalExportedConfig(Context) (*ExportedConfigBlob, error)
 	PostV1DeploymentsGet(Context, *DeploymentGetRequest) (*DeploymentGetResponse, error)
 	PostV1DeploymentsCreate(Context, *DeploymentCreateRequest) (*CoreWriteUpdate, error)
-	PostV2DeploymentsUpdate(Context, *DeploymentUpdateRequestV2) (*CoreWriteUpdate, error)
+	PostV1DeploymentsUpdate(Context, *DeploymentUpdateRequest) (*CoreWriteUpdate, error)
 	PostV1DeploymentsDelete(Context, *DeploymentDeleteRequest) error
 	PostV1DeploymentsRecentlyDeleted(Context, *RecentlyDeletedDeploymentsRequest) (*RecentlyDeletedDeployments, error)
 	PostV1DeploymentsHistory(Context, *DeploymentHistoryRequest) (*DeploymentHistory, error)
@@ -208,6 +208,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1ClusterSettingsUpdate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -216,6 +220,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1NixStoreReset := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNixStoreResetRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -234,6 +242,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1AuthMaster(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -242,6 +254,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AuthMasterPasswordSave := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeMasterPasswordSaveRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -257,6 +273,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AuthMasterPasswordVerify := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeMasterPasswordVerifyRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -278,6 +298,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AuthPasswordLogin := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePasswordLoginRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -313,6 +337,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1AuthPasskeyRegisterFinish(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -327,6 +355,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AuthPasskeyLoginFinish := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeWebAuthNFinishRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -350,6 +382,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1AgentSessionsRequestStart(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -361,6 +397,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1AgentSessionsGetSession(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -369,6 +409,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AgentSessionsApprove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAgentSessionApproveRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -395,6 +439,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		err = h.PostV1AgentSessionsRevoke(authCtx, req)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
@@ -416,6 +464,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		err = h.PostV1UserSessionsRevoke(authCtx, req)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
@@ -424,53 +476,69 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/user-sessions/revoke", buildHandlerFunc(config, verifyAuth, postV1UserSessionsRevokeAccessPolicy, postAuthHandlerPostV1UserSessionsRevoke, compressionModeAuto, false))
-	postV1AccessRuleTemplatesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1AccessRuleTemplatesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		res, err := h.PostV1AccessRuleTemplatesList(authCtx)
+	postV1AccessGrantTemplatesListAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1AccessGrantTemplatesList := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.PostV1AccessGrantTemplatesList(authCtx)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/access/rule-templates/list", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesListAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesList, compressionModeAuto, false))
-	postV1AccessRuleTemplatesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1AccessRuleTemplatesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzRuleTemplateCreateRequest)
+	m.HandleFunc("POST /v1/access/grant-templates/list", buildHandlerFunc(config, verifyAuth, postV1AccessGrantTemplatesListAccessPolicy, postAuthHandlerPostV1AccessGrantTemplatesList, compressionModeAuto, false))
+	postV1AccessGrantTemplatesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1AccessGrantTemplatesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGrantTemplateCreateRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.PostV1AccessRuleTemplatesCreate(authCtx, req)
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessGrantTemplatesCreate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/access/rule-templates/create", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesCreateAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesCreate, compressionModeAuto, false))
-	postV1AccessRuleTemplatesUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1AccessRuleTemplatesUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzRuleTemplateUpdateRequest)
+	m.HandleFunc("POST /v1/access/grant-templates/create", buildHandlerFunc(config, verifyAuth, postV1AccessGrantTemplatesCreateAccessPolicy, postAuthHandlerPostV1AccessGrantTemplatesCreate, compressionModeAuto, false))
+	postV1AccessGrantTemplatesUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1AccessGrantTemplatesUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGrantTemplateUpdateRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.PostV1AccessRuleTemplatesUpdate(authCtx, req)
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccessGrantTemplatesUpdate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v1/access/rule-templates/update", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesUpdateAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesUpdate, compressionModeAuto, false))
-	postV1AccessRuleTemplatesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1AccessRuleTemplatesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzRuleTemplateDeleteRequest)
+	m.HandleFunc("POST /v1/access/grant-templates/update", buildHandlerFunc(config, verifyAuth, postV1AccessGrantTemplatesUpdateAccessPolicy, postAuthHandlerPostV1AccessGrantTemplatesUpdate, compressionModeAuto, false))
+	postV1AccessGrantTemplatesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1AccessGrantTemplatesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGrantTemplateDeleteRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		err = h.PostV1AccessRuleTemplatesDelete(authCtx, req)
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AccessGrantTemplatesDelete(authCtx, req)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
-	m.HandleFunc("POST /v1/access/rule-templates/delete", buildHandlerFunc(config, verifyAuth, postV1AccessRuleTemplatesDeleteAccessPolicy, postAuthHandlerPostV1AccessRuleTemplatesDelete, compressionModeAuto, false))
+	m.HandleFunc("POST /v1/access/grant-templates/delete", buildHandlerFunc(config, verifyAuth, postV1AccessGrantTemplatesDeleteAccessPolicy, postAuthHandlerPostV1AccessGrantTemplatesDelete, compressionModeAuto, false))
 	postV1AccessGrantsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1AccessGrantsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGrantCreateRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -482,6 +550,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AccessGrantsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGrantDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -506,6 +578,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1AccessGlobalRulesCreate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -514,6 +590,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AccessGlobalRulesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAuthzGlobalRuleDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -532,6 +612,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1GlobalEvents(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -543,6 +627,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		seq := h.PostV1GlobalEventStream(authCtx, req)
 		stream := NewStreamWriter(w)
 		var streamErr error
@@ -551,7 +639,12 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
 				break
 			}
-			if werr := stream.Write(resp.Encode()); werr != nil {
+			payload, encodeErr := resp.EncodeChecked()
+			if encodeErr != nil {
+				streamErr = encodeErr
+				break
+			}
+			if werr := stream.Write(payload); werr != nil {
 				streamErr = fmt.Errorf("writing stream resp: %w", werr)
 				break
 			}
@@ -572,6 +665,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1DeploymentsGet(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -583,25 +680,37 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1DeploymentsCreate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/deployments/create", buildHandlerFunc(config, verifyAuth, postV1DeploymentsCreateAccessPolicy, postAuthHandlerPostV1DeploymentsCreate, compressionModeAuto, false))
-	postV2DeploymentsUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV2DeploymentsUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentUpdateRequestV2)
+	postV1DeploymentsUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1DeploymentsUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentUpdateRequest)
 		if err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
-		res, err := h.PostV2DeploymentsUpdate(authCtx, req)
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1DeploymentsUpdate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
-	m.HandleFunc("POST /v2/deployments/update", buildHandlerFunc(config, verifyAuth, postV2DeploymentsUpdateAccessPolicy, postAuthHandlerPostV2DeploymentsUpdate, compressionModeAuto, false))
+	m.HandleFunc("POST /v1/deployments/update", buildHandlerFunc(config, verifyAuth, postV1DeploymentsUpdateAccessPolicy, postAuthHandlerPostV1DeploymentsUpdate, compressionModeAuto, false))
 	postV1DeploymentsDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1DeploymentsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -620,6 +729,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1DeploymentsRecentlyDeleted(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -628,6 +741,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1DeploymentsHistory := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeDeploymentHistoryRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -642,6 +759,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1DeploymentsVersions(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -650,6 +771,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1DeploymentsLogQuery := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeLogQueryRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -664,6 +789,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1DeploymentsRunReport(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -672,6 +801,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1MetricsQuery := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeMetricsQueryRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -686,6 +819,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1MetricsLatest(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -697,6 +834,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		seq := h.PostV1DeploymentsPrepareOutput(authCtx, req)
 		stream := NewStreamWriter(w)
 		var streamErr error
@@ -705,7 +846,12 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
 				break
 			}
-			if werr := stream.Write(resp.Encode()); werr != nil {
+			payload, encodeErr := resp.EncodeChecked()
+			if encodeErr != nil {
+				streamErr = encodeErr
+				break
+			}
+			if werr := stream.Write(payload); werr != nil {
 				streamErr = fmt.Errorf("writing stream resp: %w", werr)
 				break
 			}
@@ -720,6 +866,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1ReposValidate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -728,6 +878,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1NodesRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeRenameRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -742,6 +896,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1NodesAllowedSpaces(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -750,6 +908,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1NodesDrain := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeDrainRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -764,6 +926,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1NodesEvict(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -772,6 +938,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1NodesExposure := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeExposureRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -798,6 +968,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1NodesEnrollmentsAccept(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -806,6 +980,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1SpacesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSpaceSetRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -820,6 +998,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1SpacesUpdate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -828,6 +1010,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1SpacesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSpaceDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -846,6 +1032,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1NetworkPoliciesCreate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -857,6 +1047,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1NetworkPoliciesUpdate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -865,6 +1059,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1NetworkPoliciesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNetworkPolicyDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -883,6 +1081,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1SecretsCreate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -891,6 +1093,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1SecretsSet := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretSetRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -905,6 +1111,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1SecretsGenerate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -913,6 +1123,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1SecretsRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretRenameRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -927,6 +1141,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1SecretsMove(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -938,6 +1156,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1SecretsReveal(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -946,6 +1168,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1SecretsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -976,6 +1202,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1SecretsUnlock(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -984,6 +1214,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1ConfigsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigCreateRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -998,6 +1232,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1ConfigsSet(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1009,6 +1247,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1ConfigsRename(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1017,6 +1259,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1ConfigsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1032,6 +1278,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1ConfigsMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeConfigMoveRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1052,6 +1302,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1ValueDirectoriesCreate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1060,6 +1314,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1ValueDirectoriesMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeValueDirectoryMoveRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1074,6 +1332,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1ValueDirectoriesRename(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1082,6 +1344,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1ValueDirectoriesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeValueDirectoryDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1118,6 +1384,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1AssetsRename(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1126,6 +1396,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AssetsDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1141,6 +1415,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AssetsMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetMoveRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1161,6 +1439,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1AssetDirectoriesCreate(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1169,6 +1451,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AssetDirectoriesMove := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDirectoryMoveRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1183,6 +1469,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.PostV1AssetDirectoriesRename(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1191,6 +1481,10 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 	postAuthHandlerPostV1AssetDirectoriesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAssetDirectoryDeleteRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1249,6 +1543,10 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.GetV1ClusterSecrets(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1260,6 +1558,10 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
 		res, err := h.GetV1ClusterConfigs(authCtx, req)
 		Respond(authCtx, r, w, res, err)
 	}
@@ -1268,6 +1570,10 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 	postAuthHandlerGetV1ClusterIssuedTls := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterIssuedTLSRequest)
 		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
 			HandleReqErr(authCtx, err, r, w)
 			return
 		}
@@ -1299,6 +1605,10 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 					yield(nil, err)
 					return
 				}
+				if err := req.Validate(); err != nil {
+					yield(nil, err)
+					return
+				}
 				if !yield(req, nil) {
 					return
 				}
@@ -1312,7 +1622,12 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
 				break
 			}
-			if werr := stream.Write(resp.Encode()); werr != nil {
+			payload, encodeErr := resp.EncodeChecked()
+			if encodeErr != nil {
+				streamErr = encodeErr
+				break
+			}
+			if werr := stream.Write(payload); werr != nil {
 				streamErr = fmt.Errorf("writing stream resp: %w", werr)
 				break
 			}
@@ -1357,6 +1672,10 @@ func CreateEnrollmentV1Mux(h EnrollmentV1Handler, config *MuxConfig) *http.Serve
 					yield(nil, err)
 					return
 				}
+				if err := req.Validate(); err != nil {
+					yield(nil, err)
+					return
+				}
 				if !yield(req, nil) {
 					return
 				}
@@ -1370,7 +1689,12 @@ func CreateEnrollmentV1Mux(h EnrollmentV1Handler, config *MuxConfig) *http.Serve
 				streamErr = fmt.Errorf("streaming err: %w", yieldErr)
 				break
 			}
-			if werr := stream.Write(resp.Encode()); werr != nil {
+			payload, encodeErr := resp.EncodeChecked()
+			if encodeErr != nil {
+				streamErr = encodeErr
+				break
+			}
+			if werr := stream.Write(payload); werr != nil {
 				streamErr = fmt.Errorf("writing stream resp: %w", werr)
 				break
 			}

@@ -4,6 +4,7 @@ import {
     buildRows,
     checkDrop,
     descendantDirIds,
+    dirIdForWire,
     dirPathSegments,
     dirsById,
     dragSource,
@@ -15,7 +16,9 @@ import {
     makeItems,
 } from "./valueExplorer.js";
 
-const dir = (id, spaceId, name, parentId = 0) => ({id, spaceId, name, parentId});
+// Directories are the wire ValueDirectory/AssetDirectory shape: `key`, and a
+// parentId that is absent at the space root.
+const dir = (id, spaceId, key, parentId = undefined) => ({id, spaceId, key, parentId});
 const item = (kind, id, spaceId, name, directoryId = 0, extra = {}) => ({
     kind, id, spaceId, name, directoryId,
     version: extra.version ?? 1,
@@ -149,15 +152,16 @@ test("uses sort reads the provided counts", () => {
 });
 
 test("makeItems takes latest version facts and drops secrets while locked", () => {
-    const secretMetas = [{id: 7, name: "token", spaceId: 1, valueDirectoryId: 10, versions: [
+    const secretMetas = [{id: 7, key: "token", spaceId: 1, valueDirectoryId: 10, versions: [
         {id: 72, version: 2, createdAt: new Date(2000)},
         {id: 71, version: 1, createdAt: new Date(1000)},
     ]}];
-    const configMetas = [{id: 8, name: "level", spaceId: 1, valueDirectoryId: 0, valueVersions: [
+    const configMetas = [{id: 8, key: "level", spaceId: 1, valueDirectoryId: 0, valueVersions: [
         {id: 81, version: 3, value: "debug", createdAt: new Date(3000)},
     ]}];
     const unlocked = makeItems(secretMetas, configMetas, true);
     assert.equal(unlocked.length, 2);
+    assert.equal(unlocked[0].name, "token");
     assert.equal(unlocked[0].version, 2);
     assert.equal(unlocked[0].directoryId, 10);
     assert.equal(unlocked[1].value, "debug");
@@ -199,6 +203,14 @@ test("folderOptions lists the root first and excludes a moved folder's subtree",
     assert.deepEqual(folderOptions(dirs, 1).map((o) => o.label), ["/", "a", "a/b", "a/b/c", "d"]);
     assert.deepEqual(folderOptions(dirs, 1, 2).map((o) => o.label), ["/", "a", "d"]);
     assert.deepEqual([...descendantDirIds(dirs, 1)].sort(), [1, 2, 3]);
+});
+
+test("the root is absent on the wire, never 0", () => {
+    assert.equal(dirIdForWire(0), undefined);
+    assert.equal(dirIdForWire(undefined), undefined);
+    assert.equal(dirIdForWire(null), undefined);
+    assert.equal(dirIdForWire(12), 12);
+    assert.equal(dirIdForWire("12"), 12);
 });
 
 test("the last visible non-fixed column absorbs the slack", () => {

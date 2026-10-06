@@ -70,17 +70,17 @@ func MustLoadRuntimeConfig(ctx context.Context, cfg ainit.StaticConfiguration, c
 	store := state.Open(dbPath)
 	defer store.Close()
 
-	var netDeploymentID, nodeID int32
+	var netDeploymentID, nodeID uint64
 	cached := make([]string, 0)
 	for _, item := range store.FetchScheduledSnapshot(nil) {
 		cached = append(cached, fmt.Sprintf("{instance=%d deployment=%d node=%d name=%q space=%d}",
-			item.Instance.ID, item.Config.DeploymentID, item.Instance.NodeID, item.Config.Value.Name, item.Config.Value.SpaceID))
-		if internaldeploy.IsNetproxyConfig(&item.Config) && item.Config.DeploymentID != 0 {
-			netDeploymentID = item.Config.DeploymentID
+			item.Instance.ID, item.Config.Deployment.ID, item.Instance.NodeID, item.Config.Deployment.Name, item.Config.Deployment.SpaceID))
+		if internaldeploy.IsNetproxyConfig(&item.Config) && item.Config.Deployment.ID != 0 {
+			netDeploymentID = item.Config.Deployment.ID
 			nodeID = item.Instance.NodeID
 		}
 	}
-	if netDeploymentID == 0 || nodeID <= 0 {
+	if netDeploymentID == 0 || nodeID == 0 {
 		panic(fmt.Sprintf("cached netproxy deployment has no valid node ID version=%v db=%v cached=%v",
 			version.Version, dbPath, cached))
 	}

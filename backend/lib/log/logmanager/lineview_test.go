@@ -151,7 +151,7 @@ func checkLineView(t testing.TB, sc *lineScanner, line string) {
 	}
 	for _, needle := range []string{"", "info", "ERR", "started", "x", "ß", "k", "2"} {
 		for _, field := range []string{"", "level", "field", "msg", "n", "a.b.c"} {
-			fs, err := compileFilters([]*apigen.LogFilter{{Field: field, Op: "contains", Value: needle}})
+			fs, err := compileFilters([]apigen.LogFilter{{Field: field, Op: "contains", Value: needle}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -255,7 +255,7 @@ func TestLineViewLevelScanAllocates(t *testing.T) {
 		[]byte(`{"time":"2026-06-15T14:30:02Z","level":"ERROR","msg":"boom \"quoted\"","err":"x"}`),
 		[]byte(`plain text`),
 	}
-	fs, err := compileFilters([]*apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR"}}})
+	fs, err := compileFilters([]apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestLineViewLevelScanAllocates(t *testing.T) {
 	if allocs != 0 {
 		t.Fatalf("level filter allocated %v per run, want 0", allocs)
 	}
-	cfs, err := compileFilters([]*apigen.LogFilter{{Op: "contains", Value: "boom"}, {Field: "n.a", Op: "eq", Value: "1"}})
+	cfs, err := compileFilters([]apigen.LogFilter{{Op: "contains", Value: "boom"}, {Field: "n.a", Op: "eq", Value: "1"}})
 	if err != nil {
 		t.Fatal(err)
 	}

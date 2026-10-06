@@ -53,30 +53,41 @@ func withRetentionAssetDir(t *testing.T, names ...string) string {
 
 // referencing builds a config that references secret 1 and asset 4, matching the
 // values seeded by retentionTestStore and withRetentionAssetDir.
-func referencingConfig(version int32) apigen.DeploymentEvent {
-	return apigen.DeploymentEvent{
-		DeploymentID: 7,
-		SpecVersion:  version,
-		Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, 23), SpaceID: 1, Name: "api", Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Runtime: apigen.ContainerRuntime{AssetMounts: []*apigen.AssetMount{{Asset: vr(4)}}, EnvVars: map[string]*apigen.EnvVarValue{"TOKEN": {Secret: &apigen.ValueRef{ID: 1, Version: 1}}}}}}},
+func referencingConfig(version uint32) apigen.DeploymentRecord {
+	return apigen.DeploymentRecord{
+		Deployment: apigen.Deployment{
+			ID:         7,
+			Scheduling: apigen.DedicatedScheduling(false, 23),
+			SpaceID:    1,
+			Name:       "api",
+			Spec: apigen.DeploymentSpec{Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+				Source:          apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: "example/app"}}},
+				UpgradeStrategy: apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE,
+				Runtime: apigen.ContainerRuntime{
+					AssetMounts: []apigen.AssetMount{{Asset: vr(4).Asset(), ContainerPath: "/srv/asset", Permission: apigen.FilePermission_FILE_PERMISSION_READ_ONLY}},
+					EnvVars:     map[string]apigen.EnvVar{"TOKEN": {Value: apigen.EnvVarValueOneof{Secret: &apigen.SecretEnv{Secret: apigen.SecretRef{SecretID: 1, Version: 1}}}}},
+				},
+			}}}, Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST}},
+		},
+		Meta: apigen.EntityMeta{Version: version, SpecVersion: version},
 	}
 }
 
-func writeInstance(t *testing.T, store *state.Service, instanceID int32, cfg apigen.DeploymentEvent, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion int32) {
+func writeInstance(t *testing.T, store *state.Service, instanceID uint64, cfg apigen.DeploymentRecord, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion uint32) {
 	t.Helper()
 	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID:                    instanceID,
-			NodeID:                23,
-			DeploymentID:          cfg.DeploymentID,
-			DeploymentSpecVersion: cfg.SpecVersion,
-			State:                 target,
+			ID:         instanceID,
+			NodeID:     23,
+			Deployment: apigen.DeploymentRef{DeploymentID: cfg.Deployment.ID, Version: cfg.Meta.Version},
+			State:      target,
 		},
 		Config: cfg,
 	})
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
-		s.Preparer = apigen.PreparerStatus{DeploymentSpecVersion: preparerVersion, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
-		s.Runner = apigen.RunnerStatus{DeploymentSpecVersion: runnerVersion, Status: apigen.RunningStatus_RUNNING}
+		s.Preparer = apigen.Some(apigen.PreparerStatus{DeploymentSpecVersion: preparerVersion, Inputs: apigen.InputsStatus_INPUTS_STATUS_READY, Image: apigen.Some(apigen.ImageStatus_IMAGE_STATUS_READY)})
+		s.Runner = apigen.Some(apigen.RunnerStatus{DeploymentSpecVersion: runnerVersion, Status: apigen.RunningStatus_RUNNING_STATUS_RUNNING})
 		return true
 	})
 }
@@ -116,8 +127,8 @@ func TestSweepSkipsEntirelyWhileAnyInstanceIsMidRollout(t *testing.T) {
 	writeInstance(t, store, 11, referencingConfig(3), apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 3, 3)
 	// A second instance mid-rollout: prepared at v4, still running v3.
 	other := referencingConfig(4)
-	other.DeploymentID = 8
-	other.Value.Name = "secondary"
+	other.Deployment.ID = 8
+	other.Deployment.Name = "secondary"
 	writeInstance(t, store, 12, other, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, 4, 3)
 
 	sweepRuntimeInputs(context.Background(), store, inputs, nil, nil)
@@ -149,4 +160,4 @@ func TestSweepTreatsTerminatingInstancesAsSettled(t *testing.T) {
 	}
 }
 
-func vr(id int32) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }
+func vr(id uint64) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }

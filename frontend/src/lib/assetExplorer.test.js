@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {ASSET_COLUMNS, assetDirsAsNamed, fmtSize, makeAssetItems} from "./assetExplorer.js";
+import {ASSET_COLUMNS, fmtSize, makeAssetItems} from "./assetExplorer.js";
 import {buildRows, flexColumnKey} from "./valueExplorer.js";
 
 // Fixtures use the view-model shape state/deployments.js derives from the
@@ -25,18 +25,13 @@ test("makeAssetItems takes latest version facts and skips versionless metas", ()
     assert.equal(items[1].large, true);
 });
 
-test("asset directories map key onto the name the shared helpers expect", () => {
-    const named = assetDirsAsNamed([{id: 5, spaceId: 1, key: "bundles", parentId: 0}]);
-    assert.equal(named[0].name, "bundles");
-    assert.equal(named[0].key, "bundles");
-});
-
 test("buildRows without a type filter treats only the query as narrowing", () => {
     const spaces = [{id: 1, name: "default"}];
-    const dirs = assetDirsAsNamed([
-        {id: 10, spaceId: 1, key: "nginx", parentId: 0},
-        {id: 11, spaceId: 1, key: "empty", parentId: 0},
-    ]);
+    // Wire AssetDirectory rows: `key`, parentId absent at the space root.
+    const dirs = [
+        {id: 10, spaceId: 1, key: "nginx"},
+        {id: 11, spaceId: 1, key: "empty"},
+    ];
     const items = makeAssetItems([
         meta(1, "site.conf", 1, 10, [ref(12, 1)]),
         meta(2, "root.txt", 1, 0, [ref(21, 1)]),

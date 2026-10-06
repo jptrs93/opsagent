@@ -91,7 +91,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 		ExpiresAt:         expiry,
 		TokenHash:         hashToken(token),
 		TokenPrefix:       tokenDisplayPrefix(token),
-		Status:            apigen.AgentSessionStatus_AGENT_SESSION_APPROVED,
+		Status:            apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED,
 		RequestingAddress: clientaddr.From(ctx),
 		ApprovedAt:        now,
 	}
@@ -101,7 +101,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 	slog.InfoContext(ctx, fmt.Sprintf("started agent session ttl=%s", agentSessionTTL), "session", sessionID)
 	return &apigen.AgentSessionCreated{
 		Token:   token,
-		Session: agentsessions.ToProto(rec),
+		Session: *agentsessions.ToProto(rec),
 	}, nil
 }
 
@@ -114,7 +114,7 @@ func (h *Handler) PostV1AgentSessionsCreate(ctx apigen.Context) (*apigen.AgentSe
 // asked to choose between two identical-looking requests. Stale ones are closed
 // on the way through rather than by a sweeper.
 func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apigen.AgentSessionRequestStartRequest) (*apigen.AgentSessionRequest, error) {
-	user, err := users.Matching(h.Store.Queries(), func(u *apigen.InternalUser) bool { return u.ID == req.UserID })
+	user, err := users.Matching(h.Store.Queries(), func(u *apigen.User) bool { return u.ID == req.UserID })
 	if errors.Is(err, users.ErrNotFound) {
 		return nil, AgentSessionUserNotFoundErr
 	}
@@ -130,7 +130,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 		if now.Sub(rec.CreatedAt) < agentSessionPendingTTL {
 			return nil, AgentSessionRequestPendingErr
 		}
-		if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, time.Time{}, 0); err != nil {
+		if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED, time.Time{}, 0); err != nil {
 			return nil, fmt.Errorf("closing stale agent session request: %w", err)
 		}
 		slog.InfoContext(ctx, "closed stale agent session request", "session", rec.ID)
@@ -149,7 +149,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 		ID:                sessionID,
 		UserID:            user.ID,
 		CreatedAt:         now,
-		Status:            apigen.AgentSessionStatus_AGENT_SESSION_PENDING,
+		Status:            apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING,
 		RequestingAddress: clientaddr.From(ctx),
 		ApprovalCode:      code,
 	}
@@ -158,7 +158,7 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("agent session requested address=%s", rec.RequestingAddress), "session", sessionID, "user", user.ID)
 	return &apigen.AgentSessionRequest{
-		ID:               sessionID,
+		SessionID:        sessionID,
 		ApprovalCode:     code,
 		Status:           rec.Status,
 		RequestExpiresAt: now.Add(agentSessionPendingTTL),
@@ -172,10 +172,10 @@ func (h *Handler) PostV1AgentSessionsRequestStart(ctx apigen.Context, req *apige
 // credential. It also starts the 6-hour clock when the agent actually picks
 // the token up.
 func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.AgentSessionGetRequest) (*apigen.AgentSessionPickup, error) {
-	if strings.TrimSpace(req.ID) == "" {
+	if strings.TrimSpace(req.SessionID) == "" {
 		return nil, AgentSessionNotFoundErr
 	}
-	rec, err := h.agentSessions().FetchAgentSession(req.ID)
+	rec, err := h.agentSessions().FetchAgentSession(req.SessionID)
 	if errors.Is(err, agentsessions.ErrNotFound) {
 		return nil, AgentSessionNotFoundErr
 	}
@@ -184,16 +184,16 @@ func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.
 	}
 	now := time.Now()
 	switch rec.Status {
-	case apigen.AgentSessionStatus_AGENT_SESSION_PENDING:
+	case apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING:
 		if now.Sub(rec.CreatedAt) >= agentSessionPendingTTL {
 			return h.closeAgentSession(ctx, rec, now, "agent session request expired unapproved")
 		}
 		return &apigen.AgentSessionPickup{Status: rec.Status}, nil
-	case apigen.AgentSessionStatus_AGENT_SESSION_APPROVED:
+	case apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED:
 		if rec.Collected() {
 			// The token was handed over on an earlier call and is not
 			// recoverable. Reporting the status alone is the whole point.
-			return &apigen.AgentSessionPickup{Status: rec.Status, ExpiresAt: rec.ExpiresAt}, nil
+			return &apigen.AgentSessionPickup{Status: rec.Status, ExpiresAt: apigen.TimeOf(rec.ExpiresAt)}, nil
 		}
 		if now.Sub(rec.ApprovedAt) >= agentSessionPickupTTL {
 			return h.closeAgentSession(ctx, rec, now, "approved agent session expired uncollected")
@@ -205,11 +205,11 @@ func (h *Handler) PostV1AgentSessionsGetSession(ctx apigen.Context, req *apigen.
 }
 
 func (h *Handler) closeAgentSession(ctx apigen.Context, rec agentsessions.Record, now time.Time, msg string) (*apigen.AgentSessionPickup, error) {
-	if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_REJECTED, rec.ApprovedAt, 0); err != nil {
+	if err := h.agentSessions().SetAgentSessionStatus(rec.ID, apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED, rec.ApprovedAt, 0); err != nil {
 		return nil, fmt.Errorf("closing agent session: %w", err)
 	}
 	slog.InfoContext(ctx, msg, "session", rec.ID)
-	return &apigen.AgentSessionPickup{Status: apigen.AgentSessionStatus_AGENT_SESSION_REJECTED}, nil
+	return &apigen.AgentSessionPickup{Status: apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED}, nil
 }
 
 func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec agentsessions.Record, now time.Time) (*apigen.AgentSessionPickup, error) {
@@ -226,13 +226,13 @@ func (h *Handler) mintApprovedAgentSession(ctx apigen.Context, rec agentsessions
 		// Another pickup won the race and its token is the one that works.
 		// Discarding this one is what keeps a session to a single credential.
 		slog.WarnContext(ctx, "discarded agent session token lost to a concurrent pickup", "session", rec.ID)
-		return &apigen.AgentSessionPickup{Status: apigen.AgentSessionStatus_AGENT_SESSION_APPROVED}, nil
+		return &apigen.AgentSessionPickup{Status: apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED}, nil
 	}
 	slog.InfoContext(ctx, fmt.Sprintf("agent session collected ttl=%s", agentSessionTTL), "session", rec.ID)
 	return &apigen.AgentSessionPickup{
-		Status:    apigen.AgentSessionStatus_AGENT_SESSION_APPROVED,
+		Status:    apigen.AgentSessionStatus_AGENT_SESSION_STATUS_APPROVED,
 		Token:     token,
-		ExpiresAt: expiry,
+		ExpiresAt: apigen.TimeOf(expiry),
 	}, nil
 }
 
@@ -242,11 +242,11 @@ func (h *Handler) PostV1AgentSessionsApprove(ctx apigen.Context, req *apigen.Age
 	if err := requireHuman(ctx); err != nil {
 		return nil, err
 	}
-	rec, err := h.fetchOwnAgentSession(ctx, req.ID)
+	rec, err := h.fetchOwnAgentSession(ctx, req.SessionID)
 	if err != nil {
 		return nil, err
 	}
-	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_PENDING {
+	if rec.Status != apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING {
 		return nil, AgentSessionNotPendingErr
 	}
 	now := time.Now()
@@ -278,9 +278,9 @@ func (h *Handler) PostV1AgentSessionsList(ctx apigen.Context) (*apigen.AgentSess
 	if err != nil {
 		return nil, fmt.Errorf("listing agent sessions: %w", err)
 	}
-	items := make([]*apigen.AgentSession, 0, len(records))
+	items := make([]apigen.AgentSession, 0, len(records))
 	for _, rec := range records {
-		items = append(items, agentsessions.ToProto(rec))
+		items = append(items, *agentsessions.ToProto(rec))
 	}
 	return &apigen.AgentSessionList{Items: items}, nil
 }
@@ -292,21 +292,21 @@ func (h *Handler) PostV1AgentSessionsRevoke(ctx apigen.Context, req *apigen.Agen
 	if ctx.User == nil {
 		return InvalidAuthTokenErr
 	}
-	if ctx.User.Delegated && strings.TrimSpace(req.ID) != ctx.SessionID {
+	if ctx.Delegated && strings.TrimSpace(req.SessionID) != ctx.SessionID {
 		return AgentSessionNotFoundErr
 	}
-	rec, err := h.fetchOwnAgentSession(ctx, req.ID)
+	rec, err := h.fetchOwnAgentSession(ctx, req.SessionID)
 	if err != nil {
 		return err
 	}
-	status := apigen.AgentSessionStatus_AGENT_SESSION_REVOKED
-	if rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_PENDING {
-		status = apigen.AgentSessionStatus_AGENT_SESSION_REJECTED
+	status := apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REVOKED
+	if rec.Status == apigen.AgentSessionStatus_AGENT_SESSION_STATUS_PENDING {
+		status = apigen.AgentSessionStatus_AGENT_SESSION_STATUS_REJECTED
 	}
-	if err := h.agentSessions().RevokeAgentSession(req.ID, ctx.User.ID, status, ctx.AttributionUserID()); err != nil {
+	if err := h.agentSessions().RevokeAgentSession(req.SessionID, ctx.User.ID, status, ctx.AttributionUserID()); err != nil {
 		return fmt.Errorf("revoking agent session: %w", err)
 	}
-	slog.InfoContext(ctx, fmt.Sprintf("stopped agent session status=%v", status), "session", req.ID)
+	slog.InfoContext(ctx, fmt.Sprintf("stopped agent session status=%v", status), "session", req.SessionID)
 	return nil
 }
 

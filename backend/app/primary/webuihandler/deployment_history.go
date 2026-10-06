@@ -6,7 +6,6 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.DeploymentHistoryRequest) (*apigen.DeploymentHistory, error) {
@@ -17,11 +16,11 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 	if cfg == nil {
 		return nil, deployments.NotFoundErr
 	}
-	if err := h.requireEntityAccess(ctx, vView, eDeployment, int64(cfg.Value.SpaceID), int64(cfg.DeploymentID), deployments.NotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vView, eDeployment, cfg.Deployment.SpaceID, cfg.Deployment.ID, deployments.NotFoundErr); err != nil {
 		return nil, err
 	}
 
-	configs, err := h.Queries.ListDeploymentEvents(ctx, int64(req.DeploymentID))
+	configs, err := h.Queries.ListDeploymentHistory(ctx, req.DeploymentID)
 	if err != nil {
 		return nil, err
 	}
@@ -30,18 +29,18 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 		return nil, err
 	}
 
-	entries := make([]*apigen.DeploymentHistoryEntry, 0, len(configs)+len(statuses))
+	entries := make([]apigen.DeploymentHistoryEntry, 0, len(configs)+len(statuses))
 	for _, c := range configs {
-		entries = append(entries, &apigen.DeploymentHistoryEntry{Deployment: pq.DeploymentRecord(c)})
+		entries = append(entries, apigen.DeploymentHistoryEntry{Value: apigen.DeploymentHistoryEntryValueOneof{Deployment: c}})
 	}
 	for _, s := range statuses {
-		entries = append(entries, &apigen.DeploymentHistoryEntry{Status: s})
+		entries = append(entries, apigen.DeploymentHistoryEntry{Value: apigen.DeploymentHistoryEntryValueOneof{Status: s}})
 	}
 
 	sort.SliceStable(entries, func(i, j int) bool {
-		ti, tj := entryTime(entries[i]), entryTime(entries[j])
+		ti, tj := entryTime(&entries[i]), entryTime(&entries[j])
 		if ti.Equal(tj) {
-			return entries[i].Deployment != nil && entries[j].Deployment == nil
+			return entries[i].Value.Deployment != nil && entries[j].Value.Deployment == nil
 		}
 		return ti.After(tj)
 	})
@@ -50,8 +49,8 @@ func (h *Handler) PostV1DeploymentsHistory(ctx apigen.Context, req *apigen.Deplo
 }
 
 func entryTime(e *apigen.DeploymentHistoryEntry) time.Time {
-	if e.Deployment != nil {
-		return time.UnixMilli(e.Deployment.Meta.UpdatedTime)
+	if e.Value.Deployment != nil {
+		return time.UnixMilli(e.Value.Deployment.Meta.UpdatedTime)
 	}
-	return e.Status.UpdatedAt
+	return e.Value.Status.UpdatedAt.Value
 }

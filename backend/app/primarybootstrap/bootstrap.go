@@ -27,6 +27,9 @@ type Options struct {
 	Initial       systemconfig.Initial
 	PrimaryName   string
 	WebTLSCertPEM []byte
+	// UnderlayAddress is the node address used for cross-node tunnels; empty
+	// derives it from the cluster listen address or the host's interfaces.
+	UnderlayAddress string
 }
 
 type Result struct {
@@ -52,8 +55,12 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 			cleanupBootstrapArtifacts(s.DataDir)
 		}
 	}()
+	underlay, err := ResolvePrimaryUnderlayAddress(opts.UnderlayAddress, opts.Initial.ClusterListen)
+	if err != nil {
+		return nil, err
+	}
 	primaryIdentifier := uuid.NewString()
-	nodes.EnsurePrimaryNode(store, "primary", primaryIdentifier)
+	nodes.EnsurePrimaryNode(store, "primary", primaryIdentifier, underlay)
 	secretsMgr, err := secrets.Initialize(s.DataDir, store)
 	if err != nil {
 		return nil, err
@@ -64,15 +71,15 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 		if err != nil {
 			return nil, fmt.Errorf("storing initial Web TLS certificate: %w", err)
 		}
-		cfg.Settings.HttpsWeb.TlsSelfManaged = apigen.BoolSetting{Value: true}
-		cfg.Settings.HttpsWeb.TlsCertPem = apigen.SecretRef{Ref: meta.Ref()}
+		cfg.Settings.HttpsWeb.TlsSelfManaged = systemconfig.BoolLiteral(true)
+		cfg.Settings.HttpsWeb.TlsCertPem = apigen.Some(meta.Ref().Secret())
 	}
 	clusterMaterial, err := pki.BootstrapPrimary(secretsMgr, primaryIdentifier, opts.PrimaryName)
 	if err != nil {
 		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)
 	}
-	if cfg.Settings.HttpsWeb.Enabled.Value && cfg.Settings.HttpsWeb.TlsSelfManaged.Value && !cfg.Settings.HttpsWeb.TlsCertPem.Ref.Valid() {
-		_, caCertPEM, err := pki.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(cfg.Settings.HttpsWeb.AcmeHosts.Value, cfg.Settings.HttpsWeb.Listen.Value))
+	if opts.Initial.WebHTTPSEnabled && opts.Initial.WebTLSSelfManaged && len(opts.WebTLSCertPEM) == 0 {
+		_, caCertPEM, err := pki.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(strings.Join(opts.Initial.AcmeHosts, ","), opts.Initial.WebHTTPSListen))
 		if err != nil {
 			return nil, fmt.Errorf("initializing self-managed Web TLS material: %w", err)
 		}
@@ -121,8 +128,8 @@ func (s Service) Validate(_ context.Context) error {
 	settings := configService.Snapshot().Settings
 	if configService.MustLoadBoolSetting(settings.HttpsWeb.Enabled) && configService.MustLoadBoolSetting(settings.HttpsWeb.TlsSelfManaged) {
 		var bundle []byte
-		if settings.HttpsWeb.TlsCertPem.Ref.Valid() {
-			bundle, err = secretsMgr.RevealByRef(settings.HttpsWeb.TlsCertPem.Ref)
+		if ref := settings.HttpsWeb.TlsCertPem; ref.Present && ref.Value.Valid() {
+			bundle, err = secretsMgr.RevealByRef(ref.Value.Ref())
 		} else {
 			bundle, _, err = pki.EnsureWebUILocalTLS(secretsMgr, certu.WebUITLSNames(configService.MustLoadStringSetting(settings.HttpsWeb.AcmeHosts), configService.MustLoadStringSetting(settings.HttpsWeb.Listen)))
 		}

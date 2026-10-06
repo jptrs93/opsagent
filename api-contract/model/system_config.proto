@@ -3,38 +3,41 @@ syntax = "proto3";
 package opsagent.v1;
 
 import "api-contract/options.proto";
-import "api-contract/model/deployments.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-message SecretRef {
-  reserved 1, 2, 3;
-  reserved "version_id";
-  ValueRef ref = 4 [(cp.go_value) = true];
-}
-
-message ConfigRef {
-  reserved 1, 2, 3;
-  reserved "version_id";
-  ValueRef ref = 4 [(cp.go_value) = true];
-}
-
 message StringSetting {
-  string value = 1;
-  ConfigRef config_ref = 2 [(cp.go_value) = true];
+  StringSettingValue value = 1 [(cp.go_value) = true];
+}
+
+message StringSettingValue {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    string literal = 1;
+    ConfigRef config_ref = 2;
+  }
 }
 
 message BoolSetting {
-  bool value = 1;
-  ConfigRef config_ref = 2 [(cp.go_value) = true];
+  BoolSettingValue value = 1 [(cp.go_value) = true];
 }
 
+message BoolSettingValue {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    bool literal = 1;
+    ConfigRef config_ref = 2;
+  }
+}
+
+// SystemConfig is the cluster singleton with id 1.
 message SystemConfig {
-  ClusterSettings settings = 1 [(cp.go_value) = true];
-  string master_password_hash = 2;
-  // RFC 4193 ULA /48 prefix (6 bytes) for the virtual network. Generated
-  // randomly at first primary startup, then immutable. Not user-editable.
-  bytes network_ula_prefix = 3;
+  uint32 id = 1 [(buf.validate.field).uint32 = {gte: 1, lte: 1}];
+  ClusterSettings settings = 2 [(cp.go_value) = true];
+  optional string master_password_hash = 3 [(buf.validate.field).string.min_len = 1];
+  bytes network_ula_prefix = 4 [(buf.validate.field).bytes.len = 6]; // RFC 4193 ULA /48 prefix, generated once, immutable
 }
 
 message ClusterSettings {
@@ -56,18 +59,9 @@ message HttpsWebSettings {
   BoolSetting enabled = 1 [(cp.go_value) = true];
   StringSetting listen = 2 [(cp.go_value) = true];
   BoolSetting tls_self_managed = 3 [(cp.go_value) = true];
-  SecretRef tls_cert_pem = 4 [(cp.go_value) = true];
+  SecretRef tls_cert_pem = 4;
   StringSetting acme_hosts = 5 [(cp.go_value) = true];
   StringSetting acme_email = 6 [(cp.go_value) = true];
-}
-
-// AuthSettings controls which login methods the Web UI offers. Passkeys are
-// always available; password login lets the cluster master password open a
-// full session directly, an opt-in for local and evaluation installs where
-// passkeys are impractical (plain HTTP away from localhost, or an untrusted
-// certificate).
-message AuthSettings {
-  BoolSetting password_login_enabled = 1 [(cp.go_value) = true];
 }
 
 message ClusterListenSettings {
@@ -76,13 +70,13 @@ message ClusterListenSettings {
 }
 
 message RepoSettings {
-  SecretRef github_token = 1 [(cp.go_value) = true];
+  SecretRef github_token = 1;
 }
 
 message BackupSettings {
   BoolSetting enabled = 1 [(cp.go_value) = true];
   StringSetting s3_access_key_id = 2 [(cp.go_value) = true];
-  SecretRef s3_secret_access_key = 3 [(cp.go_value) = true];
+  SecretRef s3_secret_access_key = 3;
   StringSetting s3_bucket = 4 [(cp.go_value) = true];
   StringSetting s3_path = 5 [(cp.go_value) = true];
   StringSetting s3_region = 6 [(cp.go_value) = true];
@@ -92,12 +86,26 @@ message BackupSettings {
 message LargeAssetsSettings {
   BoolSetting use_separate_s3 = 1 [(cp.go_value) = true];
   StringSetting s3_access_key_id = 2 [(cp.go_value) = true];
-  SecretRef s3_secret_access_key = 3 [(cp.go_value) = true];
+  SecretRef s3_secret_access_key = 3;
   StringSetting s3_bucket = 4 [(cp.go_value) = true];
   StringSetting s3_path = 5 [(cp.go_value) = true];
   StringSetting s3_region = 6 [(cp.go_value) = true];
   StringSetting s3_endpoint = 7 [(cp.go_value) = true];
   BoolSetting keep_local_copy = 8 [(cp.go_value) = true];
+}
+
+// AuthSettings controls which login methods the Web UI offers. Passkeys are
+// always available; password login lets the master password open a full
+// session directly.
+message AuthSettings {
+  BoolSetting password_login_enabled = 1 [(cp.go_value) = true];
+}
+
+// NixStoreReset asks every node to reseed its Nix build store for one
+// repository before the next build that starts after the request.
+message NixStoreReset {
+  uint64 id = 1 [(cp.js_type) = "number"];
+  string repo = 2 [(buf.validate.field).string = {min_len: 1, max_len: 512}];
 }
 
 message ExportedConfigBlob {

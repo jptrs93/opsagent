@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"bytes"
 	"sync"
 
 	"github.com/jptrs93/goutil/pubsubu"
@@ -17,7 +18,7 @@ type StatusPublisher struct {
 func (s *StatusPublisher) Publish(status apigen.BackupStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if previous, ok := s.updates.ValueOK(); ok && previous == status {
+	if previous, ok := s.updates.ValueOK(); ok && backupStatusEqual(previous, status) {
 		return
 	}
 	s.updates.Notify(status)
@@ -27,4 +28,8 @@ func (s *StatusPublisher) Snapshot() apigen.BackupStatus { return s.updates.Valu
 
 func (s *StatusPublisher) SnapshotAndSubscribe() *pubsubu.Sub[apigen.BackupStatus] {
 	return s.updates.Subscribe(nil)
+}
+
+func backupStatusEqual(a, b apigen.BackupStatus) bool {
+	return bytes.Equal(a.Encode(), b.Encode())
 }

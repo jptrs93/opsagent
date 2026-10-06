@@ -16,34 +16,59 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-func listKeyslots(q *pq.Queries) []Keyslot {
-	rows := erru.Must(q.ListSecretKeyslots(context.Background()))
-	out := make([]Keyslot, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, Keyslot{
-			Kind: r.Kind, NodeID: int32(r.NodeID), SMKVersion: int32(r.SmkVersion), WrappedSMK: r.WrappedSmk, Nonce: r.Nonce, KDFSalt: r.KdfSalt, CreatedAt: r.UpdatedAt,
-		})
+func keyslotOf(k apigen.SecretKeyslot) Keyslot {
+	slot := Keyslot{ID: k.ID, SMKVersion: k.SmkVersion, WrappedSMK: k.WrappedSmk, Nonce: k.Nonce}
+	switch w := k.Wrapping.Value; {
+	case w.MachineKey != nil:
+		slot.Kind, slot.NodeID = slotMachine, w.MachineKey.NodeID
+	case w.RecoveryCode != nil:
+		slot.Kind, slot.KDFSalt = slotRecovery, w.RecoveryCode.KdfSalt
+	}
+	return slot
+}
+
+func (k Keyslot) entity() apigen.SecretKeyslot {
+	out := apigen.SecretKeyslot{ID: k.ID, SmkVersion: k.SMKVersion, WrappedSmk: k.WrappedSMK, Nonce: k.Nonce}
+	if k.Kind == slotRecovery {
+		out.Wrapping = apigen.KeyslotWrapping{Value: apigen.KeyslotWrappingValueOneof{RecoveryCode: &apigen.RecoveryCode{KdfSalt: k.KDFSalt}}}
+	} else {
+		out.Wrapping = apigen.KeyslotWrapping{Value: apigen.KeyslotWrappingValueOneof{MachineKey: &apigen.MachineKey{NodeID: k.NodeID}}}
 	}
 	return out
 }
 
-func writeKeyslot(store *state.Service, k Keyslot, author int32) error {
+func listKeyslots(q *pq.Queries) []Keyslot {
+	rows := erru.Must(q.ListSecretKeyslots(context.Background()))
+	out := make([]Keyslot, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, keyslotOf(r))
+	}
+	return out
+}
+
+func writeKeyslot(store *state.Service, k Keyslot, author int64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		eventType := apigen.AuthzVerb_AUTHZ_VERB_CREATE
-		if _, ok := findSlot(listKeyslots(q), k.Kind, k.NodeID); ok {
+		if existing, ok := findSlot(listKeyslots(q), k.Kind, k.NodeID); ok {
 			eventType = apigen.AuthzVerb_AUTHZ_VERB_UPDATE
+			k.ID = existing.ID
+		} else {
+			id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT)
+			if err != nil {
+				return nil, err
+			}
+			k.ID = id
 		}
-		meta := pq.EventMeta{GlobalSeq: seq, EventTime: k.CreatedAt, Author: int64(author), EventType: eventType}
-		slot := pq.SecretKeyslot{Kind: k.Kind, NodeID: int64(k.NodeID), SmkVersion: int64(k.SMKVersion), WrappedSmk: k.WrappedSMK, Nonce: k.Nonce, KdfSalt: k.KDFSalt, UpdatedAt: k.CreatedAt}
-		return pq.NewUpdate(pq.SecretKeyslotMutation(meta, slot)), nil
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: author, EventType: eventType}
+		return pq.NewUpdate(pq.SecretKeyslotMutation(meta, k.entity())), nil
 	})
 }
 
 func recordOf(j pq.SecretVersionJoined) Record {
 	return Record{
-		SecretID: int32(j.Secret.ID), Name: j.Secret.Name, Version: int32(j.Version.ValueVersion), SpaceID: int32(j.Secret.SpaceID),
-		SMKVersion: int32(j.Version.SmkVersion), Ciphertext: j.Version.Ciphertext, Nonce: j.Version.Nonce, CreatedAt: j.Version.EventTime, Author: int32(j.Version.Author),
+		SecretID: j.Secret.ID, Key: j.Secret.Key, Version: j.Version.ValueVersion, SpaceID: j.Secret.SpaceID,
+		SMKVersion: j.Version.SmkVersion, Ciphertext: j.Version.Ciphertext, Nonce: j.Version.Nonce, CreatedAt: j.Version.EventTime, Author: j.Version.Author,
 	}
 }
 
@@ -65,8 +90,8 @@ func List(q *pq.Queries) []*pq.SecretEvent {
 	return out
 }
 
-func Get(q *pq.Queries, secretID int32) (*pq.SecretEvent, bool) {
-	row, err := q.GetSecretRowByID(context.Background(), int64(secretID))
+func Get(q *pq.Queries, secretID uint64) (*pq.SecretEvent, bool) {
+	row, err := q.GetSecretRowByID(context.Background(), secretID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false
 	}
@@ -76,22 +101,22 @@ func Get(q *pq.Queries, secretID int32) (*pq.SecretEvent, bool) {
 	return pq.SecretEventOf(row), true
 }
 
-func IDByName(q *pq.Queries, spaceID int32, name string) (int32, bool) {
+func IDByName(q *pq.Queries, spaceID uint64, name string) (uint64, bool) {
 	return idByNameInSpace(q, nodes.NormalizedUserSpaceID(spaceID), name)
 }
 
-func idByNameInSpace(q *pq.Queries, spaceID int32, name string) (int32, bool) {
-	n, err := q.LookupValueName(context.Background(), int64(spaceID), 0, name)
+func idByNameInSpace(q *pq.Queries, spaceID uint64, name string) (uint64, bool) {
+	n, err := q.LookupValueKey(context.Background(), spaceID, 0, name)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, false
 	}
 	if err != nil {
-		panic(fmt.Sprintf("LookupValueName: %v", err))
+		panic(fmt.Sprintf("LookupValueKey: %v", err))
 	}
 	if n.Kind != apigen.CoreEntityType_CORE_ENTITY_SECRET {
 		return 0, false
 	}
-	return int32(n.ID), true
+	return n.ID, true
 }
 
 // GetVersion returns the event view of one secret value version.
@@ -112,44 +137,43 @@ type current struct {
 
 func (c current) entity() apigen.Secret { return pq.SecretEntity(c.Secret, c.Version) }
 
-func currentSecret(ctx context.Context, q *pq.Queries, secretID int32) (current, error) {
-	s, err := q.GetSecretRowByID(ctx, int64(secretID))
+func currentSecret(ctx context.Context, q *pq.Queries, secretID uint64) (current, error) {
+	s, err := q.GetSecretRowByID(ctx, secretID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return current{}, values.ErrNotFound
 	}
 	if err != nil {
 		return current{}, err
 	}
-	v, err := q.GetSecretVersion(ctx, apigen.ValueRef{ID: int32(s.ID), Version: int32(s.ValueVersion)})
+	v, err := q.GetSecretVersion(ctx, apigen.ValueRef{ID: s.ID, Version: s.ValueVersion})
 	if err != nil {
 		return current{}, err
 	}
 	return current{pq.SecretVersionJoined{Secret: s, Version: v}}, nil
 }
 
-func secretUpdate(seq, now int64, author int32, verb apigen.AuthzVerb, id int64, s apigen.Secret) *state.WriteUpdate {
+func secretUpdate(seq, now int64, author int64, verb apigen.AuthzVerb, id uint64, s apigen.Secret) *state.WriteUpdate {
 	return pq.NewUpdate(pq.SecretMutation(values.WriteMeta(seq, now, author, verb), id, s))
 }
 
 func sealedEntity(s apigen.Secret, sealed SealedValue) apigen.Secret {
-	s.SmkVersion, s.Ciphertext, s.Nonce = int64(sealed.SMKVersion), sealed.Ciphertext, sealed.Nonce
+	s.Sealed = apigen.Some(apigen.SealedSecret{SmkVersion: sealed.SMKVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce})
 	return s
 }
 
-func CreateWithVersion(store *state.Service, name string, spaceID, directoryID, author int32, seal SealFunc) (Record, error) {
+func CreateWithVersion(store *state.Service, name string, spaceID, directoryID uint64, author int64, seal SealFunc) (Record, error) {
 	if !values.ValidName(name) {
 		return Record{}, values.ErrNameInvalid
 	}
 	ctx := context.Background()
-	space := int64(spaceID)
 	now := time.Now().UnixMilli()
 	var record Record
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		dirID, err := values.ResolveDirectory(ctx, q, space, directoryID)
+		dirID, err := values.ResolveDirectory(ctx, q, spaceID, directoryID)
 		if err != nil {
 			return nil, err
 		}
-		if taken, err := values.NameTaken(ctx, q, space, dirID, name, 0, 0); err != nil {
+		if taken, err := values.NameTaken(ctx, q, spaceID, dirID, name, 0, 0); err != nil {
 			return nil, err
 		} else if taken {
 			return nil, values.ErrAlreadyExists
@@ -158,15 +182,15 @@ func CreateWithVersion(store *state.Service, name string, spaceID, directoryID, 
 		if err != nil {
 			return nil, err
 		}
-		sealed, err := seal(int32(id))
+		sealed, err := seal(id)
 		if err != nil {
 			return nil, err
 		}
 		record = Record{
-			SecretID: int32(id), Name: name, Version: 1, SpaceID: int32(space),
+			SecretID: id, Key: name, Version: 1, SpaceID: spaceID,
 			SMKVersion: sealed.SMKVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, CreatedAt: now, Author: author,
 		}
-		entity := sealedEntity(apigen.Secret{Fs: &apigen.SecretFs{Name: name, DirectoryID: int32(dirID)}, SpaceID: int32(space)}, sealed)
+		entity := sealedEntity(apigen.Secret{Fs: apigen.SecretFs{Key: name, DirectoryID: values.DirectoryRef(dirID)}, SpaceID: spaceID}, sealed)
 		return secretUpdate(seq, now, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE, id, entity), nil
 	}); err != nil {
 		return Record{}, err
@@ -174,10 +198,10 @@ func CreateWithVersion(store *state.Service, name string, spaceID, directoryID, 
 	return record, nil
 }
 
-func appendVersionWithDeploymentUpdates(store *state.Service, secretID, author int32, seal SealFunc, updateDeployments bool, expected []*apigen.DeploymentExpectedSeq, afterCommit func(Record)) (Record, []int32, error) {
+func appendVersionWithDeploymentUpdates(store *state.Service, secretID uint64, author int64, seal SealFunc, updateDeployments bool, expected []apigen.DeploymentExpectedSeq, afterCommit func(Record)) (Record, []uint64, error) {
 	ctx := context.Background()
 	var record Record
-	insert := func(q *pq.Queries, globalSeq, now int64) (int32, *state.WriteUpdate, error) {
+	insert := func(q *pq.Queries, globalSeq, now int64) (uint32, *state.WriteUpdate, error) {
 		cur, err := currentSecret(ctx, q, secretID)
 		if err != nil {
 			return 0, nil, err
@@ -187,14 +211,14 @@ func appendVersionWithDeploymentUpdates(store *state.Service, secretID, author i
 			return 0, nil, err
 		}
 		entity := sealedEntity(cur.entity(), sealed)
-		next := int32(cur.Version.ValueVersion) + 1
+		next := cur.Version.ValueVersion + 1
 		record = Record{
-			SecretID: secretID, Name: cur.Secret.Name, Version: next, SpaceID: int32(cur.Secret.SpaceID),
+			SecretID: secretID, Key: cur.Secret.Key, Version: next, SpaceID: cur.Secret.SpaceID,
 			SMKVersion: sealed.SMKVersion, Ciphertext: sealed.Ciphertext, Nonce: sealed.Nonce, CreatedAt: now, Author: author,
 		}
 		return next, secretUpdate(globalSeq, now, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, cur.Secret.ID, entity), nil
 	}
-	updatedDeployments, err := values.SetVersionedValueWithDeploymentUpdates(store, values.SecretReference, secretID, updateDeployments, expected, author, insert, func(_ []int32) {
+	updatedDeployments, err := values.SetVersionedValueWithDeploymentUpdates(store, values.SecretReference, secretID, updateDeployments, expected, author, insert, func(_ []uint64) {
 		if afterCommit != nil {
 			afterCommit(record)
 		}
@@ -205,7 +229,7 @@ func appendVersionWithDeploymentUpdates(store *state.Service, secretID, author i
 	return record, updatedDeployments, nil
 }
 
-func renameSecret(store *state.Service, secretID int32, newName string) error {
+func renameSecret(store *state.Service, secretID uint64, newName string) error {
 	if !values.ValidName(newName) {
 		return values.ErrNameInvalid
 	}
@@ -215,7 +239,7 @@ func renameSecret(store *state.Service, secretID int32, newName string) error {
 		if err != nil {
 			return nil, err
 		}
-		if cur.Secret.Name == newName {
+		if cur.Secret.Key == newName {
 			return nil, nil
 		}
 		if taken, err := values.NameTaken(ctx, q, cur.Secret.SpaceID, cur.Secret.DirectoryID, newName, apigen.CoreEntityType_CORE_ENTITY_SECRET, cur.Secret.ID); err != nil {
@@ -224,43 +248,42 @@ func renameSecret(store *state.Service, secretID int32, newName string) error {
 			return nil, values.ErrAlreadyExists
 		}
 		entity := cur.entity()
-		entity.Fs.Name = newName
+		entity.Fs.Key = newName
 		return secretUpdate(seq, time.Now().UnixMilli(), 0, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, cur.Secret.ID, entity), nil
 	})
 }
 
-func MoveDirectory(store *state.Service, secretID, newDirectoryID int32) error {
+func MoveDirectory(store *state.Service, secretID, newDirectoryID uint64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		cur, err := currentSecret(ctx, q, secretID)
 		if err != nil {
 			return nil, err
 		}
-		dirID := int64(newDirectoryID)
-		if cur.Secret.DirectoryID == dirID {
+		if cur.Secret.DirectoryID == newDirectoryID {
 			return nil, nil
 		}
-		if dirID != 0 {
-			dir, err := values.GetDirectory(ctx, q, dirID)
+		if newDirectoryID != 0 {
+			dir, err := values.GetDirectory(ctx, q, newDirectoryID)
 			if err != nil {
 				return nil, err
 			}
-			if int64(dir.SpaceID) != cur.Secret.SpaceID {
+			if dir.SpaceID != cur.Secret.SpaceID {
 				return nil, values.ErrSpaceMoveUnsupported
 			}
 		}
-		if taken, err := values.NameTaken(ctx, q, cur.Secret.SpaceID, dirID, cur.Secret.Name, apigen.CoreEntityType_CORE_ENTITY_SECRET, cur.Secret.ID); err != nil {
+		if taken, err := values.NameTaken(ctx, q, cur.Secret.SpaceID, newDirectoryID, cur.Secret.Key, apigen.CoreEntityType_CORE_ENTITY_SECRET, cur.Secret.ID); err != nil {
 			return nil, err
 		} else if taken {
 			return nil, values.ErrAlreadyExists
 		}
 		entity := cur.entity()
-		entity.Fs.DirectoryID = int32(dirID)
+		entity.Fs.DirectoryID = values.DirectoryRef(newDirectoryID)
 		return secretUpdate(seq, time.Now().UnixMilli(), 0, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, cur.Secret.ID, entity), nil
 	})
 }
 
-func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID, author int32, inlockValidate func(*pq.Queries) error) error {
+func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID uint64, author int64, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {
@@ -272,32 +295,31 @@ func moveSpace(store *state.Service, secretID, newSpaceID, newDirectoryID, autho
 		if err != nil {
 			return nil, err
 		}
-		spaceID := int64(nodes.NormalizedUserSpaceID(newSpaceID))
-		dirID := int64(newDirectoryID)
-		if spaceID == cur.Secret.SpaceID && dirID == cur.Secret.DirectoryID {
+		spaceID := nodes.NormalizedUserSpaceID(newSpaceID)
+		if spaceID == cur.Secret.SpaceID && newDirectoryID == cur.Secret.DirectoryID {
 			return nil, nil
 		}
-		if dirID != 0 {
-			dir, err := values.GetDirectory(ctx, q, dirID)
+		if newDirectoryID != 0 {
+			dir, err := values.GetDirectory(ctx, q, newDirectoryID)
 			if err != nil {
 				return nil, err
 			}
-			if int64(dir.SpaceID) != spaceID {
+			if dir.SpaceID != spaceID {
 				return nil, values.ErrDirectoryNotFound
 			}
 		}
-		if taken, err := values.NameTaken(ctx, q, spaceID, dirID, cur.Secret.Name, apigen.CoreEntityType_CORE_ENTITY_SECRET, cur.Secret.ID); err != nil {
+		if taken, err := values.NameTaken(ctx, q, spaceID, newDirectoryID, cur.Secret.Key, apigen.CoreEntityType_CORE_ENTITY_SECRET, cur.Secret.ID); err != nil {
 			return nil, err
 		} else if taken {
 			return nil, values.ErrAlreadyExists
 		}
 		entity := cur.entity()
-		entity.Fs.DirectoryID, entity.SpaceID = int32(dirID), int32(spaceID)
+		entity.Fs.DirectoryID, entity.SpaceID = values.DirectoryRef(newDirectoryID), spaceID
 		return secretUpdate(seq, time.Now().UnixMilli(), author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, cur.Secret.ID, entity), nil
 	})
 }
 
-func deleteSecret(store *state.Service, secretID int32, inlockValidate func(*pq.Queries) error) error {
+func deleteSecret(store *state.Service, secretID uint64, inlockValidate func(*pq.Queries) error) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if inlockValidate != nil {

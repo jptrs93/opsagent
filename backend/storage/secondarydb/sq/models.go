@@ -30,7 +30,6 @@ type LocalScheduledInstanceCache struct {
 type ScheduledInstanceStatus struct {
 	ScheduledInstanceID  int64
 	UpdatedAt            int64
-	DeploymentID         int64
 	PreparerSpecVersion  sql.NullInt64
 	PreparerArtifact     sql.NullString
 	PreparerInputsStatus int64

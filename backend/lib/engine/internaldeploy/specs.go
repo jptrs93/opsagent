@@ -1,6 +1,8 @@
 package internaldeploy
 
 import (
+	"bytes"
+
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -10,18 +12,25 @@ const (
 	netproxyFileDescriptorLimit = 65_536
 )
 
-func IsSelfConfig(cfg *apigen.DeploymentEvent) bool {
-	return cfg != nil && IsSelfIdentity(cfg.Value.SpaceID, cfg.Value.Name)
+func IsSelfConfig(cfg *apigen.DeploymentRecord) bool {
+	return cfg != nil && IsSelfIdentity(cfg.Deployment.SpaceID, cfg.Deployment.Name)
 }
 
-func IsInternalConfig(cfg *apigen.DeploymentEvent) bool {
-	return cfg != nil && IsInternalIdentity(cfg.Value.SpaceID, cfg.Value.Name)
+func IsInternalConfig(cfg *apigen.DeploymentRecord) bool {
+	return cfg != nil && IsInternalIdentity(cfg.Deployment.SpaceID, cfg.Deployment.Name)
 }
 
-// SelfSpec is the desired spec of the per-node opendeploy system deployment.
+// SelfSpec is the desired spec of the per-node opendeploy system deployment:
+// a container spec in shape only, since the identity (space 0, SelfName)
+// selects the release-binary preparer and the systemd runner.
 func SelfSpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{
-		OpendeploySpec: &apigen.OpendeploySpec{},
+		Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+			Source: apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{
+				RemoteImage: &apigen.RemoteImage{Image: SelfImage},
+			}},
+			UpgradeStrategy: apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE,
+		}}},
 		Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST,
 		},
@@ -29,31 +38,42 @@ func SelfSpec() *apigen.DeploymentSpec {
 }
 
 // IsSelfSpec reports whether a stored spec still matches SelfSpec, ignoring
-// workload state. Used to detect and repair administrator edits to the system
-// deployment.
+// the workload version. Used to detect and repair administrator edits to the
+// system deployment.
 func IsSelfSpec(spec *apigen.DeploymentSpec) bool {
-	return spec != nil && spec.OpendeploySpec != nil &&
-		spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_HOST
+	if spec == nil {
+		return false
+	}
+	want := SelfSpec()
+	if err := want.SetWorkloadVersion(spec.WorkloadVersion()); err != nil {
+		return false
+	}
+	got, err := spec.EncodeChecked()
+	if err != nil {
+		return false
+	}
+	return bytes.Equal(want.Encode(), got)
 }
 
 // NetproxySpec is the desired spec of the per-node opendeploy-net deployment.
 func NetproxySpec() *apigen.DeploymentSpec {
 	return &apigen.DeploymentSpec{
-		Container1Spec: &apigen.ContainerSpec{
-			Source: apigen.ContainerBundleSource{
-				RemoteImage: &apigen.RemoteDockerImage{Image: NetproxyImage},
-			},
+		Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+			Source: apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{
+				RemoteImage: &apigen.RemoteImage{Image: NetproxyImage},
+			}},
 			Runtime: apigen.ContainerRuntime{
 				OverrideCommand:     []string{"/opendeploy", "dataplane"},
 				DefaultVolume:       apigen.DefaultVolumeMount{Disabled: true},
-				FileDescriptorLimit: netproxyFileDescriptorLimit,
-				Mounts: []*apigen.CustomHostMount{{
+				FileDescriptorLimit: apigen.Some[uint32](netproxyFileDescriptorLimit),
+				Mounts: []apigen.HostMount{{
 					HostPath:      NetproxyStateDir,
 					ContainerPath: NetproxyStateDir,
-					Permission:    apigen.FilePermission_READ_ONLY,
+					Permission:    apigen.FilePermission_FILE_PERMISSION_READ_ONLY,
 				}},
 			},
-		},
+			UpgradeStrategy: apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE,
+		}}},
 		Networking: apigen.NetworkingConfig{
 			Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
 		},

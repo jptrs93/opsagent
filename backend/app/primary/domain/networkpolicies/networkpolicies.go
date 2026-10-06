@@ -15,14 +15,13 @@ import (
 )
 
 var InvalidErr = apigen.NewApiErr("Invalid network policy", "invalid_network_policy", http.StatusBadRequest)
-var DenyUnsupportedErr = apigen.NewApiErr("Deny policies are not implemented yet", "network_policy_deny_unsupported", http.StatusBadRequest)
 var RedundantErr = apigen.NewApiErr("Same-space traffic is always allowed; this rule is redundant", "network_policy_redundant", http.StatusBadRequest)
 var PeerNotFoundErr = apigen.NewApiErr("Network policy peer not found", "network_policy_peer_not_found", http.StatusNotFound)
 var NotFoundErr = apigen.NewApiErr("Network policy not found", "network_policy_not_found", http.StatusNotFound)
 var VersionConflictErr = apigen.NewApiErr("Network policy was modified concurrently", "network_policy_version_conflict", http.StatusConflict)
 
-func ByID(q *pq.Queries, id int32) *pq.NetworkPolicyEvent {
-	row, err := q.GetNetworkPolicy(context.Background(), int64(id))
+func ByID(q *pq.Queries, id uint64) *pq.NetworkPolicyEvent {
+	row, err := q.GetNetworkPolicy(context.Background(), id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -32,17 +31,14 @@ func ByID(q *pq.Queries, id int32) *pq.NetworkPolicyEvent {
 	return row
 }
 
-func ValidatePeerRef(ref *apigen.NetworkPolicyPeerRef) error {
-	if ref == nil {
-		return InvalidErr
-	}
-	switch ref.Kind {
-	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE:
-		if ref.ID < 0 || ref.ID > network.MaxSpaceID {
+func ValidatePeer(peer *apigen.NetworkPolicyPeer) error {
+	switch target := peer.Target.Value; {
+	case target.Space != nil:
+		if target.Space.SpaceID > uint64(network.MaxSpaceID) {
 			return InvalidErr
 		}
-	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT:
-		if ref.ID < 1 || ref.ID > network.MaxDeploymentID {
+	case target.Deployment != nil:
+		if target.Deployment.DeploymentID < 1 || target.Deployment.DeploymentID > uint64(network.MaxDeploymentID) {
 			return InvalidErr
 		}
 	default:
@@ -52,56 +48,51 @@ func ValidatePeerRef(ref *apigen.NetworkPolicyPeerRef) error {
 }
 
 func ValidateShape(policy *apigen.NetworkPolicy) error {
-	if policy.Action == apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_DENY {
-		return DenyUnsupportedErr
-	}
 	if policy.Action != apigen.NetworkPolicyAction_NETWORK_POLICY_ACTION_ALLOW {
 		return InvalidErr
 	}
-	if err := ValidatePeerRef(policy.Source); err != nil {
+	if err := ValidatePeer(&policy.Source); err != nil {
 		return err
 	}
-	if err := ValidatePeerRef(policy.Destination); err != nil {
+	if err := ValidatePeer(&policy.Destination); err != nil {
 		return err
 	}
-	for _, port := range policy.Ports {
-		if network.ValidateNetPortMatch(port) != nil {
+	for i := range policy.Ports {
+		if network.ValidateNetPortMatch(&policy.Ports[i]) != nil {
 			return InvalidErr
 		}
 	}
 	return nil
 }
 
-func PeerSpace(q *pq.Queries, ref *apigen.NetworkPolicyPeerRef) (int32, bool) {
-	if ref == nil {
-		return 0, false
-	}
-	switch ref.Kind {
-	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_SPACE:
+func PeerSpace(q *pq.Queries, peer *apigen.NetworkPolicyPeer) (uint64, bool) {
+	switch target := peer.Target.Value; {
+	case target.Space != nil:
 		for _, space := range nodes.ListSpaces(q) {
-			if space != nil && space.ID == ref.ID {
-				return ref.ID, true
+			if space != nil && space.ID == target.Space.SpaceID {
+				return space.ID, true
 			}
 		}
-	case apigen.NetworkPolicyPeerKind_NETWORK_POLICY_PEER_KIND_DEPLOYMENT:
-		cfg, err := q.GetLatestDeploymentEvent(context.Background(), int64(ref.ID))
+	case target.Deployment != nil:
+		cfg, err := q.GetLatestDeployment(context.Background(), target.Deployment.DeploymentID)
 		if err == nil && !cfg.Deleted() {
-			return cfg.Value.SpaceID, true
+			return cfg.Deployment.SpaceID, true
 		}
 	}
 	return 0, false
 }
 
-func view(seq, now, createdTime int64, author, id int32, policy apigen.NetworkPolicy) *pq.NetworkPolicyEvent {
+func view(seq, now, createdTime, author int64, id uint64, policy apigen.NetworkPolicy) *pq.NetworkPolicyEvent {
+	policy.ID = id
 	return &pq.NetworkPolicyEvent{NetworkPolicyID: id, Seq: seq, Author: author, CreatedTime: createdTime, EventTime: now, Value: policy}
 }
 
 func mutation(e *pq.NetworkPolicyEvent, verb apigen.AuthzVerb) pq.Mutation {
-	meta := pq.EventMeta{GlobalSeq: e.Seq, EventTime: e.EventTime, Author: int64(e.Author), EventType: verb}
-	return pq.NetworkPolicyMutation(meta, int64(e.NetworkPolicyID), e.Value)
+	meta := pq.EventMeta{GlobalSeq: e.Seq, EventTime: e.EventTime, Author: e.Author, EventType: verb}
+	return pq.NetworkPolicyMutation(meta, e.NetworkPolicyID, e.Value)
 }
 
-func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*pq.NetworkPolicyEvent, error) {
+func Create(store *state.Service, author int64, policy *apigen.NetworkPolicy) (*pq.NetworkPolicyEvent, error) {
 	ctx := context.Background()
 	var created *pq.NetworkPolicyEvent
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
@@ -110,7 +101,7 @@ func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*
 			return nil, err
 		}
 		now := time.Now().UnixMilli()
-		created = view(seq, now, now, author, int32(id), *policy)
+		created = view(seq, now, now, author, id, *policy)
 		return pq.NewUpdate(mutation(created, apigen.AuthzVerb_AUTHZ_VERB_CREATE)), nil
 	})
 	if err != nil {
@@ -121,7 +112,7 @@ func Create(store *state.Service, author int32, policy *apigen.NetworkPolicy) (*
 
 // Update replaces the policy as long as it has no write newer than
 // expectedSeq; zero skips the check.
-func Update(store *state.Service, id int32, expectedSeq int64, author int32, policy *apigen.NetworkPolicy) (*pq.NetworkPolicyEvent, error) {
+func Update(store *state.Service, id uint64, expectedSeq int64, author int64, policy *apigen.NetworkPolicy) (*pq.NetworkPolicyEvent, error) {
 	ctx := context.Background()
 	var updated *pq.NetworkPolicyEvent
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
@@ -141,19 +132,19 @@ func Update(store *state.Service, id int32, expectedSeq int64, author int32, pol
 	return updated, nil
 }
 
-func Delete(store *state.Service, id, author int32) error {
+func Delete(store *state.Service, id uint64, author int64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if _, err := livePrevious(ctx, q, id); err != nil {
 			return nil, err
 		}
-		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author)}
-		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, int64(id))), nil
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: author}
+		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, id)), nil
 	})
 }
 
-func livePrevious(ctx context.Context, q *pq.Queries, id int32) (*pq.NetworkPolicyEvent, error) {
-	prev, err := q.GetNetworkPolicy(ctx, int64(id))
+func livePrevious(ctx context.Context, q *pq.Queries, id uint64) (*pq.NetworkPolicyEvent, error) {
+	prev, err := q.GetNetworkPolicy(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, NotFoundErr
 	}

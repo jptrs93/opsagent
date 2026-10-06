@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"net/netip"
 	"path/filepath"
 	"testing"
 
@@ -14,8 +15,8 @@ import (
 func TestSchedulerNeverPlacesOnEvictedNode(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	nodes.EnsurePrimaryNode(store, "primary", "primary-id")
-	req, version, err := nodes.UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: "secondary-id", UnderlayAddress: "10.0.0.2", WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
+	nodes.EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	req, version, err := nodes.UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: "secondary-id", UnderlayAddress: apigen.AddrOf(netip.MustParseAddr("10.0.0.2")), WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,22 +32,22 @@ func TestSchedulerNeverPlacesOnEvictedNode(t *testing.T) {
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
 	startScheduler(t, store, newFakeBarrier())
 	sweep(t, store)
-	if got := statesByID(store, cfg.DeploymentID); len(got) != 1 {
+	if got := statesByID(store, cfg.Deployment.ID); len(got) != 1 {
 		t.Fatalf("placements before eviction = %v, want one", got)
 	}
 
 	if _, err := nodes.EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Seq, true); err != nil {
 		t.Fatalf("EvictNode: %v", err)
 	}
-	if got := statetest.NonFinalInstances(store, cfg.DeploymentID); len(got) != 0 {
+	if got := statetest.NonFinalInstances(store, cfg.Deployment.ID); len(got) != 0 {
 		t.Fatalf("eviction commit left placements %v on the evicted node", got)
 	}
 	sweep(t, store)
-	if got := statetest.NonFinalInstances(store, cfg.DeploymentID); len(got) != 0 {
+	if got := statetest.NonFinalInstances(store, cfg.Deployment.ID); len(got) != 0 {
 		t.Fatalf("sweep recreated placements %v on the evicted node", got)
 	}
-	statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, testRunningSpec("v2"))
-	if got := statetest.NonFinalInstances(store, cfg.DeploymentID); len(got) != 0 {
+	statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.Deployment.ID, testRunningSpec("v2"))
+	if got := statetest.NonFinalInstances(store, cfg.Deployment.ID); len(got) != 0 {
 		t.Fatalf("spec update placed %v on the evicted node", got)
 	}
 }

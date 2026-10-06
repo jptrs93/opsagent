@@ -143,26 +143,26 @@ func TestQueryRealDataset(t *testing.T) {
 	t.Logf("query window %s to %s", from.Format(time.RFC3339), till.Format(time.RFC3339))
 	reqs := map[string]*apigen.LogQueryRequest{
 		"levelError": {
-			DeploymentID:     dep,
-			TimeStart:        from,
-			TimeEnd:          till,
+			DeploymentID:     uint64(dep),
+			TimeStart:        apigen.TimeOf(from),
+			TimeEnd:          apigen.TimeOf(till),
 			Limit:            10000,
 			HistogramBuckets: 90,
-			Filters:          []*apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR"}}},
+			Filters:          []apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR"}}},
 		},
 		"aggregatesOnly": {
-			DeploymentID:     dep,
-			TimeStart:        from,
-			TimeEnd:          till,
+			DeploymentID:     uint64(dep),
+			TimeStart:        apigen.TimeOf(from),
+			TimeEnd:          apigen.TimeOf(till),
 			Limit:            -1,
 			HistogramBuckets: 90,
 		},
 		"msgContains": {
-			DeploymentID: dep,
-			TimeStart:    from,
-			TimeEnd:      till,
+			DeploymentID: uint64(dep),
+			TimeStart:    apigen.TimeOf(from),
+			TimeEnd:      apigen.TimeOf(till),
 			Limit:        1000,
-			Filters:      []*apigen.LogFilter{{Op: "contains", Value: "error"}},
+			Filters:      []apigen.LogFilter{{Op: "contains", Value: "error"}},
 		},
 	}
 	for name, req := range reqs {
@@ -183,11 +183,11 @@ func TestQueryRealDataset(t *testing.T) {
 			}
 			fullDur := clock().Sub(start)
 			t.Logf("two-pass: %v (scanned %d, matched %d, returned %d, warnings %v)",
-				fastDur.Round(time.Millisecond), fast.Stats.ScannedRows, fast.Stats.MatchedRows, fast.Stats.ReturnedRows, fast.Warnings)
+				fastDur.Round(time.Millisecond), fast.Stats.Value.ScannedRows, fast.Stats.Value.MatchedRows, fast.Stats.Value.ReturnedRows, fast.Warnings)
 			t.Logf("full scan: %v (scanned %d, matched %d, returned %d, warnings %v)",
-				fullDur.Round(time.Millisecond), full.Stats.ScannedRows, full.Stats.MatchedRows, full.Stats.ReturnedRows, full.Warnings)
-			fast.Stats.TookMs, full.Stats.TookMs = 0, 0
-			fast.Stats.SampledRows, full.Stats.SampledRows = 0, 0
+				fullDur.Round(time.Millisecond), full.Stats.Value.ScannedRows, full.Stats.Value.MatchedRows, full.Stats.Value.ReturnedRows, full.Warnings)
+			fast.Stats.Value.TookMs, full.Stats.Value.TookMs = 0, 0
+			fast.Stats.Value.SampledRows, full.Stats.Value.SampledRows = 0, 0
 			fast.Fields, full.Fields = nil, nil
 			if !reflect.DeepEqual(fast.Stats, full.Stats) {
 				t.Fatalf("stats diverge:\ntwo-pass = %+v\nfull = %+v", fast.Stats, full.Stats)

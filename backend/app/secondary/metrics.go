@@ -13,7 +13,7 @@ func runMetricsQuery(ctx context.Context, out *outbox, req *apigen.MetricsQueryR
 	ctx = logu.AddTag(ctx, "Metrics")
 	store := metricstore.Default
 	if store == nil {
-		out.Send(&apigen.MsgToPrimary{LogQueryError: "metrics store is not running", LogRequestID: req.RequestID})
+		out.Send(&apigen.MsgToPrimary{LogQueryError: apigen.Some("metrics store is not running"), LogRequestID: apigen.Some(req.RequestID)})
 		return
 	}
 	resp, err := store.QueryResponse(ctx, req)
@@ -22,17 +22,17 @@ func runMetricsQuery(ctx context.Context, out *outbox, req *apigen.MetricsQueryR
 			return
 		}
 		slog.WarnContext(ctx, "metrics query failed", "dep", req.DeploymentID, "err", err)
-		out.Send(&apigen.MsgToPrimary{LogQueryError: err.Error(), LogRequestID: req.RequestID})
+		out.Send(&apigen.MsgToPrimary{LogQueryError: apigen.Some(err.Error()), LogRequestID: apigen.Some(req.RequestID)})
 		return
 	}
-	out.Send(&apigen.MsgToPrimary{MetricsQueryResponse: resp, LogRequestID: req.RequestID})
+	out.Send(&apigen.MsgToPrimary{MetricsQueryResponse: apigen.Some(*resp), LogRequestID: apigen.Some(req.RequestID)})
 }
 
 func runMetricsLatest(ctx context.Context, out *outbox, req *apigen.MetricsLatestRequest) {
 	store := metricstore.Default
 	if store == nil {
-		out.Send(&apigen.MsgToPrimary{LogQueryError: "metrics store is not running", LogRequestID: req.RequestID})
+		out.Send(&apigen.MsgToPrimary{LogQueryError: apigen.Some("metrics store is not running"), LogRequestID: apigen.Some(req.RequestID)})
 		return
 	}
-	out.Send(&apigen.MsgToPrimary{MetricsLatestResponse: store.LatestResponse(), LogRequestID: req.RequestID})
+	out.Send(&apigen.MsgToPrimary{MetricsLatestResponse: apigen.Some(*store.LatestResponse()), LogRequestID: apigen.Some(req.RequestID)})
 }

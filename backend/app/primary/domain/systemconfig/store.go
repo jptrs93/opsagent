@@ -17,7 +17,7 @@ func LatestRevision(q *pq.Queries) (pq.SystemConfigRevision, error) {
 
 // AppendRevision writes the settings document and returns the seq of the
 // write, which is the revision's version.
-func AppendRevision(store *state.Service, author int32, blob []byte, inlockValidate func(*pq.Queries) error) (int64, error) {
+func AppendRevision(store *state.Service, author int64, blob []byte, inlockValidate func(*pq.Queries) error) (int64, error) {
 	ctx := context.Background()
 	var id int64
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
@@ -36,7 +36,7 @@ func AppendRevision(store *state.Service, author int32, blob []byte, inlockValid
 		if err != nil {
 			return nil, err
 		}
-		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(author), EventType: eventType}
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: author, EventType: eventType}
 		id = seq
 		return pq.NewUpdate(pq.SystemConfigMutation(meta, cfg)), nil
 	})

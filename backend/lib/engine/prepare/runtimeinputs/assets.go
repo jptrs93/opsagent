@@ -24,7 +24,7 @@ type requiredAssetRef struct {
 	Executable bool
 }
 
-func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
+func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.DeploymentRecord) error {
 	refs := RequiredAssetRefs(cfg)
 	if len(refs) == 0 {
 		return nil
@@ -82,33 +82,30 @@ func (r *RuntimeInputs) EnsureAssetsReady(ctx context.Context, cfg *apigen.Deplo
 	return nil
 }
 
-func RequiredAssetRefs(cfg *apigen.DeploymentEvent) []requiredAssetRef {
+func RequiredAssetRefs(cfg *apigen.DeploymentRecord) []requiredAssetRef {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Value.Spec.Container()
+	container := cfg.Deployment.Spec.Container()
 	if container == nil {
 		return nil
 	}
 	runtime := container.Runtime
 	refs := make([]requiredAssetRef, 0, len(runtime.AssetMounts)+len(runtime.EnvVars))
 	for _, m := range runtime.AssetMounts {
-		if m == nil {
-			continue
-		}
 		refs = append(refs, requiredAssetRef{
 			Label:      fmt.Sprintf("asset mount %s", m.Asset),
-			Ref:        m.Asset,
-			Executable: m.Permission == apigen.FilePermission_READ_EXECUTE,
+			Ref:        m.Asset.Ref(),
+			Executable: m.Permission == apigen.FilePermission_FILE_PERMISSION_READ_EXECUTE,
 		})
 	}
 	for key, value := range runtime.EnvVars {
-		if value == nil || value.AssetRef == nil || !value.AssetRef.Valid() {
+		if value.Value.Asset == nil || !value.Value.Asset.Asset.Valid() {
 			continue
 		}
 		refs = append(refs, requiredAssetRef{
 			Label: fmt.Sprintf("asset env var %q", key),
-			Ref:   *value.AssetRef,
+			Ref:   value.Value.Asset.Asset.Ref(),
 		})
 	}
 	sort.Slice(refs, func(i, j int) bool {
@@ -131,7 +128,7 @@ func AssetCachePath(ref apigen.ValueRef) string {
 // 2026-07, "<old asset id>_<version>"; the "@" keeps a leftover file from
 // ever matching a current ref, since a cache hit is trusted by name alone.
 func AssetCacheName(ref apigen.ValueRef) string {
-	return strconv.Itoa(int(ref.ID)) + "@" + strconv.Itoa(int(ref.Version))
+	return strconv.FormatUint(ref.ID, 10) + "@" + strconv.FormatUint(uint64(ref.Version), 10)
 }
 
 func AssetCachePathWithMode(ref apigen.ValueRef, executable bool) string {
@@ -186,29 +183,32 @@ func RetainAssets(keep map[apigen.ValueRef]struct{}) (int, error) {
 func parseAssetCacheName(name string) (apigen.ValueRef, bool) {
 	name = strings.TrimSuffix(name, "_x")
 	if idText, versionText, ok := strings.Cut(name, "@"); ok {
-		id, idOK := positiveInt(idText)
-		version, versionOK := positiveInt(versionText)
+		id, idOK := positiveUint(idText, 64)
+		version, versionOK := positiveUint(versionText, 32)
 		if !idOK || !versionOK {
 			return apigen.ValueRef{}, false
 		}
-		return apigen.ValueRef{ID: id, Version: version}, true
+		return apigen.ValueRef{ID: id, Version: uint32(version)}, true
 	}
 	idText, versionText, paired := strings.Cut(name, "_")
-	if _, ok := positiveInt(idText); !ok {
+	if _, ok := positiveUint(idText, 64); !ok {
 		return apigen.ValueRef{}, false
 	}
 	if paired {
-		if _, ok := positiveInt(versionText); !ok {
+		if _, ok := positiveUint(versionText, 32); !ok {
 			return apigen.ValueRef{}, false
 		}
 	}
 	return apigen.ValueRef{}, true
 }
 
-func positiveInt(text string) (int32, bool) {
-	n, err := strconv.ParseInt(text, 10, 32)
-	if err != nil || n <= 0 {
+func positiveUint(text string, bits int) (uint64, bool) {
+	if text == "" || text[0] == '+' || text[0] == '-' {
 		return 0, false
 	}
-	return int32(n), true
+	n, err := strconv.ParseUint(text, 10, bits)
+	if err != nil || n == 0 {
+		return 0, false
+	}
+	return n, true
 }

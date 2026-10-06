@@ -1,5 +1,5 @@
-export const SOURCE_NIX_DOCKER = 'nixDockerBuild';
-export const SOURCE_DOCKER_IMAGE = 'containerImage';
+export const SOURCE_NIX_IMAGE_BUILD = 'nixImageBuild';
+export const SOURCE_CONTAINER_IMAGE = 'containerImage';
 
 export const FULL_GIT_COMMIT_RE = /^[0-9a-f]{40}$/i;
 
@@ -17,7 +17,7 @@ export const nixExactValidationKey = (repo, commit, flakePath) => key([
 export const imageDiscoveryKey = image => key(['container-image', clean(image)]);
 
 export function buildNixRepositoryDiscoveryRequest(repo, {refresh = true} = {}) {
-    return {nixDockerBuild: {
+    return {source: {nixImageBuild: {
         repoUrl: clean(repo),
         selectedBranch: '',
         selectedCommit: undefined,
@@ -28,11 +28,11 @@ export function buildNixRepositoryDiscoveryRequest(repo, {refresh = true} = {}) 
         checkBranch: false,
         checkCommit: false,
         checkFlakePath: false,
-    }};
+    }}};
 }
 
 export function buildNixCommitDiscoveryRequest(repo, branch, {refresh = true} = {}) {
-    return {nixDockerBuild: {
+    return {source: {nixImageBuild: {
         repoUrl: clean(repo),
         selectedBranch: clean(branch),
         selectedCommit: undefined,
@@ -43,13 +43,13 @@ export function buildNixCommitDiscoveryRequest(repo, branch, {refresh = true} = 
         checkBranch: true,
         checkCommit: false,
         checkFlakePath: false,
-    }};
+    }}};
 }
 
 // One request for a known branch: repository access, the branch list, the
 // branch check, and that branch's commits.
 export function buildNixListingRequest(repo, branch, {refresh = true} = {}) {
-    return {nixDockerBuild: {
+    return {source: {nixImageBuild: {
         repoUrl: clean(repo),
         selectedBranch: clean(branch),
         selectedCommit: undefined,
@@ -60,11 +60,11 @@ export function buildNixListingRequest(repo, branch, {refresh = true} = {}) {
         checkBranch: true,
         checkCommit: false,
         checkFlakePath: false,
-    }};
+    }}};
 }
 
 export function buildExactNixValidationRequest(repo, commit, flakePath) {
-    return {nixDockerBuild: {
+    return {source: {nixImageBuild: {
         repoUrl: clean(repo),
         selectedBranch: '',
         selectedCommit: {id: clean(commit)},
@@ -75,17 +75,17 @@ export function buildExactNixValidationRequest(repo, commit, flakePath) {
         checkBranch: false,
         checkCommit: true,
         checkFlakePath: true,
-    }};
+    }}};
 }
 
 export function buildImageDiscoveryRequest(image, {refresh = true} = {}) {
     // Tags are listed for the repository; a tag typed into the reference is
     // a version selection, not a narrower source.
-    return {containerImage: {image: imageRepositoryFromReference(image), refreshVersions: Boolean(refresh)}};
+    return {source: {containerImage: {image: imageRepositoryFromReference(image), refreshVersions: Boolean(refresh)}}};
 }
 
 export function attestNixRepositoryResponse(response, repo) {
-    const result = response?.nixDockerBuild;
+    const result = response?.source?.nixImageBuild;
     return result
         && result.checkedRepoUrl === clean(repo)
         && result.gitRepository?.checked
@@ -116,7 +116,7 @@ export function attestExactNixValidationResponse(response, repo, commit, flakePa
 }
 
 export function attestImageDiscoveryResponse(response) {
-    const result = response?.containerImage;
+    const result = response?.source?.containerImage;
     return result?.image?.checked ? result : null;
 }
 

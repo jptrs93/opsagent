@@ -44,63 +44,61 @@ var MoveReferencesOutsideSpaceErr = apigen.NewApiErr("Value is referenced from o
 // move protection therefore cannot lag behind what a runner would actually
 // resolve — the env-only scan this replaced missed ingress cert secrets.
 
-func SecretRefIDs(cfg *apigen.DeploymentEvent) []int32 {
+func SecretRefIDs(cfg *apigen.DeploymentRecord) []uint64 {
 	return valueRefIDs(runtimeinputs.SecretRefs(cfg))
 }
 
-func ConfigRefIDs(cfg *apigen.DeploymentEvent) []int32 {
+func ConfigRefIDs(cfg *apigen.DeploymentRecord) []uint64 {
 	return valueRefIDs(runtimeinputs.ConfigRefs(cfg))
 }
 
-func AssetRefIDs(cfg *apigen.DeploymentEvent) []int32 {
+func AssetRefIDs(cfg *apigen.DeploymentRecord) []uint64 {
 	refs := runtimeinputs.RequiredAssetRefs(cfg)
-	ids := make([]int32, 0, len(refs))
+	ids := make([]uint64, 0, len(refs))
 	for _, ref := range refs {
 		ids = append(ids, ref.Ref.ID)
 	}
 	return ids
 }
 
-func valueRefIDs(refs []apigen.ValueRef) []int32 {
-	ids := make([]int32, 0, len(refs))
+func valueRefIDs(refs []apigen.ValueRef) []uint64 {
+	ids := make([]uint64, 0, len(refs))
 	for _, ref := range refs {
 		ids = append(ids, ref.ID)
 	}
 	return ids
 }
 
-func AddressRefIDs(cfg *apigen.DeploymentEvent) []int32 {
-	container := cfg.Value.Spec.Container()
+func AddressRefIDs(cfg *apigen.DeploymentRecord) []uint64 {
+	container := cfg.Deployment.Spec.Container()
 	if container == nil {
 		return nil
 	}
-	var ids []int32
+	var ids []uint64
 	for _, value := range container.Runtime.EnvVars {
-		if value != nil && value.AddressDeploymentID != nil {
-			ids = append(ids, *value.AddressDeploymentID)
+		if value.Value.Address != nil {
+			ids = append(ids, value.Value.Address.DeploymentID)
 		}
 	}
 	return ids
 }
 
-func CrossDeploymentMountSourceIDs(cfg *apigen.DeploymentEvent) []int32 {
-	container := cfg.Value.Spec.Container()
+func CrossDeploymentMountSourceIDs(cfg *apigen.DeploymentRecord) []uint64 {
+	container := cfg.Deployment.Spec.Container()
 	if container == nil {
 		return nil
 	}
-	var ids []int32
+	var ids []uint64
 	for _, mount := range container.Runtime.CrossDeploymentMounts {
-		if mount != nil {
-			ids = append(ids, mount.DeploymentID)
-		}
+		ids = append(ids, mount.DeploymentID)
 	}
 	return ids
 }
 
 // Referencing returns the non-deleted deployments referencing any of ids,
 // with refs extracting one kind's referenced ids from a config.
-func Referencing(live nodes.LiveState, ids map[int32]struct{}, refs func(*apigen.DeploymentEvent) []int32) []*apigen.DeploymentEvent {
-	var out []*apigen.DeploymentEvent
+func Referencing(live nodes.LiveState, ids map[uint64]struct{}, refs func(*apigen.DeploymentRecord) []uint64) []*apigen.DeploymentRecord {
+	var out []*apigen.DeploymentRecord
 	for _, cfg := range live.Deployments {
 		for _, id := range refs(cfg) {
 			if _, ok := ids[id]; ok {
@@ -114,57 +112,57 @@ func Referencing(live nodes.LiveState, ids map[int32]struct{}, refs func(*apigen
 
 // ReferencesOutsideSpace reports whether any non-deleted deployment outside
 // spaceID pins one of ids — the veto for cross-space moves.
-func ReferencesOutsideSpace(live nodes.LiveState, ids map[int32]struct{}, refs func(*apigen.DeploymentEvent) []int32, spaceID int32) bool {
+func ReferencesOutsideSpace(live nodes.LiveState, ids map[uint64]struct{}, refs func(*apigen.DeploymentRecord) []uint64, spaceID uint64) bool {
 	for _, cfg := range Referencing(live, ids, refs) {
-		if cfg.Value.SpaceID != spaceID {
+		if cfg.Deployment.SpaceID != spaceID {
 			return true
 		}
 	}
 	return false
 }
 
-func UsesAddressID(live nodes.LiveState, ids map[int32]struct{}) bool {
+func UsesAddressID(live nodes.LiveState, ids map[uint64]struct{}) bool {
 	return len(Referencing(live, ids, AddressRefIDs)) > 0
 }
 
 // RefDetails renders "deployment <space> / <node> / <name>" lines
 // for every deployment pinning one of ids — the human-readable half of the
 // reference_in_use refusal.
-func RefDetails(ctx context.Context, q *pq.Queries, live nodes.LiveState, ids map[int32]struct{}, refs func(*apigen.DeploymentEvent) []int32) []string {
+func RefDetails(ctx context.Context, q *pq.Queries, live nodes.LiveState, ids map[uint64]struct{}, refs func(*apigen.DeploymentRecord) []uint64) []string {
 	cfgs := Referencing(live, ids, refs)
 	if len(cfgs) == 0 {
 		return nil
 	}
-	spaces := map[int32]string{}
+	spaces := map[uint64]string{}
 	rows, err := q.ListSpaces(ctx)
 	if err != nil {
 		panic(err)
 	}
 	for _, space := range rows {
-		spaces[int32(space.ID)] = space.Name
+		spaces[space.ID] = space.Name
 	}
-	nodes := map[int32]string{}
+	nodes := map[uint64]string{}
 	for _, node := range live.Nodes {
 		nodes[node.ID] = node.Name
 	}
 	details := make([]string, 0, len(cfgs))
 	for _, cfg := range cfgs {
-		space := spaces[cfg.Value.SpaceID]
+		space := spaces[cfg.Deployment.SpaceID]
 		if space == "" {
-			space = fmt.Sprintf("space %d", cfg.Value.SpaceID)
+			space = fmt.Sprintf("space %d", cfg.Deployment.SpaceID)
 		}
-		node := nodes[cfg.Value.PlacementNodeID()]
+		node := nodes[cfg.Deployment.PlacementNodeID()]
 		if node == "" {
-			node = fmt.Sprintf("node %d", cfg.Value.PlacementNodeID())
+			node = fmt.Sprintf("node %d", cfg.Deployment.PlacementNodeID())
 		}
-		details = append(details, "deployment "+space+" / "+node+" / "+cfg.Value.Name)
+		details = append(details, "deployment "+space+" / "+node+" / "+cfg.Deployment.Name)
 	}
 	sort.Strings(details)
 	return details
 }
 
-func Int32Set(ids []int32) map[int32]struct{} {
-	out := make(map[int32]struct{}, len(ids))
+func IDSet(ids []uint64) map[uint64]struct{} {
+	out := make(map[uint64]struct{}, len(ids))
 	for _, id := range ids {
 		out[id] = struct{}{}
 	}

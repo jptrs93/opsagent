@@ -3,16 +3,17 @@ syntax = "proto3";
 package opsagent.v1;
 
 import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
-
 enum AgentSessionStatus {
-  AGENT_SESSION_STATUS_UNKNOWN = 0;
-  AGENT_SESSION_PENDING = 1;   // requested by an agent, awaiting operator approval
-  AGENT_SESSION_APPROVED = 2;  // approved; the token is minted on first pickup
-  AGENT_SESSION_REJECTED = 3;  // operator declined, or the request went stale
-  AGENT_SESSION_REVOKED = 4;   // was live, stopped by the operator
+  AGENT_SESSION_STATUS_UNSPECIFIED = 0;
+  AGENT_SESSION_STATUS_PENDING = 1;   // requested by an agent, awaiting operator approval
+  AGENT_SESSION_STATUS_APPROVED = 2;  // approved; the token is minted on first pickup
+  AGENT_SESSION_STATUS_REJECTED = 3;  // operator declined, or the request went stale
+  AGENT_SESSION_STATUS_REVOKED = 4;   // was live, stopped by the operator
 }
 
 enum UserSessionKind {
@@ -21,36 +22,32 @@ enum UserSessionKind {
 }
 
 message AgentSession {
-  int32 user_id = 20;
-  string id = 1;
-  reserved 2; // created_at: EntityMeta on the mutation
-  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // set on pick up
-  string token_prefix = 4;
-  reserved 5; // scopes: an agent session acts with its owner's full, delegated authority
-  AgentSessionStatus status = 6;
-  string requesting_address = 7;
-  string approval_code = 8;
-  int64 approved_at = 9 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  bytes token_hash = 10; // replica class only, never sent to a browser
+  uint64 id = 1 [(cp.js_type) = "number"];
+  string session_id = 2 [(buf.validate.field).string.min_len = 1];
+  uint64 user_id = 3 [(cp.js_type) = "number"];
+  AgentSessionStatus status = 4 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  optional int64 approved_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string requesting_address = 6;
+  optional string approval_code = 7 [(buf.validate.field).string.min_len = 1];
+  AgentToken token = 8;
+}
+
+// AgentToken is the minted bearer token: the hash is replica class only and
+// never sent to a browser.
+message AgentToken {
+  optional bytes hash = 1 [(buf.validate.field).bytes.min_len = 1];
+  string prefix = 2 [(buf.validate.field).string.min_len = 1];
+  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 
 message UserSession {
-  string id = 1;
-  reserved 2; // created_at: EntityMeta on the mutation
-  int64 expires_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  int64 revoked_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  string requesting_address = 5;
-  string user_agent = 6;
-  reserved 7; // last_active_at: the per-request activity touch was dropped.
-  reserved 8; // current: the client compares id with LoginResponse.session_id.
-  int32 user_id = 9;
-  UserSessionKind kind = 10;
-  bytes token_hash = 11; // replica class only, never sent to a browser
-}
-
-message AgentSessionRequest {
-  string id = 1;
-  string approval_code = 2;
-  AgentSessionStatus status = 3;
-  int64 request_expires_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  uint64 id = 1 [(cp.js_type) = "number"];
+  string session_id = 2 [(buf.validate.field).string.min_len = 1];
+  uint64 user_id = 3 [(cp.js_type) = "number"];
+  UserSessionKind kind = 4 [(buf.validate.field).enum.defined_only = true];
+  int64 expires_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  optional int64 revoked_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  string requesting_address = 7;
+  string user_agent = 8;
+  optional bytes token_hash = 9 [(buf.validate.field).bytes.min_len = 1]; // absent on the browser stream
 }

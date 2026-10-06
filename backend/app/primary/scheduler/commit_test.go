@@ -21,14 +21,14 @@ import (
 func assertInstanceMutationsMatchRows(t *testing.T, store *state.Service, update state.WriteUpdate) {
 	t.Helper()
 	for _, m := range mutationsOf(update, instanceType) {
-		persisted, err := store.Queries().GetScheduledInstance(context.Background(), int32(m.EntityID()))
-		if errors.Is(err, sql.ErrNoRows) && m.Entity().ScheduledInstance.State.IsFinal() {
+		persisted, err := store.Queries().GetScheduledInstance(context.Background(), m.EntityID())
+		if errors.Is(err, sql.ErrNoRows) && m.Entity().Value.ScheduledInstance.State.IsFinal() {
 			continue
 		}
 		if err != nil {
 			t.Fatal(err)
 		}
-		if persisted.Seq != update.Seq || !bytes.Equal(persisted.Value.Encode(), m.Entity().ScheduledInstance.Encode()) {
+		if persisted.Seq != update.Seq || !bytes.Equal(persisted.Value.Encode(), m.Entity().Value.ScheduledInstance.Encode()) {
 			t.Fatal("published instance differs from written row")
 		}
 	}
@@ -37,7 +37,7 @@ func assertInstanceMutationsMatchRows(t *testing.T, store *state.Service, update
 func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
 	startScheduler(t, store, newFakeBarrier())
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()
@@ -48,8 +48,8 @@ func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 	if created.Seq != before+1 || len(mutationsOf(created, deploymentType)) != 1 || len(mutationsOf(created, instanceType)) != 1 {
 		t.Fatalf("create did not include scheduling: %+v", created)
 	}
-	inst := *mutationsOf(created, instanceType)[0].Entity().ScheduledInstance
-	markRunning(t, store, inst.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
+	inst := *mutationsOf(created, instanceType)[0].Entity().Value.ScheduledInstance
+	markRunning(t, store, inst.ID, cfg.Meta.SpecVersion, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
 	running := <-sub
 	statetest.AssertUpdateMatchesRows(t, store, running)
 	if hasCore(running) || !running.Has(instanceStatusType) || running.Seq != created.Seq+1 {
@@ -58,22 +58,22 @@ func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 	if globalSeq(t, store) != running.Seq {
 		t.Fatal("observed commit and database disagree on sequence")
 	}
-	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, testRunningSpec("v2"))
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.Deployment.ID, testRunningSpec("v2"))
 	stopping := <-sub
 	statetest.AssertUpdateMatchesRows(t, store, stopping)
 	stopped := mutationsOf(stopping, instanceType)
-	if stopping.Seq != running.Seq+1 || len(mutationsOf(stopping, deploymentType)) != 1 || len(stopped) != 1 || stopped[0].Entity().ScheduledInstance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
+	if stopping.Seq != running.Seq+1 || len(mutationsOf(stopping, deploymentType)) != 1 || len(stopped) != 1 || stopped[0].Entity().Value.ScheduledInstance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE {
 		t.Fatalf("RECREATE did not atomically stop previous placement: %+v", stopping)
 	}
-	markRunning(t, store, inst.ID, cfg.SpecVersion, apigen.RunningStatus_STOPPED)
+	markRunning(t, store, inst.ID, cfg.Meta.SpecVersion, apigen.RunningStatus_RUNNING_STATUS_STOPPED)
 	finalized := <-sub
 	statetest.AssertUpdateMatchesRows(t, store, finalized)
 	if finalized.Seq != stopping.Seq+1 || len(mutationsOf(finalized, instanceType)) != 2 || len(mutationsOf(finalized, instanceStatusType)) != 1 {
 		t.Fatalf("finalization and replacement not one commit: %+v", finalized)
 	}
 	assertInstanceMutationsMatchRows(t, store, finalized)
-	active := statetest.NonFinalInstances(store, cfg.DeploymentID)
-	if len(active) != 1 || active[0].ID == inst.ID || active[0].DeploymentVersion != updated.Version {
+	active := statetest.NonFinalInstances(store, cfg.Deployment.ID)
+	if len(active) != 1 || active[0].ID == inst.ID || active[0].Deployment.Version != updated.Meta.Version {
 		t.Fatalf("cache not final: %+v", active)
 	}
 	// The terminal observation and final target are visible to a later
@@ -82,7 +82,7 @@ func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 	if globalSeq(t, store) != finalized.Seq || len(erru.Must(store.Queries().ListScheduledInstanceStatusHistorySince(context.Background(), inst.ID, time.Time{}))) != 2 {
 		t.Fatal("database or retained history disagrees with commit")
 	}
-	if liveEntity(t, store, instanceType, active[0].ID).ScheduledInstance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
+	if liveEntity(t, store, instanceType, active[0].ID).Value.ScheduledInstance.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING {
 		t.Fatal("bootstrap does not carry the replacement")
 	}
 }
@@ -90,17 +90,17 @@ func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 func TestStaleReportIsDroppedAndCannotDriveScheduler(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
 	barrier := newFakeBarrier()
 	barrier.held = true
 	startScheduler(t, store, barrier)
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
-	older := statetest.NonFinalInstances(store, cfg.DeploymentID)[0]
-	markRunning(t, store, older.ID, cfg.SpecVersion, apigen.RunningStatus_RUNNING)
+	older := statetest.NonFinalInstances(store, cfg.Deployment.ID)[0]
+	markRunning(t, store, older.ID, cfg.Meta.SpecVersion, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
 	current := *latestStatus(store, older.ID)
-	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, rolloverSpec("v2"))
-	var standby int32
-	for _, inst := range statetest.NonFinalInstances(store, cfg.DeploymentID) {
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.Deployment.ID, rolloverSpec("v2"))
+	var standby uint64
+	for _, inst := range statetest.NonFinalInstances(store, cfg.Deployment.ID) {
 		if inst.ID != older.ID {
 			standby = inst.ID
 		}
@@ -110,8 +110,8 @@ func TestStaleReportIsDroppedAndCannotDriveScheduler(t *testing.T) {
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()
 	stale := current
-	stale.UpdatedAt = current.UpdatedAt.Add(-time.Nanosecond)
-	stale.Runner.Status = apigen.RunningStatus_STOPPED
+	stale.UpdatedAt = apigen.TimeOf(current.UpdatedAtTime().Add(-time.Nanosecond))
+	stale.Runner.Value.Status = apigen.RunningStatus_RUNNING_STATUS_STOPPED
 	scheduledinstances.WriteReplicatedStatus(store, &stale)
 	if !bytes.Equal(before, fingerprint(t, store)) {
 		t.Fatal("delayed STOPPED report changed the bootstrap or the sequence")
@@ -124,7 +124,7 @@ func TestStaleReportIsDroppedAndCannotDriveScheduler(t *testing.T) {
 		t.Fatal("stale report published")
 	default:
 	}
-	markRunning(t, store, standby, updated.SpecVersion, apigen.RunningStatus_RUNNING)
+	markRunning(t, store, standby, updated.Meta.SpecVersion, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
 	promoted := <-sub
 	statetest.AssertUpdateMatchesRows(t, store, promoted)
 	if len(mutationsOf(promoted, instanceType)) != 2 || !promoted.Has(instanceStatusType) || promoted.Seq != beforeSeq+1 {
@@ -137,7 +137,7 @@ func TestDrainDeadlineSurvivesRepeatedTriggers(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	ctx := context.Background()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
 	barrier := newFakeBarrier()
 	barrier.held = true
 	scheduling := New(store, barrier)
@@ -148,15 +148,15 @@ func TestDrainDeadlineSurvivesRepeatedTriggers(t *testing.T) {
 	}
 	testSchedulers.Store(store, scheduling)
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
-	older := statetest.NonFinalInstances(store, cfg.DeploymentID)[0]
-	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.DeploymentID, rolloverSpec("v2"))
-	var newer int32
-	for _, inst := range statetest.NonFinalInstances(store, cfg.DeploymentID) {
+	older := statetest.NonFinalInstances(store, cfg.Deployment.ID)[0]
+	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.Deployment.ID, rolloverSpec("v2"))
+	var newer uint64
+	for _, inst := range statetest.NonFinalInstances(store, cfg.Deployment.ID) {
 		if inst.ID != older.ID {
 			newer = inst.ID
 		}
 	}
-	markRunning(t, store, newer, updated.SpecVersion, apigen.RunningStatus_RUNNING)
+	markRunning(t, store, newer, updated.Meta.SpecVersion, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
 	drain := erru.Must(store.Queries().GetScheduledInstance(context.Background(), older.ID))
 	if drain.Value.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING {
 		t.Fatalf("older placement = %v, want draining", drain.Value.State)

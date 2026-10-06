@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentFromRecord} from "../state/tree.js";
 import {deploymentsS, machinesS} from "../state/deployments.js";
+import {deploymentId as deploymentIdOf} from "../lib/deployment.js";
 import {nodeDisplayName} from "../lib/machines.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {formatHistoryTime} from "../lib/date.js";
@@ -36,19 +36,21 @@ export function runReportOverlay(target, onClose) {
     let loadSeq = 0;
 
     const deployment = () => (Array.isArray(deploymentsS.val) ? deploymentsS.val : [])
-        .find((d) => d.config?.deploymentId === deploymentId) || null;
+        .find((d) => deploymentIdOf(d.config) === deploymentId) || null;
 
     const versionMeta = van.state(null);
+    const metaOfSpecVersion = record => Number(record?.meta?.specVersion || 0) === version ? record.meta : null;
+    const writeOf = meta => ({at: new Date(Number(meta.updatedTime || 0)), by: Number(meta.updatedActor || 0)});
     const resolveVersionMeta = async () => {
-        const cfg = deployment()?.config;
-        if (cfg?.specVersion === version) {
-            versionMeta.val = {at: cfg.eventTime, by: cfg.author || 0};
+        const current = metaOfSpecVersion(deployment()?.config);
+        if (current) {
+            versionMeta.val = writeOf(current);
             return;
         }
         try {
             const resp = await capi.postV1DeploymentsHistory({deploymentId});
-            const entry = (resp.entries || []).map(e => deploymentFromRecord(e.deployment)).find((c) => c?.specVersion === version);
-            if (entry) versionMeta.val = {at: entry.eventTime, by: entry.author || 0};
+            const meta = (resp.entries || []).map(e => metaOfSpecVersion(e.value?.deployment)).find(Boolean);
+            if (meta) versionMeta.val = writeOf(meta);
         } catch {}
     };
     void resolveVersionMeta();
@@ -56,7 +58,7 @@ export function runReportOverlay(target, onClose) {
     const instances = () => {
         const d = deployment();
         return (d?.scheduledInstances || [])
-            .filter((s) => (s.instance?.deploymentSpecVersion || 0) === version && (s.instance?.id || 0) > 0)
+            .filter((s) => Number(s.config?.meta?.specVersion || 0) === version && (s.instance?.id || 0) > 0)
             .map((s) => ({
                 id: s.instance.id,
                 ordinal: s.instance.instanceOrdinal || 0,
@@ -196,7 +198,7 @@ export function runReportOverlay(target, onClose) {
         return span({class: "text-xs text-gray-500"}, `${at ? at + ' · ' : ''}${by}`);
     };
 
-    const name = () => deployment()?.config?.value?.name || `#${deploymentId}`;
+    const name = () => deployment()?.config?.deployment?.name || `#${deploymentId}`;
 
     return div(
         div({class: "fixed inset-0 bg-black/70 z-40", onclick: onClose}),

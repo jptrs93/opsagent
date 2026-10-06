@@ -50,7 +50,7 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 	// there is no sound way to attribute one to the instance that is settled.
 	for i := range states {
 		if !instanceQuiescent(&states[i]) {
-			slog.DebugContext(ctx, fmt.Sprintf("retention: skipping sweep, instance is mid-transition configVersion=%d", states[i].Config.SpecVersion),
+			slog.DebugContext(ctx, fmt.Sprintf("retention: skipping sweep, instance is mid-transition configVersion=%d", states[i].Config.Meta.SpecVersion),
 				"scheduled_instance", states[i].Instance.ID)
 			return
 		}
@@ -59,7 +59,7 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 	secrets := map[apigen.ValueRef]struct{}{}
 	configs := map[apigen.ValueRef]struct{}{}
 	assets := map[apigen.ValueRef]struct{}{}
-	issued := map[int32]struct{}{}
+	issued := map[uint64]struct{}{}
 	for i := range states {
 		cfg := &states[i].Config
 		for _, ref := range runtimeinputs.SecretRefs(cfg) {
@@ -72,7 +72,7 @@ func sweepRuntimeInputs(ctx context.Context, store *state.Service, inputs *runti
 			assets[ref.Ref] = struct{}{}
 		}
 		if runtimeinputs.IssuedTLSMountOf(cfg) != nil {
-			issued[cfg.DeploymentID] = struct{}{}
+			issued[cfg.Deployment.ID] = struct{}{}
 		}
 	}
 	if acme != nil {
@@ -116,9 +116,11 @@ func instanceQuiescent(state *apigen.ScheduledInstanceState) bool {
 	if !state.Instance.State.WantsRunning() {
 		return true
 	}
-	if state.Status.Preparer.DeploymentSpecVersion != state.Config.SpecVersion ||
-		state.Status.Preparer.Rollup() != apigen.PreparationStatus_READY {
+	specVersion := state.Config.Meta.SpecVersion
+	status := state.Status.Value
+	if !status.Preparer.Present || status.Preparer.Value.DeploymentSpecVersion != specVersion ||
+		status.Preparer.Value.Rollup() != apigen.PreparationStatus_PREPARATION_STATUS_READY {
 		return false
 	}
-	return state.Status.Runner.DeploymentSpecVersion == state.Config.SpecVersion
+	return status.Runner.Present && status.Runner.Value.DeploymentSpecVersion == specVersion
 }

@@ -26,8 +26,8 @@ func TestCreateAssetNotifiesSubscribers(t *testing.T) {
 		if len(update.Mutations) != 1 || update.Mutations[0].Type() != apigen.CoreEntityType_CORE_ENTITY_ASSET || update.Mutations[0].Kind() != apigen.AuthzVerb_AUTHZ_VERB_CREATE {
 			t.Fatalf("asset transaction = %+v", update)
 		}
-		asset := update.Mutations[0].Entity().Asset
-		if asset.Fs == nil || asset.Fs.Key != "notify-check.txt" {
+		asset := update.Mutations[0].Entity().Value.Asset
+		if asset == nil || asset.Fs.Key != "notify-check.txt" {
 			t.Fatalf("asset.Fs = %+v", asset.Fs)
 		}
 		if update.Mutations[0].EntityID() == 0 || update.Mutations[0].Meta() == nil || update.Mutations[0].Meta().ValueVersion != 1 {

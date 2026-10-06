@@ -13,7 +13,7 @@ func TestMetricsSeriesJSONRoundTripsMissingBuckets(t *testing.T) {
 	res := &MetricsQueryResponse{
 		StepMs:  30000,
 		Buckets: 3,
-		Series: []*MetricsSeries{{
+		Series: []MetricsSeries{{
 			ScheduledInstanceID: 807,
 			Run:                 1,
 			Field:               "cpu_usage_usec",
@@ -58,7 +58,7 @@ func TestMetricsSeriesJSONOmitsEmptyValues(t *testing.T) {
 	if strings.Contains(string(b), `"values"`) {
 		t.Fatalf("empty values were emitted: %s", b)
 	}
-	b, err = json.Marshal(&MetricsSeries{Field: "pids", Values: []float64{math.Inf(1)}})
+	b, err = json.Marshal(MetricsSeries{Field: "pids", Values: []float64{math.Inf(1)}})
 	if err != nil {
 		t.Fatalf("marshal pointer: %v", err)
 	}

@@ -4,7 +4,7 @@ import {capi} from "../capi/index.js";
 import {refreshIcon} from "../lib/icons.js";
 import {spinnerButton} from "./spinnerbutton.js";
 import {deploymentsS} from "../state/deployments.js";
-import {deploymentWorkload, desiredRunning} from "../lib/deployment.js";
+import {deploymentId as deploymentIdOf, deploymentSeq, deploymentWorkload, desiredRunning} from "../lib/deployment.js";
 import {preparerPhase} from "../lib/preparerStatus.js";
 
 const {button, div, input, label, option, p, select, span, table, thead, tbody, tr, th, td} = van.tags;
@@ -65,10 +65,10 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
             if (Number(response?.deploymentId || 0) !== Number(primaryMember.id || 0)) {
                 throw new Error('Version response did not attest the requested deployment.');
             }
-            if (!response.githubRelease) {
+            if (!response.source?.githubRelease) {
                 throw new Error('Version response did not include GitHub releases.');
             }
-            const nextReleases = response.githubRelease.releases || [];
+            const nextReleases = response.source.githubRelease.releases || [];
             releases.val = nextReleases;
             for (const member of members) {
                 const current = targetByMember.get(member.id);
@@ -87,7 +87,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
     };
 
     const findLive = (deploymentId) => (deploymentsS.rawVal || [])
-        .find(d => Number(d.config?.deploymentId || 0) === Number(deploymentId)) || null;
+        .find(d => deploymentIdOf(d.config) === Number(deploymentId)) || null;
 
     // waitForConvergence watches the state stream until the member's runner
     // reports RUNNING at the target version for the applied spec version, or
@@ -151,10 +151,10 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                 phase.val = {state: 'updating', detail: ''};
                 let applied;
                 try {
-                    applied = await capi.postV2DeploymentsUpdate({
+                    applied = await capi.postV1DeploymentsUpdate({
                         deploymentId: member.id,
-                        expectedSeq: Number(live.config.seq || 0),
-                        versionOnlyUpdate: {targetVersion: target},
+                        expectedSeq: deploymentSeq(live.config),
+                        update: {versionOnly: {targetVersion: target}},
                     });
                 } catch (error) {
                     phase.val = {state: 'failed', detail: error?.message || 'update request failed'};

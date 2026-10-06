@@ -38,7 +38,7 @@ type RuntimeInputs struct {
 	mu              sync.RWMutex
 	secretValues    map[apigen.ValueRef]string
 	configValues    map[apigen.ValueRef]string
-	issuedTLSValues map[int32]*IssuedTLSValue
+	issuedTLSValues map[uint64]*IssuedTLSValue
 }
 
 func New(assets AssetProvider, secrets SecretProvider, configs ConfigProvider) *RuntimeInputs {
@@ -48,7 +48,7 @@ func New(assets AssetProvider, secrets SecretProvider, configs ConfigProvider) *
 		configs:         configs,
 		secretValues:    make(map[apigen.ValueRef]string),
 		configValues:    make(map[apigen.ValueRef]string),
-		issuedTLSValues: make(map[int32]*IssuedTLSValue),
+		issuedTLSValues: make(map[uint64]*IssuedTLSValue),
 	}
 }
 
@@ -144,7 +144,7 @@ func (r *RuntimeInputs) persist(ctx context.Context, secrets, configs map[apigen
 // mints a new value version that arrives here as a new deployment spec version. Combined with Persistence this is what
 // lets a restarted secondary start its workloads without reaching the primary at
 // all.
-func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
+func (r *RuntimeInputs) EnsureSecretsReady(ctx context.Context, cfg *apigen.DeploymentRecord) error {
 	return r.EnsureSecretRefs(ctx, SecretRefs(cfg))
 }
 
@@ -178,7 +178,7 @@ func (r *RuntimeInputs) EnsureSecretRefs(ctx context.Context, refs []apigen.Valu
 	return nil
 }
 
-func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
+func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentRecord) error {
 	if err := r.EnsureAssetsReady(ctx, cfg); err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (r *RuntimeInputs) EnsureReady(ctx context.Context, cfg *apigen.DeploymentE
 
 // EnsureConfigsReady is EnsureSecretsReady for plain config values, which share
 // the same immutable-versioned row model.
-func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentEvent) error {
+func (r *RuntimeInputs) EnsureConfigsReady(ctx context.Context, cfg *apigen.DeploymentRecord) error {
 	refs := ConfigRefs(cfg)
 	if len(refs) == 0 {
 		return nil
@@ -236,44 +236,45 @@ func (r *RuntimeInputs) ResolveConfig(ref apigen.ValueRef) (string, bool) {
 	return value, ok
 }
 
-func SecretRefs(cfg *apigen.DeploymentEvent) []apigen.ValueRef {
+func SecretRefs(cfg *apigen.DeploymentRecord) []apigen.ValueRef {
 	if cfg == nil {
 		return nil
 	}
 	seen := map[apigen.ValueRef]bool{}
-	if container := cfg.Value.Spec.Container(); container != nil {
+	if container := cfg.Deployment.Spec.Container(); container != nil {
 		for _, item := range container.Runtime.EnvVars {
-			if item == nil || item.Secret == nil || !item.Secret.Valid() {
+			if item.Value.Secret == nil || !item.Value.Secret.Secret.Valid() {
 				continue
 			}
-			seen[*item.Secret] = true
+			seen[item.Value.Secret.Secret.Ref()] = true
 		}
 	}
-	for _, route := range cfg.Value.Spec.Networking.Ingress {
-		if route == nil || route.HttpsConfig == nil || route.HttpsConfig.CertSource == nil {
+	for _, route := range cfg.Deployment.Spec.Networking.Ingress {
+		https := route.Config.Value.Https
+		if https == nil || !https.CertSource.Present {
 			continue
 		}
-		if secret := route.HttpsConfig.CertSource.Secret; secret != nil && secret.Secret.Valid() {
-			seen[secret.Secret] = true
+		if secret := https.CertSource.Value.Value.Secret; secret != nil && secret.Secret.Valid() {
+			seen[secret.Secret.Ref()] = true
 		}
 	}
 	return sortedRefs(seen)
 }
 
-func ConfigRefs(cfg *apigen.DeploymentEvent) []apigen.ValueRef {
+func ConfigRefs(cfg *apigen.DeploymentRecord) []apigen.ValueRef {
 	if cfg == nil {
 		return nil
 	}
-	container := cfg.Value.Spec.Container()
+	container := cfg.Deployment.Spec.Container()
 	if container == nil {
 		return nil
 	}
 	seen := map[apigen.ValueRef]bool{}
 	for _, item := range container.Runtime.EnvVars {
-		if item == nil || item.Config == nil || !item.Config.Valid() {
+		if item.Value.Config == nil || !item.Value.Config.Config.Valid() {
 			continue
 		}
-		seen[*item.Config] = true
+		seen[item.Value.Config.Config.Ref()] = true
 	}
 	return sortedRefs(seen)
 }

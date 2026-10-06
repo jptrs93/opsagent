@@ -27,9 +27,6 @@ type Queries struct {
 	// applied counts, per update, the mutations a transaction has already
 	// materialised, so an update grown by a trigger is reduced once.
 	applied map[*apigen.CoreWriteUpdate]int
-	// logged holds, during a rebuild from the log only, the counters the
-	// v0.0.614 backfill left in deployment payloads.
-	logged map[*apigen.CoreMutation]loggedDeploymentFacts
 }
 
 type conn struct {
@@ -39,12 +36,14 @@ type conn struct {
 
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpenWriter(dbPath)
-	requireCompleteWriteLog(db)
-	backup := backupLegacyDatabase(db, dbPath)
-	renameLegacyStatusLog(db)
+	refuseLegacyDatabase(db)
+	if legacyDataModel(db) {
+		backupBeforeConversion(db, dbPath)
+		convertDataModel(context.Background(), db)
+	}
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
-	materialiseLegacyTables(db, backup)
+	markFormatVersion(db)
 	seedWriteLogGenesis(db)
 	return &Queries{db: &conn{DBTX: db, root: db}}
 }

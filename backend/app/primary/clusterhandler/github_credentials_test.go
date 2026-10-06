@@ -2,11 +2,13 @@ package clusterhandler
 
 import (
 	"context"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"errors"
+	"net/netip"
 	"path/filepath"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
@@ -37,14 +39,12 @@ func TestGHCRWorkerCredentialAuthorization(t *testing.T) {
 		{"no-assignment", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			node := nodes.EnsurePrimaryNode(store, tc.name, tc.name)
+			node := nodes.EnsurePrimaryNode(store, tc.name, tc.name, netip.MustParseAddr("10.0.0.1"))
 			if tc.image != "" {
-				spec := &apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{
-					Source:  apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: tc.image}},
-					Version: "latest",
-				}}
+				spec := statetest.SpecWithVersion("latest")
+				spec.Container().Source = apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: tc.image}}}
 				dep := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, tc.name, node.ID, spec)
-				statetest.CreateScheduledInstance(store, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+				statetest.CreateScheduledInstance(store, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 			}
 			before := provider.calls
 			ctx := apigen.Context{Ctx: context.WithValue(context.Background(), machineCtxKey{}, tc.name)}
@@ -57,7 +57,7 @@ func TestGHCRWorkerCredentialAuthorization(t *testing.T) {
 					t.Fatal("worker did not receive configured credential")
 				}
 			} else {
-				if err != clusterForbiddenErr {
+				if !errors.Is(err, clusterForbiddenErr) {
 					t.Fatalf("error = %v, want forbidden", err)
 				}
 				if creds != nil || provider.calls != before {

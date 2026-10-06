@@ -51,27 +51,27 @@ func spilledFixture(t *testing.T) *Manager {
 
 var typedCases = []struct {
 	name    string
-	filters []*apigen.LogFilter
+	filters []apigen.LogFilter
 	want    []string
 }{
-	{"int and str eq", []*apigen.LogFilter{{Field: "user", Op: "eq", Value: "68"}}, []string{"m5", "m2", "m1"}},
-	{"str eq", []*apigen.LogFilter{{Field: "user", Op: "eq", Value: "Alice"}}, []string{"m4"}},
-	{"text only eq", []*apigen.LogFilter{{Field: "user", Op: "eq", Value: "68", Text: true}}, []string{"m2"}},
-	{"neq", []*apigen.LogFilter{{Field: "user", Op: "neq", Value: "68"}}, []string{"m4", "m3"}},
-	{"gt", []*apigen.LogFilter{{Field: "dur", Op: "gt", Value: "1.9"}}, []string{"m5", "m3", "m2"}},
-	{"lte", []*apigen.LogFilter{{Field: "dur", Op: "lte", Value: "2"}}, []string{"m2", "m1"}},
-	{"range on str never matches", []*apigen.LogFilter{{Field: "user", Op: "gte", Value: "0"}}, []string{"m5", "m3", "m1"}},
-	{"bool eq", []*apigen.LogFilter{{Field: "ok", Op: "eq", Value: "true"}}, []string{"m1"}},
-	{"nested eq", []*apigen.LogFilter{{Field: "ctx.req", Op: "eq", Value: "r1"}}, []string{"m1"}},
-	{"nested int eq", []*apigen.LogFilter{{Field: "ctx.n", Op: "eq", Value: "1"}}, []string{"m1"}},
-	{"array element", []*apigen.LogFilter{{Field: "tags", Op: "eq", Value: "b"}}, []string{"m1"}},
-	{"exists", []*apigen.LogFilter{{Field: "ok", Op: "exists"}}, []string{"m2", "m1"}},
-	{"not exists", []*apigen.LogFilter{{Field: "ok", Op: "not_exists"}}, []string{"m5", "m4", "m3"}},
-	{"contains number text", []*apigen.LogFilter{{Field: "user", Op: "contains", Value: "6"}}, []string{"m5", "m2", "m1"}},
-	{"in mixed", []*apigen.LogFilter{{Field: "user", Op: "in", Values: []string{"70", "alice"}}}, []string{"m4", "m3"}},
-	{"absent key eq", []*apigen.LogFilter{{Field: "nope", Op: "eq", Value: "1"}}, nil},
-	{"absent key neq", []*apigen.LogFilter{{Field: "nope", Op: "neq", Value: "1"}}, []string{"m5", "m4", "m3", "m2", "m1"}},
-	{"combined", []*apigen.LogFilter{{Field: "user", Op: "eq", Value: "68"}, {Field: "level", Op: "eq", Value: "info"}, {Field: "dur", Op: "lt", Value: "3"}}, []string{"m2", "m1"}},
+	{"int and str eq", []apigen.LogFilter{{Field: "user", Op: "eq", Value: "68"}}, []string{"m5", "m2", "m1"}},
+	{"str eq", []apigen.LogFilter{{Field: "user", Op: "eq", Value: "Alice"}}, []string{"m4"}},
+	{"text only eq", []apigen.LogFilter{{Field: "user", Op: "eq", Value: "68", Text: true}}, []string{"m2"}},
+	{"neq", []apigen.LogFilter{{Field: "user", Op: "neq", Value: "68"}}, []string{"m4", "m3"}},
+	{"gt", []apigen.LogFilter{{Field: "dur", Op: "gt", Value: "1.9"}}, []string{"m5", "m3", "m2"}},
+	{"lte", []apigen.LogFilter{{Field: "dur", Op: "lte", Value: "2"}}, []string{"m2", "m1"}},
+	{"range on str never matches", []apigen.LogFilter{{Field: "user", Op: "gte", Value: "0"}}, []string{"m5", "m3", "m1"}},
+	{"bool eq", []apigen.LogFilter{{Field: "ok", Op: "eq", Value: "true"}}, []string{"m1"}},
+	{"nested eq", []apigen.LogFilter{{Field: "ctx.req", Op: "eq", Value: "r1"}}, []string{"m1"}},
+	{"nested int eq", []apigen.LogFilter{{Field: "ctx.n", Op: "eq", Value: "1"}}, []string{"m1"}},
+	{"array element", []apigen.LogFilter{{Field: "tags", Op: "eq", Value: "b"}}, []string{"m1"}},
+	{"exists", []apigen.LogFilter{{Field: "ok", Op: "exists"}}, []string{"m2", "m1"}},
+	{"not exists", []apigen.LogFilter{{Field: "ok", Op: "not_exists"}}, []string{"m5", "m4", "m3"}},
+	{"contains number text", []apigen.LogFilter{{Field: "user", Op: "contains", Value: "6"}}, []string{"m5", "m2", "m1"}},
+	{"in mixed", []apigen.LogFilter{{Field: "user", Op: "in", Values: []string{"70", "alice"}}}, []string{"m4", "m3"}},
+	{"absent key eq", []apigen.LogFilter{{Field: "nope", Op: "eq", Value: "1"}}, nil},
+	{"absent key neq", []apigen.LogFilter{{Field: "nope", Op: "neq", Value: "1"}}, []string{"m5", "m4", "m3", "m2", "m1"}},
+	{"combined", []apigen.LogFilter{{Field: "user", Op: "eq", Value: "68"}, {Field: "level", Op: "eq", Value: "info"}, {Field: "dur", Op: "lt", Value: "3"}}, []string{"m2", "m1"}},
 }
 
 func runTypedCases(t *testing.T, m *Manager) {
@@ -95,8 +95,8 @@ func runTypedCases(t *testing.T, m *Manager) {
 		if err != nil {
 			t.Fatalf("%s: full scan: %v", c.name, err)
 		}
-		fast.Stats.TookMs, full.Stats.TookMs = 0, 0
-		fast.Stats.ScannedRows, full.Stats.ScannedRows = 0, 0
+		fast.Stats.Value.TookMs, full.Stats.Value.TookMs = 0, 0
+		fast.Stats.Value.ScannedRows, full.Stats.Value.ScannedRows = 0, 0
 		if !reflect.DeepEqual(fast, full) {
 			t.Fatalf("%s: two-pass = %+v\nfull = %+v", c.name, fast, full)
 		}
@@ -181,7 +181,7 @@ func TestRangeFilterRejectsNonNumericValue(t *testing.T) {
 	m := typedFixture(t)
 	_, err := m.Query(context.Background(), wideRange(t, &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		Filters:      []*apigen.LogFilter{{Field: "dur", Op: "gt", Value: "fast"}},
+		Filters:      []apigen.LogFilter{{Field: "dur", Op: "gt", Value: "fast"}},
 	}))
 	if err == nil {
 		t.Fatal("non-numeric range value did not error")
@@ -191,7 +191,7 @@ func TestRangeFilterRejectsNonNumericValue(t *testing.T) {
 func TestQueryRecordFieldsKeepNumberText(t *testing.T) {
 	m := typedFixture(t)
 	resp, err := m.Query(context.Background(), wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
-		Filters: []*apigen.LogFilter{{Field: "dur", Op: "eq", Value: "1.5"}}}))
+		Filters: []apigen.LogFilter{{Field: "dur", Op: "eq", Value: "1.5"}}}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +259,7 @@ func TestRowGroupPruningKeepsResults(t *testing.T) {
 
 func TestScanParallelismMatchesSequential(t *testing.T) {
 	m := maintenanceEnv(t, twoBatchFixture(t))
-	filters := [][]*apigen.LogFilter{
+	filters := [][]apigen.LogFilter{
 		nil,
 		{{Field: "level", Op: "eq", Value: "INFO"}},
 		{{Field: "user", Op: "gte", Value: "68"}},
@@ -276,7 +276,7 @@ func TestScanParallelismMatchesSequential(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parallelism %d: %v", n, err)
 			}
-			resp.Stats.TookMs = 0
+			resp.Stats.Value.TookMs = 0
 			got = append(got, resp)
 		}
 		if !reflect.DeepEqual(got[0], got[1]) {
@@ -288,8 +288,8 @@ func TestScanParallelismMatchesSequential(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		full.Stats.TookMs = 0
-		full.Stats.ScannedRows, got[1].Stats.ScannedRows = 0, 0
+		full.Stats.Value.TookMs = 0
+		full.Stats.Value.ScannedRows, got[1].Stats.Value.ScannedRows = 0, 0
 		if !reflect.DeepEqual(got[1], full) {
 			t.Fatalf("filters %+v: parallel = %+v\nfull = %+v", fs, got[1], full)
 		}

@@ -22,7 +22,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
 
-func latestStatus(s *state.Service, instanceID int32) *apigen.ScheduledInstanceStatus {
+func latestStatus(s *state.Service, instanceID uint64) *apigen.ScheduledInstanceStatus {
 	st, err := s.Queries().GetLatestScheduledInstanceStatus(context.Background(), instanceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -35,9 +35,9 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	store := state.Open(dbPath)
 	defer func() { _ = store.Close() }()
 
-	primaryNode := nodes.EnsurePrimaryNode(store, "primary", "primary")
-	secondaryNode := nodes.EnsurePrimaryNode(store, "secondary", "secondary")
-	create := func(nodeID int32, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentEvent {
+	primaryNode := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	secondaryNode := nodes.EnsurePrimaryNode(store, "secondary", "secondary", testUnderlay)
+	create := func(nodeID uint64, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, nodeID, spec)
 	}
 	containerSpec := statetest.SpecWithVersion("v1")
@@ -45,12 +45,12 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	secondary := create(secondaryNode.ID, "app", containerSpec)
 	system := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, primaryNode.ID, testSystemSpecWithVersion("v1"))
 
-	seedStatus := func(cfg *apigen.DeploymentEvent, artifact string) *apigen.ScheduledInstance {
-		inst := statetest.CreateScheduledInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	seedStatus := func(cfg *apigen.DeploymentRecord, artifact string) *apigen.ScheduledInstance {
+		inst := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 		scheduledinstances.WriteStatus(store, inst.ID, func(status *apigen.ScheduledInstanceStatus) bool {
 			status.BumpUpdatedAt()
-			status.Preparer = apigen.PreparerStatus{DeploymentSpecVersion: cfg.SpecVersion, Artifact: artifact, Inputs: apigen.InputsStatus_INPUTS_READY, Image: apigen.ImageStatus_IMAGE_READY}
-			status.Runner = apigen.RunnerStatus{DeploymentSpecVersion: cfg.SpecVersion, RunningArtifact: artifact, Status: apigen.RunningStatus_RUNNING}
+			status.Preparer = apigen.Some(apigen.PreparerStatus{DeploymentSpecVersion: cfg.Meta.SpecVersion, Artifact: artifact, Inputs: apigen.InputsStatus_INPUTS_STATUS_READY, Image: apigen.Some(apigen.ImageStatus_IMAGE_STATUS_READY)})
+			status.Runner = apigen.Some(apigen.RunnerStatus{DeploymentSpecVersion: cfg.Meta.SpecVersion, RunningArtifact: artifact, Status: apigen.RunningStatus_RUNNING_STATUS_RUNNING})
 			return true
 		})
 		return inst
@@ -59,8 +59,8 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	seedStatus(secondary, "example/app:v1")
 	seedStatus(system, "/var/lib/opendeploy/releases/v1/opendeploy")
 
-	primaryConfigHistoryCount := len(erru.Must(store.Queries().ListDeploymentEvents(context.Background(), int64(primary.DeploymentID))))
-	primaryConfigVersion := primary.SpecVersion
+	primaryConfigHistoryCount := len(erru.Must(store.Queries().ListDeploymentHistory(context.Background(), primary.Deployment.ID)))
+	primaryConfigVersion := primary.Meta.SpecVersion
 
 	count, err := nodes.InvalidateNodeRuntimeState(store, primaryNode.ID)
 	if err != nil {
@@ -70,23 +70,23 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 		t.Fatalf("invalidated count = %d, want 1", count)
 	}
 	got := latestStatus(store, primaryInst.ID)
-	if got != nil && (!got.Preparer.IsZero() || !got.Runner.IsZero()) {
+	if got != nil && (got.Preparer.Present || got.Runner.Present) {
 		t.Fatalf("primary runtime status was not cleared: %+v", got)
 	}
-	if len(erru.Must(store.Queries().ListDeploymentEvents(context.Background(), int64(primary.DeploymentID)))) != primaryConfigHistoryCount {
+	if len(erru.Must(store.Queries().ListDeploymentHistory(context.Background(), primary.Deployment.ID))) != primaryConfigHistoryCount {
 		t.Fatal("runtime invalidation changed config history")
 	}
-	secondaryInst := statetest.NonFinalInstances(store, secondary.DeploymentID)[0]
-	if latestStatus(store, secondaryInst.ID).Runner.Status != apigen.RunningStatus_RUNNING {
+	secondaryInst := statetest.NonFinalInstances(store, secondary.Deployment.ID)[0]
+	if latestStatus(store, secondaryInst.ID).Runner.Value.Status != apigen.RunningStatus_RUNNING_STATUS_RUNNING {
 		t.Fatal("secondary runtime status was cleared")
 	}
-	systemInst := statetest.NonFinalInstances(store, system.DeploymentID)[0]
-	if latestStatus(store, systemInst.ID).Runner.Status != apigen.RunningStatus_RUNNING {
+	systemInst := statetest.NonFinalInstances(store, system.Deployment.ID)[0]
+	if latestStatus(store, systemInst.ID).Runner.Value.Status != apigen.RunningStatus_RUNNING_STATUS_RUNNING {
 		t.Fatal("primary system deployment runtime status was cleared")
 	}
 	for _, cfg := range erru.Must(store.Queries().ListActiveDeployments(context.Background())) {
-		if cfg.DeploymentID == primary.DeploymentID && cfg.SpecVersion != primaryConfigVersion {
-			t.Fatalf("primary spec version = %d, want %d", cfg.SpecVersion, primaryConfigVersion)
+		if cfg.Deployment.ID == primary.Deployment.ID && cfg.Meta.SpecVersion != primaryConfigVersion {
+			t.Fatalf("primary spec version = %d, want %d", cfg.Meta.SpecVersion, primaryConfigVersion)
 		}
 	}
 	if err := store.Close(); err != nil {
@@ -94,7 +94,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	}
 	store = state.Open(dbPath)
 	got = latestStatus(store, primaryInst.ID)
-	if got != nil && (!got.Preparer.IsZero() || !got.Runner.IsZero()) {
+	if got != nil && (got.Preparer.Present || got.Runner.Present) {
 		t.Fatalf("persisted primary runtime status was not cleared correctly: %+v", got)
 	}
 }
@@ -102,23 +102,23 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id")
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "api", node.ID, statetest.SpecWithVersion("v1"))
 
 	const callers = 16
-	ids := make(chan int32, callers)
+	ids := make(chan uint64, callers)
 	var wg sync.WaitGroup
 	for range callers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			inst, _ := EnsureRunInstance(store, cfg.DeploymentID, cfg.Version, cfg.Value.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+			inst, _ := EnsureRunInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 			ids <- inst.ID
 		}()
 	}
 	wg.Wait()
 	close(ids)
-	var want int32
+	var want uint64
 	for id := range ids {
 		if want == 0 {
 			want = id
@@ -127,7 +127,7 @@ func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 			t.Fatalf("EnsureRunScheduledInstance returned ids %d and %d", want, id)
 		}
 	}
-	active := statetest.NonFinalInstances(store, cfg.DeploymentID)
+	active := statetest.NonFinalInstances(store, cfg.Deployment.ID)
 	if len(active) != 1 || active[0].ID != want {
 		t.Fatalf("active instances = %+v, want one id %d", active, want)
 	}
@@ -145,13 +145,13 @@ func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	ctx := context.Background()
-	node := nodes.EnsurePrimaryNode(s, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(s, "primary", "primary", testUnderlay)
 	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithVersion("v1"))
-	inst := statetest.CreateScheduledInstance(s, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := statetest.CreateScheduledInstance(s, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	nodes.SetNodeStatusByIdentifier(s, node.Identifier, true, time.Now())
 	scheduledinstances.WriteStatus(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) bool {
 		st.BumpUpdatedAt()
-		st.Runner = apigen.RunnerStatus{DeploymentSpecVersion: dep.SpecVersion, Status: apigen.RunningStatus_RUNNING}
+		st.Runner = apigen.Some(apigen.RunnerStatus{DeploymentSpecVersion: dep.Meta.SpecVersion, Status: apigen.RunningStatus_RUNNING_STATUS_RUNNING})
 		return true
 	})
 	beforeSeq := globalSeq(t, s)
@@ -177,20 +177,20 @@ func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 	if len(nodeStatuses) != 1 || len(instanceStatuses) != 1 {
 		t.Fatalf("tombstones = %+v", update)
 	}
-	n, i := nodeStatuses[0].Entity().NodeStatus, instanceStatuses[0].Entity().ScheduledInstanceStatus
-	if n.IsConnected || !n.LastConnectedAt.IsZero() || n.RemoteAddress != "" || n.OpendeployVersion != "" || !n.UpdatedAt.After(beforeNode.UpdatedAt) {
+	n, i := nodeStatuses[0].Entity().Value.NodeStatus, instanceStatuses[0].Entity().Value.ScheduledInstanceStatus
+	if n.IsConnected || n.LastConnectedAt.Present || n.RemoteAddress != "" || n.OpendeployVersion != "" || !n.UpdatedAtTime().After(beforeNode.UpdatedAtTime()) {
 		t.Fatalf("node tombstone = %+v", n)
 	}
-	if !i.Preparer.IsZero() || !i.Runner.IsZero() || !i.UpdatedAt.After(beforeInst.UpdatedAt) {
+	if i.Preparer.Present || i.Runner.Present || !i.UpdatedAtTime().After(beforeInst.UpdatedAtTime()) {
 		t.Fatalf("instance tombstone = %+v", i)
 	}
-	if globalSeq(t, s) != beforeSeq+1 || !bytes.Equal(liveEntity(t, s, nodeStatusType, node.ID).NodeStatus.Encode(), n.Encode()) || !bytes.Equal(liveEntity(t, s, instanceStatusType, inst.ID).ScheduledInstanceStatus.Encode(), i.Encode()) {
+	if globalSeq(t, s) != beforeSeq+1 || !bytes.Equal(liveEntity(t, s, nodeStatusType, node.ID).Value.NodeStatus.Encode(), n.Encode()) || !bytes.Equal(liveEntity(t, s, instanceStatusType, inst.ID).Value.ScheduledInstanceStatus.Encode(), i.Encode()) {
 		t.Fatal("reconnect bootstrap disagrees with live tombstones")
 	}
 	// A delayed worker status remains available in history without replacing
 	// the tombstone in either the live view or a reconnect bootstrap.
 	scheduledinstances.WriteReplicatedStatus(s, beforeInst)
-	if !bytes.Equal(liveEntity(t, s, instanceStatusType, inst.ID).ScheduledInstanceStatus.Encode(), i.Encode()) || !bytes.Equal(latestStatus(s, inst.ID).Encode(), i.Encode()) {
+	if !bytes.Equal(liveEntity(t, s, instanceStatusType, inst.ID).Value.ScheduledInstanceStatus.Encode(), i.Encode()) || !bytes.Equal(latestStatus(s, inst.ID).Encode(), i.Encode()) {
 		t.Fatal("late observation resurrected cleared status")
 	}
 	if len(erru.Must(s.Queries().ListScheduledInstanceStatusHistorySince(ctx, inst.ID, time.Time{}))) != 2 || len(erru.Must(s.Queries().ListNodeStatusHistorySince(ctx, node.ID, time.Time{}))) != 2 {
@@ -198,10 +198,10 @@ func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 	}
 	scheduledinstances.WriteStatus(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) bool {
 		st.BumpUpdatedAt()
-		st.Preparer = apigen.PreparerStatus{DeploymentSpecVersion: dep.SpecVersion}
+		st.Preparer = apigen.Some(apigen.PreparerStatus{DeploymentSpecVersion: dep.Meta.SpecVersion, Inputs: apigen.InputsStatus_INPUTS_STATUS_RESOLVING})
 		return true
 	})
-	if !latestStatus(s, inst.ID).UpdatedAt.After(i.UpdatedAt) {
+	if !latestStatus(s, inst.ID).UpdatedAtTime().After(i.UpdatedAtTime()) {
 		t.Fatal("local writer did not advance past tombstone")
 	}
 }
@@ -210,13 +210,13 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	ctx := context.Background()
-	node := nodes.EnsurePrimaryNode(s, "primary", "primary")
+	node := nodes.EnsurePrimaryNode(s, "primary", "primary", testUnderlay)
 	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithVersion("v1"))
-	inst := statetest.CreateScheduledInstance(s, dep.DeploymentID, dep.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
+	inst := statetest.CreateScheduledInstance(s, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	scheduledinstances.WriteStatus(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) bool {
 		st.BumpUpdatedAt()
 		code := int32(1)
-		st.Runner = apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING, DeploymentSpecVersion: dep.SpecVersion, ExitCode: &code}
+		st.Runner = apigen.Some(apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING_STATUS_RUNNING, DeploymentSpecVersion: dep.Meta.SpecVersion, ExitCode: apigen.Some(code)})
 		return true
 	})
 	sub, unsub := s.SubscribeUpdates()
@@ -238,7 +238,7 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if status.Runner.ExitCode == nil || *status.Runner.ExitCode != 2 {
+		if !status.Runner.Value.ExitCode.Present || status.Runner.Value.ExitCode.Value != 2 {
 			return fmt.Errorf("hook did not see triggering status")
 		}
 		current, err := q.GetScheduledInstance(ctx, inst.ID)
@@ -257,8 +257,8 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	write := func() {
 		scheduledinstances.WriteStatus(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) bool {
 			st.BumpUpdatedAt()
-			*st.Runner.ExitCode = 2
-			st.Runner.Status = apigen.RunningStatus_STOPPED
+			st.Runner.Value.ExitCode = apigen.Some(int32(2))
+			st.Runner.Value.Status = apigen.RunningStatus_RUNNING_STATUS_STOPPED
 			return true
 		})
 	}
@@ -286,7 +286,7 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	update := <-sub
 	statetest.AssertUpdateMatchesRows(t, s, update)
 	statuses := mutationsOf(update, instanceStatusType)
-	if update.Seq != beforeSeq+1 || len(mutationsOf(update, instanceType)) != 1 || len(statuses) != 1 || statuses[0].Entity().ScheduledInstanceStatus.Runner.Status != apigen.RunningStatus_STOPPED {
+	if update.Seq != beforeSeq+1 || len(mutationsOf(update, instanceType)) != 1 || len(statuses) != 1 || statuses[0].Entity().Value.ScheduledInstanceStatus.Runner.Value.Status != apigen.RunningStatus_RUNNING_STATUS_STOPPED {
 		t.Fatalf("merged publication: %+v", update)
 	}
 	if erru.Must(s.Queries().GetScheduledInstance(ctx, inst.ID)).Value.State != apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {

@@ -3,13 +3,14 @@ import {written, ASSET} from "../state/tree.js";
 import {caretRightIcon, chevronDownIcon, editIcon, eyeOpenIcon, refreshIcon, xIcon} from "../lib/icons.js";
 import {groupEnvRows, isBooleanRow, isTruthyEnvValue} from "../lib/envVarGrouping.js";
 import {nodeAllowsSpace} from "../lib/nodeSpaces.js";
-import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
+import {containerWorkload, deploymentDeleted, deploymentId, deploymentOf, placementNodeId} from "../lib/deployment.js";
+import {formatIpPrefix, IPV4_ANY_PREFIX, IPV6_ANY_PREFIX, parseIpPrefix} from "../lib/ipaddr.js";
 import {assetEditorOverlay} from "./assetEditor.js";
 import {referencePicker} from "./referencePicker.js";
 import {imageRepositoryFromReference} from "./deploymentSource.js";
 import {
-    SOURCE_DOCKER_IMAGE,
-    SOURCE_NIX_DOCKER,
+    SOURCE_CONTAINER_IMAGE,
+    SOURCE_NIX_IMAGE_BUILD,
     validateLocalFlakePath,
 } from "./deploymentSource.js";
 
@@ -20,8 +21,8 @@ const NETWORKING_MODE_VIRTUAL = 1;
 const NETWORKING_MODE_HOST = 2;
 const PORT_FORWARD_PROTOCOL_TCP = 1;
 const PORT_FORWARD_PROTOCOL_UDP = 2;
-const INGRESS_KIND_TLS_PASSTHROUGH = 1;
-const INGRESS_KIND_HTTPS = 2;
+const IP_FILTER_MODE_ALLOW = 1;
+const IP_FILTER_MODE_DENY = 2;
 const CONTAINER_UPGRADE_RECREATE = 1;
 const CONTAINER_UPGRADE_ROLLOVER = 2;
 const FILE_PERMISSION_READ_WRITE = 1;
@@ -68,7 +69,7 @@ export function emptyDeploymentForm() {
         name: '',
         spaceId: 1,
         nodeId: 0,
-        sourceType: SOURCE_DOCKER_IMAGE,
+        sourceType: SOURCE_CONTAINER_IMAGE,
         nixRepo: '',
         nixFlake: '',
         nixTarget: '',
@@ -96,31 +97,33 @@ export function emptyDeploymentForm() {
     });
 }
 
-export function deploymentToForm(cfg) {
-    const spec = cfg?.value?.spec || {};
-    const container = spec.container1Spec || {};
-    const source = container.source || {};
+// deploymentToForm reads a DeploymentRecord {deployment, meta}.
+export function deploymentToForm(record) {
+    const deployment = deploymentOf(record) || {};
+    const spec = deployment.spec || {};
+    const container = containerWorkload(record) || {};
+    const source = container.source?.value || {};
     const runtime = container.runtime || {};
-    const nixDocker = source.nixDockerBuild || {};
+    const nixBuild = source.nixImageBuild || {};
     const containerImage = source.remoteImage || {};
     const defaultVolume = runtime.defaultVolume || {};
     const networking = spec.networking || {};
     const devShm = devShmFormState(runtime.devShmSizeKb || 0);
     const fileDescriptorLimit = Number(runtime.fileDescriptorLimit || 0);
     return makeFormState({
-        deploymentId: cfg.deploymentId || 0,
-        name: cfg?.value?.name || '',
-        spaceId: cfg?.value?.spaceId ?? DEFAULT_SPACE_ID,
-        nodeId: placementNodeId(cfg),
-        sourceType: source.remoteImage ? SOURCE_DOCKER_IMAGE : SOURCE_NIX_DOCKER,
-        nixRepo: nixDocker.repo || '',
-        nixFlake: nixDocker.flake || '',
-        nixTarget: nixDocker.target || '',
+        deploymentId: deploymentId(record),
+        name: deployment.name || '',
+        spaceId: deployment.spaceId ?? DEFAULT_SPACE_ID,
+        nodeId: placementNodeId(record),
+        sourceType: source.remoteImage ? SOURCE_CONTAINER_IMAGE : SOURCE_NIX_IMAGE_BUILD,
+        nixRepo: nixBuild.repo || '',
+        nixFlake: nixBuild.flake || '',
+        nixTarget: nixBuild.target || '',
         containerImage: containerImage.image || '',
         networkingMode: String(networking.mode || NETWORKING_MODE_HOST),
         portForwarding: portForwardingToFormRows(networking.portForwarding),
         ingress: ingressToFormRows(networking.ingress),
-        httpsIngress: (networking.ingress || []).filter(route => Number(route?.kind) === INGRESS_KIND_HTTPS && route.httpsConfig),
+        httpsIngress: (networking.ingress || []).filter(route => route?.config?.value?.https),
         runnerType: RUNNER_CONTAINER,
         containerUser: runtime.user || '',
         containerCommand: (runtime.overrideCommand || []).join('\n'),
@@ -136,7 +139,7 @@ export function deploymentToForm(cfg) {
         containerReadinessTimeoutSeconds: container.readinessSignal?.timeoutSeconds || DEFAULT_READINESS_TIMEOUT_SECONDS,
         envVars: envVarsToFormRows(runtime.envVars),
         assetMounts: (runtime.assetMounts || []).map(m => {
-            const row = {id: nextAssetMountID++, assetId: Number(m.asset?.id || 0), version: Number(m.asset?.version || 0), path: m.containerPath || '', executable: m.permission === FILE_PERMISSION_READ_EXECUTE};
+            const row = {id: nextAssetMountID++, assetId: Number(m.asset?.assetId || 0), version: Number(m.asset?.version || 0), path: m.containerPath || '', executable: m.permission === FILE_PERMISSION_READ_EXECUTE};
             return {...row, originalAssetId: row.assetId, originalVersion: row.version, originalPath: row.path, originalExecutable: row.executable};
         }),
         volumeMounts: [
@@ -212,12 +215,12 @@ export function deploymentForm(form, opts = {}) {
                 div(
                     {class: "flex items-start gap-4"},
                     selectField("Source type", form.sourceType, [
-                        {value: SOURCE_NIX_DOCKER, label: "Build NIX Docker image"},
-                        {value: SOURCE_DOCKER_IMAGE, label: "Docker image"},
+                        {value: SOURCE_NIX_IMAGE_BUILD, label: "Build NIX Docker image"},
+                        {value: SOURCE_CONTAINER_IMAGE, label: "Docker image"},
                     ], "w-56", value => {
                         form.runnerType.val = runnerForSource(value);
                     }),
-                    () => form.sourceType.val === SOURCE_DOCKER_IMAGE
+                    () => form.sourceType.val === SOURCE_CONTAINER_IMAGE
                         ? dockerImageField(form, sourceController)
                         : repoField(form, sourceController),
                 ),
@@ -292,7 +295,7 @@ export function replaceDeploymentFormFromConfig(form, config) {
 }
 
 export function formToSpec(form, workloadState = {}) {
-    const source = {};
+    const source = {value: {}};
     const runtime = {
         defaultVolume: {
             containerPath: form.containerDataMountPath.val.trim(),
@@ -300,14 +303,14 @@ export function formToSpec(form, workloadState = {}) {
         },
     };
 
-    if (form.sourceType.val === SOURCE_NIX_DOCKER) {
-        source.nixDockerBuild = {
+    if (form.sourceType.val === SOURCE_NIX_IMAGE_BUILD) {
+        source.value.nixImageBuild = {
             repo: form.nixRepo.val.trim(),
             flake: form.nixFlake.val.trim(),
             target: form.nixTarget.val.trim(),
         };
-    } else if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
-        source.remoteImage = {
+    } else if (form.sourceType.val === SOURCE_CONTAINER_IMAGE) {
+        source.value.remoteImage = {
             image: imageRepositoryFromReference(form.containerImage.val),
         };
     }
@@ -318,7 +321,7 @@ export function formToSpec(form, workloadState = {}) {
         version: workloadState.version || '',
         upgradeStrategy: Number(form.containerUpgradeStrategy.val || CONTAINER_UPGRADE_RECREATE),
     };
-    const spec = {container1Spec: container};
+    const spec = {workload: {value: {container}}};
     spec.networking = {
         mode: Number(form.networkingMode.val || NETWORKING_MODE_VIRTUAL),
     };
@@ -327,7 +330,9 @@ export function formToSpec(form, workloadState = {}) {
     const ingress = formIngress(form);
     if (ingress.length) spec.networking.ingress = ingress;
     if (Number(form.containerUpgradeStrategy.val) === CONTAINER_UPGRADE_ROLLOVER) {
-        container.readinessSignal = {timeoutSeconds: Number(form.containerReadinessTimeoutSeconds.val || 0)};
+        // An absent timeout is the server default.
+        const timeoutSeconds = Number(form.containerReadinessTimeoutSeconds.val || 0);
+        container.readinessSignal = timeoutSeconds > 0 ? {timeoutSeconds} : {};
     }
     const user = form.containerUser.val.trim();
     if (user) runtime.user = user;
@@ -369,7 +374,7 @@ export function formInvalidReason(form, opts = {}) {
     if (selectedNode && !nodeAllowsSpace(selectedNode, Number(form.spaceId.val))) {
         return 'This node does not allow deployments from the selected space.';
     }
-    if (form.sourceType.val === SOURCE_DOCKER_IMAGE) {
+    if (form.sourceType.val === SOURCE_CONTAINER_IMAGE) {
         if (!form.containerImage.val.trim()) return 'Container image is required.';
     } else if (!form.nixRepo.val.trim() || !form.nixFlake.val.trim()) {
         return 'Repository and flake path are required.';
@@ -385,6 +390,7 @@ export function formInvalidReason(form, opts = {}) {
         || invalidUpgradeStrategyReason(form)
         || invalidDevShmReason(form)
         || invalidFileDescriptorLimitReason(form)
+        || invalidPortForwardingReason(form)
         || invalidIngressReason(form)
         || '';
 }
@@ -497,7 +503,7 @@ function optionsDisclosure(open, content) {
 }
 
 function nixSourceFields(form, sourceController) {
-    if (form.sourceType.val === SOURCE_NIX_DOCKER) {
+    if (form.sourceType.val === SOURCE_NIX_IMAGE_BUILD) {
         return div(
             {class: "grid grid-cols-1 gap-2 md:grid-cols-2"},
             flakeField(form, sourceController),
@@ -818,9 +824,9 @@ function ingressSection(form, opts = {}) {
         {"data-testid": "deployment-https-ingress-row"},
         td({class: "pr-2 py-1 text-gray-300 whitespace-nowrap"}, "HTTPS"),
         td({class: "pr-2 py-1 text-gray-400", title: `Published on ${listenSummary(route.listen, nodes())}`},
-            `${route.hostname || ''}${route.httpsConfig?.pathPrefix && route.httpsConfig.pathPrefix !== "/" ? route.httpsConfig.pathPrefix : ''}`),
+            `${route.hostname || ''}${route.config?.value?.https?.pathPrefix && route.config.value.https.pathPrefix !== "/" ? route.config.value.https.pathPrefix : ''}`),
         td({class: "pr-2 py-1 text-gray-500"}, "443"),
-        td({class: "pr-2 py-1 text-gray-400"}, String(route.httpsConfig?.containerPort || '')),
+        td({class: "pr-2 py-1 text-gray-400"}, String(route.config?.value?.https?.containerPort || '')),
         td({class: "py-1 text-right"}, button({
             type: "button",
             class: "text-gray-500 hover:text-red-300 cursor-pointer",
@@ -913,6 +919,8 @@ function newPortForwardingRow(values = {}) {
         hostPort: values.hostPort ? String(values.hostPort) : '',
         containerPort: values.containerPort ? String(values.containerPort) : '',
         allow: values.allow || '',
+        // Deny entries are edited in HCL only; the form carries them through.
+        deny: values.deny || [],
     };
 }
 
@@ -921,8 +929,13 @@ function portForwardingToFormRows(portForwarding) {
         protocol: port.protocol || PORT_FORWARD_PROTOCOL_TCP,
         hostPort: port.hostPort || '',
         containerPort: port.containerPort || '',
-        allow: (port.ipFilter?.allow || []).join(', '),
+        allow: (port.ipFilter || []).filter(entry => Number(entry?.mode) === IP_FILTER_MODE_ALLOW).map(entry => formatIpPrefix(entry.prefix)).join(', '),
+        deny: (port.ipFilter || []).filter(entry => Number(entry?.mode) === IP_FILTER_MODE_DENY).map(entry => entry.prefix),
     }));
+}
+
+function allowEntries(row) {
+    return (row.allow || '').split(',').map(entry => entry.trim()).filter(Boolean);
 }
 
 function newIngressRow(values = {}) {
@@ -939,26 +952,28 @@ function newIngressRow(values = {}) {
 
 function ingressToFormRows(ingress) {
     return (ingress || [])
-        .filter(route => Number(route.kind) === INGRESS_KIND_TLS_PASSTHROUGH && route.tlsPassthroughConfig)
+        .filter(route => route?.config?.value?.tlsPassthrough)
         .map(route => newIngressRow({
             hostname: route.hostname || '',
-            hostPort: route.tlsPassthroughConfig.hostPort || '',
-            containerPort: route.tlsPassthroughConfig.containerPort || '',
+            hostPort: route.config.value.tlsPassthrough.hostPort || '',
+            containerPort: route.config.value.tlsPassthrough.containerPort || '',
             listen: route.listen || [],
         }));
 }
 
 // listenSummary renders a route's listen selectors the way the HCL does,
-// with node ids resolved to names.
+// with node ids resolved to names and the whole-family prefixes read as
+// the ipv4() / ipv6() selectors.
 export function listenSummary(listen, nodes = []) {
     if (!listen?.length) return "scheduled node, any address";
     const nodeName = id => nodes.find(node => Number(node.id) === Number(id))?.name || `#${id}`;
     return listen.map(entry => {
-        const node = entry?.node?.any ? "any node" : entry?.node?.nodeId ? `node ${nodeName(entry.node.nodeId)}` : "scheduled node";
-        const prefixes = entry?.address?.prefixes || [];
-        const address = prefixes.length ? prefixes.join(", ")
-            : Number(entry?.address?.family) === 1 ? "any IPv4 address"
-                : Number(entry?.address?.family) === 2 ? "any IPv6 address" : "any address";
+        const selector = entry?.node?.value || {};
+        const node = selector.any ? "any node" : selector.specific?.nodeId ? `node ${nodeName(selector.specific.nodeId)}` : "scheduled node";
+        const prefixes = (entry?.addresses || []).map(formatIpPrefix);
+        const address = prefixes.length === 1 && prefixes[0] === IPV4_ANY_PREFIX ? "any IPv4 address"
+            : prefixes.length === 1 && prefixes[0] === IPV6_ANY_PREFIX ? "any IPv6 address"
+                : prefixes.length ? prefixes.join(", ") : "any address";
         return `${node}, ${address}`;
     }).join("; ");
 }
@@ -1186,7 +1201,7 @@ function latestAssetVersionForKey(assets, key) {
     return 0;
 }
 
-// An option's assetId and version form the ValueRef the spec pins; normal
+// An option's assetId and version form the AssetRef the spec pins; normal
 // options carry the latest published version.
 function assetOptionFromMeta(meta, spaces) {
     const latest = meta.contentVersions?.[0];
@@ -1466,7 +1481,7 @@ export function volumeMountsPane(form, opts = {}) {
                 },
             },
                 option({value: '', disabled: true, selected: !row.deploymentId}, deploymentOptions(row).length ? "Select deployment..." : "No deployments on this node"),
-                ...deploymentOptions(row).map(d => option({value: String(d.config.deploymentId), selected: d.config.deploymentId === row.deploymentId}, deploymentVolumeLabel(d, stateValue(opts.spaces) || []))),
+                ...deploymentOptions(row).map(d => option({value: String(deploymentId(d.config)), selected: deploymentId(d.config) === row.deploymentId}, deploymentVolumeLabel(d, stateValue(opts.spaces) || []))),
             )),
             field("Container mount path", input({
                 class: textInputClass(true),
@@ -1654,7 +1669,7 @@ export function envVarsPane(form, opts = {}) {
                 `${row.id}:${row.type || 'value'}:${toggles && isBooleanRow(row) ? 1 : 0}:${row.addressDeploymentId || 0}:${row.addressSpaceId || 0}:${row.secretId || 0}:${row.configId || 0}:${row.asset || ''}:${row.assetId || 0}:${row.version || 0}`)])]),
             secretRefs().map(ref => `${ref.stableId}:${ref.version}:${ref.name}`).join('|'),
             configRefs().map(ref => `${ref.stableId}:${ref.version}:${ref.name}`).join('|'),
-            `${form.nodeId.val}:${deployments().map(item => `${item.config?.deploymentId || 0}:${placementNodeId(item.config)}:${item.config?.value?.spaceId ?? 0}:${item.config?.value?.name || ''}:${item.config?.value?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
+            `${form.nodeId.val}:${deployments().map(item => `${deploymentId(item.config)}:${placementNodeId(item.config)}:${deploymentOf(item.config)?.spaceId ?? 0}:${deploymentOf(item.config)?.name || ''}:${deploymentOf(item.config)?.spec?.networking?.mode || 0}:${deploymentDeleted(item.config) ? 1 : 0}`).join('|')}`,
             assets().map(asset => `${asset.id}:${asset.key}:${asset.version}`).join('|'),
             `${form.spaceId.val}:${spaces().map(space => `${space.id}:${space.name || ''}`).join('|')}`,
         ].join('::');
@@ -1867,13 +1882,13 @@ function envAddressAutocomplete(form, row, catalogs) {
         placeholder: "Search deployments",
         noMatchesLabel: "No matching deployments",
         emptyLabel: "No virtual deployments",
-        getKey: deployment => deployment.config?.deploymentId,
+        getKey: deployment => deploymentId(deployment.config),
         getLabel: deployment => addressOptionLabel(deployment, spaces()),
         onSelect: deployment => {
-            selectedKey.val = deployment.config.deploymentId;
+            selectedKey.val = deploymentId(deployment.config);
             updateEnvRow(form, row.id, {
-                addressDeploymentId: deployment.config.deploymentId,
-                addressSpaceId: deployment.config.value?.spaceId ?? 0,
+                addressDeploymentId: deploymentId(deployment.config),
+                addressSpaceId: deploymentOf(deployment.config)?.spaceId ?? 0,
             });
         },
     });
@@ -1885,17 +1900,17 @@ function addressOptionsForRow(form, row, deployments, spaces) {
     const spaceId = Number(form.spaceId.val || DEFAULT_SPACE_ID);
     const all = deployments || [];
     const selectable = all.filter(item => !deploymentDeleted(item.config)
-        && Number(item.config?.deploymentId || 0) !== currentDeploymentID
-        && Number(item.config?.value?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL
-        && (Number(item.config?.value?.spaceId ?? 0) === spaceId || Number(item.config?.value?.spaceId ?? 0) === DEFAULT_SPACE_ID));
-    const selected = all.find(item => Number(item.config?.deploymentId || 0) === selectedID);
-    if (selected && selectedID !== currentDeploymentID && !selectable.some(item => Number(item.config?.deploymentId || 0) === selectedID)) selectable.push(selected);
+        && deploymentId(item.config) !== currentDeploymentID
+        && Number(deploymentOf(item.config)?.spec?.networking?.mode || 0) === NETWORKING_MODE_VIRTUAL
+        && (Number(deploymentOf(item.config)?.spaceId ?? 0) === spaceId || Number(deploymentOf(item.config)?.spaceId ?? 0) === DEFAULT_SPACE_ID));
+    const selected = all.find(item => deploymentId(item.config) === selectedID);
+    if (selected && selectedID !== currentDeploymentID && !selectable.some(item => deploymentId(item.config) === selectedID)) selectable.push(selected);
     return selectable.sort((a, b) => addressOptionLabel(a, spaces).localeCompare(addressOptionLabel(b, spaces)));
 }
 
 function addressOptionLabel(item, spaces) {
-    const config = item?.config || {};
-    return `${spaceNameForID(spaces, config.value?.spaceId ?? 0)} / ${config.value?.name || 'deployment'} (#${config.deploymentId || 0})`;
+    const deployment = deploymentOf(item?.config) || {};
+    return `${spaceNameForID(spaces, deployment.spaceId ?? 0)} / ${deployment.name || 'deployment'} (#${deploymentId(item?.config)})`;
 }
 
 function valueRefKey(id, version) {
@@ -1959,11 +1974,11 @@ function formEnvVars(form) {
         .map(v => {
             const key = (v.key || '').trim();
             if (!key) return null;
-            if (v.type === 'secret') return valueRefKey(v.secretId, v.version) ? [key, {secret: {id: Number(v.secretId), version: Number(v.version)}}] : null;
-            if (v.type === 'config') return valueRefKey(v.configId, v.version) ? [key, {config: {id: Number(v.configId), version: Number(v.version)}}] : null;
-            if (v.type === 'address') return Number(v.addressDeploymentId || 0) ? [key, {addressDeploymentId: Number(v.addressDeploymentId), addressSpaceId: Number(v.addressSpaceId || 0)}] : null;
-            if (v.type === 'asset') return valueRefKey(v.assetId, v.version) ? [key, {asset: (v.asset || '').trim(), assetRef: {id: Number(v.assetId), version: Number(v.version)}}] : null;
-            return [key, {value: v.value || ''}];
+            if (v.type === 'secret') return valueRefKey(v.secretId, v.version) ? [key, {value: {secret: {secret: {secretId: Number(v.secretId), version: Number(v.version)}}}}] : null;
+            if (v.type === 'config') return valueRefKey(v.configId, v.version) ? [key, {value: {config: {config: {configId: Number(v.configId), version: Number(v.version)}}}}] : null;
+            if (v.type === 'address') return Number(v.addressDeploymentId || 0) ? [key, {value: {address: {deploymentId: Number(v.addressDeploymentId), spaceId: Number(v.addressSpaceId || 0)}}}] : null;
+            if (v.type === 'asset') return valueRefKey(v.assetId, v.version) ? [key, {value: {asset: {key: (v.asset || '').trim(), asset: {assetId: Number(v.assetId), version: Number(v.version)}}}}] : null;
+            return [key, {value: {literal: {value: v.value || ''}}}];
         })
         .filter(Boolean));
 }
@@ -1977,8 +1992,11 @@ function formPortForwarding(form) {
                 hostPort: Number(port.hostPort || 0),
                 containerPort: Number(port.containerPort || 0),
             };
-            const allow = (port.allow || '').split(',').map(entry => entry.trim()).filter(Boolean);
-            if (allow.length) forward.ipFilter = {allow};
+            const ipFilter = [
+                ...allowEntries(port).map(parseIpPrefix).filter(Boolean).map(prefix => ({mode: IP_FILTER_MODE_ALLOW, prefix})),
+                ...(port.deny || []).map(prefix => ({mode: IP_FILTER_MODE_DENY, prefix})),
+            ];
+            if (ipFilter.length) forward.ipFilter = ipFilter;
             return forward;
         })
         .filter(port => port.hostPort > 0 || port.containerPort > 0);
@@ -1989,17 +2007,29 @@ function formIngress(form) {
     return [...(form.httpsIngress.val || []), ...formTlsPassthroughIngress(form)];
 }
 
+// formTlsPassthroughIngress keeps the row's listen selectors, which only
+// the HCL edits, so a form save cannot widen a route. An empty host port is
+// left absent: the server reads it as 443.
 function formTlsPassthroughIngress(form) {
     return (form.ingress.val || [])
-        .map(route => ({
-            kind: INGRESS_KIND_TLS_PASSTHROUGH,
-            hostname: (route.hostname || '').trim(),
-            tlsPassthroughConfig: {
-                hostPort: Number(route.hostPort || 0),
-                containerPort: Number(route.containerPort || 0),
-            },
-        }))
-        .filter(route => route.hostname || route.tlsPassthroughConfig.hostPort > 0 || route.tlsPassthroughConfig.containerPort > 0);
+        .map(route => {
+            const hostPort = Number(route.hostPort || 0);
+            const tlsPassthrough = {containerPort: Number(route.containerPort || 0)};
+            if (hostPort) tlsPassthrough.hostPort = hostPort;
+            const entry = {hostname: (route.hostname || '').trim(), config: {value: {tlsPassthrough}}};
+            if (route.listen?.length) entry.listen = route.listen;
+            return entry;
+        })
+        .filter(route => route.hostname || route.config.value.tlsPassthrough.hostPort > 0 || route.config.value.tlsPassthrough.containerPort > 0);
+}
+
+function invalidPortForwardingReason(form) {
+    if (Number(form.networkingMode.val) !== NETWORKING_MODE_VIRTUAL) return '';
+    for (const row of form.portForwarding.val || []) {
+        const bad = allowEntries(row).find(entry => !parseIpPrefix(entry));
+        if (bad) return `Allowed IP "${bad}" must be an IP address or CIDR prefix.`;
+    }
+    return '';
 }
 
 function invalidIngressReason(form) {
@@ -2007,7 +2037,8 @@ function invalidIngressReason(form) {
     const seen = new Set();
     for (const route of formTlsPassthroughIngress(form)) {
         const hostname = route.hostname.toLowerCase().replace(/\.$/, '');
-        const {hostPort, containerPort} = route.tlsPassthroughConfig;
+        const {containerPort} = route.config.value.tlsPassthrough;
+        const hostPort = route.config.value.tlsPassthrough.hostPort || 0;
         if (!hostname) return 'Ingress hostname is required.';
         if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(hostname)) {
             return 'Ingress hostname must be a valid DNS hostname.';
@@ -2039,7 +2070,7 @@ function formAssetMounts(form) {
     return (form.assetMounts.val || [])
         .filter(m => valueRefKey(m.assetId, m.version))
         .map(m => ({
-            asset: {id: Number(m.assetId), version: Number(m.version)},
+            asset: {assetId: Number(m.assetId), version: Number(m.version)},
             containerPath: (m.path || '').trim(),
             permission: m.executable ? FILE_PERMISSION_READ_EXECUTE : FILE_PERMISSION_READ_ONLY,
         }))
@@ -2076,11 +2107,11 @@ function invalidVolumeConfigReason(form, opts = {}) {
     if (path && !validAbsolutePath(path)) return 'Data mount path must be an absolute path without trailing slash or dot segments.';
     const deploymentOptions = deploymentVolumeOptions(optionDeployments(opts), form);
     for (const m of form.volumeMounts.val || []) {
-        const deploymentId = Number(m.deploymentId || 0);
-        const host = (m.kind === 'deployment' && deploymentId) ? defaultVolumeHostPath(deploymentId) : (m.host || '').trim();
+        const sourceId = Number(m.deploymentId || 0);
+        const host = (m.kind === 'deployment' && sourceId) ? defaultVolumeHostPath(sourceId) : (m.host || '').trim();
         const container = (m.container || '').trim();
-        if (!host && !container && !deploymentId) continue;
-        if (m.kind === 'deployment' && !deploymentOptions.some(d => d.config?.deploymentId === deploymentId)) return 'Select a deployment volume source.';
+        if (!host && !container && !sourceId) continue;
+        if (m.kind === 'deployment' && !deploymentOptions.some(d => deploymentId(d.config) === sourceId)) return 'Select a deployment volume source.';
         if (!validAbsolutePath(host)) return 'Volume host path must be an absolute path without trailing slash or dot segments.';
         if (!validAbsolutePath(container)) return 'Volume container path must be an absolute path without trailing slash or dot segments.';
     }
@@ -2174,14 +2205,13 @@ function envVarsToFormRows(envVars) {
     return Object.entries(envVars || {})
         .map(([key, value], index) => ({key, value, index}))
         .sort((a, b) => a.key.localeCompare(b.key) || a.index - b.index)
-        .map(({key, value}) => {
-        const addressDeploymentId = Number(value?.addressDeploymentId || 0);
-        const addressSpaceId = Number(value?.addressSpaceId || 0);
-        if (value?.secret) return newEnvRow({key, type: 'secret', secretId: Number(value.secret.id || 0), version: Number(value.secret.version || 0)});
-        if (value?.config) return newEnvRow({key, type: 'config', configId: Number(value.config.id || 0), version: Number(value.config.version || 0)});
-        if (value?.assetRef) return newEnvRow({key, type: 'asset', asset: value?.asset || '', assetId: Number(value.assetRef.id || 0), version: Number(value.assetRef.version || 0)});
-        if (addressDeploymentId) return newEnvRow({key, type: 'address', addressDeploymentId, addressSpaceId});
-        return newEnvRow({key, type: 'value', value: value?.value || ''});
+        .map(({key, value: envVar}) => {
+        const value = envVar?.value || {};
+        if (value.secret) return newEnvRow({key, type: 'secret', secretId: Number(value.secret.secret?.secretId || 0), version: Number(value.secret.secret?.version || 0)});
+        if (value.config) return newEnvRow({key, type: 'config', configId: Number(value.config.config?.configId || 0), version: Number(value.config.config?.version || 0)});
+        if (value.asset) return newEnvRow({key, type: 'asset', asset: value.asset.key || '', assetId: Number(value.asset.asset?.assetId || 0), version: Number(value.asset.asset?.version || 0)});
+        if (value.address) return newEnvRow({key, type: 'address', addressDeploymentId: Number(value.address.deploymentId || 0), addressSpaceId: Number(value.address.spaceId || 0)});
+        return newEnvRow({key, type: 'value', value: value.literal?.value || ''});
     });
 }
 
@@ -2228,18 +2258,19 @@ function deploymentVolumeOptions(deployments, form, spaces, selectedID = 0) {
     const all = deployments || [];
     const options = all.filter(d => {
         const config = d.config;
-        const container = config?.value?.spec?.container1Spec;
-        return config?.deploymentId
-            && config.deploymentId !== currentID
+        const container = containerWorkload(config);
+        const space = Number(deploymentOf(config)?.spaceId ?? 0);
+        return deploymentId(config)
+            && deploymentId(config) !== currentID
             && !deploymentDeleted(config)
             && placementNodeId(config) === nodeId
-            && (Number(config.value?.spaceId ?? 0) === spaceId || Number(config.value?.spaceId ?? 0) === DEFAULT_SPACE_ID)
+            && (space === spaceId || space === DEFAULT_SPACE_ID)
             && container
             && !container.runtime?.defaultVolume?.disabled;
     });
     const sel = Number(selectedID || 0);
-    if (sel && sel !== currentID && !options.some(d => Number(d.config?.deploymentId || 0) === sel)) {
-        const selected = all.find(d => Number(d.config?.deploymentId || 0) === sel);
+    if (sel && sel !== currentID && !options.some(d => deploymentId(d.config) === sel)) {
+        const selected = all.find(d => deploymentId(d.config) === sel);
         if (selected) options.push(selected);
     }
     return options.sort((a, b) => deploymentVolumeLabel(a, spaces).localeCompare(deploymentVolumeLabel(b, spaces)));
@@ -2251,10 +2282,10 @@ function optionDeployments(opts) {
     return Array.isArray(deployments) ? deployments : (deployments.val || []);
 }
 
-function deploymentVolumeLabel(deployment, spaces) {
-    const config = deployment.config || {};
-    const space = spaceName(config.value?.spaceId, spaces);
-    return `${config.value?.name || `deployment ${config.deploymentId}`} (${space})`;
+function deploymentVolumeLabel(item, spaces) {
+    const deployment = deploymentOf(item.config) || {};
+    const space = spaceName(deployment.spaceId, spaces);
+    return `${deployment.name || `deployment ${deploymentId(item.config)}`} (${space})`;
 }
 
 function spaceName(id, spaces) {
@@ -2546,16 +2577,16 @@ function deploymentNameTaken(form, deployments) {
     const name = form.name.val.trim();
     const spaceId = Number(form.spaceId.val);
     const nodeId = Number(form.nodeId.val);
-    const deploymentId = Number(form.deploymentId.val || 0);
+    const ownId = Number(form.deploymentId.val || 0);
     if (!name) return false;
-    return deployments.some(deployment => {
-        const config = deployment?.config || deployment?.currentConfig || deployment;
-        const candidateId = Number(config?.deploymentId || deployment?.id || 0);
-        if (deploymentId && candidateId === deploymentId) return false;
-        const value = config?.value;
+    return deployments.some(item => {
+        const config = item?.config || item?.currentConfig || item;
+        const candidateId = deploymentId(config) || Number(item?.id || 0);
+        if (ownId && candidateId === ownId) return false;
+        const deployment = deploymentOf(config);
         return !deploymentDeleted(config)
-            && value?.name === name
-            && Number(value?.spaceId) === spaceId
+            && deployment?.name === name
+            && Number(deployment?.spaceId) === spaceId
             && placementNodeId(config) === nodeId;
     });
 }

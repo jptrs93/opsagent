@@ -69,10 +69,10 @@ func Bindings(state *apigen.AcmeState) map[string]apigen.ValueRef {
 	}
 	out := make(map[string]apigen.ValueRef, len(state.CertBindings))
 	for _, binding := range state.CertBindings {
-		if binding == nil || binding.Hostname == "" || !binding.Secret.Valid() {
+		if binding.Hostname == "" || !binding.Secret.Valid() {
 			continue
 		}
-		out[binding.Hostname] = binding.Secret
+		out[binding.Hostname] = binding.Secret.Ref()
 	}
 	return out
 }

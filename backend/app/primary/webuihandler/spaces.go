@@ -34,10 +34,10 @@ func (h *Handler) PostV1SpacesCreate(ctx apigen.Context, req *apigen.SpaceSetReq
 
 func (h *Handler) PostV1SpacesUpdate(ctx apigen.Context, req *apigen.SpaceSetRequest) (*apigen.Space, error) {
 	name := strings.TrimSpace(req.Name)
-	if isSeededSpace(req.ID) || req.ID < 0 || name == "" {
+	if isSeededSpace(req.ID) || name == "" {
 		return nil, InvalidSpaceErr
 	}
-	if err := h.requireEntityAccess(ctx, vUpdate, eSpace, int64(req.ID), int64(req.ID), SpaceNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vUpdate, eSpace, req.ID, req.ID, SpaceNotFoundErr); err != nil {
 		return nil, err
 	}
 	space, err := nodes.UpdateSpace(h.Store, req.ID, name, ctx.AttributionUserID())
@@ -51,10 +51,10 @@ func (h *Handler) PostV1SpacesUpdate(ctx apigen.Context, req *apigen.SpaceSetReq
 }
 
 func (h *Handler) PostV1SpacesDelete(ctx apigen.Context, req *apigen.SpaceDeleteRequest) error {
-	if isSeededSpace(req.ID) || req.ID < 0 {
+	if isSeededSpace(req.ID) {
 		return InvalidSpaceErr
 	}
-	if err := h.requireEntityAccess(ctx, vDelete, eSpace, int64(req.ID), int64(req.ID), SpaceNotFoundErr); err != nil {
+	if err := h.requireEntityAccess(ctx, vDelete, eSpace, req.ID, req.ID, SpaceNotFoundErr); err != nil {
 		return err
 	}
 	count, err := nodes.CountDeploymentsForSpace(h.Store.Queries(), req.ID)
@@ -70,6 +70,6 @@ func (h *Handler) PostV1SpacesDelete(ctx apigen.Context, req *apigen.SpaceDelete
 	return nil
 }
 
-func isSeededSpace(id int32) bool {
+func isSeededSpace(id uint64) bool {
 	return id == internaldeploy.SpaceID || id == nodes.DefaultSpaceID
 }

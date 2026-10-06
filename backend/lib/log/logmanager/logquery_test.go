@@ -74,10 +74,10 @@ func jsonFixture(t *testing.T) *Manager {
 func wideRange(t *testing.T, req *apigen.LogQueryRequest) *apigen.LogQueryRequest {
 	t.Helper()
 	if req.TimeStart.IsZero() {
-		req.TimeStart = mustTime(t, "2026-06-15T00:00:00Z")
+		req.TimeStart = apigen.TimeOf(mustTime(t, "2026-06-15T00:00:00Z"))
 	}
 	if req.TimeEnd.IsZero() {
-		req.TimeEnd = mustTime(t, "2026-06-16T00:00:00Z")
+		req.TimeEnd = apigen.TimeOf(mustTime(t, "2026-06-16T00:00:00Z"))
 	}
 	return req
 }
@@ -86,8 +86,8 @@ func TestQueryRangeBounds(t *testing.T) {
 	m := searchFixture(t)
 	got := queryMsgs(t, m, &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		TimeStart:    mustTime(t, "2026-06-15T14:30:02Z"),
-		TimeEnd:      mustTime(t, "2026-06-15T15:00:02Z"),
+		TimeStart:    apigen.TimeOf(mustTime(t, "2026-06-15T14:30:02Z")),
+		TimeEnd:      apigen.TimeOf(mustTime(t, "2026-06-15T15:00:02Z")),
 	})
 	if !equalStrings(got, []string{"b1", "a3", "a2"}) {
 		t.Fatalf("msgs = %#v", got)
@@ -103,11 +103,11 @@ func TestQueryLimitKeepsNewestAndReportsTruncation(t *testing.T) {
 	if resp.Records[0].Msg != "b2" || resp.Records[1].Msg != "b1" {
 		t.Fatalf("records = %#v, %#v", resp.Records[0], resp.Records[1])
 	}
-	if resp.Stats.MatchedRows != 5 || resp.Stats.ReturnedRows != 2 || !resp.Stats.Truncated {
+	if resp.Stats.Value.MatchedRows != 5 || resp.Stats.Value.ReturnedRows != 2 || !resp.Stats.Value.Truncated {
 		t.Fatalf("stats = %+v", resp.Stats)
 	}
-	if resp.Stats.ScannedRows < 5 {
-		t.Fatalf("scanned = %d, want >= 5", resp.Stats.ScannedRows)
+	if resp.Stats.Value.ScannedRows < 5 {
+		t.Fatalf("scanned = %d, want >= 5", resp.Stats.Value.ScannedRows)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestQueryAggregatesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Records) != 0 || resp.Stats.MatchedRows != 5 || !resp.Stats.Truncated {
+	if len(resp.Records) != 0 || resp.Stats.Value.MatchedRows != 5 || !resp.Stats.Value.Truncated {
 		t.Fatalf("records = %d, stats = %+v", len(resp.Records), resp.Stats)
 	}
 }
@@ -160,24 +160,24 @@ func TestQueryFilters(t *testing.T) {
 	m := jsonFixture(t)
 	cases := []struct {
 		name    string
-		filters []*apigen.LogFilter
+		filters []apigen.LogFilter
 		want    []string
 	}{
-		{"level in", []*apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR", "WARN"}}},
+		{"level in", []apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR", "WARN"}}},
 			[]string{"slow query detected", "db connection failed"}},
-		{"field eq case-insensitive", []*apigen.LogFilter{{Field: "service", Op: "eq", Value: "API"}},
+		{"field eq case-insensitive", []apigen.LogFilter{{Field: "service", Op: "eq", Value: "API"}},
 			[]string{"db connection failed", "server started"}},
-		{"message contains", []*apigen.LogFilter{{Op: "contains", Value: "CONNECTION"}},
+		{"message contains", []apigen.LogFilter{{Op: "contains", Value: "CONNECTION"}},
 			[]string{"db connection failed"}},
-		{"field exists", []*apigen.LogFilter{{Field: "err", Op: "exists"}},
+		{"field exists", []apigen.LogFilter{{Field: "err", Op: "exists"}},
 			[]string{"db connection failed"}},
-		{"field not exists", []*apigen.LogFilter{{Field: "err", Op: "not_exists"}},
+		{"field not exists", []apigen.LogFilter{{Field: "err", Op: "not_exists"}},
 			[]string{"plain panic output", "request handled", "slow query detected", "server started"}},
-		{"neq includes missing field", []*apigen.LogFilter{{Field: "service", Op: "neq", Value: "api"}},
+		{"neq includes missing field", []apigen.LogFilter{{Field: "service", Op: "neq", Value: "api"}},
 			[]string{"plain panic output", "request handled", "slow query detected"}},
-		{"message not contains", []*apigen.LogFilter{{Op: "not_contains", Value: "query"}},
+		{"message not contains", []apigen.LogFilter{{Op: "not_contains", Value: "query"}},
 			[]string{"plain panic output", "request handled", "db connection failed", "server started"}},
-		{"numeric field eq", []*apigen.LogFilter{{Field: "status", Op: "eq", Value: "200"}},
+		{"numeric field eq", []apigen.LogFilter{{Field: "status", Op: "eq", Value: "200"}},
 			[]string{"request handled"}},
 	}
 	for _, c := range cases {
@@ -192,15 +192,15 @@ func TestQueryHistogramAndFieldNames(t *testing.T) {
 	m := jsonFixture(t)
 	resp, err := m.Query(context.Background(), &apigen.LogQueryRequest{
 		DeploymentID:     testDeploymentID,
-		TimeStart:        mustTime(t, "2026-06-15T14:00:00Z"),
-		TimeEnd:          mustTime(t, "2026-06-15T16:00:00Z"),
+		TimeStart:        apigen.TimeOf(mustTime(t, "2026-06-15T14:00:00Z")),
+		TimeEnd:          apigen.TimeOf(mustTime(t, "2026-06-15T16:00:00Z")),
 		HistogramBuckets: 4,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := resp.Histogram
-	if h == nil || h.BucketMs != 30*60*1000 {
+	h := resp.Histogram.Value
+	if !resp.Histogram.Present || h.BucketMs != 30*60*1000 {
 		t.Fatalf("histogram = %+v", h)
 	}
 	counts := map[string][]int64{}
@@ -257,15 +257,15 @@ func TestQueryHistogramAlignsBucketEdges(t *testing.T) {
 	m := jsonFixture(t)
 	resp, err := m.Query(context.Background(), &apigen.LogQueryRequest{
 		DeploymentID:     testDeploymentID,
-		TimeStart:        mustTime(t, "2026-06-15T13:59:30Z"),
-		TimeEnd:          mustTime(t, "2026-06-15T16:00:30Z"),
+		TimeStart:        apigen.TimeOf(mustTime(t, "2026-06-15T13:59:30Z")),
+		TimeEnd:          apigen.TimeOf(mustTime(t, "2026-06-15T16:00:30Z")),
 		HistogramBuckets: 4,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := resp.Histogram
-	if h == nil || h.BucketMs != 3_600_000 {
+	h := resp.Histogram.Value
+	if !resp.Histogram.Present || h.BucketMs != 3_600_000 {
 		t.Fatalf("histogram = %+v", h)
 	}
 	if !h.StartTime.Equal(mustTime(t, "2026-06-15T13:00:00Z")) {
@@ -298,7 +298,7 @@ func TestQueryValidation(t *testing.T) {
 	m := searchFixture(t)
 	if _, err := m.Query(context.Background(), wideRange(t, &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		Filters:      []*apigen.LogFilter{{Op: "regex", Value: "x"}},
+		Filters:      []apigen.LogFilter{{Op: "regex", Value: "x"}},
 	})); err == nil {
 		t.Fatal("unknown op did not error")
 	}
@@ -310,8 +310,8 @@ func TestQueryValidation(t *testing.T) {
 	}
 	if _, err := m.Query(context.Background(), &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		TimeStart:    mustTime(t, "2026-06-16T00:00:00Z"),
-		TimeEnd:      mustTime(t, "2026-06-15T00:00:00Z"),
+		TimeStart:    apigen.TimeOf(mustTime(t, "2026-06-16T00:00:00Z")),
+		TimeEnd:      apigen.TimeOf(mustTime(t, "2026-06-15T00:00:00Z")),
 	}); err == nil {
 		t.Fatal("inverted range did not error")
 	}
@@ -332,18 +332,18 @@ func TestQueryDefaultWindowExcludesOldRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(resp.Records) != 0 || resp.Stats.MatchedRows != 0 {
-		t.Fatalf("records = %d, matched = %d, want none inside default window", len(resp.Records), resp.Stats.MatchedRows)
+	if len(resp.Records) != 0 || resp.Stats.Value.MatchedRows != 0 {
+		t.Fatalf("records = %d, matched = %d, want none inside default window", len(resp.Records), resp.Stats.Value.MatchedRows)
 	}
-	if got := resp.Stats.TimeEnd; !got.Equal(mustTime(t, "2026-06-17T00:00:00Z")) {
+	if got := resp.Stats.Value.TimeEnd; !got.Equal(mustTime(t, "2026-06-17T00:00:00Z")) {
 		t.Fatalf("effective end = %v, want pinned clock", got)
 	}
 }
 
 func fieldStatsByName(resp *apigen.LogQueryResponse) map[string]*apigen.LogFieldStats {
 	out := map[string]*apigen.LogFieldStats{}
-	for _, f := range resp.Fields {
-		out[f.Field] = f
+	for i := range resp.Fields {
+		out[resp.Fields[i].Field] = &resp.Fields[i]
 	}
 	return out
 }
@@ -354,8 +354,8 @@ func TestQueryFieldStats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Stats.SampledRows != 5 {
-		t.Fatalf("sampledRows = %d, want 5", resp.Stats.SampledRows)
+	if resp.Stats.Value.SampledRows != 5 {
+		t.Fatalf("sampledRows = %d, want 5", resp.Stats.Value.SampledRows)
 	}
 	svc := fieldStatsByName(resp)["service"]
 	if svc == nil || svc.Distinct != 3 {
@@ -409,12 +409,12 @@ func TestQueryArrayFieldStatsCountElements(t *testing.T) {
 func TestQueryArrayFieldEqMatchesElements(t *testing.T) {
 	m := arrayFixture(t)
 	got := queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
-		Filters: []*apigen.LogFilter{{Field: "_tags", Op: "eq", Value: "calendar"}}}))
+		Filters: []apigen.LogFilter{{Field: "_tags", Op: "eq", Value: "calendar"}}}))
 	if !equalStrings(got, []string{"sync finished", "sync started"}) {
 		t.Fatalf("eq msgs = %#v", got)
 	}
 	got = queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
-		Filters: []*apigen.LogFilter{{Field: "_tags", Op: "neq", Value: "calendar"}}}))
+		Filters: []apigen.LogFilter{{Field: "_tags", Op: "neq", Value: "calendar"}}}))
 	if !equalStrings(got, []string{"price sync"}) {
 		t.Fatalf("neq msgs = %#v", got)
 	}
@@ -429,7 +429,7 @@ func TestQueryFieldStatsSampleBounded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Stats.SampledRows != 2 || resp.Stats.MatchedRows != 5 {
+	if resp.Stats.Value.SampledRows != 2 || resp.Stats.Value.MatchedRows != 5 {
 		t.Fatalf("stats = %+v", resp.Stats)
 	}
 	// The sample covers only the WAL tail (newest 2 records: one JSON with
@@ -486,11 +486,11 @@ func TestQueryThinProjectionAggregates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Stats.MatchedRows != 6 || len(resp.Records) != 0 {
+	if resp.Stats.Value.MatchedRows != 6 || len(resp.Records) != 0 {
 		t.Fatalf("stats = %+v, records = %d", resp.Stats, len(resp.Records))
 	}
 	counts := map[string]int64{}
-	for _, s := range resp.Histogram.Series {
+	for _, s := range resp.Histogram.Value.Series {
 		for _, c := range s.Counts {
 			counts[s.Level] += c
 		}
@@ -501,12 +501,12 @@ func TestQueryThinProjectionAggregates(t *testing.T) {
 
 	resp, err = m.Query(context.Background(), wideRange(t, &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID, Limit: -1,
-		Filters: []*apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}},
+		Filters: []apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Stats.MatchedRows != 2 {
+	if resp.Stats.Value.MatchedRows != 2 {
 		t.Fatalf("filtered stats = %+v", resp.Stats)
 	}
 }
@@ -522,15 +522,15 @@ func TestTwoPassMatchesFullScan(t *testing.T) {
 		}},
 		{"levelEq", thinFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 2, HistogramBuckets: 4,
-				Filters: []*apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}}})
+				Filters: []apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}}})
 		}},
 		{"levelIn", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 3,
-				Filters: []*apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR", ""}}}})
+				Filters: []apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR", ""}}}})
 		}},
 		{"msgContains", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 5,
-				Filters: []*apigen.LogFilter{{Op: "contains", Value: "query"}}})
+				Filters: []apigen.LogFilter{{Op: "contains", Value: "query"}}})
 		}},
 		{"asc", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 2, Order: "asc"})
@@ -540,18 +540,18 @@ func TestTwoPassMatchesFullScan(t *testing.T) {
 		}},
 		{"metaFilter", searchFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
-				Filters: []*apigen.LogFilter{{Field: "version", Op: "eq", Value: "2"}}})
+				Filters: []apigen.LogFilter{{Field: "version", Op: "eq", Value: "2"}}})
 		}},
 		{"streamFilter", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID,
-				Filters: []*apigen.LogFilter{{Field: "stream", Op: "eq", Value: "stderr"}}})
+				Filters: []apigen.LogFilter{{Field: "stream", Op: "eq", Value: "stderr"}}})
 		}},
 		{"includeRaw", jsonFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 3, IncludeRaw: true})
 		}},
 		{"aggOnly", spoolAggFixture, func(t *testing.T) *apigen.LogQueryRequest {
 			return &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: -1, HistogramBuckets: 10,
-				TimeStart: mustTime(t, "2026-06-15T14:00:00Z"), TimeEnd: mustTime(t, "2026-06-15T14:20:00Z")}
+				TimeStart: apigen.TimeOf(mustTime(t, "2026-06-15T14:00:00Z")), TimeEnd: apigen.TimeOf(mustTime(t, "2026-06-15T14:20:00Z"))}
 		}},
 	}
 	for _, c := range cases {
@@ -568,7 +568,7 @@ func TestTwoPassMatchesFullScan(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			fast.Stats.TookMs, full.Stats.TookMs = 0, 0
+			fast.Stats.Value.TookMs, full.Stats.Value.TookMs = 0, 0
 			if !reflect.DeepEqual(fast, full) {
 				t.Fatalf("two-pass = %+v\nfull = %+v", fast, full)
 			}
@@ -689,8 +689,8 @@ func TestQueryWalAggMatchesFullScan(t *testing.T) {
 	req := func() *apigen.LogQueryRequest {
 		return &apigen.LogQueryRequest{
 			DeploymentID:     testDeploymentID,
-			TimeStart:        mustTime(t, "2026-06-15T14:00:00Z"),
-			TimeEnd:          mustTime(t, "2026-06-15T14:20:00Z"),
+			TimeStart:        apigen.TimeOf(mustTime(t, "2026-06-15T14:00:00Z")),
+			TimeEnd:          apigen.TimeOf(mustTime(t, "2026-06-15T14:20:00Z")),
 			Limit:            -1,
 			HistogramBuckets: 10,
 		}
@@ -704,21 +704,21 @@ func TestQueryWalAggMatchesFullScan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fast.Stats.MatchedRows != 10 || full.Stats.MatchedRows != 10 {
-		t.Fatalf("matched = %d vs %d", fast.Stats.MatchedRows, full.Stats.MatchedRows)
+	if fast.Stats.Value.MatchedRows != 10 || full.Stats.Value.MatchedRows != 10 {
+		t.Fatalf("matched = %d vs %d", fast.Stats.Value.MatchedRows, full.Stats.Value.MatchedRows)
 	}
-	if fast.Histogram == nil || full.Histogram == nil || fast.Histogram.BucketMs != 120_000 {
+	if !fast.Histogram.Present || !full.Histogram.Present || fast.Histogram.Value.BucketMs != 120_000 {
 		t.Fatalf("histograms = %+v vs %+v", fast.Histogram, full.Histogram)
 	}
-	series := func(h *apigen.LogHistogram) map[string][]int64 {
+	series := func(h apigen.LogHistogram) map[string][]int64 {
 		out := map[string][]int64{}
 		for _, s := range h.Series {
 			out[s.Level] = s.Counts
 		}
 		return out
 	}
-	if !reflect.DeepEqual(series(fast.Histogram), series(full.Histogram)) {
-		t.Fatalf("series = %#v vs %#v", series(fast.Histogram), series(full.Histogram))
+	if !reflect.DeepEqual(series(fast.Histogram.Value), series(full.Histogram.Value)) {
+		t.Fatalf("series = %#v vs %#v", series(fast.Histogram.Value), series(full.Histogram.Value))
 	}
 }
 
@@ -729,15 +729,15 @@ func TestQueryWalAggFilteredRecords(t *testing.T) {
 	m := spoolAggFixture(t)
 	resp, err := m.Query(context.Background(), &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		TimeStart:    mustTime(t, "2026-06-15T14:00:00Z"),
-		TimeEnd:      mustTime(t, "2026-06-15T14:20:00Z"),
+		TimeStart:    apigen.TimeOf(mustTime(t, "2026-06-15T14:00:00Z")),
+		TimeEnd:      apigen.TimeOf(mustTime(t, "2026-06-15T14:20:00Z")),
 		Limit:        2,
-		Filters:      []*apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}},
+		Filters:      []apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Stats.MatchedRows != 5 {
+	if resp.Stats.Value.MatchedRows != 5 {
 		t.Fatalf("stats = %+v", resp.Stats)
 	}
 	got := make([]string, 0, len(resp.Records))
@@ -751,7 +751,7 @@ func TestQueryWalAggFilteredRecords(t *testing.T) {
 
 func mustCompile(t *testing.T, field, op, value string) []compiledFilter {
 	t.Helper()
-	fs, err := compileFilters([]*apigen.LogFilter{{Field: field, Op: op, Value: value}})
+	fs, err := compileFilters([]apigen.LogFilter{{Field: field, Op: op, Value: value}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +797,7 @@ func TestAggBinsMatchStringFilterSemantics(t *testing.T) {
 	if len(a.bins) != 3 {
 		t.Fatalf("bins = %d, want 3", len(a.bins))
 	}
-	fs, err := compileFilters([]*apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR", ""}}})
+	fs, err := compileFilters([]apigen.LogFilter{{Field: "level", Op: "in", Values: []string{"ERROR", ""}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -857,7 +857,7 @@ func TestQueryCaptureNeverDropsRetainedRecords(t *testing.T) {
 	t.Cleanup(func() { fieldStatsSample = old })
 	m := thinFixture(t)
 	got := queryMsgs(t, m, wideRange(t, &apigen.LogQueryRequest{DeploymentID: testDeploymentID, Limit: 2,
-		Filters: []*apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}}}))
+		Filters: []apigen.LogFilter{{Field: "level", Op: "eq", Value: "error"}}}))
 	if !equalStrings(got, []string{"e2", "e1"}) {
 		t.Fatalf("msgs = %#v", got)
 	}

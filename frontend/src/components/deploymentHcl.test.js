@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 import {deploymentDocumentToHcl, parseDeploymentHcl} from "./deploymentHcl.js";
+import {parseIpPrefix} from "../lib/ipaddr.js";
 
 const catalogs = {
     nodes: [{id: 1, name: "primary"}, {id: 2, name: "worker-2"}],
@@ -8,21 +9,25 @@ const catalogs = {
     secretRefs: [{id: 7, stableId: 2, name: "web-cert", version: 3, spaceId: 1}],
 };
 
+const prefix = text => parseIpPrefix(text);
+
 function document(networking) {
     return {
         identity: {name: "echo", spaceId: 1},
-        scheduling: {running: true, dedicatedNodes: {nodes: [2]}},
+        scheduling: {running: true, placement: {value: {dedicatedNodes: {nodes: [2]}}}},
         spec: {
-            container1Spec: {
-                source: {remoteImage: {image: "docker.io/library/nginx"}},
+            workload: {value: {container: {
+                source: {value: {remoteImage: {image: "docker.io/library/nginx"}}},
                 runtime: {defaultVolume: {disabled: true}},
                 version: "1.27",
                 upgradeStrategy: 1,
-            },
+            }}},
             networking,
         },
     };
 }
+
+const containerOf = doc => doc.spec.workload.value.container;
 
 // Inserts a network block carrying `body` ahead of the scheduling block, since
 // a virtual-mode document with no routes renders no network block at all.
@@ -42,41 +47,40 @@ test("renders and parses every ingress block kind with listen selectors", () => 
     const networking = {
         mode: 1,
         portForwarding: [
-            {protocol: 1, hostPort: 5432, containerPort: 5432, ipFilter: {allow: ["198.51.100.0/24"]}},
+            {protocol: 1, hostPort: 5432, containerPort: 5432, ipFilter: [{mode: 1, prefix: prefix("198.51.100.0/24")}, {mode: 2, prefix: prefix("198.51.100.7")}]},
             {protocol: 2, hostPort: 6000, containerPort: 5000},
         ],
         ingress: [
             {
-                kind: 2,
                 hostname: "api.example.test",
-                httpsConfig: {containerPort: 5001, flushIntervalMs: -1, certSource: {acme: {}}},
-                listen: [{node: {nodeId: 2}, address: {prefixes: ["203.0.113.10"]}}],
+                config: {value: {https: {containerPort: 5001, backendProtocol: 2, flushIntervalMs: 1, certSource: {value: {acme: {challenge: 1}}}}}},
+                listen: [{node: {value: {specific: {nodeId: 2}}}, addresses: [prefix("203.0.113.10")]}],
             },
             {
-                kind: 2,
                 hostname: "app.example.test",
-                httpsConfig: {
+                config: {value: {https: {
                     containerPort: 5000, pathPrefix: "/api", stripPrefix: true, backendProtocol: 1,
-                    maxRequestBodyBytes: 20000000, certSource: {secret: {secret: {id: 2, version: 3}}},
-                },
-                listen: [{address: {family: 1}}, {node: {any: true}, address: {prefixes: ["2001:db8::10", "203.0.113.0/24"]}}],
+                    maxRequestBodyBytes: 20000000, certSource: {value: {secret: {secret: {secretId: 2, version: 3}}}},
+                }}},
+                listen: [{addresses: [prefix("0.0.0.0/0")]}, {node: {value: {any: {}}}, addresses: [prefix("2001:db8::10"), prefix("203.0.113.0/24")]}],
             },
             {
-                kind: 1,
                 hostname: "db.example.test",
-                tlsPassthroughConfig: {hostPort: 5433, containerPort: 5432},
-                listen: [{address: {family: 2}}],
+                config: {value: {tlsPassthrough: {hostPort: 5433, containerPort: 5432}}},
+                listen: [{addresses: [prefix("::/0")]}],
             },
-            {kind: 1, hostname: "raw.example.test", tlsPassthroughConfig: {hostPort: 0, containerPort: 8443}},
+            {hostname: "raw.example.test", config: {value: {tlsPassthrough: {containerPort: 8443}}}},
         ],
     };
     const {text, networking: parsed} = roundTrip(networking);
-    assert.match(text, /ingress \{\n {6}port_forward \{\n {8}protocol = "tcp"\n {8}container_port = 5432\n {8}allow = \["198\.51\.100\.0\/24"\]\n {6}\}/);
-    assert.match(text, /https \{\n {8}hostname = "api\.example\.test"\n {8}container_port = 5001\n {8}flush_interval_ms = -1\n {8}cert = acme\(\)\n {8}listen \{\n {10}node = node\("worker-2"\)\n {10}address = "203\.0\.113\.10"\n {8}\}/);
+    assert.match(text, /ingress \{\n {6}port_forward \{\n {8}protocol = "tcp"\n {8}container_port = 5432\n {8}allow = \["198\.51\.100\.0\/24"\]\n {8}deny = \["198\.51\.100\.7"\]\n {6}\}/);
+    assert.match(text, /https \{\n {8}hostname = "api\.example\.test"\n {8}container_port = 5001\n {8}flush_interval_ms = 1\n {8}cert = acme\(\)\n {8}listen \{\n {10}node = node\("worker-2"\)\n {10}address = "203\.0\.113\.10"\n {8}\}/);
     assert.match(text, /address = ipv4\(\)/);
     assert.match(text, /node = any_node\(\)\n {10}address = \["2001:db8::10", "203\.0\.113\.0\/24"\]/);
     assert.match(text, /tls_passthrough \{\n {8}hostname = "db\.example\.test"\n {8}container_port = 5432\n {8}host_port = 5433\n {8}listen \{\n {10}address = ipv6\(\)/);
     assert.doesNotMatch(text, /host_port = 8443/, "the default passthrough host port is omitted");
+    assert.doesNotMatch(text, /container_port = 5001\n {8}backend = /, "the http1 default is omitted");
+    assert.match(text, /backend = "h2c"/);
     assert.doesNotMatch(text, /https\(|tls_passthrough\(|port_forward\(/, "the call form is gone");
     assert.deepEqual(parsed, networking);
 });
@@ -105,7 +109,8 @@ test("listen block defaults to the scheduled node and any address", () => {
     }`);
     const {document: parsed, diagnostics} = parseDeploymentHcl(source, catalogs);
     assert.deepEqual(diagnostics, []);
-    assert.deepEqual(parsed.spec.networking.ingress[0].listen, [{}, {}, {node: {any: true}}, {address: {}}]);
+    assert.deepEqual(parsed.spec.networking.ingress[0].listen, [{}, {}, {node: {value: {any: {}}}}, {}]);
+    assert.deepEqual(parsed.spec.networking.ingress[0].config, {value: {https: {containerPort: 8080, backendProtocol: 2}}});
 });
 
 test("rejects host_port on https, the call form, and bad selectors", () => {
@@ -122,8 +127,11 @@ test("rejects host_port on https, the call form, and bad selectors", () => {
             /Ingress is served by the deployment's own node/],
         [`ingress {\n      https {\n        hostname = "a.example"\n        container_port = 80\n        listen { address = "example.com" }\n      }\n    }`,
             /listen address entries must be quoted IP addresses or CIDR prefixes/],
+        [`ingress {\n      https {\n        hostname = "a.example"\n        container_port = 80\n        flush_interval_ms = -1\n      }\n    }`,
+            /flush_interval_ms must be an integer from 1 to 60000/],
         [`ingress {\n      tls_passthrough {\n        container_port = 80\n      }\n    }`, /Required attribute hostname is missing/],
         [`ingress {\n      port_forward {\n        protocol = "sctp"\n        container_port = 80\n      }\n    }`, /Port-forward protocol must be "tcp" or "udp"/],
+        [`ingress {\n      port_forward {\n        protocol = "tcp"\n        container_port = 80\n        allow = ["300.0.0.1"]\n      }\n    }`, /Port-forward allow entries must be quoted IP addresses or CIDR prefixes/],
         [`ingress {\n      https {\n        hostname = "a.example"\n        container_port = 80\n      }\n      https {\n        hostname = "b.example"\n        container_port = 80\n      }\n    }`, null],
     ];
     for (const [snippet, expected] of cases) {
@@ -139,11 +147,11 @@ test("rejects host_port on https, the call form, and bad selectors", () => {
 
 test("renders identity, source version, and scheduling in their blocks and round-trips both source kinds", () => {
     const nix = document({mode: 2});
-    nix.spec.container1Spec.source = {nixDockerBuild: {repo: "github.com/acme/app", flake: "app/flake.nix"}};
-    nix.spec.container1Spec.version = "fb22005268a6fbf0f66008e52887c9b423646b57";
+    containerOf(nix).source = {value: {nixImageBuild: {repo: "github.com/acme/app", flake: "app/flake.nix"}}};
+    containerOf(nix).version = "fb22005268a6fbf0f66008e52887c9b423646b57";
     const nixText = deploymentDocumentToHcl(nix, catalogs);
     assert.match(nixText, /^deployment \{\n {2}name = "echo"\n {2}space = space\("global"\)\n\n {2}container \{/);
-    assert.match(nixText, /nix_docker_build \{\n {8}repo = "github\.com\/acme\/app"\n {8}flake = "app\/flake\.nix"\n {8}version = "fb22005268a6fbf0f66008e52887c9b423646b57"\n {6}\}/);
+    assert.match(nixText, /nix_image_build \{\n {8}repo = "github\.com\/acme\/app"\n {8}flake = "app\/flake\.nix"\n {8}version = "fb22005268a6fbf0f66008e52887c9b423646b57"\n {6}\}/);
     assert.match(nixText, /network \{\n {4}mode = "host"\n {2}\}\n\n {2}scheduling \{\n {4}running = true\n {4}dedicated_nodes \{\n {6}nodes = \[node\("worker-2"\)\]\n {4}\}\n {2}\}\n\}\n$/);
     assert.doesNotMatch(nixText, /\n {2}node = |\n {2}desired_running = |\n {4}version = /);
     const nixParsed = parseDeploymentHcl(nixText, catalogs);
@@ -152,14 +160,14 @@ test("renders identity, source version, and scheduling in their blocks and round
 
     const image = document({mode: 2});
     const imageText = deploymentDocumentToHcl(image, catalogs);
-    assert.match(imageText, /container_image \{\n {8}image = "docker\.io\/library\/nginx:1\.27"\n {6}\}/);
+    assert.match(imageText, /remote_image \{\n {8}image = "docker\.io\/library\/nginx:1\.27"\n {6}\}/);
     assert.doesNotMatch(imageText, /version = /);
     const imageParsed = parseDeploymentHcl(imageText, catalogs);
     assert.deepEqual(imageParsed.diagnostics, []);
     assert.deepEqual(imageParsed.document, image);
 });
 
-test("points the previous root node, desired_running, and container version at their new blocks", () => {
+test("points the previous root node, desired_running, container version, and source block names at their new homes", () => {
     const text = deploymentDocumentToHcl(document({mode: 2}), catalogs)
         .replace(/\n {2}scheduling \{[\s\S]*?\n {2}\}\n/, "\n  node = node(\"worker-2\")\n  desired_running = true\n")
         .replace(/\n {2}\}\n\n {2}network/, "\n    version = \"1.27\"\n  }\n\n  network");
@@ -169,6 +177,34 @@ test("points the previous root node, desired_running, and container version at t
     assert.equal(messages.filter(message => /live in the scheduling block/.test(message)).length, 2, messages.join("\n"));
     assert.equal(messages.filter(message => /version is declared inside the source block/.test(message)).length, 1, messages.join("\n"));
     assert.ok(!messages.some(message => /is not valid in/.test(message)), messages.join("\n"));
+
+    for (const [oldName, newName] of [["container_image", "remote_image"], ["nix_docker_build", "nix_image_build"]]) {
+        const renamed = deploymentDocumentToHcl(document({mode: 2}), catalogs).replace("remote_image {", `${oldName} {`);
+        const old = parseDeploymentHcl(renamed, catalogs);
+        assert.equal(old.document, null);
+        const oldMessages = old.diagnostics.map(item => item.message);
+        assert.equal(oldMessages.filter(message => message.includes(`${newName} {`) && message.includes("previous names")).length, 1, oldMessages.join("\n"));
+        assert.ok(!oldMessages.some(message => /is not valid in|requires exactly one/.test(message)), oldMessages.join("\n"));
+    }
+});
+
+test("rollover without a timeout carries an empty readiness signal and a timeout must be positive", () => {
+    const doc = document({mode: 1});
+    containerOf(doc).upgradeStrategy = 2;
+    containerOf(doc).readinessSignal = {};
+    const text = deploymentDocumentToHcl(doc, catalogs);
+    assert.match(text, /upgrade \{\n {6}strategy = "rollover"\n {4}\}/);
+    assert.doesNotMatch(text, /readiness_timeout_seconds/);
+    const parsed = parseDeploymentHcl(text, catalogs);
+    assert.deepEqual(parsed.diagnostics, []);
+    assert.deepEqual(parsed.document, doc);
+
+    containerOf(doc).readinessSignal = {timeoutSeconds: 30};
+    const timed = deploymentDocumentToHcl(doc, catalogs);
+    assert.match(timed, /readiness_timeout_seconds = 30/);
+    assert.deepEqual(parseDeploymentHcl(timed, catalogs).document, doc);
+    const zero = parseDeploymentHcl(timed.replace("readiness_timeout_seconds = 30", "readiness_timeout_seconds = 0"), catalogs);
+    assert.ok(zero.diagnostics.some(item => /readiness_timeout_seconds must be an integer from 1/.test(item.message)));
 });
 
 const folderCatalogs = {
@@ -194,25 +230,27 @@ const folderCatalogs = {
 function prodDocument(runtime, ingress = []) {
     const doc = document({mode: 1, ingress});
     doc.identity.spaceId = 4;
-    doc.spec.container1Spec.runtime = {defaultVolume: {disabled: true}, ...runtime};
+    containerOf(doc).runtime = {defaultVolume: {disabled: true}, ...runtime};
     return doc;
 }
 
 test("references carry the space, the folder path, and a positional version", () => {
     const doc = prodDocument({
         envVars: {
-            KEY: {config: {id: 105, version: 3}},
-            SECRET: {secret: {id: 101, version: 2}},
-            ROOT_SECRET: {secret: {id: 102, version: 1}},
-            DB: {asset: "db", assetRef: {id: 50, version: 1}},
+            KEY: {value: {config: {config: {configId: 105, version: 3}}}},
+            SECRET: {value: {secret: {secret: {secretId: 101, version: 2}}}},
+            ROOT_SECRET: {value: {secret: {secret: {secretId: 102, version: 1}}}},
+            DB: {value: {asset: {key: "db", asset: {assetId: 50, version: 1}}}},
+            PLAIN: {value: {literal: {value: "text"}}},
         },
-        assetMounts: [{asset: {id: 50, version: 2}, containerPath: "/geo", permission: 2}],
-    }, [{kind: 2, hostname: "web.example.test", httpsConfig: {containerPort: 80, certSource: {secret: {secret: {id: 103, version: 1}}}}}]);
+        assetMounts: [{asset: {assetId: 50, version: 2}, containerPath: "/geo", permission: 2}],
+    }, [{hostname: "web.example.test", config: {value: {https: {containerPort: 80, backendProtocol: 2, certSource: {value: {secret: {secret: {secretId: 103, version: 1}}}}}}}}]);
     const text = deploymentDocumentToHcl(doc, folderCatalogs, {pinVersions: true});
     assert.match(text, /"KEY" = config\("global", "ovh\/access_key_id", 3\)/);
     assert.match(text, /"SECRET" = secret\("global", "ovh\/cloud\/user1\.secret", 2\)/);
     assert.match(text, /"ROOT_SECRET" = secret\("global", "user1\.secret", 1\)/);
     assert.match(text, /"DB" = asset\("global", "geo\/db", 1\)/);
+    assert.match(text, /"PLAIN" = "text"/);
     assert.match(text, /mount\(asset\("global", "geo\/db", 2\), "\/geo"\)/);
     assert.match(text, /cert = secret\("prod", "certs\/web-cert", 1\)/);
     assert.doesNotMatch(text, /\{ (version|space) = /);
@@ -226,7 +264,7 @@ test("references carry the space, the folder path, and a positional version", ()
     assert.match(unpinned, /"DB" = asset\("global", "geo\/db", 1\)/);
     const latest = parseDeploymentHcl(unpinned, folderCatalogs);
     assert.deepEqual(latest.diagnostics, []);
-    assert.deepEqual(latest.document.spec.container1Spec.runtime.envVars.SECRET, {secret: {id: 101, version: 2}});
+    assert.deepEqual(containerOf(latest.document).runtime.envVars.SECRET, {value: {secret: {secret: {secretId: 101, version: 2}}}});
 });
 
 test("rejects the old options form, foreign spaces, unknown paths, and bad versions", () => {
@@ -252,8 +290,8 @@ test("rejects the old options form, foreign spaces, unknown paths, and bad versi
 test("container images carry their version as the reference tag or digest", () => {
     const render = (image, version, running = true) => {
         const doc = document({mode: 2});
-        doc.spec.container1Spec.source = {remoteImage: {image}};
-        doc.spec.container1Spec.version = version;
+        containerOf(doc).source = {value: {remoteImage: {image}}};
+        containerOf(doc).version = version;
         doc.scheduling.running = running;
         return {doc, text: deploymentDocumentToHcl(doc, catalogs)};
     };
@@ -262,8 +300,8 @@ test("container images carry their version as the reference tag or digest", () =
     assert.match(tagged.text, /image = "ghcr\.io\/jptrs93\/declaritive-postgres:18\.4_v12"/);
     const taggedParsed = parseDeploymentHcl(tagged.text, catalogs);
     assert.deepEqual(taggedParsed.diagnostics, []);
-    assert.equal(taggedParsed.document.spec.container1Spec.source.remoteImage.image, "ghcr.io/jptrs93/declaritive-postgres");
-    assert.equal(taggedParsed.document.spec.container1Spec.version, "18.4_v12");
+    assert.equal(containerOf(taggedParsed.document).source.value.remoteImage.image, "ghcr.io/jptrs93/declaritive-postgres");
+    assert.equal(containerOf(taggedParsed.document).version, "18.4_v12");
 
     const digest = render("docker.io/library/postgres", "sha256:0123456789abcdef");
     assert.match(digest.text, /image = "docker\.io\/library\/postgres@sha256:0123456789abcdef"/);
@@ -282,7 +320,7 @@ test("container images carry their version as the reference tag or digest", () =
     assert.match(stopped.text, /image = "localhost:5000\/app"\n/);
     const stoppedParsed = parseDeploymentHcl(stopped.text, catalogs);
     assert.deepEqual(stoppedParsed.diagnostics, []);
-    assert.equal(stoppedParsed.document.spec.container1Spec.version, "");
+    assert.equal(containerOf(stoppedParsed.document).version, "");
     const running = parseDeploymentHcl(stopped.text.replace("running = false", "running = true"), catalogs);
     assert.equal(running.document, null);
     assert.ok(running.diagnostics.some(item => /must include a tag or digest/.test(item.message)), running.diagnostics.map(item => item.message).join("\n"));
@@ -297,16 +335,26 @@ test("container images carry their version as the reference tag or digest", () =
 });
 
 
-test("deployment event ids survive address and volume reference round trips", () => {
-    const refs = {...catalogs, deployments: [{config: {deploymentId: 42, version: 1, value: {name: "database", spaceId: 1, scheduling: {running: true, dedicatedNodes: {nodes: [2]}}, spec: {networking: {mode: 1}}}}}]};
+test("deployment record ids survive address and volume reference round trips", () => {
+    const database = {
+        deployment: {id: 42, name: "database", spaceId: 1, scheduling: {running: true, placement: {value: {dedicatedNodes: {nodes: [2]}}}}, spec: {networking: {mode: 1}}},
+        meta: {version: 1, specVersion: 1},
+    };
+    const refs = {...catalogs, deployments: [{config: database}]};
     const source = document({mode: 1});
-    source.spec.container1Spec.runtime.envVars = {DATABASE: {addressDeploymentId: 42, addressSpaceId: 1}};
-    source.spec.container1Spec.runtime.crossDeploymentMounts = [{deploymentId: 42, containerPath: "/database", permission: 2}];
+    containerOf(source).runtime.envVars = {DATABASE: {value: {address: {deploymentId: 42, spaceId: 1}}}};
+    containerOf(source).runtime.crossDeploymentMounts = [{deploymentId: 42, containerPath: "/database", permission: 2}];
     const text = deploymentDocumentToHcl(source, refs);
     assert.match(text, /address\("global", "database"\)/);
     assert.match(text, /deployment\("global", "database"\)/);
     const {document: parsed, diagnostics} = parseDeploymentHcl(text, refs);
     assert.deepEqual(diagnostics, [], text);
-    assert.deepEqual(parsed.spec.container1Spec.runtime.envVars, source.spec.container1Spec.runtime.envVars);
-    assert.deepEqual(parsed.spec.container1Spec.runtime.crossDeploymentMounts, source.spec.container1Spec.runtime.crossDeploymentMounts);
+    assert.deepEqual(containerOf(parsed).runtime.envVars, containerOf(source).runtime.envVars);
+    assert.deepEqual(containerOf(parsed).runtime.crossDeploymentMounts, containerOf(source).runtime.crossDeploymentMounts);
+
+    // A bare record (no {config} wrapper) resolves the same way, and a
+    // deleted record is not referenceable.
+    assert.deepEqual(parseDeploymentHcl(text, {...catalogs, deployments: [database]}).diagnostics, []);
+    const deleted = {...database, meta: {...database.meta, deleted: true}};
+    assert.ok(parseDeploymentHcl(text, {...catalogs, deployments: [deleted]}).diagnostics.some(item => /No deployment named "database"/.test(item.message)));
 });

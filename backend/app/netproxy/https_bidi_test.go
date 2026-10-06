@@ -56,7 +56,7 @@ func TestH2CBidiServerHalfClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	bundlePath := filepath.Join(t.TempDir(), CertBundleFileName)
-	if err := WriteCertBundle(bundlePath, &apigen.CertBundle{Seq: 1, Certs: []*apigen.CertBundleEntry{
+	if err := WriteCertBundle(bundlePath, &apigen.CertBundle{Seq: 1, Certs: []apigen.CertBundleEntry{
 		{CertID: "secret:9", Pem: append(append([]byte{}, certPEM...), keyPEM...)},
 	}}); err != nil {
 		t.Fatal(err)
@@ -72,14 +72,14 @@ func TestH2CBidiServerHalfClose(t *testing.T) {
 	server := newHTTPSServer(ctx, certs, func() *httpsState { return stateHolder.Load() }, nil)
 	go server.run()
 
-	snapshot := &apigen.NetState{Seq: 1, Ingress: []*apigen.NetIngress{{
+	snapshot := &apigen.NetState{Seq: 1, Ingress: []apigen.NetIngress{{
 		Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
 		Hostname: "bidi.test",
-		Https: &apigen.HttpsNetIngress{
+		Https: apigen.Some(apigen.HttpsNetIngress{
 			CertID:          "secret:9",
 			BackendProtocol: apigen.HttpBackendProtocol_HTTP_BACKEND_PROTOCOL_H2C,
-			Backends:        []*apigen.IngressBackend{{Address: backendHost, Port: int32(backendPort)}},
-		},
+			Backends:        []apigen.IngressBackend{{Address: backendHost, Port: uint32(backendPort)}},
+		}),
 	}}}
 	stateHolder.Store(server.buildState(snapshot))
 

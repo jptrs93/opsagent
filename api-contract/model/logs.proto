@@ -2,31 +2,36 @@ syntax = "proto3";
 
 package opsagent.v1;
 
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
+// RawLogLine is the node-local log WAL frame. Every tag is kept.
 message RawLogLine {
   int64 time = 1;              // Unix nanoseconds.
-  int32 version = 2;           // DeploymentEvent config version.
+  int32 version = 2;           // Deployment version.
   int32 run = 3;               // Run/restart number.
   int32 stream = 4;            // 0 = stdout, 1 = stderr.
   bytes line = 5;              // Raw log line bytes.
   int32 deployment = 6;        // Producing deployment; not yet wired.
   int32 node = 7;              // Producing node; not yet wired.
   int32 instance_ordinal = 8;  // Producing instance; not yet wired.
-  int64 seq = 9;
+  int64 seq = 9 [(cp.js_type) = "number"];
 }
 
-// One parsed log record as returned by the structured query endpoint.
+// LogRecord is one parsed log record as the structured query returns it.
 message LogRecord {
-  int64 time = 1;                  // Unix nanoseconds. Never a JSON/JS number-safe value; treat as opaque precision beyond ms.
+  int64 time = 1 [(cp.js_type) = "bigint"];  // Unix nanoseconds, beyond the JS safe integer range.
   string level = 2;                // Normalized DEBUG/INFO/WARN/ERROR, or "" when the line carries no level.
   string msg = 3;                  // Parsed message text; the whole line for unstructured lines.
   map<string, string> fields = 4;  // Remaining parsed JSON fields as flat strings.
   bytes raw = 5;                   // Original line bytes; only set when include_raw was requested.
-  int32 version = 6;               // DeploymentEvent config version.
+  uint32 version = 6;              // Deployment version.
   int32 stream = 7;                // 0 = stdout, 1 = stderr.
   int32 instance_ordinal = 8;
   int32 run = 9;
-  int32 node = 10;
-  int64 seq = 11;
+  uint64 node = 10 [(cp.js_type) = "number"];
+  int64 seq = 11 [(cp.js_type) = "number"];
 }

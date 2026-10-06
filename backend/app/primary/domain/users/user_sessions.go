@@ -13,7 +13,7 @@ import (
 
 type UserSession struct {
 	ID                string
-	UserID            int32
+	UserID            uint64
 	CreatedAt         time.Time
 	ExpiresAt         time.Time
 	TokenHash         []byte
@@ -32,7 +32,7 @@ func timeOrZero(unix int64) time.Time {
 
 func userSessionFromRow(row pq.UserSession) UserSession {
 	return UserSession{
-		ID: row.SessionID, UserID: int32(row.UserID), CreatedAt: time.UnixMilli(row.CreatedAt), ExpiresAt: timeOrZero(row.ExpiresAt),
+		ID: row.SessionID, UserID: row.UserID, CreatedAt: time.UnixMilli(row.CreatedAt), ExpiresAt: timeOrZero(row.ExpiresAt),
 		TokenHash: row.TokenHash, RevokedAt: timeOrZero(row.RevokedAt), Kind: apigen.UserSessionKind(row.Kind),
 		RequestingAddress: row.RequestingAddress, UserAgent: row.UserAgent,
 	}
@@ -45,7 +45,7 @@ func InsertUserSession(store *state.Service, rec UserSession) error {
 		if err != nil {
 			return nil, err
 		}
-		doc := &apigen.UserSession{ID: rec.ID, UserID: rec.UserID, ExpiresAt: rec.ExpiresAt, TokenHash: rec.TokenHash,
+		doc := &apigen.UserSession{SessionID: rec.ID, UserID: rec.UserID, ExpiresAt: rec.ExpiresAt, TokenHash: apigen.Some(rec.TokenHash),
 			Kind: rec.Kind, RequestingAddress: rec.RequestingAddress, UserAgent: rec.UserAgent}
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(rec.UserID), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
 		return pq.NewUpdate(pq.UserSessionMutation(meta, id, doc)), nil
@@ -63,8 +63,8 @@ func UserSessionByID(q *pq.Queries, id string) (UserSession, error) {
 	return userSessionFromRow(row), nil
 }
 
-func ListUserSessions(q *pq.Queries, userID int32) ([]UserSession, error) {
-	rows, err := q.ListUserSessionsForUser(context.Background(), int64(userID))
+func ListUserSessions(q *pq.Queries, userID uint64) ([]UserSession, error) {
+	rows, err := q.ListUserSessionsForUser(context.Background(), userID)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +75,7 @@ func ListUserSessions(q *pq.Queries, userID int32) ([]UserSession, error) {
 	return out, nil
 }
 
-func RevokeUserSession(store *state.Service, id string, userID int32, at time.Time) (bool, error) {
+func RevokeUserSession(store *state.Service, id string, userID uint64, at time.Time) (bool, error) {
 	ctx := context.Background()
 	var revoked bool
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
@@ -86,7 +86,7 @@ func RevokeUserSession(store *state.Service, id string, userID int32, at time.Ti
 		if err != nil {
 			return nil, err
 		}
-		if row.UserID != int64(userID) || row.RevokedAt != 0 {
+		if row.UserID != userID || row.RevokedAt != 0 {
 			return nil, nil
 		}
 		row.RevokedAt = at.Unix()

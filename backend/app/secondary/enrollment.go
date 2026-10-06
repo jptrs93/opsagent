@@ -98,12 +98,16 @@ func Enroll(ctx context.Context, cfg EnrollmentConfig) error {
 }
 
 func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, machineID, wgPublicKey string, csrPEM, keyPEM []byte, cfg EnrollmentConfig) error {
+	underlay, err := apigen.ParseAddr(cfg.UnderlayAddress)
+	if err != nil {
+		return fmt.Errorf("parsing underlay address %q: %w", cfg.UnderlayAddress, err)
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	reqs := func(yield func(*apigen.EnrollmentSecondaryMsg, error) bool) {
 		inventory := currentHostAddresses(ctx)
-		if !yield(&apigen.EnrollmentSecondaryMsg{Hello: &apigen.EnrollmentHello{Reported: &apigen.NodeReported{Identifier: machineID, UnderlayAddress: cfg.UnderlayAddress, WgPublicKey: wgPublicKey, HostAddresses: inventory.addresses, HostAddressesUnknown: inventory.unknown}, SecondaryCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion)}}, nil) {
+		if !yield(&apigen.EnrollmentSecondaryMsg{Hello: apigen.Some(apigen.EnrollmentHello{Reported: apigen.NodeReported{Identifier: machineID, UnderlayAddress: underlay, WgPublicKey: wgPublicKey, HostAddresses: inventory.wire(), HostAddressesUnknown: inventory.unknown}, SecondaryCertificateRequest: csrPEM, OpendeployVersion: strings.TrimSpace(cfg.OpendeployVersion), ClusterProtocolVersion: apigen.ClusterProtocolVersion})}, nil) {
 			return
 		}
 		<-ctx.Done()
@@ -116,17 +120,18 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 		if msg == nil {
 			continue
 		}
-		if msg.RequestStatus != nil {
-			slog.InfoContext(ctx, fmt.Sprintf("secondary enrollment request registered id=%d status=%v", msg.RequestStatus.ID, msg.RequestStatus.Status))
+		if msg.RequestStatus.Present {
+			slog.InfoContext(ctx, fmt.Sprintf("secondary enrollment request registered id=%d status=%v", msg.RequestStatus.Value.ID, msg.RequestStatus.Value.Status))
 		}
-		if msg.Accepted != nil {
-			if err := cacheEnrollmentBootstrapState(ctx, cfg, msg.Accepted); err != nil {
+		if msg.Accepted.Present {
+			accepted := &msg.Accepted.Value
+			if err := cacheEnrollmentBootstrapState(ctx, cfg, accepted); err != nil {
 				return err
 			}
-			if err := writeEnrollmentTLSBundle(cfg, msg.Accepted, keyPEM); err != nil {
+			if err := writeEnrollmentTLSBundle(cfg, accepted, keyPEM); err != nil {
 				return err
 			}
-			slog.InfoContext(ctx, fmt.Sprintf("secondary enrollment accepted id=%d machine=%s", msg.Accepted.ID, msg.Accepted.NodeName))
+			slog.InfoContext(ctx, fmt.Sprintf("secondary enrollment accepted id=%d machine=%s", accepted.ID, accepted.NodeName))
 			return nil
 		}
 	}
@@ -137,14 +142,14 @@ func cacheEnrollmentBootstrapState(ctx context.Context, cfg EnrollmentConfig, ac
 	if accepted == nil {
 		return fmt.Errorf("accepted enrollment response is missing")
 	}
-	info := accepted.ClusterNetwork
-	if info == nil || len(info.UlaPrefix) == 0 {
+	info := &accepted.ClusterNetwork
+	if len(info.UlaPrefix) == 0 {
 		return fmt.Errorf("accepted enrollment response missing cluster network")
 	}
-	if accepted.NodeDeployment == nil || accepted.NodeDeployment.Config.DeploymentID == 0 {
+	if accepted.NodeDeployment.Config.Deployment.ID == 0 {
 		return fmt.Errorf("accepted enrollment response missing node deployment")
 	}
-	if accepted.NodeNetDeployment == nil || accepted.NodeNetDeployment.Config.DeploymentID == 0 {
+	if accepted.NodeNetDeployment.Config.Deployment.ID == 0 {
 		return fmt.Errorf("accepted enrollment response missing node net deployment")
 	}
 	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))
@@ -153,29 +158,23 @@ func cacheEnrollmentBootstrapState(ctx context.Context, cfg EnrollmentConfig, ac
 	if err != nil {
 		return fmt.Errorf("parsing enrollment cluster network: %w", err)
 	}
-	if accepted.ClusterNetMap != nil {
+	hasNetMap := !accepted.ClusterNetMap.IsZero()
+	if hasNetMap {
 		nodeID := accepted.NodeNetDeployment.Instance.NodeID
-		if _, _, err := validateClusterNetMap(accepted.ClusterNetMap, nodeID, prefix); err != nil {
+		if _, _, err := validateClusterNetMap(&accepted.ClusterNetMap, nodeID, prefix); err != nil {
 			return fmt.Errorf("validating enrollment cluster network map: %w", err)
 		}
 	}
 	store.MustSetLocalKV(storage.LocalKVClusterNetwork, info.Encode())
-	cacheEnrollmentInstance(store, accepted.NodeDeployment)
-	cacheEnrollmentInstance(store, accepted.NodeNetDeployment)
-	if accepted.ClusterNetMap != nil {
+	store.MustWriteScheduledInstanceAssignment(&accepted.NodeDeployment)
+	store.MustWriteScheduledInstanceAssignment(&accepted.NodeNetDeployment)
+	if hasNetMap {
 		nodeID := accepted.NodeNetDeployment.Instance.NodeID
-		if _, err := acceptClusterNetMap(ctx, store, accepted.ClusterNetMap, nodeID, prefix, true, nil); err != nil {
+		if _, err := acceptClusterNetMap(ctx, store, &accepted.ClusterNetMap, nodeID, prefix, true, nil); err != nil {
 			return fmt.Errorf("accepting enrollment cluster network map: %w", err)
 		}
 	}
 	return nil
-}
-
-func cacheEnrollmentInstance(store *state.Service, state *apigen.ScheduledInstanceState) {
-	if state == nil {
-		return
-	}
-	store.MustWriteScheduledInstanceAssignment(state)
 }
 
 func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted, keyPEM []byte) error {

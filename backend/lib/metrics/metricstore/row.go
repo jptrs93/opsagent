@@ -85,17 +85,41 @@ func sortingColumns() []parquet.SortingColumn {
 	}
 }
 
-var rowFieldPairs [][2]int
+type rowFieldPair struct {
+	row, sample int
+	optional    bool
+}
+
+var rowFieldPairs []rowFieldPair
 
 func init() {
 	rt := reflect.TypeFor[row]()
 	st := reflect.TypeFor[apigen.MetricsSample]()
 	for i := range rt.NumField() {
 		f := rt.Field(i)
-		if sf, ok := st.FieldByName(f.Name); ok && sf.Type == f.Type {
-			rowFieldPairs = append(rowFieldPairs, [2]int{i, sf.Index[0]})
+		sf, ok := st.FieldByName(f.Name)
+		if !ok {
+			continue
+		}
+		switch {
+		case sf.Type == f.Type:
+			rowFieldPairs = append(rowFieldPairs, rowFieldPair{row: i, sample: sf.Index[0]})
+		case f.Type.Kind() == reflect.Pointer && isMaybeOf(sf.Type, f.Type.Elem()):
+			rowFieldPairs = append(rowFieldPairs, rowFieldPair{row: i, sample: sf.Index[0], optional: true})
 		}
 	}
+}
+
+func isMaybeOf(t, elem reflect.Type) bool {
+	if t.Kind() != reflect.Struct || t.NumField() != 2 {
+		return false
+	}
+	v, ok := t.FieldByName("Value")
+	if !ok || v.Type != elem {
+		return false
+	}
+	p, ok := t.FieldByName("Present")
+	return ok && p.Type.Kind() == reflect.Bool
 }
 
 func rowFromSample(s *apigen.MetricsSample) row {
@@ -103,7 +127,16 @@ func rowFromSample(s *apigen.MetricsSample) row {
 	rv := reflect.ValueOf(&r).Elem()
 	sv := reflect.ValueOf(s).Elem()
 	for _, p := range rowFieldPairs {
-		rv.Field(p[0]).Set(sv.Field(p[1]))
+		dst, src := rv.Field(p.row), sv.Field(p.sample)
+		if !p.optional {
+			dst.Set(src)
+			continue
+		}
+		if src.FieldByName("Present").Bool() {
+			ptr := reflect.New(dst.Type().Elem())
+			ptr.Elem().Set(src.FieldByName("Value"))
+			dst.Set(ptr)
+		}
 	}
 	return r
 }
@@ -113,7 +146,15 @@ func sampleFromRow(r *row) *apigen.MetricsSample {
 	rv := reflect.ValueOf(r).Elem()
 	sv := reflect.ValueOf(s).Elem()
 	for _, p := range rowFieldPairs {
-		sv.Field(p[1]).Set(rv.Field(p[0]))
+		dst, src := sv.Field(p.sample), rv.Field(p.row)
+		if !p.optional {
+			dst.Set(src)
+			continue
+		}
+		if !src.IsNil() {
+			dst.FieldByName("Value").Set(src.Elem())
+			dst.FieldByName("Present").SetBool(true)
+		}
 	}
 	return s
 }
@@ -221,18 +262,17 @@ func toSample(s *metrics.Sample, nodeID int32) *apigen.MetricsSample {
 	return out
 }
 
-func psi(line metrics.PressureLine, avg10, avg60, avg300 **float64, total **int64) {
+func psi(line metrics.PressureLine, avg10, avg60, avg300 *apigen.Maybe[float64], total *apigen.Maybe[int64]) {
 	*avg10 = f64(line.Avg10)
 	*avg60 = f64(line.Avg60)
 	*avg300 = f64(line.Avg300)
 	*total = i64(line.TotalUsec)
 }
 
-func i64(v uint64) *int64 {
-	x := int64(v)
-	return &x
+func i64(v uint64) apigen.Maybe[int64] {
+	return apigen.Some(int64(v))
 }
 
-func f64(v float64) *float64 {
-	return &v
+func f64(v float64) apigen.Maybe[float64] {
+	return apigen.Some(v)
 }

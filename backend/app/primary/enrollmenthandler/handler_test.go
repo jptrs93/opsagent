@@ -6,6 +6,7 @@ import (
 	"iter"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"testing"
 	"time"
@@ -46,15 +47,16 @@ func newTestIdentity(t *testing.T) testIdentity {
 
 func helloFor(id testIdentity) *apigen.EnrollmentHello {
 	return &apigen.EnrollmentHello{
-		Reported:                    &apigen.NodeReported{Identifier: id.identifier, UnderlayAddress: "192.0.2.2", WgPublicKey: testWGKey},
+		Reported:                    apigen.NodeReported{Identifier: id.identifier, UnderlayAddress: apigen.AddrOf(netip.MustParseAddr("192.0.2.2")), WgPublicKey: testWGKey},
 		SecondaryCertificateRequest: id.csrPEM,
 		OpendeployVersion:           "v1",
+		ClusterProtocolVersion:      apigen.ClusterProtocolVersion,
 	}
 }
 
 func helloStream(ctx context.Context, hello *apigen.EnrollmentHello) iter.Seq2[*apigen.EnrollmentSecondaryMsg, error] {
 	return func(yield func(*apigen.EnrollmentSecondaryMsg, error) bool) {
-		if !yield(&apigen.EnrollmentSecondaryMsg{Hello: hello}, nil) {
+		if !yield(&apigen.EnrollmentSecondaryMsg{Hello: apigen.Some(*hello)}, nil) {
 			return
 		}
 		<-ctx.Done()
@@ -83,8 +85,8 @@ func runHello(t *testing.T, h *Handler, hello *apigen.EnrollmentHello) *helloRun
 			if !sent {
 				sent = true
 				reply := helloReply{err: err}
-				if msg != nil {
-					reply.status = msg.RequestStatus
+				if msg != nil && msg.RequestStatus.Present {
+					reply.status = &msg.RequestStatus.Value
 				}
 				run.first <- reply
 			}
@@ -141,7 +143,7 @@ func TestHelloRejectsEnrolledIdentifier(t *testing.T) {
 	h, store := newTestHandler(t)
 	ctx := context.Background()
 	id := newTestIdentity(t)
-	member := nodes.EnsurePrimaryNode(store, "primary", id.identifier)
+	member := nodes.EnsurePrimaryNode(store, "primary", id.identifier, netip.MustParseAddr("192.0.2.1"))
 	before, err := store.Queries().GetNodeRowByIdentifier(ctx, member.Identifier)
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +236,7 @@ func TestHelloWithSameKeySupersedesLiveSession(t *testing.T) {
 	if sessB == nil || sessB == sessA {
 		t.Fatal("same-key hello did not replace the live session")
 	}
-	row, err := store.Queries().GetNodeRowByID(ctx, int64(first.ID))
+	row, err := store.Queries().GetNodeRowByID(ctx, first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +247,7 @@ func TestHelloWithSameKeySupersedesLiveSession(t *testing.T) {
 	if err := b.stop(t); err != nil {
 		t.Fatalf("second stream ended with %v", err)
 	}
-	row, err = store.Queries().GetNodeRowByID(ctx, int64(first.ID))
+	row, err = store.Queries().GetNodeRowByID(ctx, first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

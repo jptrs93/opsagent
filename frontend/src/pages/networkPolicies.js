@@ -6,7 +6,9 @@ import {deploymentsS, networkPoliciesS, spacesS} from "../state/deployments.js";
 import {deploymentDeleted} from "../lib/deployment.js";
 import {
     formatPorts,
+    makePeer,
     parsePorts,
+    peerRef,
     resolvePolicyPeer,
     PEER_KIND_DEPLOYMENT,
     PEER_KIND_SPACE,
@@ -41,7 +43,7 @@ export function networkPoliciesPage() {
     const activeSpaces = () => (spacesS.val || []).filter((s) => s && !s.deleted);
     const activeDeployments = () => (deploymentsS.val || [])
         .filter((d) => d?.config && !deploymentDeleted(d.config))
-        .sort((a, b) => (a.config.value?.name || "").localeCompare(b.config.value?.name || ""));
+        .sort((a, b) => (a.config.deployment?.name || "").localeCompare(b.config.deployment?.name || ""));
 
     const sortedPolicies = () => [...(networkPoliciesS.val || [])]
         .filter((policy) => policy && !policy.deleted)
@@ -70,10 +72,12 @@ export function networkPoliciesPage() {
 
     const openEditForm = (policy) => {
         editing.val = {id: Number(policy.id), seq: Number(policy.seq || 0)};
-        sourceKind.val = Number(policy.source?.kind || PEER_KIND_SPACE);
-        sourceId.val = Number(policy.source?.id || 0);
-        destinationKind.val = Number(policy.destination?.kind || PEER_KIND_SPACE);
-        destinationId.val = Number(policy.destination?.id || 0);
+        const source = peerRef(policy.source);
+        const destination = peerRef(policy.destination);
+        sourceKind.val = source.kind || PEER_KIND_SPACE;
+        sourceId.val = source.id;
+        destinationKind.val = destination.kind || PEER_KIND_SPACE;
+        destinationId.val = destination.id;
         portsText.val = policy.ports?.length ? formatPorts(policy.ports) : "";
         formOpen.val = true;
     };
@@ -99,8 +103,8 @@ export function networkPoliciesPage() {
         }
         const body = {
             action: POLICY_ACTION_ALLOW,
-            source: {kind: Number(sourceKind.val), id: Number(sourceId.val)},
-            destination: {kind: Number(destinationKind.val), id: Number(destinationId.val)},
+            source: makePeer(sourceKind.val, sourceId.val),
+            destination: makePeer(destinationKind.val, destinationId.val),
             ports,
         };
         try {
@@ -168,10 +172,10 @@ export function networkPoliciesPage() {
                     disabled: saving,
                     onchange: (e) => { idState.val = Number(e.target.value); },
                 },
-                    option({value: -1, selected: () => !activeDeployments().some((d) => Number(d.config.deploymentId) === Number(idState.val))}, "select deployment"),
+                    option({value: -1, selected: () => !activeDeployments().some((d) => Number(d.config.deployment.id) === Number(idState.val))}, "select deployment"),
                     ...activeDeployments().map((d) => option(
-                        {value: d.config.deploymentId, selected: () => Number(idState.val) === Number(d.config.deploymentId)},
-                        `${d.config.value?.name || d.config.deploymentId} (space ${d.config.value?.spaceId ?? 0})`)),
+                        {value: d.config.deployment.id, selected: () => Number(idState.val) === Number(d.config.deployment.id)},
+                        `${d.config.deployment.name || d.config.deployment.id} (space ${d.config.deployment.spaceId ?? 0})`)),
                 ),
         );
     };

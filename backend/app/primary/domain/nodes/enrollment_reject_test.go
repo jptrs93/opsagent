@@ -26,9 +26,9 @@ func TestEnrollmentHelloRejectsEnrolledIdentifiers(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	ctx := context.Background()
-	primary := EnsurePrimaryNode(store, "primary", "primary-id")
+	primary := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	before := fingerprint(t, store)
-	_, _, err := UpsertEnrollmentRequest(store, "192.0.2.9", "v1", apigen.NodeReported{Identifier: primary.Identifier, UnderlayAddress: "192.0.2.9", WgPublicKey: testEnrollmentWGKey})
+	_, _, err := UpsertEnrollmentRequest(store, "192.0.2.9", "v1", apigen.NodeReported{Identifier: primary.Identifier, UnderlayAddress: mustAddr("192.0.2.9"), WgPublicKey: testEnrollmentWGKey})
 	if !errors.Is(err, ErrEnrollmentIdentifierEnrolled) {
 		t.Fatalf("primary identifier hello = %v, want ErrEnrollmentIdentifierEnrolled", err)
 	}
@@ -36,13 +36,13 @@ func TestEnrollmentHelloRejectsEnrolledIdentifiers(t *testing.T) {
 		t.Fatal("rejected primary hello changed state or sequence")
 	}
 
-	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.2"}
+	reported := apigen.NodeReported{Identifier: "worker", UnderlayAddress: mustAddr("192.0.2.2")}
 	req, version := mustUpsertEnrollmentRequest(t, store, "192.0.2.2", "v1", reported)
 	if _, err := AcceptEnrollmentRequest(store, req.ID, "worker", reported.Identifier, version); err != nil {
 		t.Fatal(err)
 	}
 	before = fingerprint(t, store)
-	hijack := apigen.NodeReported{Identifier: "worker", UnderlayAddress: "192.0.2.3", WgPublicKey: testEnrollmentWGKey}
+	hijack := apigen.NodeReported{Identifier: "worker", UnderlayAddress: mustAddr("192.0.2.3"), WgPublicKey: testEnrollmentWGKey}
 	if _, _, err := UpsertEnrollmentRequest(store, "192.0.2.3", "v1", hijack); !errors.Is(err, ErrEnrollmentIdentifierEnrolled) {
 		t.Fatalf("member hello = %v, want ErrEnrollmentIdentifierEnrolled", err)
 	}
@@ -53,7 +53,7 @@ func TestEnrollmentHelloRejectsEnrolledIdentifiers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.Event.Value.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL || row.Event.Value.EnrollmentRequestedAt != 0 {
+	if row.Event.Value.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL || row.Event.Value.EnrollmentRequestedAt.Present {
 		t.Fatalf("member row after rejected hello = %+v", row)
 	}
 }

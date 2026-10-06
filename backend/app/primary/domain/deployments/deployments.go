@@ -15,10 +15,10 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 )
 
-func Active(q *pq.Queries, predicate storage.DeploymentPredicate) []apigen.DeploymentEvent {
-	events := erru.Must(q.ListActiveDeployments(context.Background()))
-	out := make([]apigen.DeploymentEvent, 0, len(events))
-	for _, cfg := range events {
+func Active(q *pq.Queries, predicate storage.DeploymentPredicate) []apigen.DeploymentRecord {
+	records := erru.Must(q.ListActiveDeployments(context.Background()))
+	out := make([]apigen.DeploymentRecord, 0, len(records))
+	for _, cfg := range records {
 		if predicate != nil && !predicate(*cfg) {
 			continue
 		}
@@ -27,10 +27,10 @@ func Active(q *pq.Queries, predicate storage.DeploymentPredicate) []apigen.Deplo
 	return out
 }
 
-func Deleted(q *pq.Queries, predicate storage.DeploymentPredicate, limit int) []apigen.DeploymentEvent {
-	events := erru.Must(q.ListDeletedDeploymentEvents(context.Background()))
-	out := make([]apigen.DeploymentEvent, 0, limit)
-	for _, cfg := range events {
+func Deleted(q *pq.Queries, predicate storage.DeploymentPredicate, limit int) []apigen.DeploymentRecord {
+	records := erru.Must(q.ListDeletedDeployments(context.Background()))
+	out := make([]apigen.DeploymentRecord, 0, limit)
+	for _, cfg := range records {
 		if predicate != nil && !predicate(*cfg) {
 			continue
 		}
@@ -42,8 +42,8 @@ func Deleted(q *pq.Queries, predicate storage.DeploymentPredicate, limit int) []
 	return out
 }
 
-func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) {
-	if nodeID <= 0 {
+func EnsureSystem(store *state.Service, nodeID uint64, opendeployVersion string) {
+	if nodeID == 0 {
 		panic("deployment node ID must be positive")
 	}
 	opendeployVersion = strings.TrimSpace(opendeployVersion)
@@ -52,30 +52,30 @@ func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) 
 	}
 	ctx := apigen.Context{Ctx: logu.AddTag(context.Background(), "Store")}
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		events, err := q.ListActiveDeployments(ctx)
+		records, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return nil, err
 		}
-		for _, cfg := range events {
-			if !storage.DeploymentKeyMatches(cfg.Value, nodeID, internaldeploy.SpaceID, internaldeploy.SelfName) {
+		for _, cfg := range records {
+			if !storage.DeploymentKeyMatches(cfg.Deployment, nodeID, internaldeploy.SpaceID, internaldeploy.SelfName) {
 				continue
 			}
-			if internaldeploy.IsSelfSpec(&cfg.Value.Spec) {
+			if internaldeploy.IsSelfSpec(&cfg.Deployment.Spec) {
 				return nil, nil
 			}
-			slog.WarnContext(ctx, "repairing system deployment spec", "dep", cfg.DeploymentID, "node", nodeID)
+			slog.WarnContext(ctx, "repairing system deployment spec", "dep", cfg.Deployment.ID, "node", nodeID)
 			spec := internaldeploy.SelfSpec()
 			if err := spec.SetWorkloadVersion(cfg.WorkloadVersion()); err != nil {
 				return nil, err
 			}
-			def := cfg.Value
+			def := cfg.Deployment
 			def.Spec = *spec
 			def.Scheduling.Running = true
-			event, err := q.DeploymentUpdateEvent(ctx, int64(cfg.DeploymentID), seq, time.Now(), &def)
+			record, err := q.DeploymentUpdateRecord(ctx, cfg.Deployment.ID, seq, time.Now(), &def)
 			if err != nil {
 				return nil, err
 			}
-			return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+			return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 		}
 		spec := internaldeploy.SelfSpec()
 		if err := spec.SetWorkloadVersion(opendeployVersion); err != nil {
@@ -85,15 +85,15 @@ func EnsureSystem(store *state.Service, nodeID int32, opendeployVersion string) 
 		if err != nil {
 			return nil, err
 		}
-		event := pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.SelfName, Spec: *spec})
-		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+		record := pq.DeploymentCreateRecord(ctx, id, seq, time.Now(), &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.SelfName, Spec: *spec})
+		return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 	}); err != nil {
 		panic(err)
 	}
 }
 
-func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *apigen.DeploymentEvent {
-	if nodeID <= 0 {
+func EnsureNetproxy(store *state.Service, nodeID uint64, initialVersion string) *apigen.DeploymentRecord {
+	if nodeID == 0 {
 		panic("deployment node ID must be positive")
 	}
 	desiredVersion := strings.TrimSpace(initialVersion)
@@ -101,32 +101,32 @@ func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *
 		panic("EnsureNetproxy requires an explicit OpenDeploy version")
 	}
 	ctx := apigen.Context{Ctx: logu.AddTag(context.Background(), "Store")}
-	var event *apigen.DeploymentEvent
+	var record *apigen.DeploymentRecord
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		events, err := q.ListActiveDeployments(ctx)
+		records, err := q.ListActiveDeployments(ctx)
 		if err != nil {
 			return nil, err
 		}
 		spec := internaldeploy.NetproxySpec()
-		for _, cfg := range events {
-			if !storage.DeploymentKeyMatches(cfg.Value, nodeID, internaldeploy.SpaceID, internaldeploy.NetproxyName) {
+		for _, cfg := range records {
+			if !storage.DeploymentKeyMatches(cfg.Deployment, nodeID, internaldeploy.SpaceID, internaldeploy.NetproxyName) {
 				continue
 			}
-			event = cfg
+			record = cfg
 			if err := spec.SetWorkloadVersion(cfg.WorkloadVersion()); err != nil {
 				return nil, err
 			}
-			if pq.DeploymentSpecsEqual(&cfg.Value.Spec, spec) {
+			if pq.DeploymentSpecsEqual(&cfg.Deployment.Spec, spec) {
 				return nil, nil
 			}
-			slog.WarnContext(ctx, "repairing netproxy deployment spec", "dep", cfg.DeploymentID, "node", nodeID)
-			def := cfg.Value
+			slog.WarnContext(ctx, "repairing netproxy deployment spec", "dep", cfg.Deployment.ID, "node", nodeID)
+			def := cfg.Deployment
 			def.Spec = *spec
-			event, err = q.DeploymentUpdateEvent(ctx, int64(cfg.DeploymentID), seq, time.Now(), &def)
+			record, err = q.DeploymentUpdateRecord(ctx, cfg.Deployment.ID, seq, time.Now(), &def)
 			if err != nil {
 				return nil, err
 			}
-			return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+			return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 		}
 		if err := spec.SetWorkloadVersion(desiredVersion); err != nil {
 			return nil, err
@@ -135,8 +135,8 @@ func EnsureNetproxy(store *state.Service, nodeID int32, initialVersion string) *
 		if err != nil {
 			return nil, err
 		}
-		event = pq.DeploymentCreateEvent(ctx, id, seq, time.Now(), &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.NetproxyName, Spec: *spec})
-		return pq.NewUpdate(pq.DeploymentMutation(event)), nil
+		record = pq.DeploymentCreateRecord(ctx, id, seq, time.Now(), &apigen.Deployment{Scheduling: apigen.DedicatedScheduling(true, nodeID), SpaceID: internaldeploy.SpaceID, Name: internaldeploy.NetproxyName, Spec: *spec})
+		return pq.NewUpdate(pq.DeploymentMutation(record)), nil
 	})
-	return erru.Must(event, err)
+	return erru.Must(record, err)
 }

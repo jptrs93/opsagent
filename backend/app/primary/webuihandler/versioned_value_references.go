@@ -20,14 +20,14 @@ var ReferencingDeploymentsChangedErr = apigen.NewApiErr(
 	http.StatusConflict,
 )
 
-func requestedDeploymentVersions(update bool, refs []*apigen.DeploymentExpectedSeq) ([]*apigen.DeploymentExpectedSeq, error) {
+func requestedDeploymentVersions(update bool, refs []apigen.DeploymentExpectedSeq) ([]apigen.DeploymentExpectedSeq, error) {
 	if !update && len(refs) != 0 {
 		return nil, InvalidReferencingDeploymentsErr
 	}
-	seen := make(map[int32]struct{}, len(refs))
-	out := make([]*apigen.DeploymentExpectedSeq, 0, len(refs))
+	seen := make(map[uint64]struct{}, len(refs))
+	out := make([]apigen.DeploymentExpectedSeq, 0, len(refs))
 	for _, ref := range refs {
-		if ref == nil || ref.DeploymentID <= 0 || ref.ExpectedSeq < 0 {
+		if ref.DeploymentID == 0 || ref.ExpectedSeq < 0 {
 			return nil, InvalidReferencingDeploymentsErr
 		}
 		if _, duplicate := seen[ref.DeploymentID]; duplicate {

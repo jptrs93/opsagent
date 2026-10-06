@@ -15,13 +15,13 @@ import (
 )
 
 func testNode(store *state.Service, identifier string) *Node {
-	return EnsurePrimaryNode(store, identifier, identifier)
+	return EnsurePrimaryNode(store, identifier, identifier, testUnderlay)
 }
 
 func TestEnsurePrimaryNodeCreatesPrimaryRole(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 
-	EnsurePrimaryNode(store, "primary", "primary-id")
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 
 	nodes := ListNodes(store.Queries())
 	if len(nodes) != 1 {
@@ -31,7 +31,7 @@ func TestEnsurePrimaryNodeCreatesPrimaryRole(t *testing.T) {
 	if node.Name != "primary" || node.Identifier != "primary-id" {
 		t.Fatalf("node identity = name %q identifier %q, want primary/primary-id", node.Name, node.Identifier)
 	}
-	if node.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL {
+	if node.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL {
 		t.Fatalf("primary status = %v, want member normal", node.Status)
 	}
 	if len(node.Roles) != 1 || node.Roles[0] != NodeRolePrimary {
@@ -45,14 +45,14 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 	defer store.Close()
 	for _, seed := range []struct {
 		name  string
-		roles []int32
+		roles []apigen.NodeRole
 	}{
-		{"coflip-prod", []int32{1}},
-		{"primary", []int32{0}},
+		{"coflip-prod", []apigen.NodeRole{NodeRoleSecondary}},
+		{"primary", []apigen.NodeRole{NodeRolePrimary}},
 	} {
 		if err := store.Commit(context.Background(), nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-			row, err := q.NewNode(context.Background(), seq, 0, apigen.Node{Status: apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL,
-				Operator: apigen.NodeOperator{Name: seed.name, Roles: seed.roles}, Reported: apigen.NodeReported{Identifier: seed.name}})
+			row, err := q.NewNode(context.Background(), seq, 0, apigen.Node{Status: apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL,
+				Operator: apigen.NodeOperator{Name: seed.name, Roles: seed.roles}, Reported: apigen.NodeReported{Identifier: seed.name, UnderlayAddress: apigen.AddrOf(testUnderlay)}})
 			if err != nil {
 				return nil, err
 			}
@@ -62,7 +62,7 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 		}
 	}
 
-	node := EnsurePrimaryNode(store, "primary", "primary")
+	node := EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
 	if node.Name != "primary" || node.Identifier != "primary" {
 		t.Fatalf("primary node = %+v, want primary certificate identity", node)
 	}
@@ -71,8 +71,8 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	const wgPublicKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
-	req, expectedVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v0.0.200", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.2", WgPublicKey: wgPublicKey})
-	if req.Status != apigen.NodeLifecycleStatus_NODE_ENROLLMENT_REQUESTED || !req.IsConnected {
+	req, expectedVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v0.0.200", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: mustAddr("10.0.0.2"), WgPublicKey: wgPublicKey})
+	if req.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_ENROLLMENT_REQUESTED || !req.IsConnected {
 		t.Fatalf("request = %+v, want connected enrollment-requested", req)
 	}
 	if req.RequestingIpAddress != "127.0.0.1" || req.OpendeployVersion != "v0.0.200" {
@@ -86,7 +86,7 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcceptEnrollmentRequest: %v", err)
 	}
-	if status.Status != apigen.NodeLifecycleStatus_NODE_MEMBER_NORMAL {
+	if status.Status != apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL {
 		t.Fatalf("status = %v, want member normal", status.Status)
 	}
 	if status.UnderlayAddress != "10.0.0.2" {
@@ -109,8 +109,8 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 	if len(node.Roles) != 1 || node.Roles[0] != NodeRoleSecondary {
 		t.Fatalf("node roles = %+v, want secondary", node.Roles)
 	}
-	if len(node.Addresses) != 1 || node.Addresses[0] != "10.0.0.2" {
-		t.Fatalf("node addresses = %v, want [10.0.0.2]", node.Addresses)
+	if node.UnderlayAddress.String() != "10.0.0.2" {
+		t.Fatalf("node underlay address = %v, want 10.0.0.2", node.UnderlayAddress)
 	}
 	if node.WGPublicKey != wgPublicKey {
 		t.Fatalf("node wg public key = %q, want %q", node.WGPublicKey, wgPublicKey)
@@ -120,7 +120,7 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 func TestSetNodeWGPublicKeyIsDiffGatedAndVersioned(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := EnsurePrimaryNode(store, "primary", "primary-id")
+	node := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 
 	const keyA = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
 	const keyB = "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="
@@ -150,8 +150,8 @@ func TestSetNodeWGPublicKeyIsDiffGatedAndVersioned(t *testing.T) {
 func TestAcceptEnrollmentRequestRejectsReplacedSessionRevision(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	first, firstVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v1", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.2", WgPublicKey: ""})
-	second, secondVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.2", "v2", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: "10.0.0.3", WgPublicKey: ""})
+	first, firstVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.1", "v1", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: mustAddr("10.0.0.2"), WgPublicKey: ""})
+	second, secondVersion := mustUpsertEnrollmentRequest(t, store, "127.0.0.2", "v2", apigen.NodeReported{Identifier: "requesting-id", UnderlayAddress: mustAddr("10.0.0.3"), WgPublicKey: ""})
 	if second.ID != first.ID {
 		t.Fatalf("replacement request id = %d, want %d", second.ID, first.ID)
 	}
@@ -170,7 +170,7 @@ func TestAcceptEnrollmentRequestRejectsReplacedSessionRevision(t *testing.T) {
 func TestRenameNodePreservesIdentifier(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	primaryNode := EnsurePrimaryNode(store, "primary", "primary-id")
+	primaryNode := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
 	statetest.MustCreateDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, primaryNode.ID, statetest.SpecWithVersion("v1"))
 
 	node, err := RenameNode(store, "primary-id", "control plane")
@@ -181,7 +181,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 		t.Fatalf("renamed node = %+v", node)
 	}
 	configs := erru.Must(store.Queries().ListActiveDeployments(context.Background()))
-	if len(configs) == 0 || configs[0].Value.PlacementNodeID() != primaryNode.ID {
+	if len(configs) == 0 || configs[0].Deployment.PlacementNodeID() != primaryNode.ID {
 		t.Fatalf("deployment targets after rename = %+v", configs)
 	}
 }
@@ -189,8 +189,8 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 func TestSpaceAndNodeChangesPublishTogether(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
-	EnsurePrimaryNode(s, "one", "one")
-	EnsurePrimaryNode(s, "two", "two")
+	EnsurePrimaryNode(s, "one", "one", testUnderlay)
+	EnsurePrimaryNode(s, "two", "two", testUnderlay)
 	before := globalSeq(t, s)
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()
@@ -202,7 +202,7 @@ func TestSpaceAndNodeChangesPublishTogether(t *testing.T) {
 	statetest.AssertUpdateMatchesRows(t, s, update)
 	spaces := mutationsOf(update, apigen.CoreEntityType_CORE_ENTITY_SPACE)
 	nodeMutations := mutationsOf(update, apigen.CoreEntityType_CORE_ENTITY_NODE)
-	if update.Seq != before+1 || len(spaces) != 1 || spaces[0].EntityID() != int64(space.ID) || len(nodeMutations) != 2 {
+	if update.Seq != before+1 || len(spaces) != 1 || spaces[0].EntityID() != space.ID || len(nodeMutations) != 2 {
 		t.Fatalf("space transaction: %+v", update)
 	}
 	for _, m := range nodeMutations {

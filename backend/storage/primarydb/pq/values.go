@@ -8,14 +8,15 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// SecretRow is a live secret identity: its placement, name, newest value
-// version, and the envelope of its last write.
+// SecretRow is a live secret identity: its placement, key, newest value
+// version, and the envelope of its last write. DirectoryID 0 is the space
+// root.
 type SecretRow struct {
-	ID           int64
-	SpaceID      int64
-	DirectoryID  int64
-	Name         string
-	ValueVersion int64
+	ID           uint64
+	SpaceID      uint64
+	DirectoryID  uint64
+	Key          string
+	ValueVersion uint32
 	Seq          int64
 	EventTime    int64
 	Author       int64
@@ -25,22 +26,22 @@ type SecretRow struct {
 // SecretVersionRow is one sealed value of a live secret with the envelope of
 // the write that produced it.
 type SecretVersionRow struct {
-	SecretID     int64
-	ValueVersion int64
+	SecretID     uint64
+	ValueVersion uint32
 	Seq          int64
 	EventTime    int64
 	Author       int64
-	SmkVersion   int64
+	SmkVersion   uint32
 	Ciphertext   []byte
 	Nonce        []byte
 }
 
 type ConfigRow struct {
-	ID           int64
-	SpaceID      int64
-	DirectoryID  int64
-	Name         string
-	ValueVersion int64
+	ID           uint64
+	SpaceID      uint64
+	DirectoryID  uint64
+	Key          string
+	ValueVersion uint32
 	Seq          int64
 	EventTime    int64
 	Author       int64
@@ -48,32 +49,32 @@ type ConfigRow struct {
 }
 
 type ConfigVersionRow struct {
-	ConfigID     int64
-	ValueVersion int64
+	ConfigID     uint64
+	ValueVersion uint32
 	Seq          int64
 	EventTime    int64
 	Author       int64
 	Value        string
 }
 
-// ValueName is one entry of the values namespace: the path component of a
+// ValueKey is one entry of the values namespace: the path component of a
 // directory, secret, or config under its parent.
-type ValueName struct {
-	SpaceID  int64
-	ParentID int64
-	Name     string
+type ValueKey struct {
+	SpaceID  uint64
+	ParentID uint64
+	Key      string
 	Kind     apigen.CoreEntityType
-	ID       int64
+	ID       uint64
 }
 
-const secretColumns = `id, space_id, directory_id, name, value_version, seq, event_time, author, created_time`
+const secretColumns = `id, space_id, directory_id, key, value_version, seq, event_time, author, created_time`
 const secretVersionColumns = `secret_id, value_version, seq, event_time, author, smk_version, ciphertext, nonce`
-const configColumns = `id, space_id, directory_id, name, value_version, seq, event_time, author, created_time`
+const configColumns = `id, space_id, directory_id, key, value_version, seq, event_time, author, created_time`
 const configVersionColumns = `config_id, value_version, seq, event_time, author, value`
 
 func scanSecretRow(row scanner) (SecretRow, error) {
 	var r SecretRow
-	err := row.Scan(&r.ID, &r.SpaceID, &r.DirectoryID, &r.Name, &r.ValueVersion, &r.Seq, &r.EventTime, &r.Author, &r.CreatedTime)
+	err := row.Scan(&r.ID, &r.SpaceID, &r.DirectoryID, &r.Key, &r.ValueVersion, &r.Seq, &r.EventTime, &r.Author, &r.CreatedTime)
 	return r, err
 }
 
@@ -85,7 +86,7 @@ func scanSecretVersionRow(row scanner) (SecretVersionRow, error) {
 
 func scanConfigRow(row scanner) (ConfigRow, error) {
 	var r ConfigRow
-	err := row.Scan(&r.ID, &r.SpaceID, &r.DirectoryID, &r.Name, &r.ValueVersion, &r.Seq, &r.EventTime, &r.Author, &r.CreatedTime)
+	err := row.Scan(&r.ID, &r.SpaceID, &r.DirectoryID, &r.Key, &r.ValueVersion, &r.Seq, &r.EventTime, &r.Author, &r.CreatedTime)
 	return r, err
 }
 
@@ -112,12 +113,12 @@ func listRows[T any](ctx context.Context, q *Queries, scan func(scanner) (T, err
 	return out, rows.Err()
 }
 
-func (q *Queries) GetSecretRowByID(ctx context.Context, id int64) (SecretRow, error) {
+func (q *Queries) GetSecretRowByID(ctx context.Context, id uint64) (SecretRow, error) {
 	return scanSecretRow(q.db.QueryRowContext(ctx, `SELECT `+secretColumns+` FROM secrets WHERE id = ?`, id))
 }
 
 func (q *Queries) ListSecretRows(ctx context.Context) ([]SecretRow, error) {
-	return listRows(ctx, q, scanSecretRow, `SELECT `+secretColumns+` FROM secrets ORDER BY name, id`)
+	return listRows(ctx, q, scanSecretRow, `SELECT `+secretColumns+` FROM secrets ORDER BY key, id`)
 }
 
 func (q *Queries) GetSecretVersion(ctx context.Context, ref apigen.ValueRef) (SecretVersionRow, error) {
@@ -140,7 +141,7 @@ func (q *Queries) GetSecretVersionJoined(ctx context.Context, ref apigen.ValueRe
 	if j.Version, err = q.GetSecretVersion(ctx, ref); err != nil {
 		return j, err
 	}
-	j.Secret, err = q.GetSecretRowByID(ctx, int64(ref.ID))
+	j.Secret, err = q.GetSecretRowByID(ctx, ref.ID)
 	return j, err
 }
 
@@ -151,7 +152,7 @@ func (q *Queries) ListSecretVersionJoined(ctx context.Context) ([]SecretVersionJ
 	if err != nil {
 		return nil, err
 	}
-	byID := make(map[int64]SecretRow, len(secrets))
+	byID := make(map[uint64]SecretRow, len(secrets))
 	for _, s := range secrets {
 		byID[s.ID] = s
 	}
@@ -166,12 +167,12 @@ func (q *Queries) ListSecretVersionJoined(ctx context.Context) ([]SecretVersionJ
 	return out, nil
 }
 
-func (q *Queries) GetConfigRowByID(ctx context.Context, id int64) (ConfigRow, error) {
+func (q *Queries) GetConfigRowByID(ctx context.Context, id uint64) (ConfigRow, error) {
 	return scanConfigRow(q.db.QueryRowContext(ctx, `SELECT `+configColumns+` FROM configs WHERE id = ?`, id))
 }
 
 func (q *Queries) ListConfigRows(ctx context.Context) ([]ConfigRow, error) {
-	return listRows(ctx, q, scanConfigRow, `SELECT `+configColumns+` FROM configs ORDER BY name, id`)
+	return listRows(ctx, q, scanConfigRow, `SELECT `+configColumns+` FROM configs ORDER BY key, id`)
 }
 
 func (q *Queries) GetConfigVersion(ctx context.Context, ref apigen.ValueRef) (ConfigVersionRow, error) {
@@ -193,36 +194,37 @@ func (q *Queries) GetConfigVersionJoined(ctx context.Context, ref apigen.ValueRe
 	if j.Version, err = q.GetConfigVersion(ctx, ref); err != nil {
 		return j, err
 	}
-	j.Config, err = q.GetConfigRowByID(ctx, int64(ref.ID))
+	j.Config, err = q.GetConfigRowByID(ctx, ref.ID)
 	return j, err
 }
 
-// LookupValueName resolves one path component under a directory to the
-// entity that holds it, or sql.ErrNoRows when the name is free.
-func (q *Queries) LookupValueName(ctx context.Context, spaceID, parentID int64, name string) (ValueName, error) {
-	n := ValueName{SpaceID: spaceID, ParentID: parentID, Name: name}
+// LookupValueKey resolves one path component under a directory to the
+// entity that holds it, or sql.ErrNoRows when the key is free. parentID 0 is
+// the space root.
+func (q *Queries) LookupValueKey(ctx context.Context, spaceID, parentID uint64, key string) (ValueKey, error) {
+	k := ValueKey{SpaceID: spaceID, ParentID: parentID, Key: key}
 	var kind int64
-	err := q.db.QueryRowContext(ctx, `SELECT kind, id FROM value_names WHERE space_id = ? AND parent_id = ? AND name = ?`, spaceID, parentID, name).Scan(&kind, &n.ID)
-	n.Kind = apigen.CoreEntityType(kind)
-	return n, err
+	err := q.db.QueryRowContext(ctx, `SELECT kind, id FROM value_keys WHERE space_id = ? AND parent_id = ? AND key = ?`, spaceID, parentID, key).Scan(&kind, &k.ID)
+	k.Kind = apigen.CoreEntityType(kind)
+	return k, err
 }
 
-// ValueNameTaken reports whether a name under a directory belongs to an
+// ValueKeyTaken reports whether a key under a directory belongs to an
 // entity other than the one given.
-func (q *Queries) ValueNameTaken(ctx context.Context, spaceID, parentID int64, name string, self apigen.CoreEntityType, selfID int64) (bool, error) {
-	n, err := q.LookupValueName(ctx, spaceID, parentID, name)
+func (q *Queries) ValueKeyTaken(ctx context.Context, spaceID, parentID uint64, key string, self apigen.CoreEntityType, selfID uint64) (bool, error) {
+	k, err := q.LookupValueKey(ctx, spaceID, parentID, key)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return n.Kind != self || n.ID != selfID, nil
+	return k.Kind != self || k.ID != selfID, nil
 }
 
-func (q *Queries) CountValueNamesUnder(ctx context.Context, directoryID int64) (int64, error) {
+func (q *Queries) CountValueKeysUnder(ctx context.Context, directoryID uint64) (int64, error) {
 	var n int64
-	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM value_names WHERE parent_id = ?`, directoryID).Scan(&n)
+	err := q.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM value_keys WHERE parent_id = ?`, directoryID).Scan(&n)
 	return n, err
 }
 
@@ -230,8 +232,8 @@ func (q *Queries) CountValueNamesUnder(ctx context.Context, directoryID int64) (
 // current identity, sealed bytes included.
 func SecretEntity(s SecretRow, v SecretVersionRow) apigen.Secret {
 	return apigen.Secret{
-		ID: int32(s.ID), Fs: &apigen.SecretFs{Name: s.Name, DirectoryID: int32(s.DirectoryID)}, SpaceID: int32(s.SpaceID),
-		SmkVersion: v.SmkVersion, Ciphertext: v.Ciphertext, Nonce: v.Nonce,
+		ID: s.ID, Fs: apigen.SecretFs{Key: s.Key, DirectoryID: directoryRef(s.DirectoryID)}, SpaceID: s.SpaceID,
+		Sealed: apigen.Some(apigen.SealedSecret{SmkVersion: v.SmkVersion, Ciphertext: v.Ciphertext, Nonce: v.Nonce}),
 	}
 }
 
@@ -239,22 +241,22 @@ func SecretEntity(s SecretRow, v SecretVersionRow) apigen.Secret {
 // newest value version, never the sealed bytes.
 func SecretEventOf(s SecretRow) *SecretEvent {
 	return &SecretEvent{
-		SecretID: int32(s.ID), Seq: s.Seq, Author: int32(s.Author), CreatedTime: s.CreatedTime, EventTime: s.EventTime, ValueVersion: int32(s.ValueVersion),
-		Value: apigen.Secret{Fs: &apigen.SecretFs{Name: s.Name, DirectoryID: int32(s.DirectoryID)}, SpaceID: int32(s.SpaceID)},
+		SecretID: s.ID, Seq: s.Seq, Author: s.Author, CreatedTime: s.CreatedTime, EventTime: s.EventTime, ValueVersion: s.ValueVersion,
+		Value: apigen.Secret{ID: s.ID, Fs: apigen.SecretFs{Key: s.Key, DirectoryID: directoryRef(s.DirectoryID)}, SpaceID: s.SpaceID},
 	}
 }
 
 // SecretVersionEventOf is the API view of one value version: the version's
-// envelope under the identity's current name, directory, and space.
+// envelope under the identity's current key, directory, and space.
 func SecretVersionEventOf(j SecretVersionJoined) *SecretEvent {
 	e := SecretEventOf(j.Secret)
-	e.Seq, e.Author, e.EventTime, e.ValueVersion = j.Version.Seq, int32(j.Version.Author), j.Version.EventTime, int32(j.Version.ValueVersion)
+	e.Seq, e.Author, e.EventTime, e.ValueVersion = j.Version.Seq, j.Version.Author, j.Version.EventTime, j.Version.ValueVersion
 	return e
 }
 
 func ConfigEntity(c ConfigRow, v ConfigVersionRow) apigen.Config {
 	return apigen.Config{
-		ID: int32(c.ID), Fs: &apigen.ConfigFs{Name: c.Name, DirectoryID: int32(c.DirectoryID)}, SpaceID: int32(c.SpaceID),
+		ID: c.ID, Fs: apigen.ConfigFs{Key: c.Key, DirectoryID: directoryRef(c.DirectoryID)}, SpaceID: c.SpaceID,
 		Value: v.Value,
 	}
 }
@@ -266,18 +268,18 @@ func ConfigEventOf(j ConfigVersionJoined) *ConfigEvent {
 		seq, author, eventTime = v.Seq, v.Author, v.EventTime
 	}
 	return &ConfigEvent{
-		ConfigID: int32(c.ID), Seq: seq, Author: int32(author), CreatedTime: c.CreatedTime, EventTime: eventTime, ValueVersion: int32(v.ValueVersion),
+		ConfigID: c.ID, Seq: seq, Author: author, CreatedTime: c.CreatedTime, EventTime: eventTime, ValueVersion: v.ValueVersion,
 		Value: ConfigEntity(c, v),
 	}
 }
 
 // GetConfigEvent is the API view of a live config at its newest version.
-func (q *Queries) GetConfigEvent(ctx context.Context, id int64) (*ConfigEvent, error) {
+func (q *Queries) GetConfigEvent(ctx context.Context, id uint64) (*ConfigEvent, error) {
 	c, err := q.GetConfigRowByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	v, err := q.GetConfigVersion(ctx, apigen.ValueRef{ID: int32(c.ID), Version: int32(c.ValueVersion)})
+	v, err := q.GetConfigVersion(ctx, apigen.ValueRef{ID: c.ID, Version: c.ValueVersion})
 	if err != nil {
 		return nil, err
 	}
@@ -291,7 +293,7 @@ func (q *Queries) ListConfigEvents(ctx context.Context) ([]*ConfigEvent, error) 
 	}
 	out := make([]*ConfigEvent, 0, len(configs))
 	for _, c := range configs {
-		v, err := q.GetConfigVersion(ctx, apigen.ValueRef{ID: int32(c.ID), Version: int32(c.ValueVersion)})
+		v, err := q.GetConfigVersion(ctx, apigen.ValueRef{ID: c.ID, Version: c.ValueVersion})
 		if err != nil {
 			return nil, err
 		}

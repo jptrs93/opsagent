@@ -9,22 +9,33 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
-func testAssignment(id, deploymentID, nodeID int32) *apigen.ScheduledInstanceState {
-	return &apigen.ScheduledInstanceState{
+func testAssignment(id, deploymentID, nodeID uint64) apigen.ScheduledInstanceState {
+	return apigen.ScheduledInstanceState{
 		Instance: apigen.ScheduledInstance{
-			ID: id, DeploymentID: deploymentID, DeploymentSpecVersion: 1, NodeID: nodeID,
+			ID: id, NodeID: nodeID, Deployment: apigen.DeploymentRef{DeploymentID: deploymentID, Version: 1},
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
-		Config: apigen.DeploymentEvent{
-			DeploymentID: deploymentID,
-			SpecVersion:  1,
-			Value:        apigen.Deployment{Scheduling: apigen.DedicatedScheduling(false, nodeID), Spec: apigen.DeploymentSpec{Container1Spec: &apigen.ContainerSpec{Source: apigen.ContainerBundleSource{RemoteImage: &apigen.RemoteDockerImage{Image: "example/app"}}, Runtime: apigen.ContainerRuntime{User: "1000"}}, Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST}}},
+		Config: apigen.DeploymentRecord{
+			Deployment: apigen.Deployment{
+				ID:         deploymentID,
+				Name:       "app",
+				Scheduling: apigen.DedicatedScheduling(false, nodeID),
+				Spec: apigen.DeploymentSpec{
+					Workload: apigen.Workload{Value: apigen.WorkloadValueOneof{Container: &apigen.ContainerSpec{
+						Source:          apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: "example/app"}}},
+						Runtime:         apigen.ContainerRuntime{User: "1000"},
+						UpgradeStrategy: apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE,
+					}}},
+					Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_HOST},
+				},
+			},
+			Meta: apigen.EntityMeta{Version: 1, SpecVersion: 1},
 		},
 	}
 }
 
-func instanceIDs(states []apigen.ScheduledInstanceState) []int32 {
-	out := make([]int32, 0, len(states))
+func instanceIDs(states []apigen.ScheduledInstanceState) []uint64 {
+	out := make([]uint64, 0, len(states))
 	for _, s := range states {
 		out = append(out, s.Instance.ID)
 	}
@@ -36,7 +47,7 @@ func instanceIDs(states []apigen.ScheduledInstanceState) []int32 {
 // primary's complete set for this node, so the instance it omits must be torn
 // down: no further update naming it will ever arrive.
 func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
-	const nodeID int32 = 5
+	const nodeID uint64 = 5
 	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 
@@ -46,7 +57,7 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 
 	// Two assignments arrive, then the primary reconnects knowing only about 41.
 	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
-		Items: []*apigen.ScheduledInstanceState{
+		Items: []apigen.ScheduledInstanceState{
 			testAssignment(41, 8, nodeID),
 			testAssignment(42, 9, nodeID),
 		},
@@ -56,7 +67,7 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 	}
 
 	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
-		Items: []*apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},
+		Items: []apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},
 	}, nodeID)
 
 	got := instanceIDs(store.FetchScheduledSnapshot(nil))
@@ -69,7 +80,7 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 // assignments it merely failed to recognise: items addressed to another node are
 // skipped on the way in, and must not therefore count as absent.
 func TestApplySnapshotKeepsInstancesForOtherNodes(t *testing.T) {
-	const nodeID int32 = 5
+	const nodeID uint64 = 5
 	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
 
@@ -78,12 +89,12 @@ func TestApplySnapshotKeepsInstancesForOtherNodes(t *testing.T) {
 	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 16), ctx: ctx}
 
 	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
-		Items: []*apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},
+		Items: []apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},
 	}, nodeID)
 
 	// A snapshot naming this node's instance plus one for a different node.
 	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
-		Items: []*apigen.ScheduledInstanceState{
+		Items: []apigen.ScheduledInstanceState{
 			testAssignment(41, 8, nodeID),
 			testAssignment(99, 12, nodeID+1),
 		},

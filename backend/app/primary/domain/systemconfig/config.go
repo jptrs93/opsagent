@@ -59,48 +59,60 @@ func DefaultInitial() Initial {
 	}
 }
 
+// StringLiteral and BoolLiteral are settings holding a literal value;
+// StringConfigRef and BoolConfigRef are settings resolved through a config.
+func StringLiteral(v string) apigen.StringSetting {
+	return apigen.StringSetting{Value: apigen.StringSettingValue{Value: apigen.StringSettingValueValueOneof{Literal: &v}}}
+}
+
+func BoolLiteral(v bool) apigen.BoolSetting {
+	return apigen.BoolSetting{Value: apigen.BoolSettingValue{Value: apigen.BoolSettingValueValueOneof{Literal: &v}}}
+}
+
+func StringConfigRef(ref apigen.ConfigRef) apigen.StringSetting {
+	return apigen.StringSetting{Value: apigen.StringSettingValue{Value: apigen.StringSettingValueValueOneof{ConfigRef: &ref}}}
+}
+
+func BoolConfigRef(ref apigen.ConfigRef) apigen.BoolSetting {
+	return apigen.BoolSetting{Value: apigen.BoolSettingValue{Value: apigen.BoolSettingValueValueOneof{ConfigRef: &ref}}}
+}
+
 func DefaultSettings(initial Initial) *apigen.ClusterSettings {
 	return &apigen.ClusterSettings{
 		HttpWeb: apigen.HttpWebSettings{
-			Enabled: apigen.BoolSetting{Value: initial.WebHTTPEnabled},
-			Listen:  apigen.StringSetting{Value: initial.WebHTTPListen},
+			Enabled: BoolLiteral(initial.WebHTTPEnabled),
+			Listen:  StringLiteral(initial.WebHTTPListen),
 		},
 		HttpsWeb: apigen.HttpsWebSettings{
-			Enabled:        apigen.BoolSetting{Value: initial.WebHTTPSEnabled},
-			Listen:         apigen.StringSetting{Value: initial.WebHTTPSListen},
-			TlsSelfManaged: apigen.BoolSetting{Value: initial.WebTLSSelfManaged},
-			TlsCertPem:     apigen.SecretRef{},
-			AcmeHosts:      apigen.StringSetting{Value: strings.Join(initial.AcmeHosts, ",")},
-			AcmeEmail:      apigen.StringSetting{Value: initial.AcmeEmail},
+			Enabled:        BoolLiteral(initial.WebHTTPSEnabled),
+			Listen:         StringLiteral(initial.WebHTTPSListen),
+			TlsSelfManaged: BoolLiteral(initial.WebTLSSelfManaged),
+			AcmeHosts:      StringLiteral(strings.Join(initial.AcmeHosts, ",")),
+			AcmeEmail:      StringLiteral(initial.AcmeEmail),
 		},
 		Cluster: apigen.ClusterListenSettings{
-			Listen:           apigen.StringSetting{Value: initial.ClusterListen},
-			EnrollmentListen: apigen.StringSetting{Value: initial.EnrollmentListen},
-		},
-		Repo: apigen.RepoSettings{
-			GithubToken: apigen.SecretRef{},
+			Listen:           StringLiteral(initial.ClusterListen),
+			EnrollmentListen: StringLiteral(initial.EnrollmentListen),
 		},
 		Backup: apigen.BackupSettings{
-			Enabled:           apigen.BoolSetting{Value: false},
-			S3AccessKeyID:     apigen.StringSetting{Value: ""},
-			S3SecretAccessKey: apigen.SecretRef{},
-			S3Bucket:          apigen.StringSetting{Value: ""},
-			S3Path:            apigen.StringSetting{Value: "opendeploy/primary"},
-			S3Region:          apigen.StringSetting{Value: "us-east-1"},
-			S3Endpoint:        apigen.StringSetting{Value: ""},
+			Enabled:       BoolLiteral(false),
+			S3AccessKeyID: StringLiteral(""),
+			S3Bucket:      StringLiteral(""),
+			S3Path:        StringLiteral("opendeploy/primary"),
+			S3Region:      StringLiteral("us-east-1"),
+			S3Endpoint:    StringLiteral(""),
 		},
 		LargeAssets: apigen.LargeAssetsSettings{
-			UseSeparateS3:     apigen.BoolSetting{Value: false},
-			S3AccessKeyID:     apigen.StringSetting{Value: ""},
-			S3SecretAccessKey: apigen.SecretRef{},
-			S3Bucket:          apigen.StringSetting{Value: ""},
-			S3Path:            apigen.StringSetting{Value: "opendeploy/assets"},
-			S3Region:          apigen.StringSetting{Value: "us-east-1"},
-			S3Endpoint:        apigen.StringSetting{Value: ""},
-			KeepLocalCopy:     apigen.BoolSetting{Value: false},
+			UseSeparateS3: BoolLiteral(false),
+			S3AccessKeyID: StringLiteral(""),
+			S3Bucket:      StringLiteral(""),
+			S3Path:        StringLiteral("opendeploy/assets"),
+			S3Region:      StringLiteral("us-east-1"),
+			S3Endpoint:    StringLiteral(""),
+			KeepLocalCopy: BoolLiteral(false),
 		},
 		Auth: apigen.AuthSettings{
-			PasswordLoginEnabled: apigen.BoolSetting{Value: initial.PasswordLoginEnabled},
+			PasswordLoginEnabled: BoolLiteral(initial.PasswordLoginEnabled),
 		},
 	}
 }
@@ -116,8 +128,9 @@ func normalizeConfig(cfg apigen.SystemConfig) apigen.SystemConfig {
 
 func Default(initial Initial) *apigen.SystemConfig {
 	return &apigen.SystemConfig{
+		ID:                 uint32(pq.SystemConfigEntityID),
 		Settings:           *DefaultSettings(initial),
-		MasterPasswordHash: initial.MasterPasswordHash,
+		MasterPasswordHash: optionalString(initial.MasterPasswordHash),
 	}
 }
 
@@ -193,7 +206,7 @@ func (s *Service) loadConfig() (apigen.SystemConfig, pq.SystemConfigRevision, er
 	return normalizeConfig(*cfg), r, nil
 }
 
-func (s *Service) UpdateSettings(settings apigen.ClusterSettings, author int32, inlockValidate func(*pq.Queries) error) error {
+func (s *Service) UpdateSettings(settings apigen.ClusterSettings, author int64, inlockValidate func(*pq.Queries) error) error {
 	if s.AssetOperationMu != nil {
 		s.AssetOperationMu.Lock()
 		defer s.AssetOperationMu.Unlock()
@@ -232,7 +245,7 @@ func (s *Service) UpdateSettings(settings apigen.ClusterSettings, author int32, 
 	return nil
 }
 
-func (s *Service) saveAndNotifyLocked(cfg apigen.SystemConfig, author int32) error {
+func (s *Service) saveAndNotifyLocked(cfg apigen.SystemConfig, author int64) error {
 	cfg = normalizeConfig(cfg)
 	versionID, err := AppendRevision(s.Storage, author, cfg.Encode(), nil)
 	if err != nil {
@@ -262,14 +275,14 @@ func (s *Service) UpdateSettingsInternal(settings apigen.ClusterSettings) error 
 }
 
 func (s *Service) GetMasterPasswordHash() (string, error) {
-	return s.Snapshot().MasterPasswordHash, nil
+	return s.Snapshot().MasterPasswordHash.Value, nil
 }
 
-func (s *Service) SetMasterPasswordHash(hash string, author int32) error {
+func (s *Service) SetMasterPasswordHash(hash string, author int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cfg := s.Snapshot()
-	cfg.MasterPasswordHash = hash
+	cfg.MasterPasswordHash = optionalString(hash)
 	return s.saveAndNotifyLocked(cfg, author)
 }
 
@@ -282,30 +295,45 @@ func (s *Service) MustLoadBoolSetting(v apigen.BoolSetting) bool {
 }
 
 func (s *Service) LoadStringSetting(v apigen.StringSetting) (string, error) {
-	if !v.ConfigRef.Ref.Valid() {
-		return v.Value, nil
+	ref := v.Value.Value.ConfigRef
+	if ref == nil || !ref.Valid() {
+		if literal := v.Value.Value.Literal; literal != nil {
+			return *literal, nil
+		}
+		return "", nil
 	}
 	if s == nil || s.Storage == nil {
 		return "", fmt.Errorf("config storage is not configured")
 	}
-	version, ok := values.GetConfigVersion(s.Storage.Queries(), v.ConfigRef.Ref)
+	version, ok := values.GetConfigVersion(s.Storage.Queries(), ref.Ref())
 	if !ok {
-		return "", fmt.Errorf("config ref %s was not found", v.ConfigRef.Ref)
+		return "", fmt.Errorf("config ref %s was not found", ref.Ref())
 	}
 	return version.Value, nil
 }
 
 func (s *Service) LoadBoolSetting(v apigen.BoolSetting) (bool, error) {
-	if !v.ConfigRef.Ref.Valid() {
-		return v.Value, nil
+	ref := v.Value.Value.ConfigRef
+	if ref == nil || !ref.Valid() {
+		if literal := v.Value.Value.Literal; literal != nil {
+			return *literal, nil
+		}
+		return false, nil
 	}
-	value, err := s.LoadStringSetting(apigen.StringSetting{ConfigRef: v.ConfigRef})
+	value, err := s.LoadStringSetting(StringConfigRef(*ref))
 	if err != nil {
 		return false, err
 	}
 	parsed, err := strconv.ParseBool(strings.TrimSpace(value))
 	if err != nil {
-		return false, fmt.Errorf("config ref %s must resolve to true or false", v.ConfigRef.Ref)
+		return false, fmt.Errorf("config ref %s must resolve to true or false", ref.Ref())
 	}
 	return parsed, nil
+}
+
+func optionalString(v string) apigen.Maybe[string] {
+	if v == "" {
+		return apigen.Maybe[string]{}
+	}
+	return apigen.Some(v)
 }

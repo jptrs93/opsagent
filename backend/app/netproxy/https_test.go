@@ -38,7 +38,7 @@ func TestHTTPSTerminationRoutesAndStripsPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	bundlePath := filepath.Join(t.TempDir(), CertBundleFileName)
-	if err := WriteCertBundle(bundlePath, &apigen.CertBundle{Seq: 1, Certs: []*apigen.CertBundleEntry{
+	if err := WriteCertBundle(bundlePath, &apigen.CertBundle{Seq: 1, Certs: []apigen.CertBundleEntry{
 		{CertID: "secret:7", Pem: append(append([]byte{}, certPEM...), keyPEM...)},
 	}}); err != nil {
 		t.Fatal(err)
@@ -54,15 +54,15 @@ func TestHTTPSTerminationRoutesAndStripsPrefix(t *testing.T) {
 	server := newHTTPSServer(ctx, certs, func() *httpsState { return stateHolder.Load() }, nil)
 	go server.run()
 
-	snapshot := &apigen.NetState{Seq: 1, Ingress: []*apigen.NetIngress{{
+	snapshot := &apigen.NetState{Seq: 1, Ingress: []apigen.NetIngress{{
 		Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
 		Hostname: "app.test",
-		Https: &apigen.HttpsNetIngress{
+		Https: apigen.Some(apigen.HttpsNetIngress{
 			PathPrefix:  "/api",
 			StripPrefix: true,
 			CertID:      "secret:7",
-			Backends:    []*apigen.IngressBackend{{Address: backendHost, Port: int32(backendPort)}},
-		},
+			Backends:    []apigen.IngressBackend{{Address: backendHost, Port: uint32(backendPort)}},
+		}),
 	}}}
 	stateHolder.Store(server.buildState(snapshot))
 

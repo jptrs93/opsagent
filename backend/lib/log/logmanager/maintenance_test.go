@@ -33,18 +33,18 @@ func step(t *testing.T, m *Manager) bool {
 	return did
 }
 
-func queryMsgsAll(t *testing.T, m *Manager, filters ...*apigen.LogFilter) *apigen.LogQueryResponse {
+func queryMsgsAll(t *testing.T, m *Manager, filters ...apigen.LogFilter) *apigen.LogQueryResponse {
 	t.Helper()
 	resp, err := m.Query(context.Background(), &apigen.LogQueryRequest{
 		DeploymentID: testDeploymentID,
-		TimeStart:    mustTime(t, "2026-06-01T00:00:00Z"),
-		TimeEnd:      mustTime(t, "2026-07-01T00:00:00Z"),
+		TimeStart:    apigen.TimeOf(mustTime(t, "2026-06-01T00:00:00Z")),
+		TimeEnd:      apigen.TimeOf(mustTime(t, "2026-07-01T00:00:00Z")),
 		Filters:      filters,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Stats.TookMs = 0
+	resp.Stats.Value.TookMs = 0
 	return resp
 }
 
@@ -87,7 +87,7 @@ func TestRollupMergesOnBytes(t *testing.T) {
 	oldTarget := rollupTargetBytes
 	rollupTargetBytes = inputs[0].ByteSize + inputs[1].ByteSize
 	t.Cleanup(func() { rollupTargetBytes = oldTarget })
-	before := queryMsgsAll(t, m, &apigen.LogFilter{Field: "user", Op: "eq", Value: "68"})
+	before := queryMsgsAll(t, m, apigen.LogFilter{Field: "user", Op: "eq", Value: "68"})
 	if !step(t, m) {
 		t.Fatal("roll-up did not run")
 	}
@@ -107,12 +107,12 @@ func TestRollupMergesOnBytes(t *testing.T) {
 	if len(lines) != 4 || lines[0] != typedLines[0]+"\n" || lines[3] != typedLines[3]+"\n" {
 		t.Fatalf("merged lines = %#v", lines)
 	}
-	after := queryMsgsAll(t, m, &apigen.LogFilter{Field: "user", Op: "eq", Value: "68"})
+	after := queryMsgsAll(t, m, apigen.LogFilter{Field: "user", Op: "eq", Value: "68"})
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("before = %+v\nafter = %+v", before, after)
 	}
 	all := queryMsgsAll(t, m)
-	if all.Stats.MatchedRows != 4 {
+	if all.Stats.Value.MatchedRows != 4 {
 		t.Fatalf("stats = %+v", all.Stats)
 	}
 	if step(t, m) {

@@ -1,6 +1,5 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
-import {deploymentFromRecord} from "../state/tree.js";
 import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {deploymentDeleted, deploymentRestartEvent, deploymentWorkload, desiredRunning} from "../lib/deployment.js";
@@ -31,8 +30,8 @@ function describeConfigEntry(config, prevConfig) {
         if (desiredRunning(config) !== desiredRunning(prevConfig)) {
             parts.push(desiredRunning(config) ? 'running=true' : 'running=false');
         }
-        if (config.value?.spaceId !== prevConfig.value?.spaceId) {
-            parts.push(`moved to space ${config.value?.spaceId}`);
+        if (config.deployment?.spaceId !== prevConfig.deployment?.spaceId) {
+            parts.push(`moved to space ${config.deployment?.spaceId}`);
         }
         if (deploymentDeleted(config) && !deploymentDeleted(prevConfig)) {
             parts.push('deleted');
@@ -130,7 +129,7 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
     const load = async () => {
         try {
             const decoded = await capi.postV1DeploymentsHistory({ deploymentId });
-            entries.val = (decoded?.entries || []).map(e => ({config: deploymentFromRecord(e.deployment), status: e.status}));
+            entries.val = (decoded?.entries || []).map(e => ({config: e.value?.deployment || null, status: e.value?.status}));
         } catch (e) {
             console.error('Failed to load deployment history:', e);
             error.val = 'Connection error';
@@ -146,14 +145,15 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
         // preparer/runner data and render as meaningless lines).
         const visibleEntries = entries.val.filter(e => !e.status || tsMs(e.status.updatedAt) > 0);
         const configEntries = visibleEntries.filter(e => e.config);
-        const configsSorted = [...configEntries].sort((a, b) => a.config.version - b.config.version);
+        const versionOf = config => Number(config?.meta?.version || 0);
+        const configsSorted = [...configEntries].sort((a, b) => versionOf(a.config) - versionOf(b.config));
         const currentConfigVersion = configsSorted.length > 0
-            ? configsSorted[configsSorted.length - 1].config.version
+            ? versionOf(configsSorted[configsSorted.length - 1].config)
             : 0;
         const prevByVersion = {};
         let prevConfig = null;
         for (const e of configsSorted) {
-            prevByVersion[e.config.version] = prevConfig;
+            prevByVersion[versionOf(e.config)] = prevConfig;
             prevConfig = e.config;
         }
 
@@ -172,14 +172,15 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
         return visibleEntries.map((e) => {
             if (e.config) {
                 const targetVersion = deploymentWorkload(e.config)?.version || '';
+                const meta = e.config.meta || {};
                 return {
-                    at: e.config.eventTime,
+                    at: new Date(Number(meta.updatedTime || 0)),
                     kind: 'config',
-                    v: e.config.version,
-                    by: resolveUserDisplayName(e.config.author) || '',
-                    change: describeConfigEntry(e.config, prevByVersion[e.config.version]),
+                    v: versionOf(e.config),
+                    by: resolveUserDisplayName(Number(meta.updatedActor || 0)) || '',
+                    change: describeConfigEntry(e.config, prevByVersion[versionOf(e.config)]),
                     config: e.config,
-                    canRevert: Boolean(targetVersion) && e.config.version !== currentConfigVersion,
+                    canRevert: Boolean(targetVersion) && versionOf(e.config) !== currentConfigVersion,
                 };
             }
             return {

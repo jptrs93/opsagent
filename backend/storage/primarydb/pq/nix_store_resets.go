@@ -8,9 +8,10 @@ import (
 )
 
 // NixStoreResetRow is one repository's newest reset request and the
-// envelope of the write that made it. ID is the stream entity id.
+// envelope of the write that made it. ID is the stream entity id;
+// RequestedAt is the clock of the newest request, epoch ms.
 type NixStoreResetRow struct {
-	ID          int64
+	ID          uint64
 	Repo        string
 	RequestedAt int64
 	Seq         int64
@@ -20,7 +21,7 @@ type NixStoreResetRow struct {
 }
 
 func (r NixStoreResetRow) Entity() *apigen.NixStoreReset {
-	return &apigen.NixStoreReset{Repo: r.Repo, RequestedAt: r.RequestedAt}
+	return &apigen.NixStoreReset{ID: r.ID, Repo: r.Repo}
 }
 
 const nixStoreResetColumns = `id, repo, requested_at, seq, event_time, author, created_time`
@@ -54,30 +55,19 @@ func (q *Queries) ListNixStoreResetRows(ctx context.Context) ([]NixStoreResetRow
 	return out, rows.Err()
 }
 
-// ListNixStoreResets returns the newest request per repository.
-func (q *Queries) ListNixStoreResets(ctx context.Context) ([]*apigen.NixStoreReset, error) {
-	rows, err := q.ListNixStoreResetRows(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*apigen.NixStoreReset, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, r.Entity())
-	}
-	return out, nil
-}
-
-func (q *Queries) reduceNixStoreReset(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id int64, r *apigen.NixStoreReset) error {
+// reduceNixStoreReset records the newest request per repository; the
+// request time is the write's clock.
+func (q *Queries) reduceNixStoreReset(ctx context.Context, env rowEnvelope, meta *apigen.EntityMeta, id uint64, r *apigen.NixStoreReset) error {
 	if r == nil {
 		return fmt.Errorf("payload has no reset")
 	}
 	return q.upsert(ctx, meta, `INSERT INTO nix_store_resets (id, repo, requested_at, seq, event_time, author, created_time) VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET repo = excluded.repo, requested_at = excluded.requested_at, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,
-		id, r.Repo, r.RequestedAt, env.Seq, env.EventTime, env.Author, env.EventTime)
+		id, r.Repo, env.EventTime, env.Seq, env.EventTime, env.Author, env.EventTime)
 }
 
-func (q *Queries) deleteNixStoreResetRow(ctx context.Context, id int64) error {
+func (q *Queries) deleteNixStoreResetRow(ctx context.Context, id uint64) error {
 	_, err := q.db.ExecContext(ctx, `DELETE FROM nix_store_resets WHERE id = ?`, id)
 	return err
 }

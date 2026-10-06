@@ -40,7 +40,7 @@ const heartbeatInterval = 5 * time.Second
 type Session struct {
 	sessCtx       context.Context
 	cancel        context.CancelFunc
-	NodeID        int32
+	NodeID        uint64
 	identifier    string
 	predicate     storage.ScheduledInstancePredicate
 	store         *state.Service
@@ -67,7 +67,7 @@ type logChunk struct {
 	end         bool
 }
 
-func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID int32, identifier string, predicate storage.ScheduledInstancePredicate, store *state.Service, networkMaps networkMapProvider) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID uint64, identifier string, predicate storage.ScheduledInstancePredicate, store *state.Service, networkMaps networkMapProvider) *Session {
 	return &Session{
 		sessCtx:     sessCtx,
 		cancel:      cancel,
@@ -93,7 +93,7 @@ func (s *Session) send(msg *apigen.MsgToSecondary) bool {
 }
 
 func (s *Session) evict() {
-	if !s.send(&apigen.MsgToSecondary{Evicted: true}) {
+	if !s.send(&apigen.MsgToSecondary{Evicted: apigen.Some(true)}) {
 		s.cancel()
 	}
 }
@@ -129,12 +129,8 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 		nixResets, nixResetUpdates, unsubscribeNixResets = s.nixStores.SnapshotAndSubscribe()
 		defer unsubscribeNixResets()
 	}
-	items := make([]*apigen.ScheduledInstanceState, 0, len(snapshot))
-	for i := range snapshot {
-		items = append(items, &snapshot[i])
-	}
 	initial := &apigen.MsgToSecondary{
-		ScheduledInstancesSnapshot: &apigen.ScheduledInstanceSnapshot{Items: items},
+		ScheduledInstancesSnapshot: apigen.Some(apigen.ScheduledInstanceSnapshot{Items: snapshot}),
 	}
 
 	// Cancelling on return ends the feeder and unblocks the response loop when
@@ -163,8 +159,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 					return
 				}
 				for _, state := range batch {
-					update := state
-					if !s.send(&apigen.MsgToSecondary{ScheduledInstanceUpdate: &update}) {
+					if !s.send(&apigen.MsgToSecondary{ScheduledInstanceUpdate: apigen.Some(state)}) {
 						return
 					}
 				}
@@ -182,23 +177,23 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 	// Cluster network parameters precede the snapshot so the secondary can program
 	// its netproxy before acting on any deployment config.
 	if !s.networkPrefix.IsZero() {
-		netInfo := &apigen.MsgToSecondary{ClusterNetwork: &apigen.ClusterNetworkInfo{UlaPrefix: s.networkPrefix.Bytes()}}
+		netInfo := &apigen.MsgToSecondary{ClusterNetwork: apigen.Some(apigen.ClusterNetworkInfo{UlaPrefix: s.networkPrefix.Bytes()})}
 		if !yield(netInfo, nil) {
 			return
 		}
 	}
 	if netMap != nil {
-		if !yield(&apigen.MsgToSecondary{ClusterNetMap: netMap}, nil) {
+		if !yield(&apigen.MsgToSecondary{ClusterNetMap: apigen.Some(*netMap)}, nil) {
 			return
 		}
 	}
 	if acmeState != nil {
-		if !yield(&apigen.MsgToSecondary{AcmeState: acmeState}, nil) {
+		if !yield(&apigen.MsgToSecondary{AcmeState: apigen.Some(*acmeState)}, nil) {
 			return
 		}
 	}
 	if nixResets != nil && len(nixResets.Items) > 0 {
-		if !yield(&apigen.MsgToSecondary{NixStoreResets: nixResets}, nil) {
+		if !yield(&apigen.MsgToSecondary{NixStoreResets: apigen.Some(*nixResets)}, nil) {
 			return
 		}
 	}
@@ -212,7 +207,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 		case <-s.sessCtx.Done():
 			return
 		case msg := <-s.outbox:
-			if !yield(msg, nil) || msg.Evicted {
+			if !yield(msg, nil) || msg.Evicted.Present && msg.Evicted.Value {
 				return
 			}
 		case next, ok := <-netMapUpdates:
@@ -220,7 +215,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 				netMapUpdates = nil
 				continue
 			}
-			if next != nil && !yield(&apigen.MsgToSecondary{ClusterNetMap: next}, nil) {
+			if next != nil && !yield(&apigen.MsgToSecondary{ClusterNetMap: apigen.Some(*next)}, nil) {
 				return
 			}
 		case next, ok := <-acmeUpdates:
@@ -228,7 +223,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 				acmeUpdates = nil
 				continue
 			}
-			if next != nil && !yield(&apigen.MsgToSecondary{AcmeState: next}, nil) {
+			if next != nil && !yield(&apigen.MsgToSecondary{AcmeState: apigen.Some(*next)}, nil) {
 				return
 			}
 		case next, ok := <-nixResetUpdates:
@@ -236,7 +231,7 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 				nixResetUpdates = nil
 				continue
 			}
-			if next != nil && !yield(&apigen.MsgToSecondary{NixStoreResets: next}, nil) {
+			if next != nil && !yield(&apigen.MsgToSecondary{NixStoreResets: apigen.Some(*next)}, nil) {
 				return
 			}
 		}
@@ -244,32 +239,34 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 }
 
 func (s *Session) handleIncoming(msg *apigen.MsgToPrimary) {
+	requestID := msg.LogRequestID.Value
 	switch {
-	case msg.ClusterHello != nil:
-		s.handleClusterHello(msg.ClusterHello)
-	case msg.StatusWrite != nil:
-		s.handleStatusWrite(msg.StatusWrite)
-	case msg.NetMapStatus != nil:
+	case msg.ClusterHello.Present:
+		s.handleClusterHello(&msg.ClusterHello.Value)
+	case msg.StatusWrite.Present:
+		s.handleStatusWrite(&msg.StatusWrite.Value)
+	case msg.NetMapStatus.Present:
+		status := msg.NetMapStatus.Value
 		slog.InfoContext(s.sessCtx, fmt.Sprintf("secondary network map status persistedSeq=%d appliedSeq=%d error=%q",
-			msg.NetMapStatus.PersistedSeq, msg.NetMapStatus.AppliedSeq, msg.NetMapStatus.ReconciliationError))
+			status.PersistedSeq, status.AppliedSeq, status.ReconciliationError))
 		// Only a clean apply counts. A secondary reporting a reconciliation error
 		// still has whatever its kernel held before, so treating it as caught up
 		// would retire a placement that node can still be routing to.
-		if s.networkMaps != nil && msg.NetMapStatus.ReconciliationError == "" {
-			s.networkMaps.RecordApplied(s.NodeID, msg.NetMapStatus.AppliedSeq)
+		if s.networkMaps != nil && status.ReconciliationError == "" {
+			s.networkMaps.RecordApplied(s.NodeID, status.AppliedSeq)
 		}
-	case len(msg.LogData) > 0:
-		s.routeLogChunk(msg.LogRequestID, logChunk{data: msg.LogData})
-	case msg.LogQueryResponse != nil:
-		s.routeLogChunk(msg.LogRequestID, logChunk{queryResp: msg.LogQueryResponse})
-	case msg.LogQueryError != "":
-		s.routeLogChunk(msg.LogRequestID, logChunk{errMsg: msg.LogQueryError})
-	case msg.MetricsQueryResponse != nil:
-		s.routeLogChunk(msg.LogRequestID, logChunk{metricsResp: msg.MetricsQueryResponse})
-	case msg.MetricsLatestResponse != nil:
-		s.routeLogChunk(msg.LogRequestID, logChunk{latestResp: msg.MetricsLatestResponse})
-	case msg.LogEnd:
-		s.routeLogChunk(msg.LogRequestID, logChunk{end: true})
+	case msg.LogData.Present && len(msg.LogData.Value) > 0:
+		s.routeLogChunk(requestID, logChunk{data: msg.LogData.Value})
+	case msg.LogQueryResponse.Present:
+		s.routeLogChunk(requestID, logChunk{queryResp: &msg.LogQueryResponse.Value})
+	case msg.LogQueryError.Present:
+		s.routeLogChunk(requestID, logChunk{errMsg: msg.LogQueryError.Value})
+	case msg.MetricsQueryResponse.Present:
+		s.routeLogChunk(requestID, logChunk{metricsResp: &msg.MetricsQueryResponse.Value})
+	case msg.MetricsLatestResponse.Present:
+		s.routeLogChunk(requestID, logChunk{latestResp: &msg.MetricsLatestResponse.Value})
+	case msg.LogEnd.Present && msg.LogEnd.Value:
+		s.routeLogChunk(requestID, logChunk{end: true})
 	}
 }
 
@@ -279,7 +276,7 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 		s.cancel()
 		return
 	}
-	reported := hello.ReportedValue()
+	reported := hello.Reported
 	if reported.Identifier == "" {
 		reported.Identifier = s.identifier
 	}
@@ -287,7 +284,11 @@ func (s *Session) handleClusterHello(hello *apigen.ClusterHello) {
 		s.cancel()
 		return
 	}
-	underlay, err := nodes.NormalizeNodeUnderlay(s.store.Queries(), s.identifier, reported.UnderlayAddress)
+	rawUnderlay := ""
+	if addr := reported.UnderlayAddress.Addr(); addr.IsValid() {
+		rawUnderlay = addr.String()
+	}
+	underlay, err := nodes.NormalizeNodeUnderlay(s.store.Queries(), s.identifier, rawUnderlay)
 	if err != nil {
 		slog.WarnContext(s.sessCtx, "secondary sent invalid underlay address", "err", err)
 		return
@@ -347,8 +348,8 @@ func (s *Session) handleStatusWrite(st *apigen.ScheduledInstanceStatus) {
 // concurrently — each gets its own channel keyed by request ID.
 func (s *Session) requestLogs(req *apigen.MsgToSecondary) (io.ReadCloser, error) {
 	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
-	if req.DeploymentLogRequest != nil {
-		req.DeploymentLogRequest.RequestID = id
+	if req.DeploymentLogRequest.Present {
+		req.DeploymentLogRequest.Value.RequestID = id
 	}
 
 	ch := make(chan logChunk, logStreamBufferSize)
@@ -372,11 +373,11 @@ func (s *Session) requestLogs(req *apigen.MsgToSecondary) (io.ReadCloser, error)
 // -query budget, not an idle timeout.
 const logQueryTimeout = 60 * time.Second
 
-// requestOneShot sends req tagged with a fresh request id (installed via
-// setID) and waits for the single reply chunk routed back under that id.
-func (s *Session) requestOneShot(ctx context.Context, req *apigen.MsgToSecondary, setID func(id string)) (logChunk, error) {
+// requestOneShot sends the frame build returns for a fresh request id and
+// waits for the single reply chunk routed back under that id.
+func (s *Session) requestOneShot(ctx context.Context, build func(id string) *apigen.MsgToSecondary) (logChunk, error) {
 	id := fmt.Sprintf("%s-%d", s.identifier, s.nextLogID.Add(1))
-	setID(id)
+	req := build(id)
 	ch := make(chan logChunk, 1)
 	s.logMu.Lock()
 	s.logStreams[id] = ch
@@ -399,18 +400,21 @@ func (s *Session) requestOneShot(ctx context.Context, req *apigen.MsgToSecondary
 		return chunk, nil
 	case <-ctx.Done():
 		cleanup()
-		s.send(&apigen.MsgToSecondary{StopLogRequestID: id})
+		s.send(&apigen.MsgToSecondary{StopLogRequestID: apigen.Some(id)})
 		return logChunk{}, ctx.Err()
 	case <-time.After(logQueryTimeout):
 		cleanup()
-		s.send(&apigen.MsgToSecondary{StopLogRequestID: id})
+		s.send(&apigen.MsgToSecondary{StopLogRequestID: apigen.Some(id)})
 		return logChunk{}, fmt.Errorf("log query to secondary %s timed out", s.identifier)
 	}
 }
 
 func (s *Session) requestLogQuery(ctx context.Context, req *apigen.LogQueryRequest) (*apigen.LogQueryResponse, error) {
 	start := time.Now()
-	chunk, err := s.requestOneShot(ctx, &apigen.MsgToSecondary{LogQueryRequest: req}, func(id string) { req.RequestID = id })
+	chunk, err := s.requestOneShot(ctx, func(id string) *apigen.MsgToSecondary {
+		req.RequestID = id
+		return &apigen.MsgToSecondary{LogQueryRequest: apigen.Some(*req)}
+	})
 	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
 		slog.InfoContext(s.sessCtx, fmt.Sprintf("secondary log query failed after %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID, "err", err)
@@ -428,7 +432,10 @@ func (s *Session) requestLogQuery(ctx context.Context, req *apigen.LogQueryReque
 
 func (s *Session) requestMetricsQuery(ctx context.Context, req *apigen.MetricsQueryRequest) (*apigen.MetricsQueryResponse, error) {
 	start := time.Now()
-	chunk, err := s.requestOneShot(ctx, &apigen.MsgToSecondary{MetricsQueryRequest: req}, func(id string) { req.RequestID = id })
+	chunk, err := s.requestOneShot(ctx, func(id string) *apigen.MsgToSecondary {
+		req.RequestID = id
+		return &apigen.MsgToSecondary{MetricsQueryRequest: apigen.Some(*req)}
+	})
 	elapsed := time.Since(start).Round(time.Millisecond)
 	if err != nil {
 		slog.InfoContext(s.sessCtx, fmt.Sprintf("secondary metrics query failed after %s requestID=%s", elapsed, req.RequestID), "dep", req.DeploymentID, "err", err)
@@ -445,8 +452,9 @@ func (s *Session) requestMetricsQuery(ctx context.Context, req *apigen.MetricsQu
 }
 
 func (s *Session) requestMetricsLatest(ctx context.Context) (*apigen.MetricsLatestResponse, error) {
-	req := &apigen.MetricsLatestRequest{}
-	chunk, err := s.requestOneShot(ctx, &apigen.MsgToSecondary{MetricsLatestRequest: req}, func(id string) { req.RequestID = id })
+	chunk, err := s.requestOneShot(ctx, func(id string) *apigen.MsgToSecondary {
+		return &apigen.MsgToSecondary{MetricsLatestRequest: apigen.Some(apigen.MetricsLatestRequest{RequestID: id})}
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -509,7 +517,7 @@ func (r *logReader) Close() error {
 		delete(r.session.logStreams, r.requestID)
 		r.session.logMu.Unlock()
 
-		stop := &apigen.MsgToSecondary{StopLogRequestID: r.requestID}
+		stop := &apigen.MsgToSecondary{StopLogRequestID: apigen.Some(r.requestID)}
 		if !r.session.send(stop) {
 			slog.WarnContext(r.session.sessCtx, fmt.Sprintf("failed sending stop log request to secondary (session ended) requestID=%s", r.requestID))
 		}

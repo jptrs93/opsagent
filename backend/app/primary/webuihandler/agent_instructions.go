@@ -23,7 +23,7 @@ var AgentInstructionsUserRequiredErr = apigen.NewApiErr("A user_id query paramet
 
 type agentInstructionsData struct {
 	BaseURL string
-	UserID  int32
+	UserID  uint64
 }
 
 // GetV1AgentSessionsInstructions renders the API instructions an agent needs to
@@ -39,11 +39,11 @@ func (h *Handler) GetV1AgentSessionsInstructions(ctx apigen.Context, request *ht
 	if raw == "" {
 		return AgentInstructionsUserRequiredErr
 	}
-	userID, err := strconv.ParseInt(raw, 10, 32)
+	userID, err := strconv.ParseUint(raw, 10, 64)
 	if err != nil {
 		return AgentSessionUserNotFoundErr
 	}
-	user, err := users.Matching(h.Store.Queries(), func(u *apigen.InternalUser) bool { return u.ID == int32(userID) })
+	user, err := users.Matching(h.Store.Queries(), func(u *apigen.User) bool { return u.ID == userID })
 	if errors.Is(err, users.ErrNotFound) {
 		return AgentSessionUserNotFoundErr
 	}

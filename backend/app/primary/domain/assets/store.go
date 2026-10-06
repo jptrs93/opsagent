@@ -105,7 +105,7 @@ func (s *Store) effectiveS3Identity(settings apigen.ClusterSettings) s3Identity 
 	return s3Identity{
 		separate:    separate,
 		accessKeyID: s.Loader.MustLoadStringSetting(accessKeyID),
-		secret:      secret.Ref,
+		secret:      secretRefOf(secret),
 		bucket:      s.Loader.MustLoadStringSetting(bucket),
 		path:        s.Loader.MustLoadStringSetting(settings.LargeAssets.S3Path),
 		region:      s.Loader.MustLoadStringSetting(region),
@@ -118,11 +118,11 @@ func (s *Store) effectiveS3Identity(settings apigen.ClusterSettings) s3Identity 
 
 // CreateAsset creates a new asset in directoryID (0 = the space root) of
 // spaceID with its first version.
-func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID, author int32, blob []byte) (*pq.AssetEvent, error) {
+func (s *Store) CreateAsset(ctx context.Context, key string, spaceID, directoryID uint64, author int64, blob []byte) (*pq.AssetEvent, error) {
 	return s.CreateAssetFromReader(ctx, key, spaceID, directoryID, author, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID, author int32, sizeBytes int64, r io.Reader) (*pq.AssetEvent, error) {
+func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, directoryID uint64, author int64, sizeBytes int64, r io.Reader) (*pq.AssetEvent, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
 		func(sha, storageKey string) (*pq.AssetEvent, error) {
 			return CreateAssetWithVersion(s.DB, key, spaceID, directoryID, author, sha, storageKey, sizeBytes)
@@ -131,11 +131,11 @@ func (s *Store) CreateAssetFromReader(ctx context.Context, key string, spaceID, 
 
 // AppendAssetVersion appends the next version of an existing asset. The asset
 // identity — key, space, directory — cannot change here.
-func (s *Store) AppendAssetVersion(ctx context.Context, assetID, author int32, blob []byte) (*pq.AssetEvent, error) {
+func (s *Store) AppendAssetVersion(ctx context.Context, assetID uint64, author int64, blob []byte) (*pq.AssetEvent, error) {
 	return s.AppendAssetVersionFromReader(ctx, assetID, author, int64(len(blob)), bytes.NewReader(blob))
 }
 
-func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID, author int32, sizeBytes int64, r io.Reader) (*pq.AssetEvent, error) {
+func (s *Store) AppendAssetVersionFromReader(ctx context.Context, assetID uint64, author int64, sizeBytes int64, r io.Reader) (*pq.AssetEvent, error) {
 	return s.writeVersion(ctx, sizeBytes, r,
 		func(sha, storageKey string) (*pq.AssetEvent, error) {
 			return AppendAssetVersion(s.DB, assetID, author, sha, storageKey, sizeBytes)
@@ -294,11 +294,11 @@ func (s *Store) OpenAsset(ctx context.Context, ref apigen.ValueRef) (sizeBytes i
 	return 0, nil, fmt.Errorf("asset %s content is unavailable", ref)
 }
 
-func (s *Store) DeleteAssetLocked(ctx context.Context, assetID int32, inlockValidate func(*pq.Queries) error) error {
+func (s *Store) DeleteAssetLocked(ctx context.Context, assetID uint64, inlockValidate func(*pq.Queries) error) error {
 	return DeleteAsset(s.DB, assetID, inlockValidate)
 }
 
-func (s *Store) RenameAsset(ctx context.Context, assetID int32, newKey string) (*pq.AssetEvent, error) {
+func (s *Store) RenameAsset(ctx context.Context, assetID uint64, newKey string) (*pq.AssetEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -362,13 +362,20 @@ func (s *Store) s3Client(cfg *apigen.ClusterSettings) (*s3.Client, string, error
 	return client, bucket, nil
 }
 
-func revealSecretRef(secrets secretStore, ref apigen.SecretRef) (string, error) {
-	if !ref.Ref.Valid() {
+func revealSecretRef(secrets secretStore, ref apigen.Maybe[apigen.SecretRef]) (string, error) {
+	if !ref.Present || !ref.Value.Valid() {
 		return "", nil
 	}
-	value, err := secrets.RevealByRef(ref.Ref)
+	value, err := secrets.RevealByRef(ref.Value.Ref())
 	if err != nil {
 		return "", err
 	}
 	return string(value), nil
+}
+
+func secretRefOf(ref apigen.Maybe[apigen.SecretRef]) apigen.ValueRef {
+	if !ref.Present {
+		return apigen.ValueRef{}
+	}
+	return ref.Value.Ref()
 }

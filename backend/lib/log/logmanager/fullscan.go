@@ -67,7 +67,7 @@ func (e *queryEngine) runFullQuery(ctx context.Context, q queryParams) (*apigen.
 		return nil, err
 	}
 	retained := ret.sorted()
-	records := make([]*apigen.LogRecord, 0, len(retained))
+	records := make([]apigen.LogRecord, 0, len(retained))
 	for idx := range retained {
 		r := &retained[idx]
 		level, msg, fields := r.level, r.msg, r.fields
@@ -79,16 +79,16 @@ func (e *queryEngine) runFullQuery(ctx context.Context, q queryParams) (*apigen.
 			}
 			accumFields(fieldAccums, fields, false)
 		}
-		out := &apigen.LogRecord{
+		out := apigen.LogRecord{
 			Time:            r.rec.Time,
 			Level:           level,
 			Msg:             msg,
 			Fields:          fieldsToDisplay(fields),
-			Version:         r.rec.Version,
+			Version:         uint32(r.rec.Version),
 			Stream:          r.rec.Stream,
 			InstanceOrdinal: r.rec.InstanceOrdinal,
 			Run:             r.rec.Run,
-			Node:            r.rec.Node,
+			Node:            uint64(r.rec.Node),
 			Seq:             r.rec.Seq,
 		}
 		if q.includeRaw {
@@ -97,7 +97,7 @@ func (e *queryEngine) runFullQuery(ctx context.Context, q queryParams) (*apigen.
 		records = append(records, out)
 	}
 	resp := queryResponse(&q, start, scanned, matched, sampled, records, fieldAccums, warnings, b, counts)
-	slog.InfoContext(ctx, trace.summary(time.Duration(resp.Stats.TookMs)*time.Millisecond, scanned),
+	slog.InfoContext(ctx, trace.summary(time.Duration(resp.Stats.Value.TookMs)*time.Millisecond, scanned),
 		"deployment", e.deploymentID)
 	return resp, nil
 }

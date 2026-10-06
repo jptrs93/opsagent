@@ -1,14 +1,29 @@
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {spinnerButton} from "./spinnerbutton.js";
-import {globalRuleDisplay, ruleDisplay} from "./ruleDisplay.js";
+import {ruleDisplay} from "./ruleDisplay.js";
 import {checkIcon, chevronDownIcon, closeIcon, plusIcon} from "../lib/icons.js";
 import {
+    ARGUMENT_KINDS,
     ENTITY_TYPES,
     POSITIONS,
     VERBS,
+    allExcludingSelector,
+    allowEffect,
+    argumentBinding,
+    argumentSelector,
+    denyEffect,
+    exactSelector,
+    formatRef,
+    parseEntityRefs,
     positionValueName,
+    readSelector,
+    refTargetForEntityType,
+    ruleEffect,
+    ruleGrantSource,
     templateArguments,
+    templateGrantSource,
+    templateSelector,
 } from "../lib/authz.js";
 
 const {div, span, p, h2, input, button, select, option} = van.tags;
@@ -17,19 +32,15 @@ const {div, span, p, h2, input, button, select, option} = van.tags;
 // assigns one fixed argument per position kind: choosing "Argument" for the
 // spaces position of any rule references the same ${spaces} argument.
 const TEMPLATE_ARGUMENTS = {
-    permissions: {id: 1, name: "permissions"},
-    spaces: {id: 2, name: "spaces"},
-    entityTypes: {id: 3, name: "entity_types"},
-    entityRefs: {id: 4, name: "entity_refs"},
+    permissions: {id: 1, name: "permissions", kind: ARGUMENT_KINDS.permissions},
+    spaces: {id: 2, name: "spaces", kind: ARGUMENT_KINDS.spaces},
+    entityTypes: {id: 3, name: "entity_types", kind: ARGUMENT_KINDS.entityTypes},
+    entityRefs: {id: 4, name: "entity_refs", kind: ARGUMENT_KINDS.entityRefs},
 };
 
 const ARG_NAMES = new Map(Object.values(TEMPLATE_ARGUMENTS).map((a) => [a.id, a.name]));
 
-const parseRefs = (text) => (text || "")
-    .split(/[\s,]+/)
-    .filter(Boolean)
-    .map(Number)
-    .filter((n) => Number.isInteger(n) && n > 0);
+const REFS_PLACEHOLDER = "deployment#4, secret#7";
 
 const positionOptions = (kind, spaces) => {
     if (kind === "permissions") return VERBS.map((v) => ({id: v.id, label: v.name}));
@@ -42,46 +53,60 @@ const positionOptions = (kind, spaces) => {
     return [];
 };
 
-// mode: "any" (wildcard), "arg" (template argument), or "list" (specific
-// values; entity refs keep free text since they are raw ids).
+// mode: "any" (everything), "arg" (template argument), or "list" (specific
+// values; entity refs keep free text since they are typed ids). A record
+// that excludes values edits as "any": the editor has no exclusion control.
 const newPositionState = (kind, sel) => {
     const st = {kind, mode: van.state("any"), values: van.state([]), refsText: van.state("")};
-    if (sel) {
-        if (sel.argumentId) {
-            st.mode.val = "arg";
-        } else if (!sel.wildcard) {
-            st.mode.val = "list";
-            if (kind === "entityRefs") st.refsText.val = (sel.include || []).join(", ");
-            else st.values.val = (sel.include || []).map(Number);
-        }
+    if (!sel) return st;
+    const view = readSelector(sel, kind);
+    if (view.mode === "arg") {
+        st.mode.val = "arg";
+    } else if (view.mode === "list" || view.mode === "none") {
+        st.mode.val = "list";
+        if (kind === "entityRefs") st.refsText.val = view.values.map(formatRef).join(", ");
+        else st.values.val = view.values.map(Number);
     }
     return st;
 };
 
-const selectorFromState = (st) => {
-    if (st.mode.val === "any") return {wildcard: true, argumentId: 0, include: [], exclude: []};
-    if (st.mode.val === "arg") return {wildcard: false, argumentId: TEMPLATE_ARGUMENTS[st.kind].id, include: [], exclude: []};
-    const include = st.kind === "entityRefs" ? parseRefs(st.refsText.val) : [...st.values.val];
-    return {wildcard: false, argumentId: 0, include, exclude: []};
+// A bare id in the refs position names an instance of the one entity type
+// the rule selects, when it selects exactly one; otherwise refs are typed.
+const defaultRefTarget = (rs) => {
+    const types = rs.positions.entityTypes;
+    return types.mode.val === "list" && types.values.val.length === 1 ? refTargetForEntityType(types.values.val[0]) : null;
+};
+
+const selectorFromState = (st, refTarget) => {
+    if (st.mode.val === "any") return allExcludingSelector(st.kind);
+    if (st.mode.val === "arg") return argumentSelector(TEMPLATE_ARGUMENTS[st.kind].id);
+    const values = st.kind === "entityRefs" ? parseEntityRefs(st.refsText.val, refTarget) : [...st.values.val];
+    return exactSelector(st.kind, values);
 };
 
 export const newRuleState = (rule) => ({
-    positions: Object.fromEntries(POSITIONS.map(({key}) => [key, newPositionState(key, rule?.[key])])),
-    delegation: van.state(!!rule?.delegationAllowed),
+    positions: Object.fromEntries(POSITIONS.map(({key}) => [key, newPositionState(key, rule?.selector?.[key])])),
+    delegation: van.state(ruleEffect(rule).delegationAllowed),
 });
 
-const ruleFromState = (rs) => ({
-    permissions: selectorFromState(rs.positions.permissions),
-    spaces: selectorFromState(rs.positions.spaces),
-    entityTypes: selectorFromState(rs.positions.entityTypes),
-    entityRefs: selectorFromState(rs.positions.entityRefs),
-    delegationAllowed: rs.delegation.val,
-});
+// ruleFromState builds an allow rule from the editor: a plain AuthzRule, or
+// an AuthzTemplateRule whose positions are arguments or wrapped records.
+const ruleFromState = (rs, {template = false} = {}) => {
+    const refTarget = defaultRefTarget(rs);
+    const position = (key) => {
+        const sel = selectorFromState(rs.positions[key], refTarget);
+        return template && !sel.value ? templateSelector(sel) : sel;
+    };
+    return {
+        effect: allowEffect(rs.delegation.val),
+        selector: Object.fromEntries(POSITIONS.map(({key}) => [key, position(key)])),
+    };
+};
 
 const positionFace = (st, spaceNames) => {
     if (st.mode.val === "any") return "Any (*)";
     if (st.mode.val === "arg") return "${" + TEMPLATE_ARGUMENTS[st.kind].name + "}";
-    if (st.kind === "entityRefs") return st.refsText.val.trim() || "ids…";
+    if (st.kind === "entityRefs") return st.refsText.val.trim() || "refs…";
     const values = st.values.val;
     if (!values.length) return "None";
     return values.map((v) => positionValueName(st.kind, v, spaceNames)).join(", ");
@@ -162,8 +187,8 @@ const positionEditor = ({st, label, allowArgument, spaces, spaceNames, openMenu,
                 menuDivider(),
                 div({class: "px-2 py-1"},
                     input({
-                        class: "text-input w-40 text-xs",
-                        placeholder: "ids, e.g. 4, 7",
+                        class: "text-input w-44 text-xs",
+                        placeholder: REFS_PLACEHOLDER,
                         value: st.refsText,
                         oninput: (e) => {
                             st.refsText.val = e.target.value;
@@ -240,7 +265,7 @@ const ruleEditorRow = ({rs, index, heading, menuPrefix, allowArgument, spaces, s
         offText: "agents ✗",
         title: "Whether an agent session inherits this rule",
     }),
-    preview: () => ruleDisplay(ruleFromState(rs), {spaceNames: spaceNames(), argNames: ARG_NAMES}),
+    preview: () => ruleDisplay(ruleFromState(rs, {template: allowArgument}), {spaceNames: spaceNames(), argNames: ARG_NAMES}),
     onRemove,
     removeLabel: `Remove rule ${index + 1}`,
 });
@@ -287,8 +312,8 @@ const nameField = (name, placeholder) => div({class: "flex items-center gap-3"},
         oninput: (e) => { name.val = e.target.value; },
     }));
 
-// ruleTemplateOverlay creates a template, or edits `record` when given.
-export function ruleTemplateOverlay({record, spaces, spaceNames, onClose}) {
+// grantTemplateOverlay creates a template, or edits `record` when given.
+export function grantTemplateOverlay({record, spaces, spaceNames, onClose}) {
     const editing = Boolean(record);
     const name = van.state(record?.name || "");
     const ruleStates = van.state((record?.spec?.rules || [null]).map(newRuleState));
@@ -296,12 +321,12 @@ export function ruleTemplateOverlay({record, spaces, spaceNames, onClose}) {
     const saving = van.state(false);
     const openMenu = van.state(null);
 
-    const buildTemplate = () => {
-        const rules = ruleStates.val.map(ruleFromState);
+    const buildSpec = () => {
+        const rules = ruleStates.val.map((rs) => ruleFromState(rs, {template: true}));
         const usedKinds = new Set();
         for (const rule of rules) {
             for (const {key} of POSITIONS) {
-                if (rule[key].argumentId) usedKinds.add(key);
+                if (readSelector(rule.selector[key], key).mode === "arg") usedKinds.add(key);
             }
         }
         return {
@@ -315,11 +340,11 @@ export function ruleTemplateOverlay({record, spaces, spaceNames, onClose}) {
         try {
             saving.val = true;
             error.val = null;
-            const payload = {name: name.val.trim(), spec: buildTemplate()};
+            const payload = {name: name.val.trim(), spec: buildSpec()};
             if (editing) {
-                await capi.postV1AccessRuleTemplatesUpdate({id: record.id, ...payload});
+                await capi.postV1AccessGrantTemplatesUpdate({id: record.id, ...payload});
             } else {
-                await capi.postV1AccessRuleTemplatesCreate(payload);
+                await capi.postV1AccessGrantTemplatesCreate(payload);
             }
             onClose();
         } catch (e) {
@@ -382,8 +407,8 @@ const bindingValueChips = (kind, valuesState, spaces, spaceNames) => {
                 },
             }, o.label)))]),
         ...(kind === "entityRefs" ? [input({
-            class: "text-input max-w-48 text-xs",
-            placeholder: "ids, e.g. 4, 7",
+            class: "text-input max-w-56 text-xs",
+            placeholder: REFS_PLACEHOLDER,
             value: valuesState.refsText,
             oninput: (e) => { valuesState.refsText.val = e.target.value; },
         })] : []),
@@ -423,18 +448,18 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
         try {
             saving.val = true;
             error.val = null;
-            const request = {userId: Number(user.id), templateId: 0, spec: {args: [], rule: null}};
+            const request = {userId: Number(user.id)};
             if (mode.val === "template") {
                 const template = selectedTemplate();
                 if (!template) throw new Error("Choose a role");
-                request.templateId = Number(template.id);
-                request.spec.args = templateArguments(template.spec).map((arg) => {
+                const args = templateArguments(template.spec).map((arg) => {
                     const st = bindingState(arg);
-                    const values = arg.kind === "entityRefs" ? parseRefs(st.refsText.val) : [...st.values.val];
-                    return {argumentId: arg.id, values};
+                    const values = arg.kind === "entityRefs" ? parseEntityRefs(st.refsText.val) : [...st.values.val];
+                    return argumentBinding(arg.id, arg.kind, values);
                 });
+                request.grant = templateGrantSource(template.id, args);
             } else {
-                request.spec.rule = ruleFromState(directRule);
+                request.grant = ruleGrantSource(ruleFromState(directRule));
             }
             await capi.postV1AccessGrantsCreate(request);
             onClose();
@@ -516,16 +541,11 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
     const openMenu = van.state(null);
 
     const buildRule = () => {
-        const rule = ruleFromState(rs);
+        const {selector} = ruleFromState(rs);
         const deny = mode.val === "deny";
         return {
-            permissions: rule.permissions,
-            spaces: rule.spaces,
-            entityTypes: rule.entityTypes,
-            entityRefs: rule.entityRefs,
-            deny,
-            delegatedOnly: deny && delegatedOnly.val,
-            delegationAllowed: !deny && rs.delegation.val,
+            effect: deny ? denyEffect(delegatedOnly.val) : allowEffect(rs.delegation.val),
+            selector,
         };
     };
 
@@ -534,7 +554,7 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
         try {
             saving.val = true;
             error.val = null;
-            await capi.postV1AccessGlobalRulesCreate({name: name.val.trim(), spec: buildRule()});
+            await capi.postV1AccessGlobalRulesCreate({name: name.val.trim(), rule: buildRule()});
             onClose();
         } catch (e) {
             error.val = e.message;
@@ -583,7 +603,7 @@ export function globalRuleOverlay({spaces, spaceNames, onClose}) {
                         offText: "agents only ✗",
                         title: "Only deny delegated agent sessions",
                     }),
-                preview: () => globalRuleDisplay(buildRule(), {spaceNames: spaceNames()}),
+                preview: () => ruleDisplay(buildRule(), {spaceNames: spaceNames()}),
                 onRemove: null,
             }),
         ],

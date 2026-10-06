@@ -21,7 +21,7 @@ func requireHuman(ctx apigen.Context) error {
 	if ctx.User == nil {
 		return InvalidAuthTokenErr
 	}
-	if ctx.User.Delegated {
+	if ctx.Delegated {
 		return DelegationNotPermittedErr
 	}
 	return nil
@@ -37,20 +37,20 @@ const (
 )
 
 const (
-	eSpace      = apigen.AuthzEntity_AUTHZ_ENTITY_SPACE
-	eDeployment = apigen.AuthzEntity_AUTHZ_ENTITY_DEPLOYMENT
-	eSecret     = apigen.AuthzEntity_AUTHZ_ENTITY_SECRET
-	eConfig     = apigen.AuthzEntity_AUTHZ_ENTITY_CONFIG
-	eAsset      = apigen.AuthzEntity_AUTHZ_ENTITY_ASSET
-	eNode       = apigen.AuthzEntity_AUTHZ_ENTITY_NODE
-	eCluster    = apigen.AuthzEntity_AUTHZ_ENTITY_CLUSTER
-	eUser       = apigen.AuthzEntity_AUTHZ_ENTITY_USER
-	eAccess     = apigen.AuthzEntity_AUTHZ_ENTITY_ACCESS
+	eSpace      = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SPACE
+	eDeployment = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT
+	eSecret     = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET
+	eConfig     = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_CONFIG
+	eAsset      = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ASSET
+	eNode       = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_NODE
+	eCluster    = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_CLUSTER
+	eUser       = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_USER
+	eAccess     = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS
 )
 
-var eValues = []apigen.AuthzEntity{eSecret, eConfig}
+var eValues = []apigen.AuthzEntityKind{eSecret, eConfig}
 
-func (h *Handler) canAccess(ctx apigen.Context, verb apigen.AuthzVerb, entity apigen.AuthzEntity, spaceID, entityID int64) bool {
+func (h *Handler) canAccess(ctx apigen.Context, verb apigen.AuthzVerb, entity apigen.AuthzEntityKind, spaceID, entityID uint64) bool {
 	req := authz.RequestedAccess{Verb: verb, SpaceID: spaceID, EntityType: entity, EntityID: entityID}
 	if !authz.SystemSpaceAllows(req) {
 		return false
@@ -61,11 +61,11 @@ func (h *Handler) canAccess(ctx apigen.Context, verb apigen.AuthzVerb, entity ap
 	if ctx.User == nil {
 		return false
 	}
-	req.Delegated = ctx.User.Delegated
-	return h.Authz.HasAccess(int64(ctx.User.ID), req)
+	req.Delegated = ctx.Delegated
+	return h.Authz.HasAccess(ctx.User.ID, req)
 }
 
-func (h *Handler) canAccessAny(ctx apigen.Context, verb apigen.AuthzVerb, entities []apigen.AuthzEntity, spaceID, entityID int64) bool {
+func (h *Handler) canAccessAny(ctx apigen.Context, verb apigen.AuthzVerb, entities []apigen.AuthzEntityKind, spaceID, entityID uint64) bool {
 	for _, entity := range entities {
 		if h.canAccess(ctx, verb, entity, spaceID, entityID) {
 			return true
@@ -74,14 +74,14 @@ func (h *Handler) canAccessAny(ctx apigen.Context, verb apigen.AuthzVerb, entiti
 	return false
 }
 
-func (h *Handler) requireAccess(ctx apigen.Context, verb apigen.AuthzVerb, entity apigen.AuthzEntity, spaceID, entityID int64) error {
+func (h *Handler) requireAccess(ctx apigen.Context, verb apigen.AuthzVerb, entity apigen.AuthzEntityKind, spaceID, entityID uint64) error {
 	if !h.canAccess(ctx, verb, entity, spaceID, entityID) {
 		return AccessDeniedErr
 	}
 	return nil
 }
 
-func (h *Handler) requireEntityAccess(ctx apigen.Context, verb apigen.AuthzVerb, entity apigen.AuthzEntity, spaceID, entityID int64, notFound error) error {
+func (h *Handler) requireEntityAccess(ctx apigen.Context, verb apigen.AuthzVerb, entity apigen.AuthzEntityKind, spaceID, entityID uint64, notFound error) error {
 	if !h.canAccess(ctx, apigen.AuthzVerb_AUTHZ_VERB_VIEW, entity, spaceID, entityID) {
 		return notFound
 	}
@@ -91,7 +91,7 @@ func (h *Handler) requireEntityAccess(ctx apigen.Context, verb apigen.AuthzVerb,
 	return nil
 }
 
-func (h *Handler) requireAnyEntityAccess(ctx apigen.Context, verb apigen.AuthzVerb, entities []apigen.AuthzEntity, spaceID, entityID int64, notFound error) error {
+func (h *Handler) requireAnyEntityAccess(ctx apigen.Context, verb apigen.AuthzVerb, entities []apigen.AuthzEntityKind, spaceID, entityID uint64, notFound error) error {
 	if !h.canAccessAny(ctx, vView, entities, spaceID, entityID) {
 		return notFound
 	}
@@ -101,15 +101,15 @@ func (h *Handler) requireAnyEntityAccess(ctx apigen.Context, verb apigen.AuthzVe
 	return nil
 }
 
-func (h *Handler) requireAnyAccess(ctx apigen.Context, verb apigen.AuthzVerb, entities []apigen.AuthzEntity, spaceID, entityID int64) error {
+func (h *Handler) requireAnyAccess(ctx apigen.Context, verb apigen.AuthzVerb, entities []apigen.AuthzEntityKind, spaceID, entityID uint64) error {
 	if !h.canAccessAny(ctx, verb, entities, spaceID, entityID) {
 		return AccessDeniedErr
 	}
 	return nil
 }
 
-func valueSpace(spaceID int32) int64 {
-	return int64(nodes.NormalizedUserSpaceID(spaceID))
+func valueSpace(spaceID uint64) uint64 {
+	return nodes.NormalizedUserSpaceID(spaceID)
 }
 
 func (h *Handler) canCreateDeploymentSomewhere(ctx apigen.Context) bool {
@@ -123,21 +123,21 @@ func (h *Handler) canCreateDeploymentSomewhere(ctx apigen.Context) bool {
 		if space == nil {
 			continue
 		}
-		if h.canAccess(ctx, vCreate, eDeployment, int64(space.ID), 0) {
+		if h.canAccess(ctx, vCreate, eDeployment, space.ID, 0) {
 			return true
 		}
 	}
 	return false
 }
 
-func (h *Handler) spaceVisible(ctx apigen.Context, spaceID int64) bool {
+func (h *Handler) spaceVisible(ctx apigen.Context, spaceID uint64) bool {
 	if h.Authz == nil {
 		return true
 	}
 	if ctx.User == nil {
 		return false
 	}
-	return h.Authz.SpaceVisible(int64(ctx.User.ID), spaceID, ctx.User.Delegated)
+	return h.Authz.SpaceVisible(ctx.User.ID, spaceID, ctx.Delegated)
 }
 
 // nodeVisible reports whether the caller may see a node: an explicit node:view
@@ -145,7 +145,7 @@ func (h *Handler) spaceVisible(ctx apigen.Context, spaceID int64) bool {
 // space-limited operator can pick placement targets without a cluster-level
 // grant. Space 0 is skipped: every node allows it as an invariant, so counting
 // it would not narrow anything.
-func (h *Handler) nodeVisible(ctx apigen.Context, nodeID int64, allowedSpaces []int32) bool {
+func (h *Handler) nodeVisible(ctx apigen.Context, nodeID uint64, allowedSpaces []uint64) bool {
 	if h.canAccess(ctx, vView, eNode, 0, nodeID) {
 		return true
 	}
@@ -156,7 +156,7 @@ func (h *Handler) nodeVisible(ctx apigen.Context, nodeID int64, allowedSpaces []
 		if spaceID == internaldeploy.SpaceID {
 			continue
 		}
-		if h.spaceVisible(ctx, int64(spaceID)) {
+		if h.spaceVisible(ctx, spaceID) {
 			return true
 		}
 	}

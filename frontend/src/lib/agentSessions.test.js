@@ -15,16 +15,16 @@ const at = (offsetHours) => new Date(NOW + offsetHours * 3600 * 1000);
 
 const session = (id, {hoursLeft = 6, status = STATUS.APPROVED} = {}) => ({
     id,
+    sessionId: `s-${id}`,
     createdAt: at(-1),
-    expiresAt: at(hoursLeft),
     status,
-    tokenPrefix: `tok${id}`,
+    token: {prefix: `tok${id}`, expiresAt: at(hoursLeft)},
 });
 
 const pending = (id) => ({
     id,
+    sessionId: `s-${id}`,
     createdAt: at(-0.05),
-    expiresAt: new Date(0),
     status: STATUS.PENDING,
     approvalCode: "K7M-4QP2",
     requestingAddress: "10.0.0.4",
@@ -36,16 +36,17 @@ test("an approved session with time left is live", () => {
 });
 
 test("expiry is treated as exclusive", () => {
-    const expiring = {...session("a"), expiresAt: new Date(NOW)};
+    const expiring = {...session("a"), token: {prefix: "tok", expiresAt: new Date(NOW)}};
     assert.equal(sessionExpired(expiring, NOW), true);
     assert.equal(sessionLive(expiring, NOW), false);
 });
 
-// A pending or uncollected session has no expiry yet. Reading that as "expired"
+// A pending or uncollected session has no token yet. Reading that as "expired"
 // would show every fresh request as dead on arrival.
-test("a missing expiry is not treated as expired", () => {
+test("a missing token is not treated as expired", () => {
     assert.equal(sessionExpired({}, NOW), false);
-    assert.equal(sessionExpired({expiresAt: new Date(0)}, NOW), false);
+    assert.equal(sessionExpired({token: undefined}, NOW), false);
+    assert.equal(sessionExpired({token: {prefix: "tok", expiresAt: new Date(0)}}, NOW), false);
     assert.equal(sessionPending(pending("p")), true);
 });
 
@@ -57,8 +58,8 @@ test("status reports why a session stopped, not just that it did", () => {
     assert.equal(sessionStatus(session("d"), NOW).label, "Active");
 });
 
-test("an approved session with no expiry is waiting to be collected", () => {
-    const approved = {...session("a"), expiresAt: new Date(0)};
+test("an approved session with no token is waiting to be collected", () => {
+    const approved = {...session("a"), token: undefined};
     assert.equal(sessionStatus(approved, NOW).label, "Approved, not collected");
     assert.equal(sessionLive(approved, NOW), true);
 });

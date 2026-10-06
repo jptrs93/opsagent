@@ -176,4 +176,4 @@ func TestRetainRemovesUnreferencedRows(t *testing.T) {
 	}
 }
 
-func vr(id int32) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }
+func vr(id uint64) apigen.ValueRef { return apigen.ValueRef{ID: id, Version: 1} }

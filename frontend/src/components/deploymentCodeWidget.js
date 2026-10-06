@@ -21,7 +21,7 @@ import {
     ViewPlugin,
 } from "@codemirror/view";
 import {deploymentHcl} from "../hcl/index.js";
-import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
+import {deploymentDeleted, deploymentOf, placementNodeId} from "../lib/deployment.js";
 import {
     deploymentDocumentToHcl,
     deploymentHclCompletionOptions,
@@ -39,7 +39,7 @@ const schemaProperties = [
     "name", "space", "node", "image", "repo", "flake", "target", "user", "command",
     "working_dir", "data_mount_path", "mounts", "dev_shm_size_kb", "file_descriptor_limit", "strategy",
     "readiness_timeout_seconds", "version", "mode", "scheduling", "desired_running",
-    "read_only", "executable", "hostname", "container_port", "host_port", "protocol", "allow",
+    "read_only", "executable", "hostname", "container_port", "host_port", "protocol", "allow", "deny",
     "path_prefix", "strip_prefix", "backend", "max_request_body_bytes", "flush_interval_ms", "cert",
     "address",
 ].map(label => ({label, type: "property"}));
@@ -103,23 +103,25 @@ function catalogArrays(catalogs) {
     };
 }
 
-function deployment(item) {
+// Deployment catalog entries are DeploymentRecords, bare or wrapped as the
+// status rows' {config} items.
+function recordOf(item) {
     return item?.config || item;
 }
 
 function catalogName(item, namespace) {
     if (namespace === "asset") return item?.key;
-    if (namespace === "deployment") return deployment(item)?.value?.name;
+    if (namespace === "deployment") return deploymentOf(recordOf(item))?.name;
     return item?.name;
 }
 
 function catalogID(item, namespace) {
-    return namespace === "deployment" ? deployment(item)?.id : item?.id;
+    return namespace === "deployment" ? deploymentOf(recordOf(item))?.id : item?.id;
 }
 
 function catalogSpaceID(item, namespace) {
     return namespace === "deployment"
-        ? deployment(item)?.value?.spaceId
+        ? deploymentOf(recordOf(item))?.spaceId
         : item?.spaceId;
 }
 
@@ -162,7 +164,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
     const options = new Map();
 
     for (const item of collection) {
-        if (item?.deleted || deploymentDeleted(deployment(item))) continue;
+        if (item?.deleted || deploymentDeleted(recordOf(item))) continue;
         const itemSpaceID = catalogSpaceID(item, type);
         if (type === "deployment" && spaceID !== null
             && itemSpaceID !== undefined && itemSpaceID !== null
@@ -174,7 +176,7 @@ function catalogCompletionOptions(namespace, catalogs, text, insideQuotes, selec
             && Number(itemSpaceID) !== Number(spaceID)
             && Number(itemSpaceID) !== GLOBAL_SPACE_ID) continue;
         if (type === "deployment" && nodeID !== null
-            && placementNodeId(deployment(item)) !== Number(nodeID)) continue;
+            && placementNodeId(recordOf(item)) !== Number(nodeID)) continue;
         const name = catalogName(item, type);
         if (!name) continue;
         const quoted = JSON.stringify(String(name));

@@ -16,11 +16,11 @@ type Store struct {
 	*state.Service
 }
 
-func (s Store) MustWriteScheduledInstanceStatus(instanceID int32, f func(*apigen.ScheduledInstanceStatus) bool) {
+func (s Store) MustWriteScheduledInstanceStatus(instanceID uint64, f func(*apigen.ScheduledInstanceStatus) bool) {
 	WriteStatus(s.Service, instanceID, f)
 }
 
-func (s Store) FetchScheduledInstance(instanceID int32) *apigen.ScheduledInstance {
+func (s Store) FetchScheduledInstance(instanceID uint64) *apigen.ScheduledInstance {
 	inst, err := Live(context.Background(), s.Queries(), instanceID)
 	if err != nil {
 		return nil
@@ -28,7 +28,7 @@ func (s Store) FetchScheduledInstance(instanceID int32) *apigen.ScheduledInstanc
 	return inst
 }
 
-func Live(ctx context.Context, q *pq.Queries, instanceID int32) (*apigen.ScheduledInstance, error) {
+func Live(ctx context.Context, q *pq.Queries, instanceID uint64) (*apigen.ScheduledInstance, error) {
 	event, err := q.GetScheduledInstance(ctx, instanceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -43,7 +43,7 @@ func Live(ctx context.Context, q *pq.Queries, instanceID int32) (*apigen.Schedul
 	return &inst, nil
 }
 
-func WriteStatus(store *state.Service, instanceID int32, f func(*apigen.ScheduledInstanceStatus) bool) {
+func WriteStatus(store *state.Service, instanceID uint64, f func(*apigen.ScheduledInstanceStatus) bool) {
 	ctx := context.Background()
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		inst, err := Live(ctx, q, instanceID)
@@ -57,7 +57,6 @@ func WriteStatus(store *state.Service, instanceID int32, f func(*apigen.Schedule
 			return nil, err
 		}
 		current.ScheduledInstanceID = instanceID
-		current.DeploymentID = inst.DeploymentID
 		if !f(current) {
 			return nil, nil
 		}
@@ -69,7 +68,7 @@ func WriteStatus(store *state.Service, instanceID int32, f func(*apigen.Schedule
 }
 
 func WriteReplicatedStatus(store *state.Service, st *apigen.ScheduledInstanceStatus) {
-	if st == nil || st.ScheduledInstanceID == 0 || st.UpdatedAt.IsZero() {
+	if st == nil || st.ScheduledInstanceID == 0 || !st.UpdatedAt.Present {
 		return
 	}
 	ctx := context.Background()
@@ -86,13 +85,11 @@ func writeStatus(ctx context.Context, q *pq.Queries, seq int64, st *apigen.Sched
 	if err != nil {
 		return nil, err
 	}
-	inst := event.Value
-	previous, err := q.GetLatestScheduledInstanceStatus(ctx, inst.ID)
+	previous, err := q.GetLatestScheduledInstanceStatus(ctx, event.Value.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	st.DeploymentID = inst.DeploymentID
-	if previous != nil && st.UpdatedAt.Before(previous.UpdatedAt) {
+	if previous != nil && st.UpdatedAt.Value.Before(previous.UpdatedAt.Value) {
 		return nil, nil
 	}
 	return pq.NewUpdate(pq.ScheduledInstanceStatusMutation(seq, time.Now().UnixMilli(), pq.CanonicalScheduledInstanceStatus(st))), nil

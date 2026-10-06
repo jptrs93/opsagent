@@ -45,7 +45,7 @@ func (s *Service) MustFetchScheduledSnapshotAndSubscribe(predicate storage.Sched
 	}
 }
 
-func (s *Service) MustWriteScheduledInstanceStatus(instanceID int32, f func(*apigen.ScheduledInstanceStatus) bool) {
+func (s *Service) MustWriteScheduledInstanceStatus(instanceID uint64, f func(*apigen.ScheduledInstanceStatus) bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ctx := logu.AddTag(context.Background(), "Store")
@@ -57,30 +57,26 @@ func (s *Service) MustWriteScheduledInstanceStatus(instanceID int32, f func(*api
 		return
 	}
 
-	current := state.Status
-	if current.ScheduledInstanceID == 0 {
-		current.ScheduledInstanceID = instanceID
-		current.DeploymentID = state.Instance.DeploymentID
-	}
+	current := state.Status.Value
+	current.ScheduledInstanceID = instanceID
 
 	if !f(&current) {
 		return
 	}
 	current.ScheduledInstanceID = instanceID
-	current.DeploymentID = state.Instance.DeploymentID
 
 	s.persistStatus(ctx, &current)
 
-	state.Status = current
+	state.Status = apigen.Some(current)
 	slog.InfoContext(ctx, fmt.Sprintf("scheduled instance status published updatedAt=%v preparerStatus=%v runnerStatus=%v",
-		current.UpdatedAt, current.Preparer.Rollup(), current.Runner.Status))
+		current.UpdatedAt.Value, current.Preparer.Value.Rollup(), current.Runner.Value.Status))
 	s.notifyInstanceLocked(instanceID)
 }
 
 // FetchScheduledInstance returns the assignment alone. Callers reconciling a
 // decision made earlier use it to confirm the placement still exists and is
 // still in the state they left it in.
-func (s *Service) FetchScheduledInstance(instanceID int32) *apigen.ScheduledInstance {
+func (s *Service) FetchScheduledInstance(instanceID uint64) *apigen.ScheduledInstance {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	state := s.scheduled[instanceID]
@@ -106,33 +102,29 @@ func (s *Service) snapshotLocked(predicate storage.ScheduledInstancePredicate) [
 	return out
 }
 
-func (s *Service) stateLocked(id int32) apigen.ScheduledInstanceState {
+func (s *Service) stateLocked(id uint64) apigen.ScheduledInstanceState {
 	state := s.scheduled[id]
 	if state == nil {
 		return apigen.ScheduledInstanceState{}
 	}
-	out := *state
-	if out.Config.DeploymentID != 0 {
-		out.Status = apigen.WithRunningVersion(&out.Config, out.Status)
-	}
-	return out
+	return *state
 }
 
-func (s *Service) notifyInstanceLocked(id int32) {
+func (s *Service) notifyInstanceLocked(id uint64) {
 	state := s.stateLocked(id)
 	if state.Instance.ID == 0 {
 		return
 	}
 	name := ""
-	if state.Config.Value.Name != "" {
-		name = fmt.Sprintf("%d:%d:%s", state.Instance.SpaceID, state.Instance.NodeID, state.Config.Value.Name)
+	if state.Config.Deployment.Name != "" {
+		name = fmt.Sprintf("%d:%d:%s", state.Instance.SpaceID, state.Instance.NodeID, state.Config.Deployment.Name)
 	}
 	ctx := logu.AddTag(context.Background(), "Store")
 	slog.InfoContext(ctx, fmt.Sprintf("store: notify scheduled instance name=%s configVersion=%d targetState=%v hasPreparer=%t hasRunner=%t",
-		name, state.Instance.DeploymentSpecVersion, state.Instance.State,
-		!state.Status.Preparer.IsZero(), !state.Status.Runner.IsZero()),
+		name, state.Config.Meta.SpecVersion, state.Instance.State,
+		state.Status.Value.Preparer.Present, state.Status.Value.Runner.Present),
 		"scheduled_instance", id,
-		"dep", state.Instance.DeploymentID,
+		"dep", state.Instance.Deployment.DeploymentID,
 	)
 	kept := s.subscribers[:0]
 	for _, sub := range s.subscribers {

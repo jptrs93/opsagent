@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/model/nodes.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message NodeRenameRequest {
+  string identifier = 1;
+  string name = 2;
+}
+
+message NodeAllowedSpacesRequest {
+  string identifier = 1;
+  repeated int32 space_ids = 2;
+}
+
+message NodeDrainRequest {
+  string identifier = 1;
+  bool draining = 2;
+}
+
+message NodeEvictRequest {
+  string identifier = 1;
+  reserved 2; // expected_version: the ordinal check, before seqs were the concurrency token
+  bool force = 3;
+  int64 expected_seq = 4; // seq of the node's last mutation the caller saw; 0 = no check
+}
+
+message NodeExposureRequest {
+  string identifier = 1;
+}
+
+message NodeExposureItem {
+  int32 id = 1;
+  string name = 2;
+  int32 space_id = 3;
+  int32 version = 4;
+}
+
+message NodeExposure {
+  int32 node_id = 1;
+  repeated NodeExposureItem deployments = 2;
+  repeated NodeExposureItem secrets = 3;
+  repeated NodeExposureItem configs = 4;
+  repeated NodeExposureItem issued_tls_deployments = 5;
+  repeated string acme_hostnames = 6;
+  bool github_token = 7;
+}

@@ -82,9 +82,9 @@ func TestDNSResolverAddressAddsDefaultPort(t *testing.T) {
 func TestDNSAnswersAAAAForCataloguedService(t *testing.T) {
 	server := &dnsServer{}
 	server.state.Store(&apigen.NetState{
-		DnsServices: []*apigen.DnsService{{
+		DnsServices: []apigen.DnsService{{
 			Name: "db", Environment: "space-1",
-			Endpoints: []*apigen.Endpoint{{Address: "fd12::1", State: apigen.EndpointState_ENDPOINT_READY}},
+			Endpoints: []apigen.Endpoint{{Address: "fd12::1", State: apigen.EndpointState_ENDPOINT_STATE_READY}},
 		}},
 		UpstreamResolvers: []string{"192.0.2.53"},
 	})
@@ -108,7 +108,7 @@ func TestDNSAnswersAAAAForCataloguedService(t *testing.T) {
 func TestDNSAnswersEmptyNoErrorForKnownServiceWithoutEndpoints(t *testing.T) {
 	server := &dnsServer{}
 	server.state.Store(&apigen.NetState{
-		DnsServices:       []*apigen.DnsService{{Name: "db", Environment: "space-1"}},
+		DnsServices:       []apigen.DnsService{{Name: "db", Environment: "space-1"}},
 		UpstreamResolvers: []string{"192.0.2.53"},
 	})
 	request := new(dns.Msg)
@@ -128,9 +128,9 @@ func TestDNSAnswersEmptyNoErrorForKnownServiceWithoutEndpoints(t *testing.T) {
 func TestDNSAnswersEmptyNoErrorForNonAAAAQueryOnKnownService(t *testing.T) {
 	server := &dnsServer{}
 	server.state.Store(&apigen.NetState{
-		DnsServices: []*apigen.DnsService{{
+		DnsServices: []apigen.DnsService{{
 			Name: "db", Environment: "space-1",
-			Endpoints: []*apigen.Endpoint{{Address: "fd12::1", State: apigen.EndpointState_ENDPOINT_READY}},
+			Endpoints: []apigen.Endpoint{{Address: "fd12::1", State: apigen.EndpointState_ENDPOINT_STATE_READY}},
 		}},
 		UpstreamResolvers: []string{"192.0.2.53"},
 	})

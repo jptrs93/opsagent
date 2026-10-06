@@ -1,11 +1,12 @@
 import van from "vanjs-core";
 import {deploymentsS} from "../state/deployments.js";
+import {deploymentId} from "../lib/deployment.js";
 import {cleanDeployment, deploymentToYaml, orderDeployment} from "../yaml/deployment.js";
 
 const {div, span, pre, button} = van.tags;
 
-function currentDeployment(deploymentId) {
-    return (deploymentsS.val || []).find(item => item.config?.deploymentId === deploymentId)?.config || null;
+function currentDeployment(id) {
+    return (deploymentsS.val || []).find(item => deploymentId(item.config) === id)?.config || null;
 }
 
 function deploymentJson(deploymentId) {

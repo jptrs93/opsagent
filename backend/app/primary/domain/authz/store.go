@@ -16,39 +16,16 @@ func meta(seq, now, author int64, verb apigen.AuthzVerb) pq.EventMeta {
 	return pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: author, EventType: verb}
 }
 
-func decodeTemplate(blob []byte) (*apigen.AuthzRuleTemplateSpec, error) {
-	if blob == nil {
-		blob = []byte{}
-	}
-	return apigen.DecodeAuthzRuleTemplateSpec(blob)
+func templateEntity(id uint64, name string, builtin bool, blob []byte) (apigen.AuthzGrantTemplate, error) {
+	return pq.AuthzGrantTemplateEntity(pq.AuthzGrantTemplateRow{ID: id, Name: name, Builtin: builtin, DataBlob: blob})
 }
 
-func templateEntity(id int64, name string, builtin bool, blob []byte) (apigen.AuthzRuleTemplate, error) {
-	template, err := decodeTemplate(blob)
-	if err != nil {
-		return apigen.AuthzRuleTemplate{}, err
-	}
-	return apigen.AuthzRuleTemplate{ID: id, Name: name, Builtin: builtin, Spec: template}, nil
-}
-
-func listRuleTemplates(q *pq.Queries) ([]RuleTemplateRow, error) {
-	rows, err := q.ListAuthzRuleTemplates(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	out := make([]RuleTemplateRow, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, RuleTemplateRow{ID: row.ID, Name: row.Name, Builtin: row.Builtin, Author: row.Author, CreatedAt: row.CreatedTime, Blob: row.DataBlob})
-	}
-	return out, nil
-}
-
-func insertRuleTemplate(store *state.Service, row RuleTemplateRow) (int64, error) {
+func insertGrantTemplate(store *state.Service, row GrantTemplateRow) (uint64, error) {
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
-		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE)
+		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE)
 		if err != nil {
 			return nil, err
 		}
@@ -56,15 +33,15 @@ func insertRuleTemplate(store *state.Service, row RuleTemplateRow) (int64, error
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.AuthzRuleTemplateMutation(meta(seq, row.CreatedAt, row.Author, apigen.AuthzVerb_AUTHZ_VERB_CREATE), entity)), nil
+		return pq.NewUpdate(pq.AuthzGrantTemplateMutation(meta(seq, row.CreatedAt, row.Author, apigen.AuthzVerb_AUTHZ_VERB_CREATE), entity)), nil
 	})
 	return id, err
 }
 
-func updateRuleTemplate(store *state.Service, id int64, name string, blob []byte, author, updatedAt int64) error {
+func updateGrantTemplate(store *state.Service, id uint64, name string, blob []byte, author, updatedAt int64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		prev, err := q.GetAuthzRuleTemplate(ctx, id)
+		prev, err := q.GetAuthzGrantTemplate(ctx, id)
 		if err != nil {
 			return nil, err
 		}
@@ -72,26 +49,26 @@ func updateRuleTemplate(store *state.Service, id int64, name string, blob []byte
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.AuthzRuleTemplateMutation(meta(seq, updatedAt, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE), entity)), nil
+		return pq.NewUpdate(pq.AuthzGrantTemplateMutation(meta(seq, updatedAt, author, apigen.AuthzVerb_AUTHZ_VERB_UPDATE), entity)), nil
 	})
 }
 
-func deleteRuleTemplate(store *state.Service, id, author int64) error {
+func deleteGrantTemplate(store *state.Service, id uint64, author int64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		if _, err := q.GetAuthzRuleTemplate(ctx, id); err != nil {
+		if _, err := q.GetAuthzGrantTemplate(ctx, id); err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.DeleteMutation(meta(seq, time.Now().UnixMilli(), author, 0), apigen.CoreEntityType_CORE_ENTITY_AUTHZ_RULE_TEMPLATE, id)), nil
+		return pq.NewUpdate(pq.DeleteMutation(meta(seq, time.Now().UnixMilli(), author, 0), apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, id)), nil
 	})
 }
 
-// upsertBuiltinRuleTemplate writes a builtin template when it is missing or
+// upsertBuiltinGrantTemplate writes a builtin template when it is missing or
 // differs from the shipped definition, and nothing otherwise.
-func upsertBuiltinRuleTemplate(store *state.Service, id int64, name string, blob []byte) error {
+func upsertBuiltinGrantTemplate(store *state.Service, id uint64, name string, blob []byte) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		prev, err := q.GetAuthzRuleTemplate(ctx, id)
+		prev, err := q.GetAuthzGrantTemplate(ctx, id)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
@@ -108,42 +85,29 @@ func upsertBuiltinRuleTemplate(store *state.Service, id int64, name string, blob
 		if err != nil {
 			return nil, err
 		}
-		return pq.NewUpdate(pq.AuthzRuleTemplateMutation(meta(seq, now, 0, verb), entity)), nil
+		return pq.NewUpdate(pq.AuthzGrantTemplateMutation(meta(seq, now, 0, verb), entity)), nil
 	})
 }
 
-func listGrants(q *pq.Queries) ([]GrantRow, error) {
-	rows, err := q.ListAuthzGrants(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	out := make([]GrantRow, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, GrantRow{ID: row.ID, UserID: row.UserID, TemplateID: row.TemplateID, Author: row.Author, CreatedAt: row.CreatedTime, Blob: row.DataBlob})
-	}
-	return out, nil
-}
-
-func insertGrant(store *state.Service, row GrantRow) (int64, error) {
+func insertGrant(store *state.Service, row GrantRow) (uint64, error) {
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT)
 		if err != nil {
 			return nil, err
 		}
-		grant, err := apigen.DecodeAuthzGrantSpec(row.Blob)
+		entity, err := pq.AuthzGrantEntity(pq.AuthzGrantRow{ID: id, UserID: row.UserID, DataBlob: row.Blob})
 		if err != nil {
 			return nil, err
 		}
-		value := apigen.AuthzGrant{UserID: row.UserID, TemplateID: row.TemplateID, Spec: grant}
-		return pq.NewUpdate(pq.AuthzGrantMutation(meta(seq, row.CreatedAt, row.Author, apigen.AuthzVerb_AUTHZ_VERB_CREATE), id, value)), nil
+		return pq.NewUpdate(pq.AuthzGrantMutation(meta(seq, row.CreatedAt, row.Author, apigen.AuthzVerb_AUTHZ_VERB_CREATE), id, entity)), nil
 	})
 	return id, err
 }
 
-func deleteGrant(store *state.Service, id, author int64) error {
+func deleteGrant(store *state.Service, id uint64, author int64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if _, err := q.GetAuthzGrant(ctx, id); err != nil {
@@ -153,32 +117,13 @@ func deleteGrant(store *state.Service, id, author int64) error {
 	})
 }
 
-func listGlobalRules(q *pq.Queries) ([]GlobalRuleRow, error) {
-	rows, err := q.ListAuthzGlobalRules(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	out := make([]GlobalRuleRow, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, GlobalRuleRow{ID: row.ID, Name: row.Name, Author: row.Author, CreatedAt: row.CreatedTime, Blob: row.DataBlob})
-	}
-	return out, nil
+func globalRuleEntity(id uint64, name string, blob []byte) (apigen.AuthzGlobalRule, error) {
+	return pq.AuthzGlobalRuleEntity(pq.AuthzGlobalRuleRow{ID: id, Name: name, DataBlob: blob})
 }
 
-func globalRuleEntity(id int64, name string, blob []byte) (apigen.AuthzGlobalRule, error) {
-	if blob == nil {
-		blob = []byte{}
-	}
-	rule, err := apigen.DecodeAuthzGlobalRuleSpec(blob)
-	if err != nil {
-		return apigen.AuthzGlobalRule{}, err
-	}
-	return apigen.AuthzGlobalRule{ID: id, Name: name, Spec: rule}, nil
-}
-
-func insertGlobalRule(store *state.Service, row GlobalRuleRow) (int64, error) {
+func insertGlobalRule(store *state.Service, row GlobalRuleRow) (uint64, error) {
 	ctx := context.Background()
-	var id int64
+	var id uint64
 	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		var err error
 		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE)
@@ -194,7 +139,7 @@ func insertGlobalRule(store *state.Service, row GlobalRuleRow) (int64, error) {
 	return id, err
 }
 
-func deleteGlobalRule(store *state.Service, id, author int64) error {
+func deleteGlobalRule(store *state.Service, id uint64, author int64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if _, err := q.GetAuthzGlobalRule(ctx, id); err != nil {
