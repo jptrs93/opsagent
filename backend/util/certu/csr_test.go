@@ -30,7 +30,11 @@ func TestSecondaryIdentityIsKeyDerivedAndVerifiable(t *testing.T) {
 	if err := VerifySecondaryCertificateRequest(againCSR, identifier); err != nil {
 		t.Fatal(err)
 	}
-	if err := VerifySecondaryCertificateRequest(csrPEM, "0"+identifier[1:]); err == nil {
+	altered := "0" + identifier[1:]
+	if identifier[0] == '0' {
+		altered = "1" + identifier[1:]
+	}
+	if err := VerifySecondaryCertificateRequest(csrPEM, altered); err == nil {
 		t.Fatal("CSR verified against a different identifier")
 	}
 	foreign, _, err := GenerateSecondaryCertificateRequest(identifier)
