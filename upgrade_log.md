@@ -4,7 +4,34 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
-## v0.0.616 (unreleased)
+## v0.0.617 (unreleased)
+
+### What changed
+
+- **The data model conversion and the previous contract are gone.**
+  `api-contract-old`, `backend/apigenold`, the conversion package, the
+  primary and secondary open-time conversions, and the pre-v0.0.615
+  refusal are removed. The primary checks the `format_version` row and the
+  secondary the `format_version` cache key, and both refuse to start on any
+  other value, naming v0.0.616 as the release to start first.
+
+### Before upgrading
+
+- **Every node must have started v0.0.616 once.** A primary that skips it
+  refuses to start with `this database predates the data model contract:
+  start it on v0.0.616 once before upgrading`, and a secondary with `start
+  this node on v0.0.616 once before upgrading`. There is no repair in this
+  release; install v0.0.616, start, then upgrade.
+- **Keep a v0.0.616 binary.** It is the only release that can open a
+  database or a litestream backup written before the data model
+  conversion. A restore from an older backup goes through it first.
+
+### After upgrading
+
+- The `primary.db.pre-datamodel-conversion` copy beside each primary
+  database can be deleted once the cluster has run this release.
+
+## v0.0.616 (released 2026-10-06)
 
 ### What changed
 

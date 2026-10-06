@@ -679,6 +679,17 @@ operator deletes it. The release after this one removes `api-contract-old`,
 `apigenold`, `legacyconv`, and the version 1 branch of the `format_version`
 check, and is a mandatory stop in the same sense v0.0.614 is for v0.0.615.
 
+### Sweep (2026-10-06)
+
+Done after v0.0.616 was tagged: `api-contract-old/`, `backend/apigenold/`,
+`storage/legacyconv/`, `pq/convert_legacy.go`, `sq/convert_legacy.go`,
+their tests, the env-gated cluster-copy tests, and `refuseLegacyDatabase`
+are gone. What stays is `pq/format_version.go` and `sq/format_version.go`:
+a database with tables but no `format_version` at 2 refuses to open naming
+v0.0.616 as the release to start first, so the sweep release is the
+mandatory stop this page describes. The release carrying the sweep must not
+reach a cluster that has not started v0.0.616 once.
+
 ### Open items
 
 - The release notes carrying the rollout note.

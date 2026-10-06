@@ -79,10 +79,10 @@ func TestRebuildKeepsTheCountersTheLogCarries(t *testing.T) {
 	}
 }
 
-func TestOpenRefusesADatabaseFromBeforeTheMaterialisation(t *testing.T) {
+func TestOpenRefusesADatabaseWithoutTheDataModelFormat(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	db := sqlitedb.MustOpenWriter(dbPath)
-	if _, err := db.Exec(`CREATE TABLE deployment_event_log (id INTEGER PRIMARY KEY)`); err != nil {
+	if _, err := db.Exec(`CREATE TABLE write_event_mutations (seq INTEGER PRIMARY KEY)`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -91,10 +91,29 @@ func TestOpenRefusesADatabaseFromBeforeTheMaterialisation(t *testing.T) {
 	defer func() {
 		r := recover()
 		if r == nil {
-			t.Fatal("Open accepted a database with the legacy event tables")
+			t.Fatal("Open accepted a database without a format_version row")
 		}
-		if msg, _ := r.(string); !strings.Contains(msg, "v0.0.615") {
+		if msg, _ := r.(string); !strings.Contains(msg, "v0.0.616") {
 			t.Fatalf("refusal does not name the release to step through: %v", r)
+		}
+	}()
+	Open(dbPath).Close()
+}
+
+func TestOpenRefusesADatabaseFromANewerRelease(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	Open(dbPath).Close()
+	db := sqlitedb.MustOpenWriter(dbPath)
+	if _, err := db.Exec(`UPDATE format_version SET version = ?`, DataModelFormatVersion+1); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		r := recover()
+		if msg, _ := r.(string); r == nil || !strings.Contains(msg, "newer release") {
+			t.Fatalf("Open accepted a newer format: %v", r)
 		}
 	}()
 	Open(dbPath).Close()

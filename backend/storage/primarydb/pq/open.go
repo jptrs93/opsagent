@@ -36,11 +36,7 @@ type conn struct {
 
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpenWriter(dbPath)
-	refuseLegacyDatabase(db)
-	if legacyDataModel(db) {
-		backupBeforeConversion(db, dbPath)
-		convertDataModel(context.Background(), db)
-	}
+	requireDataModelFormat(db)
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema*.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
 	markFormatVersion(db)

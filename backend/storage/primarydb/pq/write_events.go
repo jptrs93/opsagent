@@ -129,19 +129,6 @@ func (q *Queries) LatestMutation(ctx context.Context, t apigen.CoreEntityType, i
 	return &m, nil
 }
 
-// refuseLegacyDatabase refuses a database that v0.0.615 never opened: its
-// entity history still sits in the per-entity event tables that the
-// v0.0.615 materialisation folded into the write log, and that code is gone.
-func refuseLegacyDatabase(db *sql.DB) {
-	var n int64
-	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'deployment_event_log'`).Scan(&n); err != nil {
-		panic(fmt.Errorf("legacy check: %w", err))
-	}
-	if n > 0 {
-		panic("this database predates the write log materialisation: start it on v0.0.615 once before upgrading")
-	}
-}
-
 // seedWriteLogGenesis writes seq 0 of a fresh database: the two spaces every
 // cluster starts with, materialised and logged like every later write, at
 // the time the log was born.

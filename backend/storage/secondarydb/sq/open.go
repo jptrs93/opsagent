@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"embed"
-	"fmt"
 
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
@@ -20,29 +19,11 @@ var migrations string
 // *Queries.
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpen(dbPath)
-	dropRowIDRuntimeInputs(db)
-	if legacyDataModel(db) {
-		convertDataModel(context.Background(), db)
-	}
+	requireDataModelFormat(db)
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema.sql")
 	sqlitedb.ApplyMigrations(db, migrations)
 	markFormatVersion(db)
 	return New(db)
-}
-
-// dropRowIDRuntimeInputs drops a local_runtime_inputs table keyed by the
-// pre-v0.0.613 value row ids. It holds only refetchable cache rows.
-func dropRowIDRuntimeInputs(db *sql.DB) {
-	var paired int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('local_runtime_inputs') WHERE name = 'ref_version'`).Scan(&paired); err != nil {
-		panic(fmt.Sprintf("inspecting local_runtime_inputs: %v", err))
-	}
-	if paired != 0 {
-		return
-	}
-	if _, err := db.Exec(`DROP TABLE IF EXISTS local_runtime_inputs`); err != nil {
-		panic(fmt.Sprintf("dropping local_runtime_inputs: %v", err))
-	}
 }
 
 // sqlDB returns the underlying connection. Only valid on a Queries created by

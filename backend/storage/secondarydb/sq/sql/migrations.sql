@@ -3,7 +3,7 @@
 -- duplicate column, no such column, no such table). Comments must not contain
 -- semicolons — statements are split on them.
 --
--- History note: all migrations accumulated up to v0.0.615 were removed on
--- 2026-10-05 after every active cluster had been rolled forward. Upgrading a
--- database from before then requires stepping through a release that still
--- carried them.
+-- History note: all migrations and cache conversions up to the v0.0.616 data
+-- model conversion were removed on 2026-10-06. sq.Open refuses a database
+-- without the current format_version key and names v0.0.616 as the release
+-- to start first.

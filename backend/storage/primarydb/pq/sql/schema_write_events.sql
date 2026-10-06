@@ -23,8 +23,9 @@ CREATE TABLE IF NOT EXISTS write_event_mutations (
 
 CREATE INDEX IF NOT EXISTS idx_write_event_mutations_entity ON write_event_mutations (entity_type, entity_id, seq);
 
--- The payload format of the log: 1 is the v0.0.615 log under api-contract-old,
--- 2 the contract rewritten from the data model. Written once per database.
+-- The payload format of the log, written once per database. 2 is the contract
+-- rewritten from the data model. pq.Open refuses any other value: 1 was the
+-- v0.0.615 log, converted by the v0.0.616 open, and that code is gone.
 CREATE TABLE IF NOT EXISTS format_version (
     id      INTEGER PRIMARY KEY CHECK (id = 1),
     version INTEGER NOT NULL

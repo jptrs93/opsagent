@@ -1,47 +1,37 @@
 package sq
 
 import (
-	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/storage/sqlitedb"
 )
 
-func TestOpenDropsRowIDRuntimeInputs(t *testing.T) {
+func TestOpenStampsAFreshDatabaseAndReopensIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secondary.db")
+	Open(path).Close()
+	db := sqlitedb.MustOpen(path)
+	var raw []byte
+	if err := db.QueryRow(`SELECT value FROM local_kv WHERE key = ?`, formatVersionKey).Scan(&raw); err != nil || string(raw) != "2" {
+		t.Fatalf("format_version = %q, %v", raw, err)
+	}
+	db.Close()
+	Open(path).Close()
+}
+
+func TestOpenRefusesADatabaseWithoutTheDataModelFormat(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secondary.db")
 	legacy := sqlitedb.MustOpen(path)
-	if _, err := legacy.Exec(`CREATE TABLE local_runtime_inputs (
-		kind INTEGER NOT NULL, ref_id INTEGER NOT NULL, ciphertext BLOB NOT NULL,
-		nonce BLOB NOT NULL, fetched_at INTEGER NOT NULL, PRIMARY KEY (kind, ref_id))`); err != nil {
-		t.Fatalf("creating legacy table: %v", err)
-	}
-	if _, err := legacy.Exec(`INSERT INTO local_runtime_inputs VALUES (1, 42, x'00', x'00', 1)`); err != nil {
-		t.Fatalf("seeding legacy row: %v", err)
+	if _, err := legacy.Exec(`CREATE TABLE local_kv (key TEXT PRIMARY KEY, value BLOB NOT NULL)`); err != nil {
+		t.Fatal(err)
 	}
 	legacy.Close()
-
-	q := Open(path)
-	ctx := context.Background()
-	rows, err := q.ListLocalRuntimeInputs(ctx)
-	if err != nil {
-		t.Fatalf("ListLocalRuntimeInputs: %v", err)
-	}
-	if len(rows) != 0 {
-		t.Fatalf("legacy rows survived: %v", rows)
-	}
-	if err := q.UpsertLocalRuntimeInput(ctx, UpsertLocalRuntimeInputParams{Kind: 1, RefID: 42, RefVersion: 3, Ciphertext: []byte{1}, Nonce: []byte{2}, FetchedAt: 1}); err != nil {
-		t.Fatalf("UpsertLocalRuntimeInput: %v", err)
-	}
-	q.Close()
-
-	reopened := Open(path)
-	defer reopened.Close()
-	rows, err = reopened.ListLocalRuntimeInputs(ctx)
-	if err != nil {
-		t.Fatalf("ListLocalRuntimeInputs after reopen: %v", err)
-	}
-	if len(rows) != 1 || rows[0].RefVersion != 3 {
-		t.Fatalf("rows after reopen = %v, want the paired row kept", rows)
-	}
+	defer func() {
+		r := recover()
+		if msg, _ := r.(string); r == nil || !strings.Contains(msg, "v0.0.616") {
+			t.Fatalf("Open accepted a database without a format version: %v", r)
+		}
+	}()
+	Open(path).Close()
 }

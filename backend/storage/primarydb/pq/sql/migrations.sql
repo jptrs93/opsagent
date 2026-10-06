@@ -4,10 +4,10 @@
 -- semicolons — statements are split on them.
 --
 -- History note: every migration and Go-side startup migration up to and
--- including the v0.0.615 write log materialisation was removed on 2026-10-05,
--- once every active cluster ran v0.0.615. pq.Open refuses a database that
--- v0.0.615 never opened (one that still has a deployment_event_log table).
--- Upgrading an older database requires stepping through v0.0.614 and then
--- v0.0.615 first. Databases migrated through v0.0.541 keep a dead NULL-only
+-- including the v0.0.616 data model conversion was removed on 2026-10-06.
+-- pq.Open refuses a database whose format_version row is not the current
+-- one and names v0.0.616 as the release to start first. Upgrading an older
+-- database means stepping through v0.0.614, v0.0.615, and v0.0.616 in turn.
+-- Databases migrated through v0.0.541 keep a dead NULL-only
 -- nodes.enrollment_id column: its UNIQUE constraint blocks ALTER TABLE DROP
 -- COLUMN, and no query references it.

@@ -35,8 +35,6 @@ CREATE TABLE IF NOT EXISTS local_kv (
 -- value version and reaches this node as a new deployment config version. A row
 -- can only become unreferenced, which is what the retention sweep collects.
 --
--- The table is a refetchable cache: sq.Open drops a table from before the
--- ref_version column rather than migrating its rows.
 CREATE TABLE IF NOT EXISTS local_runtime_inputs (
     kind        INTEGER NOT NULL,  -- 1=secret, 2=config, 3=issued TLS
     ref_id      INTEGER NOT NULL,  -- secret_id / config_id, or deployment id for issued TLS
