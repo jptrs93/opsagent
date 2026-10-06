@@ -35,6 +35,13 @@ Still open here:
   fans out to every node, and every node holds routes, WireGuard peers, and a
   DNS catalog for the whole cluster. The agreed replacement (2026-10-05) is
   the per-node map scoped by reachability described in the next item.
+- A node address inside the cluster prefix and readiness-gated inbound
+  addresses, so that connections to unready instances and to stale
+  placements fail fast across nodes; see Endpoint selection and health. The
+  exact derivation of the node address is undecided.
+- Sender-side peer liveness probes feeding the balancing rungs' selection
+  set; see Endpoint selection and health. Cadence and recovery window are
+  undecided.
 - Per-node maps scoped by reachability. Identity addressing cannot aggregate
   routes by node, so without pruning a node's route table is the cluster's
   placement count. The only sound basis for pruning is policy-derived
@@ -172,14 +179,63 @@ Policies are expressed in logical workload terms: space, deployment, labels late
 
 Policy always evaluates the unchanged logical source and destination addresses. Underlay addresses and tunnel interfaces are routing state, not workload policy identity.
 
+## Endpoint selection and health
+
+Agreed direction (2026-10-06). The overall approach is fixed; the address
+scheme, probe cadence, and rejection mechanics are still to be refined.
+
+- **The cluster state distributes no instance status or health.** The map
+  carries target state only. Runner status flows node to primary for the
+  scheduler and the UI and goes no further. There is no distributed ready
+  set.
+- **Node reachability is a concern of the connecting node, decided by its own
+  probes.** The agent keeps a local set of unreachable peers from WireGuard
+  handshake age for peers with traffic and periodic ICMPv6 echo over the
+  tunnel for the rest, with a short recovery window. Nothing is reported
+  upward. A global view would be wrong under an asymmetric partition and
+  would lag both transitions.
+- **Selecting an instance to connect to is three filters, in order:**
+  instances whose target state is established, from the map; of those, the
+  instances whose hosting node the connecting node can reach, from the
+  local probe set; of those, the instances that are themselves reachable,
+  which is decided lazily by attempting the connection.
+- **An unready instance rejects connections immediately.** The hosting node
+  makes `I` reachable only after the readiness signal and withdraws it when
+  the task exits, for every upgrade strategy and for the first start, so a
+  connection during warmup, after a crash, or during crash backoff fails
+  fast with an ICMPv6 error instead of a timeout. Deployments without a
+  `readinessSignal` are ready at task start. The connecting side retries
+  another instance on failure. A crash loop therefore costs only the
+  requests in flight during each live window, and crash backoff makes those
+  windows rare; a distributed readiness signal could not do better because
+  it lags both transitions.
+- **The workload is responsible for its own health.** An unhealthy workload
+  exits. An overloaded workload sheds load and stays healthy from the
+  cluster's view; clients back off and retry. There are no probes of
+  workloads and no "unhealthy but alive" state. Load-aware selection, if
+  ever wanted, belongs to the L7 rung and is not health.
+- **Fast failure across nodes requires a node address.** The host has no
+  address inside the cluster prefix: the WireGuard device carries none and
+  the veths carry only `fe80::1`. An ICMPv6 error the hosting node generates
+  for a forwarded packet therefore uses a public or link-local source, which
+  the sender's cryptokey routing drops, so today the error reaches only
+  same-node senders. Each node gets an address inside the cluster prefix,
+  derived rather than allocated (one option is a reserved ordinal of the
+  node's own space 0 netproxy deployment), assigned to the WireGuard device,
+  added to the peer's allowed prefixes on every other node, and carried in
+  the map. Source selection then prefers it for every error toward a remote
+  sender, and the error is matched as related to the original flow by the
+  receiving node's conntrack. The underlay family is irrelevant: the error is
+  an inner IPv6 packet.
+
 ## Load balancing
 
 kube-proxy exists to translate stable virtual addresses to ephemeral endpoints. Stable inbound instance addresses remove that need for direct instance traffic. Balancing arrives in stages; users only ever set a replica count. The agreed rung-by-rung design — service virtual addresses, the connect hook, the sender-side DNAT fallback for Kata, and the attachment NAT boundary — is recorded in `service-balancing-and-attachment-nat.md`.
 
-1. **DNS over ready endpoint sets.** Health-aware by construction: not-ready instances do not resolve. Known limits (client caching, long-lived connection pinning) are acceptable for internal traffic.
-2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). A future service virtual address is rewritten at `connect()` to a chosen READY `I`, per connection, before any packet exists — no translation state, the socket itself holds the decision. The service address is the deployment's reserved ordinal 4095 (see `service-balancing-and-attachment-nat.md`); the workload ABI allocates only `I` and `O`. Host-visible syscalls only: Kata guests fall through to the next rung.
+1. **DNS over established endpoint sets** (shipped). Resolution is health-free by design: a record follows target state and is published exactly when the ordinal is established, so a crashed instance keeps resolving. Health belongs to the rungs below, never to DNS answer content. Known limits (client caching, long-lived connection pinning, no health) are acceptable for internal traffic.
+2. **eBPF socket-level balancing** (`cgroup/connect6` hook via `cilium/ebpf`). A future service virtual address is rewritten at `connect()` to an `I` chosen from the selection set (see Endpoint selection and health), per connection, before any packet exists — no translation state, the socket itself holds the decision. The service address is the deployment's reserved ordinal 4095 (see `service-balancing-and-attachment-nat.md`); the workload ABI allocates only `I` and `O`. Host-visible syscalls only: Kata guests fall through to the next rung.
 3. **Sender-side service DNAT** at the source attachment boundary, for workloads the connect hook cannot see (Kata guests, unconnected UDP). The wire still carries real instance addresses; conntrack pins each flow's backend at flow birth. Confined to flows addressed to the service range — direct-address traffic keeps the stateless guarantee.
-4. **L7 east-west through the embedded proxy** (opt-in, per deployment): retries, traffic splitting, per-route metrics for HTTP workloads. Ingress traffic already gets endpoint-set balancing from stage 1.
+4. **L7 east-west through the embedded proxy** (opt-in, per deployment): retries, traffic splitting, per-route metrics for HTTP workloads. Ingress backends are rendered from the same established endpoint set as stage 1, with the same absence of health.
 
 Interim DNAT-based virtual IPs remain rejected: no VIP ships before the balancing rungs, translation is never the universal east-west path, and a service address never transits a link. The scoped sender-side DNAT rung above is the deliberate exception, not a reversal — see `service-balancing-and-attachment-nat.md` for the reconciliation.
 
@@ -191,10 +247,10 @@ Single-instance ROLLOVER (same-node route flip) and cross-node replacement are
 implemented; see `docs/engineering/networking.md`. Multiple instances default
 to rolling recreate, one ordinal at a time, behind the endpoint set:
 
-1. Mark ordinal `i` DRAINING (drops out of DNS and balancing; the other n−1 instances carry load).
+1. Move ordinal `i` to target `RUN_DRAINING` (its DNS record and ready-set membership follow target state, so it drops out of both; the other n−1 instances carry load).
 2. Drain window, SIGTERM old instance.
 3. Start the new instance with both `I` and its run-scoped `O`, then activate `I`; the old container is already gone.
-4. Wait for ready, mark READY, advance to the next ordinal.
+4. Wait for the readiness report, promote the ordinal to target `RUN_SERVING`, advance to the next ordinal.
 5. A new version that never reaches ready halts the rollout with the remaining old instances serving. Halt-and-alert, no auto-rollback; rollback is a redeploy of the previous version.
 
 Surge mode (no capacity dip) applies the single-instance candidate flow per ordinal — same primitive.

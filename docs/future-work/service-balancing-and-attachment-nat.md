@@ -12,7 +12,11 @@ stances. Nothing here is scheduled; prerequisites are listed at the end.
   the one below, taken only where the rung above cannot operate:
   resolution-time (DNS), connection-time (host `connect` hook), packet-time
   (sender-side service DNAT), request-time (opt-in L7 through netproxy). All
-  rungs consume one distributed ready-endpoint set.
+  rungs select from the same set: the established endpoints the map already
+  carries, minus endpoints on nodes the sending node's own probes report
+  unreachable. No readiness or health is distributed; an unready instance
+  rejects the connection and the client retries (see networking.md,
+  Endpoint selection and health).
 - A service virtual address is derived, not allocated: `S = Address(prefix,
   space, deployment, 4095, 0, 0)`. Ordinal 4095 — the top value of the 12-bit
   field, all ones — is reserved for it, so instances use ordinals `0..4094`
@@ -72,10 +76,11 @@ for the hook rung (unconnected traffic then uses the DNAT rung).
 
 The DNAT rung is one nftables rule at the source attachment
 (`ip6 daddr <service-range> dnat to <hash> map @backends_<dep>`), with backend
-maps updated by the agent as readiness changes. Conntrack records the choice at
+maps updated by the agent as the map's established set and its local peer
+liveness change. Conntrack records the choice at
 flow birth and applies it, both directions, for the flow's life — map updates
 steer only new flows. Selection policy is uniform random (or consistent hash)
-over the ready set — the same policy Cilium ships; anything smarter belongs to
+over the selection set — the same policy Cilium ships; anything smarter belongs to
 the L7 rung. Because the chosen backend address is a meaningful stable `I`, a
 captured packet or stuck flow is self-describing even on this stateful path.
 
@@ -187,9 +192,11 @@ Kata-compatible balancing mechanism that note asked for.
 
 Prerequisites, in order:
 
-1. Cluster-wide ready-endpoint distribution to every node (shared prerequisite
-   with cross-node DNS; same input data, second consumer — feeds backend maps
-   and the connect hook's BPF map).
+1. Sender-side peer liveness probes and the node address that lets ICMPv6
+   errors cross the tunnel (networking.md, Endpoint selection and health).
+   The established endpoint set is already in the map's DNS catalog; the
+   rungs are its second consumer and feed backend maps and the connect
+   hook's BPF map from it.
 2. The service-address allocation design (range, encoding, validation).
 3. Multi-instance deployments (n > 1) for balancing to have something to do.
 

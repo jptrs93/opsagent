@@ -134,8 +134,12 @@ belongs to the end-to-end verification milestone below.
 
 Routes may continue selecting its tunnel and traffic fails according to normal
 underlay behavior. Automatic rerouting is not possible because a stable
-instance has one current placement. Health-aware DNS should stop returning DOWN
-endpoints independently of route cleanup.
+instance has one current placement. DNS keeps answering with the placement's
+address, because resolution follows target state and is health-free by design;
+steering traffic away from an unavailable node is the scheduler's job (a
+replacement placement and the route flip) and, later, the balancing rungs',
+which exclude endpoints on peers the sending node's own probes report
+unreachable (`networking.md`, Endpoint selection and health).
 
 ### Partial reconciliation
 
@@ -158,6 +162,10 @@ unchanged because they refer to node identity rather than outer addresses.
   tunnel interfaces and workload routes unchanged).
 - Flow-based single-tunnel dataplanes.
 - Bounded-degree gateway topology in place of the full mesh.
+- A node address inside the cluster prefix on the WireGuard device, in the
+  peers' allowed prefixes and in the map, so ICMPv6 errors cross the tunnel;
+  sender-side peer liveness probes; readiness-gated inbound addresses
+  (`networking.md`, Endpoint selection and health).
 - Per-node network maps scoped by policy-derived reachability (routes, peers,
   and DNS catalog pruned by one set, per-node stamps, affected-node rendering
   per commit), and the rollover barrier refinements that build on it
