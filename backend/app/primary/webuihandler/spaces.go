@@ -13,7 +13,6 @@ import (
 
 var InvalidSpaceErr = apigen.NewApiErr("Invalid space", "invalid_space", http.StatusBadRequest)
 var SpaceNotFoundErr = apigen.NewApiErr("Space not found", "space_not_found", http.StatusNotFound)
-var SpaceInUseErr = apigen.NewApiErr("Space has active deployments", "space_in_use", http.StatusConflict)
 
 func (h *Handler) PostV1SpacesCreate(ctx apigen.Context, req *apigen.SpaceSetRequest) (*apigen.Space, error) {
 	name := strings.TrimSpace(req.Name)
@@ -57,17 +56,15 @@ func (h *Handler) PostV1SpacesDelete(ctx apigen.Context, req *apigen.SpaceDelete
 	if err := h.requireEntityAccess(ctx, vDelete, eSpace, req.ID, req.ID, SpaceNotFoundErr); err != nil {
 		return err
 	}
-	count, err := nodes.CountDeploymentsForSpace(h.Store.Queries(), req.ID)
-	if err != nil {
-		return err
+	err := nodes.DeleteSpace(h.Store, req.ID, ctx.AttributionUserID())
+	var inUse *nodes.SpaceInUseError
+	if errors.As(err, &inUse) {
+		return apigen.NewApiErr(inUse.Error(), "space_in_use", http.StatusConflict)
 	}
-	if count > 0 {
-		return SpaceInUseErr
+	if errors.Is(err, sql.ErrNoRows) {
+		return SpaceNotFoundErr
 	}
-	if err := nodes.DeleteSpace(h.Store, req.ID, ctx.AttributionUserID()); err != nil {
-		return err
-	}
-	return nil
+	return err
 }
 
 func isSeededSpace(id uint64) bool {

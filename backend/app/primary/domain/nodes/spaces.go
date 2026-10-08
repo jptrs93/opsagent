@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 
@@ -131,10 +134,38 @@ func UpdateSpace(store *state.Service, id uint64, name string, author int64) (*a
 	return space, err
 }
 
+// SpaceInUseError refuses a space delete while anything still lives in the
+// space or names it by id. Uses lists every kind that stands in the way, so
+// the operator sees the whole job at once rather than one kind per attempt.
+type SpaceInUseError struct {
+	Uses []SpaceUse
+}
+
+type SpaceUse struct {
+	Singular string
+	Plural   string
+	Count    int
+}
+
+func (e *SpaceInUseError) Error() string {
+	parts := make([]string, 0, len(e.Uses))
+	for _, use := range e.Uses {
+		name := use.Plural
+		if use.Count == 1 {
+			name = use.Singular
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", use.Count, name))
+	}
+	return "Space is still in use: " + strings.Join(parts, ", ")
+}
+
 func DeleteSpace(store *state.Service, id uint64, author int64) error {
 	ctx := context.Background()
 	return store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
 		if _, err := q.GetSpace(ctx, id); err != nil {
+			return nil, err
+		}
+		if err := requireSpaceUnused(ctx, q, id); err != nil {
 			return nil, err
 		}
 		meta := spaceMeta(seq, time.Now().UnixMilli(), author)
@@ -156,16 +187,90 @@ func DeleteSpace(store *state.Service, id uint64, author int64) error {
 	})
 }
 
-func CountDeploymentsForSpace(q *pq.Queries, id uint64) (int64, error) {
-	deployments, err := q.ListActiveDeployments(context.Background())
-	if err != nil {
-		return 0, err
-	}
-	var count int64
-	for _, cfg := range deployments {
-		if cfg.Deployment.SpaceID == id {
-			count++
+// requireSpaceUnused runs under the write lock so nothing can land in the
+// space between the check and the delete.
+func requireSpaceUnused(ctx context.Context, q *pq.Queries, id uint64) error {
+	var uses []SpaceUse
+	add := func(singular, plural string, count int) {
+		if count > 0 {
+			uses = append(uses, SpaceUse{Singular: singular, Plural: plural, Count: count})
 		}
 	}
-	return count, nil
+	countIn := func(singular, plural string, list func() (int, error)) error {
+		count, err := list()
+		if err != nil {
+			return err
+		}
+		add(singular, plural, count)
+		return nil
+	}
+	if err := countIn("deployment", "deployments", func() (int, error) {
+		rows, err := q.ListActiveDeployments(ctx)
+		return countWhere(rows, func(r *apigen.DeploymentRecord) bool { return r.Deployment.SpaceID == id }), err
+	}); err != nil {
+		return err
+	}
+	if err := countIn("secret", "secrets", func() (int, error) {
+		rows, err := q.ListSecretRows(ctx)
+		return countWhere(rows, func(r pq.SecretRow) bool { return r.SpaceID == id }), err
+	}); err != nil {
+		return err
+	}
+	if err := countIn("config", "configs", func() (int, error) {
+		rows, err := q.ListConfigRows(ctx)
+		return countWhere(rows, func(r pq.ConfigRow) bool { return r.SpaceID == id }), err
+	}); err != nil {
+		return err
+	}
+	if err := countIn("value directory", "value directories", func() (int, error) {
+		rows, err := q.ListValueDirectories(ctx)
+		return countWhere(rows, func(r *apigen.ValueDirectory) bool { return r.SpaceID == id }), err
+	}); err != nil {
+		return err
+	}
+	if err := countIn("asset", "assets", func() (int, error) {
+		rows, err := q.ListAssetRows(ctx)
+		return countWhere(rows, func(r pq.AssetRow) bool { return r.SpaceID == id }), err
+	}); err != nil {
+		return err
+	}
+	if err := countIn("asset directory", "asset directories", func() (int, error) {
+		rows, err := q.ListAssetDirectories(ctx)
+		return countWhere(rows, func(r apigen.AssetDirectory) bool { return r.SpaceID == id }), err
+	}); err != nil {
+		return err
+	}
+	if err := countIn("network policy", "network policies", func() (int, error) {
+		rows, err := q.ListNetworkPolicies(ctx)
+		return countWhere(rows, func(r *pq.NetworkPolicyEvent) bool {
+			return policyPeerIsSpace(r.Value.Source, id) || policyPeerIsSpace(r.Value.Destination, id)
+		}), err
+	}); err != nil {
+		return err
+	}
+	refs, err := authz.CountSpaceReferences(ctx, q, id)
+	if err != nil {
+		return err
+	}
+	add("access grant", "access grants", refs.Grants)
+	add("access grant template", "access grant templates", refs.Templates)
+	add("global access rule", "global access rules", refs.GlobalRules)
+	if len(uses) == 0 {
+		return nil
+	}
+	return &SpaceInUseError{Uses: uses}
+}
+
+func policyPeerIsSpace(peer apigen.NetworkPolicyPeer, id uint64) bool {
+	return peer.Target.Value.Space != nil && peer.Target.Value.Space.SpaceID == id
+}
+
+func countWhere[T any](rows []T, match func(T) bool) int {
+	n := 0
+	for _, row := range rows {
+		if match(row) {
+			n++
+		}
+	}
+	return n
 }
