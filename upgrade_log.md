@@ -4,10 +4,42 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
-## v0.0.617 (unreleased)
+## v0.0.617 (released 2026-10-08)
 
 ### What changed
 
+- **One node projection per node replaces the per-worker table reads.**
+  The primary publishes each node's scheduled instances, network map, and
+  ACME subset from one in-memory fold of the write stream
+  (`app/primary/nodepublisher`). A node receives its complete
+  `NodeProjection` at enrollment and at the head of every session, then one
+  per commit that changed something it holds, and applies each in one
+  transaction. The secondary replays its status history above the
+  watermark carried on each instance row instead of the primary echoing
+  status rows. Cluster protocol 13 → 15.
+- **Network maps are scoped per node.** A node's map holds the nodes and
+  routes within its policy reachability: its own placements, the spaces
+  its placements may initiate to, and the global space. A cluster whose
+  deployments are all host-mode sees each node's map shrink to the node
+  itself, which removes the WireGuard peer between nodes that no workload
+  traffic used. Per-node stamps live in the new `node_netmap` table,
+  written on first start.
+- **Invariants are enforced at write time only.** Enrollment and the
+  session hello reject a node without a WireGuard key or with an underlay
+  address family different from the cluster's; the primary checks its own
+  family at boot and refuses to start on a conflict. Deployment validation
+  stores the canonical ingress hostname, and a listen setting with a 4in6
+  host is rejected. The render, the netstate writer, and the ingress
+  evaluator read the stored values without re-checking them, and the
+  evaluator's lower-id fallback for two stored claims that collide is gone.
+- **The settings page loads on a cluster whose system config revision
+  sits at seq 0**, which is any cluster that has not saved settings since
+  the v0.0.614 backfill.
+- **Deleting a space is refused while anything still uses it.** The check
+  runs under the write lock and covers deployments, secrets, configs, value
+  and asset directories, assets, network policies, and access grants,
+  templates, and global rules that name the space; the refusal lists every
+  kind in the way. Before, only active deployments blocked the delete.
 - **The data model conversion and the previous contract are gone.**
   `api-contract-old`, `backend/apigenold`, the conversion package, the
   primary and secondary open-time conversions, and the pre-v0.0.615
@@ -25,6 +57,16 @@ and what to expect during and after the rollout.
 - **Keep a v0.0.616 binary.** It is the only release that can open a
   database or a litestream backup written before the data model
   conversion. A restore from an older backup goes through it first.
+
+### Rollout
+
+- Secondaries first, primary last, as the group upgrade orders it. A
+  secondary on this release reads a protocol mismatch against a v0.0.616
+  primary and retries until the primary follows; its workloads keep
+  running from the local cache.
+- A node whose row has no WireGuard key or whose underlay family differs
+  from the cluster's is refused at its next hello. No known cluster has
+  such a node.
 
 ### After upgrading
 
