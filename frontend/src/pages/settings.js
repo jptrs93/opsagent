@@ -332,12 +332,12 @@ export function settingsPage() {
     };
 
     const currentSettings = () => systemConfigS.val?.settings || null;
-    let loadedConfigSeq = 0;
+    let loadedConfigSeq = null;
     van.derive(() => {
         const versioned = systemConfigS.val;
         const settings = versioned?.settings;
         if (!settings) {
-            loadedConfigSeq = 0;
+            loadedConfigSeq = null;
             if (loaded.val) {
                 draft.val = null;
                 dirtyCount.val = 0;
