@@ -23,7 +23,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/enrollment"
 	"github.com/jptrs93/opsagent/backend/lib/wgkey"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -52,24 +51,23 @@ type Handler struct {
 	secrets        *secrets.Manager
 	configService  *systemconfig.Service
 	tlsFingerprint string
-	networkMaps    networkMapProvider
+	projection     nodeProjectionProvider
 
 	mu       sync.Mutex
 	sessions map[uint64]*enrollmentSession
 }
 
-type networkMapProvider interface {
-	Refresh() error
-	SnapshotForNode(nodeID uint64) *apigen.ClusterNetMap
+type nodeProjectionProvider interface {
+	SnapshotForNode(nodeID uint64) (apigen.NodeProjection, error)
 }
 
-func New(store *state.Service, secretsMgr *secrets.Manager, configService *systemconfig.Service, tlsFingerprint string, networkMaps networkMapProvider) *Handler {
+func New(store *state.Service, secretsMgr *secrets.Manager, configService *systemconfig.Service, tlsFingerprint string, projection nodeProjectionProvider) *Handler {
 	return &Handler{
 		store:          store,
 		secrets:        secretsMgr,
 		configService:  configService,
 		tlsFingerprint: tlsFingerprint,
-		networkMaps:    networkMaps,
+		projection:     projection,
 		sessions:       make(map[uint64]*enrollmentSession),
 	}
 }
@@ -249,29 +247,17 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	}
 	deployments.EnsureSystem(h.store, nodeID, version.Version)
 	deployments.EnsureNetproxy(h.store, nodeID, version.Version)
-	nodeDeployment, nodeNetDeployment := h.ensureEnrollmentBootstrapInstances(nodeID)
-	if nodeDeployment == nil || nodeNetDeployment == nil {
-		return nil, fmt.Errorf("enrollment bootstrap deployments missing for secondary %q", sess.requestingMachineID)
-	}
-	var netMap *apigen.ClusterNetMap
-	if h.networkMaps != nil {
-		if err := h.networkMaps.Refresh(); err != nil {
-			slog.ErrorContext(ctx, fmt.Sprintf("refreshing enrollment network map for node %d failed", nodeID), "err", err)
-		} else {
-			netMap = h.networkMaps.SnapshotForNode(nodeID)
-		}
+	h.ensureEnrollmentBootstrapInstances(nodeID)
+	snapshot, err := h.projection.SnapshotForNode(nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("enrollment of secondary %q: %w", sess.requestingMachineID, err)
 	}
 	accepted := &apigen.EnrollmentAccepted{
 		ID:                   req.ID,
 		NodeName:             nodeName,
 		CaCertificate:        caCert,
 		SecondaryCertificate: secondaryCert,
-		ClusterNetwork:       apigen.ClusterNetworkInfo{UlaPrefix: h.configService.NetworkPrefix().Bytes()},
-		NodeDeployment:       *nodeDeployment,
-		NodeNetDeployment:    *nodeNetDeployment,
-	}
-	if netMap != nil {
-		accepted.ClusterNetMap = *netMap
+		NodeSnapshot:         snapshot,
 	}
 	select {
 	case sess.accepted <- accepted:
@@ -281,10 +267,7 @@ func (h *Handler) PostV1NodesEnrollmentsAccept(ctx apigen.Context, req *apigen.E
 	return status, nil
 }
 
-func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID uint64) (*apigen.ScheduledInstanceState, *apigen.ScheduledInstanceState) {
-	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
-		return state.Instance.NodeID == nodeID
-	})
+func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID uint64) {
 	for _, cfg := range deployments.Active(h.store.Queries(), func(c apigen.DeploymentRecord) bool { return c.Deployment.PlacementNodeID() == nodeID }) {
 		if !internaldeploy.IsSelfConfig(&cfg) && !internaldeploy.IsNetproxyConfig(&cfg) {
 			continue
@@ -294,22 +277,6 @@ func (h *Handler) ensureEnrollmentBootstrapInstances(nodeID uint64) (*apigen.Sch
 		scheduler.EnsureRunInstance(h.store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0,
 			apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	}
-	return enrollmentBootstrapInstances(h.store.FetchScheduledSnapshot(predicate))
-}
-
-func enrollmentBootstrapInstances(snapshot []apigen.ScheduledInstanceState) (*apigen.ScheduledInstanceState, *apigen.ScheduledInstanceState) {
-	var nodeDeployment *apigen.ScheduledInstanceState
-	var nodeNetDeployment *apigen.ScheduledInstanceState
-	for i := range snapshot {
-		item := &snapshot[i]
-		if internaldeploy.IsSelfConfig(&item.Config) && (nodeDeployment == nil || item.Instance.ID > nodeDeployment.Instance.ID) {
-			nodeDeployment = item
-		}
-		if internaldeploy.IsNetproxyConfig(&item.Config) && (nodeNetDeployment == nil || item.Instance.ID > nodeNetDeployment.Instance.ID) {
-			nodeNetDeployment = item
-		}
-	}
-	return nodeDeployment, nodeNetDeployment
 }
 
 func (h *Handler) registerEnrollmentSession(sess *enrollmentSession) {

@@ -18,10 +18,10 @@ type sessionNetMapProvider struct {
 	forgotten []uint64
 }
 
-func (p *sessionNetMapProvider) SnapshotAndSubscribe(nodeID uint64) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
+func (p *sessionNetMapProvider) Subscribe(nodeID uint64) (apigen.NodeProjection, <-chan *apigen.NodeProjection, func(), error) {
 	next := *p.current
 	next.TargetNodeID = nodeID
-	return &next, make(chan *apigen.ClusterNetMap), func() {}
+	return apigen.NodeProjection{Seq: next.DerivedFromSeq, NetMap: apigen.Some(next)}, make(chan *apigen.NodeProjection), func() {}, nil
 }
 
 func (p *sessionNetMapProvider) RecordApplied(nodeID uint64, appliedSequence int64) {
@@ -52,7 +52,7 @@ func (p *sessionNetMapProvider) appliedFor(nodeID uint64) (int64, bool) {
 // routing to.
 func TestSessionRecordsOnlyCleanNetMapApplies(t *testing.T) {
 	provider := &sessionNetMapProvider{current: &apigen.ClusterNetMap{DerivedFromSeq: 1}}
-	session := &Session{NodeID: 7, networkMaps: provider}
+	session := &Session{NodeID: 7, projection: provider}
 
 	session.handleIncoming(&apigen.MsgToPrimary{NetMapStatus: apigen.Some(apigen.NetMapStatus{AppliedSeq: 4})})
 	if seq, ok := provider.appliedFor(7); !ok || seq != 4 {
@@ -83,7 +83,7 @@ func TestSessionReconnectSendsLatestNetworkMap(t *testing.T) {
 	}
 }
 
-func initialSessionNetMap(t *testing.T, store *state.Service, provider networkMapProvider) *apigen.ClusterNetMap {
+func initialSessionNetMap(t *testing.T, store *state.Service, provider nodeProjectionProvider) *apigen.ClusterNetMap {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -96,10 +96,11 @@ func initialSessionNetMap(t *testing.T, store *state.Service, provider networkMa
 		if err != nil {
 			t.Fatal(err)
 		}
-		if msg.ClusterNetMap.Present {
-			got = &msg.ClusterNetMap.Value
+		if msg.NodeSnapshot.Present {
+			m := msg.NodeSnapshot.Value.NetMap.Value
+			got = &m
 		}
-		return !msg.ScheduledInstancesSnapshot.Present
+		return !msg.NodeSnapshot.Present
 	})
 	if got == nil {
 		t.Fatal("session did not send a network map")

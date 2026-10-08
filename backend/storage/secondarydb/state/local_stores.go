@@ -22,10 +22,20 @@ const (
 // below.
 type LocalRuntimeInput = sq.LocalRuntimeInput
 
+// upsertLocalKV is the one write path for local_kv. The column is NOT NULL
+// and a nil Go slice binds as NULL, so an empty encoding is stored as an
+// empty blob here rather than at each call site.
+func upsertLocalKV(ctx context.Context, q *sq.Queries, key string, value []byte) error {
+	if value == nil {
+		value = []byte{}
+	}
+	return q.UpsertLocalKV(ctx, sq.UpsertLocalKVParams{Key: key, Value: value})
+}
+
 func (s *Service) MustSetLocalKV(key string, value []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.q.UpsertLocalKV(context.Background(), sq.UpsertLocalKVParams{Key: key, Value: value}); err != nil {
+	if err := upsertLocalKV(context.Background(), s.q, key, value); err != nil {
 		panic(fmt.Sprintf("UpsertLocalKV %s: %v", key, err))
 	}
 }
@@ -55,7 +65,7 @@ func (s *Service) MustSetLocalKVs(values map[string][]byte) {
 	defer s.mu.Unlock()
 	if err := s.q.Tx(context.Background(), func(q *sq.Queries) error {
 		for key, value := range values {
-			if err := q.UpsertLocalKV(context.Background(), sq.UpsertLocalKVParams{Key: key, Value: value}); err != nil {
+			if err := upsertLocalKV(context.Background(), q, key, value); err != nil {
 				return fmt.Errorf("key %s: %w", key, err)
 			}
 		}

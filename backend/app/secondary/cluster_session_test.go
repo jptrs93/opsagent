@@ -6,11 +6,13 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
-func testAssignment(id, deploymentID, nodeID uint64) apigen.ScheduledInstanceState {
-	return apigen.ScheduledInstanceState{
+func testAssignment(id, deploymentID, nodeID uint64) apigen.NodeInstance {
+	return apigen.NodeInstance{
 		Instance: apigen.ScheduledInstance{
 			ID: id, NodeID: nodeID, Deployment: apigen.DeploymentRef{DeploymentID: deploymentID, Version: 1},
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
@@ -32,6 +34,11 @@ func testAssignment(id, deploymentID, nodeID uint64) apigen.ScheduledInstanceSta
 			Meta: apigen.EntityMeta{Version: 1, SpecVersion: 1},
 		},
 	}
+}
+
+func applySnapshotFrame(ctx context.Context, out *outbox, store *state.Service, nodeID uint64, items ...apigen.NodeInstance) {
+	sess := &primarySessionState{netMapSnapshotPending: true}
+	applyProjectionFrame(ctx, out, store, nodeID, projectionFrame{instances: items, snapshot: true}, sess, nil, nil, nil)
 }
 
 func instanceIDs(states []apigen.ScheduledInstanceState) []uint64 {
@@ -56,19 +63,12 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 16), ctx: ctx}
 
 	// Two assignments arrive, then the primary reconnects knowing only about 41.
-	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
-		Items: []apigen.ScheduledInstanceState{
-			testAssignment(41, 8, nodeID),
-			testAssignment(42, 9, nodeID),
-		},
-	}, nodeID)
+	applySnapshotFrame(ctx, out, store, nodeID, testAssignment(41, 8, nodeID), testAssignment(42, 9, nodeID))
 	if got := instanceIDs(store.FetchScheduledSnapshot(nil)); len(got) != 2 {
 		t.Fatalf("instances after first snapshot = %v, want 41 and 42", got)
 	}
 
-	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
-		Items: []apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},
-	}, nodeID)
+	applySnapshotFrame(ctx, out, store, nodeID, testAssignment(41, 8, nodeID))
 
 	got := instanceIDs(store.FetchScheduledSnapshot(nil))
 	if len(got) != 1 || got[0] != 41 {
@@ -76,32 +76,41 @@ func TestApplySnapshotPrunesInstancesMissingFromSnapshot(t *testing.T) {
 	}
 }
 
-// TestApplySnapshotKeepsInstancesForOtherNodes guards the prune against dropping
-// assignments it merely failed to recognise: items addressed to another node are
-// skipped on the way in, and must not therefore count as absent.
-func TestApplySnapshotKeepsInstancesForOtherNodes(t *testing.T) {
-	const nodeID uint64 = 5
+func TestApplyProjectionIsAtomic(t *testing.T) {
+	const nodeID uint64 = 1
 	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
 	defer store.Close()
+	prefix := network.GeneratePrefix()
+	ctx := context.Background()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 16), ctx: ctx}
+	rejected := testClusterNetMap(t, prefix, 1)
+	rejected.TargetNodeID = 2
+	frame := projectionFrame{instances: []apigen.NodeInstance{testAssignment(41, 8, nodeID)}, snapshot: true, netMap: rejected, acme: &apigen.AcmeState{Seq: 1}}
+	if _, _, err := applyProjection(ctx, store, nodeID, frame, prefix, true, nil, nil); err == nil {
+		t.Fatal("frame with a map for another node accepted")
+	}
+	if got := instanceIDs(store.FetchScheduledSnapshot(nil)); len(got) != 0 {
+		t.Fatalf("instances after rejected frame = %v, want none", got)
+	}
+	if _, ok := store.FetchLocalKV(storage.LocalKVAcmeState); ok {
+		t.Fatal("ACME state written by a rejected frame")
+	}
 
-	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
-		Items: []apigen.ScheduledInstanceState{testAssignment(41, 8, nodeID)},
-	}, nodeID)
-
-	// A snapshot naming this node's instance plus one for a different node.
-	applySnapshot(ctx, out, store, &apigen.ScheduledInstanceSnapshot{
-		Items: []apigen.ScheduledInstanceState{
-			testAssignment(41, 8, nodeID),
-			testAssignment(99, 12, nodeID+1),
-		},
-	}, nodeID)
-
-	got := instanceIDs(store.FetchScheduledSnapshot(nil))
-	if len(got) != 1 || got[0] != 41 {
-		t.Fatalf("instances = %v, want [41]: the other node's item must be ignored, not stored", got)
+	frame.netMap = testClusterNetMap(t, prefix, 1)
+	status, _, err := applyProjection(ctx, store, nodeID, frame, prefix, true, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status == nil || status.PersistedSeq != 1 {
+		t.Fatalf("status = %+v", status)
+	}
+	if got := instanceIDs(store.FetchScheduledSnapshot(nil)); len(got) != 1 || got[0] != 41 {
+		t.Fatalf("instances after accepted frame = %v, want [41]", got)
+	}
+	if _, ok := store.FetchLocalKV(storage.LocalKVAcmeState); !ok {
+		t.Fatal("ACME state missing after accepted frame")
+	}
+	if cached, _, ok, err := cachedClusterNetMap(ctx, store, nodeID, prefix); err != nil || !ok || cached.DerivedFromSeq != 1 {
+		t.Fatalf("cached map after accepted frame: %+v ok=%v err=%v", cached, ok, err)
 	}
 }

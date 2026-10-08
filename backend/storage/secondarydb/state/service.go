@@ -70,9 +70,6 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 		if err != nil {
 			panic(fmt.Sprintf("decode local scheduled instance %d: %v", row.InstanceID, err))
 		}
-		if state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
-			continue
-		}
 		cp := *state
 		s.scheduled[cp.Instance.ID] = &cp
 	}
@@ -86,83 +83,92 @@ func (s *Service) loadLocalScheduledInstanceCache() {
 	}
 }
 
-// MustWriteScheduledInstanceAssignment durably stores a full assignment blob,
-// updates the in-memory ScheduledInstanceState cache, then publishes.
-func (s *Service) MustWriteScheduledInstanceAssignment(state *apigen.ScheduledInstanceState) {
-	if state == nil || state.Instance.ID == 0 {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	ctx := context.Background()
-	id := state.Instance.ID
-
-	if state.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
-		s.finalizeLocked(ctx, state)
-		return
-	}
-
-	if err := s.q.UpsertLocalScheduledInstanceCache(ctx, sq.UpsertLocalScheduledInstanceCacheParams{
-		InstanceID: int64(id),
-		Blob:       state.Encode(),
-	}); err != nil {
-		panic(fmt.Sprintf("UpsertLocalScheduledInstanceCache: %v", err))
-	}
-
-	cp := *state
-	// Preserve newer local status if the assignment only carries a clock watermark.
-	if existing := s.scheduled[id]; existing != nil && existing.Status.Present {
-		if !cp.Status.Present || existing.Status.Value.UpdatedAt.Value.After(cp.Status.Value.UpdatedAt.Value) {
-			cp.Status = existing.Status
-		}
-	}
-	s.scheduled[id] = &cp
-	s.notifyInstanceLocked(id)
-}
-
-// finalizeLocked removes an instance from durable local storage and the cache,
-// publishing a FINALIZED state on the way out so the operator tears the workload
-// down rather than merely forgetting about it. Caller must hold s.mu.
-func (s *Service) finalizeLocked(ctx context.Context, state *apigen.ScheduledInstanceState) {
-	id := state.Instance.ID
-	if err := s.q.DeleteLocalScheduledInstanceCache(ctx, int64(id)); err != nil {
-		panic(fmt.Sprintf("DeleteLocalScheduledInstanceCache: %v", err))
-	}
-	cp := *state
-	cp.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
-	if existing := s.scheduled[id]; existing != nil && existing.Status.Present {
-		if !cp.Status.Present || existing.Status.Value.UpdatedAt.Value.After(cp.Status.Value.UpdatedAt.Value) {
-			cp.Status = existing.Status
-		}
-	}
-	s.scheduled[id] = &cp
-	s.notifyInstanceLocked(id)
-	delete(s.scheduled, id)
-}
-
-// MustFinalizeScheduledInstancesAbsent finalizes every locally held instance whose
-// id is missing from present, returning the ids it dropped.
+// MustApplyAssignments stores items, finalises every held instance absent
+// from present when present is non-nil, and writes kvs, all in one
+// transaction, then updates the cache and publishes. It returns the ids it
+// finalised as absent.
 //
 // The primary's snapshot is its complete set of assignments for this node, so
 // anything held locally and absent from it is an instance the primary no longer
 // knows about — and precisely because it is gone there, no FINALIZED update for it
 // can ever arrive. Reconciling only on receipt would leave the assignment, its
 // durable cache row, and its running workload alive across every restart.
-func (s *Service) MustFinalizeScheduledInstancesAbsent(present map[uint64]struct{}) []uint64 {
+func (s *Service) MustApplyAssignments(items []apigen.ScheduledInstanceState, present map[uint64]struct{}, kvs map[string][]byte) []uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	stale := make([]uint64, 0)
-	for id := range s.scheduled {
-		if _, ok := present[id]; !ok {
-			stale = append(stale, id)
-		}
-	}
-	slices.Sort(stale)
 	ctx := context.Background()
+	var stale []uint64
+	if present != nil {
+		for id := range s.scheduled {
+			if _, ok := present[id]; !ok {
+				stale = append(stale, id)
+			}
+		}
+		slices.Sort(stale)
+	}
+	if err := s.q.Tx(ctx, func(q *sq.Queries) error {
+		for i := range items {
+			item := &items[i]
+			if item.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
+				if err := q.DeleteLocalScheduledInstanceCache(ctx, int64(item.Instance.ID)); err != nil {
+					return fmt.Errorf("DeleteLocalScheduledInstanceCache: %w", err)
+				}
+				continue
+			}
+			if err := q.UpsertLocalScheduledInstanceCache(ctx, sq.UpsertLocalScheduledInstanceCacheParams{InstanceID: int64(item.Instance.ID), Blob: item.Encode()}); err != nil {
+				return fmt.Errorf("UpsertLocalScheduledInstanceCache: %w", err)
+			}
+		}
+		for _, id := range stale {
+			if err := q.DeleteLocalScheduledInstanceCache(ctx, int64(id)); err != nil {
+				return fmt.Errorf("DeleteLocalScheduledInstanceCache: %w", err)
+			}
+		}
+		for key, value := range kvs {
+			if err := upsertLocalKV(ctx, q, key, value); err != nil {
+				return fmt.Errorf("UpsertLocalKV %s: %w", key, err)
+			}
+		}
+		return nil
+	}); err != nil {
+		panic(fmt.Sprintf("applying assignments: %v", err))
+	}
+	for i := range items {
+		item := &items[i]
+		if item.Instance.State == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED {
+			s.finalizeLocked(item)
+			continue
+		}
+		cp := *item
+		if existing := s.scheduled[cp.Instance.ID]; existing != nil && !cp.Status.Present {
+			cp.Status = existing.Status
+		}
+		s.scheduled[cp.Instance.ID] = &cp
+		s.notifyInstanceLocked(cp.Instance.ID)
+	}
 	for _, id := range stale {
-		s.finalizeLocked(ctx, s.scheduled[id])
+		s.finalizeLocked(s.scheduled[id])
 	}
 	return stale
+}
+
+func (s *Service) MustFinalizeScheduledInstancesAbsent(present map[uint64]struct{}) []uint64 {
+	return s.MustApplyAssignments(nil, present, nil)
+}
+
+// finalizeLocked removes an instance from the cache, publishing a FINALIZED
+// state on the way out so the operator tears the workload down rather than
+// merely forgetting about it. The row is already gone. Caller must hold s.mu.
+func (s *Service) finalizeLocked(state *apigen.ScheduledInstanceState) {
+	id := state.Instance.ID
+	cp := *state
+	cp.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
+	if existing := s.scheduled[id]; existing != nil && !cp.Status.Present {
+		cp.Status = existing.Status
+	}
+	s.scheduled[id] = &cp
+	s.notifyInstanceLocked(id)
+	delete(s.scheduled, id)
 }
 
 func (s *Service) FetchScheduledInstanceStatusHistorySince(instanceID uint64, since time.Time) []*apigen.ScheduledInstanceStatus {

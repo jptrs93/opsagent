@@ -35,7 +35,7 @@ func acceptTestSecondary(t *testing.T, store *state.Service, identifier string) 
 func TestEvictedNodeIsForbiddenAndItsSessionEnds(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("10.0.0.1"))
+	nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("10.0.0.1"), "")
 	node := acceptTestSecondary(t, store, "secondary-id")
 	handler := New(store, nil, nil, nil, network.Prefix{}, nil, nil, nil, nil)
 	peerCtx := context.WithValue(context.Background(), machineCtxKey{}, node.Identifier)
@@ -48,7 +48,7 @@ func TestEvictedNodeIsForbiddenAndItsSessionEnds(t *testing.T) {
 	go handler.RunEvictionWatch(watchCtx)
 	sessCtx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	sess := newSession(sessCtx, cancel, node.ID, node.Identifier, scheduledInstancePredicateForNode(node.ID), store, nil)
+	sess := newSession(sessCtx, cancel, node.ID, node.Identifier, scheduledInstancePredicateForNode(node.ID), store, &sessionNetMapProvider{current: &apigen.ClusterNetMap{}})
 	handler.registerSession(node.ID, node.Identifier, sess)
 	time.Sleep(50 * time.Millisecond)
 

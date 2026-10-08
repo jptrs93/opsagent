@@ -94,7 +94,7 @@ One tag per component boundary; PascalCase. Current tags:
 | `Scheduler` | `app/primary/scheduler` |
 | `Backup` | `app/primary/backup` |
 | `ClusterServer` | `app/primary/clusterserver`, `app/primary/clusterhandler` |
-| `NetmapPublisher` | `app/primary/netmappublisher` |
+| `NodePublisher` | `app/primary/nodepublisher` |
 | `NetmapApplier` | `app/primary/netmapapply.go` (primary's in-process map applier) |
 | `WebUI` | `app/primary/webui` |
 | `Secrets` | `app/primary/domain/secrets` |

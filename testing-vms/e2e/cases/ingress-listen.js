@@ -150,7 +150,7 @@ export const ingressListenCases = [
   {
     id: 'ingress-listen-primary-reservation',
     title: 'verify the primary Web UI listener is a reserved claim',
-    description: 'A literal listen on the primary address is rejected naming the Web UI; the default listen is accepted, reports the 443 exclusion, and leaves the Web UI reachable.',
+    description: 'The Web UI binds :443 on every address of the primary, so an HTTPS route there is rejected naming the Web UI whether it names the primary address or keeps the default listen; the deployment keeps no routes and no warnings.',
     requires: ['ingress-listen-overlap-rejected'],
     async run(ctx) {
       await setDeploymentHttpsRoutes(ctx.page, {
@@ -159,9 +159,12 @@ export const ingressListenCases = [
         routes: [route([{address: JSON.stringify(primaryAddress())}])],
         expectError: /reserved by the primary Web UI/,
       });
-      await setDeploymentHttpsRoutes(ctx.page, {name: PRIMARY_LOADGEN, machine: 'primary', routes: [route()]});
-      await expectDeploymentIngressWarnings(ctx.page, {name: PRIMARY_LOADGEN, machine: 'primary', patterns: [/reserved by the primary Web UI/]});
-      await setDeploymentHttpsRoutes(ctx.page, {name: PRIMARY_LOADGEN, machine: 'primary', routes: []});
+      await setDeploymentHttpsRoutes(ctx.page, {
+        name: PRIMARY_LOADGEN,
+        machine: 'primary',
+        routes: [route()],
+        expectError: /reserved by the primary Web UI/,
+      });
       await expectDeploymentIngressWarnings(ctx.page, {name: PRIMARY_LOADGEN, machine: 'primary', patterns: []});
     },
   },

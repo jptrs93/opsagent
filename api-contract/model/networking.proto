@@ -8,6 +8,9 @@ import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
+// AcmeState is the ACME manager's output on the primary and, scoped to the
+// hostnames a node publishes or hosts, the acme section of that node's
+// NodeProjection.
 message AcmeState {
   int64 seq = 1 [(cp.js_type) = "number"];
   repeated AcmeCertBinding cert_bindings = 2;
@@ -19,20 +22,16 @@ message AcmeCertBinding {
   SecretRef secret = 2 [(cp.go_value) = true];
 }
 
-// ClusterNetworkInfo carries the cluster-wide virtual network parameters.
-// Every address is a pure function of the ULA prefix, space, deployment,
-// ordinal, version, and run, so this is the only distributed IPAM state.
-message ClusterNetworkInfo {
-  bytes ula_prefix = 1 [(buf.validate.field).bytes.len = 6];
-}
-
-// ClusterNetMap is a complete placement and underlay snapshot targeted to one
-// node. derived_from_seq is the primary's write seq at render time; the first
+// ClusterNetMap is the placement and underlay snapshot one node needs: the
+// routes, peers, DNS catalog and policy rules within the node's reachability
+// scope. ula_prefix is the cluster-wide /48 every address is a pure function
+// of, so the map is the only distributed IPAM state. derived_from_seq is the
+// primary's write seq of the last change to this node's content; the first
 // map accepted in a session replaces the node's cache, later ones must carry
 // a higher stamp.
 message ClusterNetMap {
   uint64 target_node_id = 1 [(cp.js_type) = "number"];
-  bytes ula_prefix = 2;
+  bytes ula_prefix = 2 [(buf.validate.field).bytes.len = 6];
   repeated ClusterNetMapNode nodes = 3;
   repeated ClusterNetMapRoute routes = 4;
   int64 derived_from_seq = 5 [(cp.js_type) = "number"];
@@ -122,6 +121,7 @@ message NetState {
 message AcmeHttpChallenge {
   string token = 1;
   string key_authorization = 2;
+  string hostname = 3; // the hostname under authorization; scopes the challenge to the nodes publishing it
 }
 
 // DnsService is one deployment's discovery record set:

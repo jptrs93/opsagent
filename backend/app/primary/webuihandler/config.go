@@ -10,6 +10,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -64,6 +65,10 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		}
 		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
 	}
+	prepared, err := h.WebUI.Prepare(resolved)
+	if err != nil {
+		return nil, apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
+	}
 	validate := func(q *pq.Queries) error {
 		if err := deployments.ValidateIngressAgainstSettings(ctx, q, h.NodeID, resolved); err != nil {
 			return apigen.NewApiErr(err.Error(), "settings_invalid", http.StatusBadRequest)
@@ -71,6 +76,7 @@ func (h *Handler) PostV1ClusterSettingsUpdate(ctx apigen.Context, req *apigen.Cl
 		return nil
 	}
 	if err := h.SystemConfig.UpdateSettings(*stored, ctx.AttributionUserID(), validate); err != nil {
+		prepared.Release()
 		var apiErr *apigen.ApiErr
 		if errors.As(err, &apiErr) {
 			return nil, err
@@ -254,8 +260,12 @@ func validateListenValue(field, value string) error {
 	if value == "" {
 		return fmt.Errorf("%s is required", field)
 	}
-	if _, port, err := net.SplitHostPort(value); err != nil || port == "" {
+	host, port, err := net.SplitHostPort(value)
+	if err != nil || port == "" {
 		return fmt.Errorf("%s must be a listen address like :8080", field)
+	}
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Is4In6() {
+		return fmt.Errorf("%s must use the plain IPv4 form, not %q", field, host)
 	}
 	return nil
 }

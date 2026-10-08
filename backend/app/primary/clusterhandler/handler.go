@@ -108,7 +108,7 @@ type Handler struct {
 	githubCredentials githubcredentials.Provider
 	secrets           *secrets.Manager
 	networkPrefix     network.Prefix
-	networkMaps       networkMapProvider
+	projection        nodeProjectionProvider
 	acme              *acmestate.Holder
 	nixStores         nixStoreResetProvider
 	issuedTLS         *pki.Issuer
@@ -126,8 +126,8 @@ type nixStoreResetProvider interface {
 	SnapshotAndSubscribe() (*apigen.NixStoreResets, <-chan *apigen.NixStoreResets, func())
 }
 
-type networkMapProvider interface {
-	SnapshotAndSubscribe(nodeID uint64) (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func())
+type nodeProjectionProvider interface {
+	Subscribe(nodeID uint64) (apigen.NodeProjection, <-chan *apigen.NodeProjection, func(), error)
 	// RecordApplied and ForgetNode drive the barrier that holds back retiring a
 	// draining placement until every secondary has programmed the routing that
 	// replaced it.
@@ -135,14 +135,14 @@ type networkMapProvider interface {
 	ForgetNode(nodeID uint64)
 }
 
-func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, networkMaps networkMapProvider, acme *acmestate.Holder, nixStores nixStoreResetProvider, issuedTLS *pki.Issuer) *Handler {
+func New(store *state.Service, assets assetProvider, githubCredentials githubcredentials.Provider, secretsMgr *secrets.Manager, networkPrefix network.Prefix, projection nodeProjectionProvider, acme *acmestate.Holder, nixStores nixStoreResetProvider, issuedTLS *pki.Issuer) *Handler {
 	return &Handler{
 		store:             store,
 		assets:            assets,
 		githubCredentials: githubCredentials,
 		secrets:           secretsMgr,
 		networkPrefix:     networkPrefix,
-		networkMaps:       networkMaps,
+		projection:        projection,
 		acme:              acme,
 		nixStores:         nixStores,
 		issuedTLS:         issuedTLS,
@@ -475,8 +475,7 @@ func (p *Handler) PostV1ClusterConnect(authCtx apigen.Context, reqs iter.Seq2[*a
 		sessCtx, cancel := context.WithCancel(logu.AddKV(authCtx, "node", machine))
 		defer cancel()
 
-		sess := newSession(sessCtx, cancel, nodeID, machine, predicate, p.store, p.networkMaps)
-		sess.acme = p.acme
+		sess := newSession(sessCtx, cancel, nodeID, machine, predicate, p.store, p.projection)
 		sess.nixStores = p.nixStores
 		sess.networkPrefix = p.networkPrefix
 		p.registerSession(nodeID, machine, sess)

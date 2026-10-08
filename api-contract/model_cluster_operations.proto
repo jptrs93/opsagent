@@ -15,21 +15,22 @@ message GithubCredentials {
 
 // Primary and secondary communicate over an HTTP/2 mTLS protobuf stream.
 // Each frame carries one field. cluster_protocol_version keeps tag 9 so a
-// node on the previous contract still reads the refusal.
+// node on the previous contract still reads the refusal. The session head is
+// the protocol version, then the node's complete NodeProjection as
+// node_snapshot, then the outstanding Nix store resets; afterwards one
+// NodeProjection as node_update per write event that touched the node.
 message MsgToSecondary {
-  ScheduledInstanceSnapshot scheduled_instances_snapshot = 1;
-  ScheduledInstanceState scheduled_instance_update = 2;
+  reserved 1, 2, 5, 6, 7;
   DeploymentLogRequest deployment_log_request = 3;
   optional string stop_log_request_id = 4;   // cancel an active log stream or query by its request_id
-  ClusterNetworkInfo cluster_network = 5;    // sent at the head of every session before the snapshot
-  ClusterNetMap cluster_net_map = 6;
-  AcmeState acme_state = 7;
   LogQueryRequest log_query_request = 8;
   uint32 cluster_protocol_version = 9;
   MetricsQueryRequest metrics_query_request = 10;
   MetricsLatestRequest metrics_latest_request = 11;
   NixStoreResets nix_store_resets = 12;      // outstanding operator store resets, at the session head and on change
   optional bool evicted = 13;
+  NodeProjection node_snapshot = 14;
+  NodeProjection node_update = 15;
 }
 
 message NixStoreResetItem {
@@ -72,8 +73,20 @@ message ScheduledInstanceState {
   ScheduledInstanceStatus status = 3;
 }
 
-message ScheduledInstanceSnapshot {
-  repeated ScheduledInstanceState items = 1;
+message NodeInstance {
+  ScheduledInstance instance = 1 [(cp.go_value) = true];
+  DeploymentRecord config = 2 [(cp.go_value) = true];
+  google.protobuf.Timestamp status_watermark = 3;  // the updated_at of the newest status the primary holds; the node replays its history above it
+}
+
+// NodeProjection is one node's view of the cluster. As node_snapshot it is
+// complete (every live instance, the map, the ACME subset); as node_update it
+// carries only what one write event changed, with unchanged sections absent.
+message NodeProjection {
+  int64 seq = 1 [(cp.js_type) = "number"];         // non-decreasing per session; an acme-only update repeats the last seq
+  repeated NodeInstance instances = 2;             // snapshot: every non-finalised instance on the node; update: the full rows the write changed
+  ClusterNetMap net_map = 3;                       // snapshot: always; update: when the node's map content changed
+  AcmeState acme = 4;                              // snapshot: always; update: when the node's acme subset changed
 }
 
 message ClusterSecretsRequest {

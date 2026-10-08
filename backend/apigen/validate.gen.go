@@ -6062,8 +6062,8 @@ func (m *AcmeCertBinding) validate(seen map[any]bool) error {
 	return nil
 }
 
-func (m *ClusterNetworkInfo) Validate() error { return m.validate(make(map[any]bool)) }
-func (m *ClusterNetworkInfo) validate(seen map[any]bool) error {
+func (m *ClusterNetMap) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ClusterNetMap) validate(seen map[any]bool) error {
 	if m == nil {
 		return newValidationError(nil, "message is nil")
 	}
@@ -6078,19 +6078,6 @@ func (m *ClusterNetworkInfo) validate(seen map[any]bool) error {
 	if len(m.UlaPrefix) > 6 {
 		return newValidationError([]string{"ula_prefix"}, "must be at most 6 bytes")
 	}
-	return nil
-}
-
-func (m *ClusterNetMap) Validate() error { return m.validate(make(map[any]bool)) }
-func (m *ClusterNetMap) validate(seen map[any]bool) error {
-	if m == nil {
-		return newValidationError(nil, "message is nil")
-	}
-	if seen[m] {
-		return newValidationError(nil, "cyclic message graph cannot be encoded")
-	}
-	seen[m] = true
-	defer delete(seen, m)
 	for i, item := range m.Nodes {
 		_ = i
 		if err := item.validate(seen); err != nil {
@@ -6781,32 +6768,6 @@ func (m *MsgToSecondary) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	{
-		v, present := m.ScheduledInstancesSnapshot.Value, m.ScheduledInstancesSnapshot.Present
-		var value *ScheduledInstanceSnapshot
-		if present {
-			value = &v
-		}
-		if value != nil {
-			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "scheduled_instances_snapshot")
-			}
-		}
-		_ = value
-	}
-	{
-		v, present := m.ScheduledInstanceUpdate.Value, m.ScheduledInstanceUpdate.Present
-		var value *ScheduledInstanceState
-		if present {
-			value = &v
-		}
-		if value != nil {
-			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "scheduled_instance_update")
-			}
-		}
-		_ = value
-	}
-	{
 		v, present := m.DeploymentLogRequest.Value, m.DeploymentLogRequest.Present
 		var value *DeploymentLogRequest
 		if present {
@@ -6824,45 +6785,6 @@ func (m *MsgToSecondary) validate(seen map[any]bool) error {
 		var value *string
 		if present {
 			value = &v
-		}
-		_ = value
-	}
-	{
-		v, present := m.ClusterNetwork.Value, m.ClusterNetwork.Present
-		var value *ClusterNetworkInfo
-		if present {
-			value = &v
-		}
-		if value != nil {
-			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "cluster_network")
-			}
-		}
-		_ = value
-	}
-	{
-		v, present := m.ClusterNetMap.Value, m.ClusterNetMap.Present
-		var value *ClusterNetMap
-		if present {
-			value = &v
-		}
-		if value != nil {
-			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "cluster_net_map")
-			}
-		}
-		_ = value
-	}
-	{
-		v, present := m.AcmeState.Value, m.AcmeState.Present
-		var value *AcmeState
-		if present {
-			value = &v
-		}
-		if value != nil {
-			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "acme_state")
-			}
 		}
 		_ = value
 	}
@@ -6923,6 +6845,32 @@ func (m *MsgToSecondary) validate(seen map[any]bool) error {
 		var value *bool
 		if present {
 			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.NodeSnapshot.Value, m.NodeSnapshot.Present
+		var value *NodeProjection
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_snapshot")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.NodeUpdate.Value, m.NodeUpdate.Present
+		var value *NodeProjection
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_update")
+			}
 		}
 		_ = value
 	}
@@ -7150,8 +7098,8 @@ func (m *ScheduledInstanceState) validate(seen map[any]bool) error {
 	return nil
 }
 
-func (m *ScheduledInstanceSnapshot) Validate() error { return m.validate(make(map[any]bool)) }
-func (m *ScheduledInstanceSnapshot) validate(seen map[any]bool) error {
+func (m *NodeInstance) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeInstance) validate(seen map[any]bool) error {
 	if m == nil {
 		return newValidationError(nil, "message is nil")
 	}
@@ -7160,11 +7108,76 @@ func (m *ScheduledInstanceSnapshot) validate(seen map[any]bool) error {
 	}
 	seen[m] = true
 	defer delete(seen, m)
-	for i, item := range m.Items {
+	{
+		value := &m.Instance
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "instance")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Config
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "config")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.StatusWatermark.Value, m.StatusWatermark.Present
+		var value *time.Time
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeProjection) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeProjection) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Instances {
 		_ = i
 		if err := item.validate(seen); err != nil {
-			return wrapValidationError(err, fmt.Sprintf("items[%d]", i))
+			return wrapValidationError(err, fmt.Sprintf("instances[%d]", i))
 		}
+	}
+	{
+		v, present := m.NetMap.Value, m.NetMap.Present
+		var value *ClusterNetMap
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "net_map")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.Acme.Value, m.Acme.Present
+		var value *AcmeState
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "acme")
+			}
+		}
+		_ = value
 	}
 	return nil
 }
@@ -7458,37 +7471,10 @@ func (m *EnrollmentAccepted) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	{
-		value := &m.ClusterNetwork
+		value := &m.NodeSnapshot
 		if value != nil {
 			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "cluster_network")
-			}
-		}
-		_ = value
-	}
-	{
-		value := &m.NodeDeployment
-		if value != nil {
-			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "node_deployment")
-			}
-		}
-		_ = value
-	}
-	{
-		value := &m.NodeNetDeployment
-		if value != nil {
-			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "node_net_deployment")
-			}
-		}
-		_ = value
-	}
-	{
-		value := &m.ClusterNetMap
-		if value != nil {
-			if err := value.validate(seen); err != nil {
-				return wrapValidationError(err, "cluster_net_map")
+				return wrapValidationError(err, "node_snapshot")
 			}
 		}
 		_ = value

@@ -13,7 +13,7 @@ import (
 func TestNormalizeEnrollmentUnderlay(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("192.0.2.1"))
+	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("192.0.2.1"), "")
 	nodes.ReportNode(store, primary.Identifier, apigen.NodeReported{Identifier: primary.Identifier, UnderlayAddress: apigen.AddrOf(netip.MustParseAddr("192.0.2.1")), WgPublicKey: primary.WGPublicKey, HostAddresses: primary.HostAddresses})
 
 	got, err := nodes.NormalizeNodeUnderlay(store.Queries(), "secondary-id", " 192.0.2.2 ")

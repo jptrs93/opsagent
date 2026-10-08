@@ -62,7 +62,7 @@ func latestConfigRef(t *testing.T, c *pq.ConfigEvent) *statetest.ValueVersion {
 
 func TestSetUserConfigAtomicallyUpdatesReferencingDeployments(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 
 	database := setConfigByName(store, "database", "one", 1)
 	database = setConfigByName(store, "database", "two", 1)
@@ -206,7 +206,7 @@ func TestSetConfigSameValueIsNoOp(t *testing.T) {
 
 func TestSetConfigSameValueStillRepointsStaleDeployments(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	database := setConfigByName(store, "database", "one", 1)
 	database = setConfigByName(store, "database", "two", 1)
 	oldRef := statetest.ValueVersions(store, database)[1].Ref

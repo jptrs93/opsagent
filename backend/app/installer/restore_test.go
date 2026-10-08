@@ -73,7 +73,7 @@ func TestApplyRestoredSystemConfigOverrides(t *testing.T) {
 func TestInvalidateRestoredPrimaryRuntimeState(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(dbPath)
-	nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("192.0.2.1"))
+	nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("192.0.2.1"), "")
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}

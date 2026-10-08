@@ -7,6 +7,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 	"github.com/jptrs93/opsagent/backend/util/certu"
@@ -21,7 +22,14 @@ func TestHTTPSIngressUpdateOnSecondaryWithPassthrough(t *testing.T) {
 	}
 	primaryNode := ensureTestNode(store, "primary", "primary")
 	secondaryNode := ensureTestNode(store, "secondary-2", "secondary-2")
-	h := &Handler{Store: store, Queries: store.Queries(), Secrets: secretManager, NodeID: primaryNode.ID}
+	configService, err := systemconfig.InitializeService(store, *systemconfig.Default(systemconfig.DefaultInitial()))
+	if err != nil {
+		t.Fatalf("systemconfig.InitializeService: %v", err)
+	}
+	h := &Handler{Store: store, Queries: store.Queries(), Secrets: secretManager, NodeID: primaryNode.ID, SystemConfig: configService, Config: func() *apigen.ClusterSettings {
+		settings := configService.Snapshot().Settings
+		return &settings
+	}}
 
 	certPEM, keyPEM, err := certu.GenerateSelfSignedServerCertificate([]string{"web.ingress.opendeploy.test"})
 	if err != nil {

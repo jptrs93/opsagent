@@ -1,8 +1,8 @@
-// Package ingressplan expands ingress listen selectors against the cluster's
-// host address inventory and detects collisions. It is a pure function of its
-// inputs: the deployment validation layer and the network map publisher both
-// call it, so the answer given at save time and the publish set distributed
-// to nodes cannot diverge.
+// Package ingressplan decides ingress listen collisions on the selector sets
+// and expands the accepted claims against the cluster's host address
+// inventory. It is a pure function of its inputs: the deployment validation
+// layer and the network map publisher both call it, so the answer given at
+// save time and the publish set distributed to nodes cannot diverge.
 package ingressplan
 
 import (
@@ -43,17 +43,19 @@ type Deployment struct {
 	TCPPorts []uint32
 }
 
-// Node is one cluster member and its reported host addresses. An empty
-// address list means the inventory is unknown (an agent that does not report
-// it yet): wildcard selectors then publish on every local address and literal
-// selectors publish their literal.
+// Node is one cluster member and its reported host addresses. The inventory
+// only expands accepted claims into the publish set; collisions are decided
+// on the selector sets. An empty address list means the inventory is unknown
+// (an agent that does not report it yet): whole-space and family selectors
+// then publish the wildcard and literal selectors publish their literal.
 type Node struct {
 	ID            uint64
 	HostAddresses []netip.Addr
 }
 
 // Reservation is a listener the platform itself holds: the Web UI's HTTPS and
-// HTTP servers on the primary. An invalid Address is a wildcard bind.
+// HTTP servers on the primary. An invalid Address reserves every address of
+// the node on that port.
 type Reservation struct {
 	NodeID  uint64
 	Address netip.Addr
@@ -65,9 +67,9 @@ type Inputs struct {
 	Deployments  []Deployment
 	Nodes        []Node
 	Reservations []Reservation
-	// Candidate is the deployment being validated. Collisions involving it are
-	// errors; collisions between two stored deployments (which can arise when
-	// the inventory changes after save) resolve to the lower id with warnings.
+	// Candidate is the deployment being validated; a collision is an error
+	// raised against it. Validation refuses every colliding save, so a render
+	// without a candidate never meets a collision.
 	Candidate uint64
 	// Reachable lists the nodes whose netproxy can dial a route hosted on
 	// the given node. Nil means the hosting node only.
@@ -89,9 +91,12 @@ type Diagnostic struct {
 type Result struct {
 	// Publish is the per-node DNAT set, sorted and deduplicated.
 	Publish map[uint64][]Publish
-	// Errors reject a save. Warnings and Excluded are informational: claims a
-	// reservation removed, collisions resolved against a deployment, and
-	// host-mode deployments beside a wildcard publish.
+	// PublishedDeployments lists, per node, the deployments with at least one
+	// published claim on it, sorted by id.
+	PublishedDeployments map[uint64][]uint64
+	// Errors reject a save and are raised for the candidate. Warnings and
+	// Excluded are informational: host-mode deployments beside a wildcard
+	// publish, and stored claims a reservation keeps out of the publish set.
 	Errors   []Diagnostic
 	Warnings []Diagnostic
 	Excluded []Diagnostic
@@ -118,30 +123,89 @@ func (r Result) Diagnostics() []Diagnostic {
 	return out
 }
 
-// claim is one expanded (node, address, port) a route wants, with the
-// hostname-level identity used for collision checks.
 type claim struct {
 	deployment *Deployment
 	route      *Route
 	nodeID     uint64
-	address    netip.Addr // zero = wildcard (inventory unknown)
+	set        addrSet
 	port       uint32
-	literal    bool // the selector named this exact address
 }
 
-type claimKey struct {
-	nodeID   uint64
-	address  netip.Addr
-	port     uint32
-	hostname string
-	prefix   string
+type portKey struct {
+	nodeID uint64
+	port   uint32
 }
 
-// Evaluate expands every route and applies the reservation and collision
-// rules. Deployments are processed in id order, so a collision between two
-// stored deployments resolves to the lower id.
+// addrSet is the address set one listen selector denotes on a node: the zero
+// value is every address, a /0 prefix is one family, a single-address prefix
+// is one literal, any other prefix is its range. Two sets intersect when one
+// contains the other; the whole space intersects everything and the two
+// families never intersect each other.
+type addrSet struct {
+	prefix netip.Prefix
+}
+
+func setOf(prefix netip.Prefix) addrSet {
+	return addrSet{prefix: prefix.Masked()}
+}
+
+func (s addrSet) whole() bool { return !s.prefix.IsValid() }
+
+func (s addrSet) literal() bool { return s.prefix.IsValid() && s.prefix.IsSingleIP() }
+
+func (s addrSet) intersects(o addrSet) bool {
+	if s.whole() || o.whole() {
+		return true
+	}
+	return s.prefix.Contains(o.prefix.Addr()) || o.prefix.Contains(s.prefix.Addr())
+}
+
+func (s addrSet) String() string {
+	switch {
+	case s.whole():
+		return "every address"
+	case s.prefix.Bits() == 0 && s.prefix.Addr().Is4():
+		return "every IPv4 address"
+	case s.prefix.Bits() == 0:
+		return "every IPv6 address"
+	case s.literal():
+		return "address " + s.prefix.Addr().String()
+	}
+	return "addresses in " + s.prefix.String()
+}
+
+func (s addrSet) expand(inventory []netip.Addr) []netip.Addr {
+	if len(inventory) == 0 {
+		switch {
+		case s.whole(), s.prefix.Bits() == 0:
+			return []netip.Addr{{}}
+		case s.literal():
+			return []netip.Addr{s.prefix.Addr()}
+		}
+		return nil
+	}
+	var out []netip.Addr
+	for _, addr := range inventory {
+		if s.whole() || s.prefix.Contains(addr) {
+			out = append(out, addr)
+		}
+	}
+	return out
+}
+
+func reservationSet(r *Reservation) addrSet {
+	if !r.Address.IsValid() {
+		return addrSet{}
+	}
+	return addrSet{prefix: netip.PrefixFrom(r.Address, r.Address.BitLen())}
+}
+
+// Evaluate expands every route into selector claims and decides collisions
+// on the selector sets, so the answer does not depend on the inventory a
+// node reports today. The inventory is used only to expand the accepted
+// claims into the publish set.
 func Evaluate(in Inputs) Result {
-	result := Result{Publish: make(map[uint64][]Publish)}
+	result := Result{Publish: make(map[uint64][]Publish), PublishedDeployments: make(map[uint64][]uint64)}
 	nodes := make(map[uint64]Node, len(in.Nodes))
 	for _, node := range in.Nodes {
 		nodes[node.ID] = node
@@ -154,31 +218,30 @@ func Evaluate(in Inputs) Result {
 			hostModeByNode[dep.NodeID] = append(hostModeByNode[dep.NodeID], dep.Name)
 		}
 	}
-	tcpPorts := make(map[uint64]map[uint32]uint64) // node -> port -> owner
+	tcpPorts := make(map[portKey]uint64)
 	for i := range deployments {
 		dep := &deployments[i]
 		if dep.HostMode {
 			continue
 		}
 		for _, port := range dep.TCPPorts {
-			if tcpPorts[dep.NodeID] == nil {
-				tcpPorts[dep.NodeID] = make(map[uint32]uint64)
-			}
-			if _, ok := tcpPorts[dep.NodeID][port]; !ok {
-				tcpPorts[dep.NodeID][port] = dep.ID
+			key := portKey{dep.NodeID, port}
+			if _, ok := tcpPorts[key]; !ok {
+				tcpPorts[key] = dep.ID
 			}
 		}
 	}
 
-	owners := make(map[claimKey]*claim)
-	hostKinds := make(map[hostKindKey]*claim)
-	hostCerts := make(map[hostKindKey]*claim)
+	accepted := make(map[portKey][]*claim)
 	publish := make(map[uint64]map[Publish]struct{})
-	addPublish := func(nodeID uint64, entry Publish) {
+	published := make(map[uint64]map[uint64]struct{})
+	addPublish := func(nodeID, deploymentID uint64, entry Publish) {
 		if publish[nodeID] == nil {
 			publish[nodeID] = make(map[Publish]struct{})
+			published[nodeID] = make(map[uint64]struct{})
 		}
 		publish[nodeID][entry] = struct{}{}
+		published[nodeID][deploymentID] = struct{}{}
 	}
 	warnedHostMode := make(map[[2]uint64]struct{})
 
@@ -190,34 +253,34 @@ func Evaluate(in Inputs) Result {
 		for j := range dep.Routes {
 			route := &dep.Routes[j]
 			for _, c := range expand(dep, route, nodes, in.Reachable) {
+				key := portKey{c.nodeID, c.port}
 				if reserved := matchReservation(in.Reservations, c); reserved != nil {
-					if c.literal {
+					if in.Candidate != 0 && dep.ID == in.Candidate {
 						result.Errors = append(result.Errors, Diagnostic{dep.ID, fmt.Sprintf(
-							"networking.ingress: %s on node %d address %s port %d is reserved by the %s", route.Hostname, c.nodeID, c.address, c.port, reserved.Name)})
+							"networking.ingress: %s on node %d port %d (%s) is reserved by the %s", route.Hostname, c.nodeID, c.port, c.set, reserved.Name)})
 					} else {
 						result.Excluded = append(result.Excluded, Diagnostic{dep.ID, fmt.Sprintf(
-							"%s is not published on node %d port %d%s: reserved by the %s", route.Hostname, c.nodeID, c.port, addressSuffix(c.address), reserved.Name)})
+							"%s is not published on node %d port %d (%s): reserved by the %s", route.Hostname, c.nodeID, c.port, c.set, reserved.Name)})
 					}
 					continue
 				}
-				if owner, ok := tcpPorts[c.nodeID][c.port]; ok {
-					message := fmt.Sprintf("networking: TCP host port %d conflicts with ingress on this node", c.port)
-					if in.Candidate != 0 && (dep.ID == in.Candidate || owner == in.Candidate) {
-						result.Errors = append(result.Errors, Diagnostic{in.Candidate, message})
-					} else {
-						result.Warnings = append(result.Warnings, Diagnostic{dep.ID, fmt.Sprintf("%s is not published on node %d port %d: %s", route.Hostname, c.nodeID, c.port, message)})
-					}
+				if _, ok := tcpPorts[key]; ok {
+					result.Errors = append(result.Errors, Diagnostic{in.Candidate, fmt.Sprintf("networking: TCP host port %d conflicts with ingress on this node", c.port)})
 					continue
 				}
-				if !resolveClaim(&result, in.Candidate, owners, hostKinds, hostCerts, c) {
+				if !resolveClaim(&result, in.Candidate, accepted[key], c) {
 					continue
 				}
-				addPublish(c.nodeID, Publish{Address: c.address, Port: c.port})
-				if !c.literal {
-					key := [2]uint64{dep.ID, c.nodeID}
+				accepted[key] = append(accepted[key], c)
+				addresses := c.set.expand(nodes[c.nodeID].HostAddresses)
+				for _, address := range addresses {
+					addPublish(c.nodeID, dep.ID, Publish{Address: address, Port: c.port})
+				}
+				if !c.set.literal() && len(addresses) > 0 {
+					warned := [2]uint64{dep.ID, c.nodeID}
 					if names := hostModeByNode[c.nodeID]; len(names) > 0 {
-						if _, done := warnedHostMode[key]; !done {
-							warnedHostMode[key] = struct{}{}
+						if _, done := warnedHostMode[warned]; !done {
+							warnedHostMode[warned] = struct{}{}
 							result.Warnings = append(result.Warnings, Diagnostic{dep.ID, fmt.Sprintf(
 								"ingress is published on every address of node %d, where host-mode deployment(s) %s may bind the same ports", c.nodeID, strings.Join(names, ", "))})
 						}
@@ -226,8 +289,8 @@ func Evaluate(in Inputs) Result {
 			}
 		}
 	}
-	// HTTPS claims are expanded once per port (443 and 80), so a collision or
-	// exclusion is found twice; report each finding once.
+	// HTTPS claims are expanded once per port (443 and 80), so a collision is
+	// found twice; report each finding once.
 	result.Errors = dedupe(result.Errors)
 	result.Warnings = dedupe(result.Warnings)
 	result.Excluded = dedupe(result.Excluded)
@@ -243,6 +306,14 @@ func Evaluate(in Inputs) Result {
 			return list[i].Address.Compare(list[j].Address) < 0
 		})
 		result.Publish[nodeID] = list
+	}
+	for nodeID, entries := range published {
+		list := make([]uint64, 0, len(entries))
+		for id := range entries {
+			list = append(list, id)
+		}
+		slices.Sort(list)
+		result.PublishedDeployments[nodeID] = list
 	}
 	return result
 }
@@ -260,58 +331,49 @@ func dedupe(diags []Diagnostic) []Diagnostic {
 	return out
 }
 
-type hostKindKey struct {
-	nodeID   uint64
-	address  netip.Addr
-	port     uint32
-	hostname string
+func routePrefix(route *Route) string {
+	if route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
+		return route.PathPrefix
+	}
+	return ""
 }
 
-// resolveClaim records c in the ownership maps or reports why it cannot own
-// its key. It returns false when the claim must not be published.
-func resolveClaim(result *Result, candidate uint64, owners map[claimKey]*claim, hostKinds, hostCerts map[hostKindKey]*claim, c *claim) bool {
-	key := claimKey{c.nodeID, c.address, c.port, c.route.Hostname, ""}
-	if c.route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
-		key.prefix = c.route.PathPrefix
-	}
-	hostKey := hostKindKey{c.nodeID, c.address, c.port, c.route.Hostname}
-	report := func(other *claim, message string) bool {
-		if candidate != 0 && (c.deployment.ID == candidate || other.deployment.ID == candidate) {
-			result.Errors = append(result.Errors, Diagnostic{candidate, "networking.ingress: " + message})
-			return false
-		}
-		if other.deployment.ID == c.deployment.ID {
-			result.Warnings = append(result.Warnings, Diagnostic{c.deployment.ID, fmt.Sprintf("%s is not published on node %d%s: %s", c.route.Hostname, c.nodeID, addressSuffix(c.address), message)})
-			return false
-		}
-		result.Warnings = append(result.Warnings, Diagnostic{c.deployment.ID, fmt.Sprintf("%s is not published on node %d%s: %s", c.route.Hostname, c.nodeID, addressSuffix(c.address), message)})
-		result.Warnings = append(result.Warnings, Diagnostic{other.deployment.ID, fmt.Sprintf("%s on node %d%s collides with deployment %d (%s); this deployment keeps the route", other.route.Hostname, other.nodeID, addressSuffix(other.address), c.deployment.ID, c.deployment.Name)})
+// resolveClaim checks c against the claims already accepted on its node and
+// port. A collision is an error against the candidate and the claim is not
+// published.
+func resolveClaim(result *Result, candidate uint64, accepted []*claim, c *claim) bool {
+	report := func(message string) bool {
+		result.Errors = append(result.Errors, Diagnostic{candidate, "networking.ingress: " + message})
 		return false
 	}
-	if other, ok := owners[key]; ok && other.deployment.ID != c.deployment.ID {
-		if c.route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
-			return report(other, fmt.Sprintf("HTTPS route %s%s is already claimed by another deployment on this node", c.route.Hostname, c.route.PathPrefix))
+	var overlapping []*claim
+	for _, other := range accepted {
+		if other.route.Hostname == c.route.Hostname && other.set.intersects(c.set) {
+			overlapping = append(overlapping, other)
 		}
-		return report(other, fmt.Sprintf("%s on host port %d is already claimed by another deployment on this node", c.route.Hostname, c.port))
 	}
-	if other, ok := hostKinds[hostKey]; ok && other.route.Kind != c.route.Kind && other.deployment.ID != c.deployment.ID {
-		return report(other, fmt.Sprintf("%s cannot use both HTTPS and TLS_PASSTHROUGH on host port %d on this node", c.route.Hostname, c.port))
+	for _, other := range overlapping {
+		if other.deployment.ID == c.deployment.ID || other.route.Kind != c.route.Kind || routePrefix(other.route) != routePrefix(c.route) {
+			continue
+		}
+		if c.route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
+			return report(fmt.Sprintf("HTTPS route %s%s is already claimed by another deployment on this node", c.route.Hostname, c.route.PathPrefix))
+		}
+		return report(fmt.Sprintf("%s on host port %d is already claimed by another deployment on this node", c.route.Hostname, c.port))
+	}
+	for _, other := range overlapping {
+		if other.deployment.ID != c.deployment.ID && other.route.Kind != c.route.Kind {
+			return report(fmt.Sprintf("%s cannot use both HTTPS and TLS_PASSTHROUGH on host port %d on this node", c.route.Hostname, c.port))
+		}
 	}
 	if c.route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
-		// Unlike the ownership keys, the cert source must agree within one
+		// Unlike the ownership rule, the cert source must agree within one
 		// deployment too: netproxy serves one certificate per hostname.
-		if other, ok := hostCerts[hostKey]; ok && other.route.CertSource != c.route.CertSource {
-			return report(other, fmt.Sprintf("certSource for %s must match across all HTTPS routes on this node", c.route.Hostname))
+		for _, other := range overlapping {
+			if other.route.Kind == c.route.Kind && other.route.CertSource != c.route.CertSource {
+				return report(fmt.Sprintf("certSource for %s must match across all HTTPS routes on this node", c.route.Hostname))
+			}
 		}
-		if _, ok := hostCerts[hostKey]; !ok {
-			hostCerts[hostKey] = c
-		}
-	}
-	if _, ok := owners[key]; !ok {
-		owners[key] = c
-	}
-	if _, ok := hostKinds[hostKey]; !ok {
-		hostKinds[hostKey] = c
 	}
 	return true
 }
@@ -319,27 +381,17 @@ func resolveClaim(result *Result, candidate uint64, owners map[claimKey]*claim, 
 func matchReservation(reservations []Reservation, c *claim) *Reservation {
 	for i := range reservations {
 		r := &reservations[i]
-		if r.NodeID != c.nodeID || r.Port != c.port {
-			continue
-		}
-		if !r.Address.IsValid() || !c.address.IsValid() || r.Address == c.address {
+		if r.NodeID == c.nodeID && r.Port == c.port && reservationSet(r).intersects(c.set) {
 			return r
 		}
 	}
 	return nil
 }
 
-func addressSuffix(addr netip.Addr) string {
-	if !addr.IsValid() {
-		return ""
-	}
-	return " address " + addr.String()
-}
-
-// expand lists the concrete claims of one route: the selector's nodes, each
-// node's inventory filtered by the address selector, crossed with the route's
-// ports. The default node selector is the deployment's scheduled node; any
-// and named selectors are intersected with the reachable set.
+// expand lists the selector claims of one route: the selector's nodes, each
+// address set of the selector, crossed with the route's ports. The default
+// node selector is the deployment's scheduled node; any and named selectors
+// are intersected with the reachable set.
 func expand(dep *Deployment, route *Route, nodes map[uint64]Node, reachable func(uint64) []uint64) []*claim {
 	scheduled := []uint64{dep.NodeID}
 	reach := scheduled
@@ -351,11 +403,11 @@ func expand(dep *Deployment, route *Route, nodes map[uint64]Node, reachable func
 		selectors = []apigen.IngressListen{{}}
 	}
 	ports := RoutePorts(route)
-	type addrKey struct {
+	type setKey struct {
 		node uint64
-		addr netip.Addr
+		set  addrSet
 	}
-	seen := make(map[addrKey]struct{})
+	seen := make(map[setKey]struct{})
 	var out []*claim
 	for i := range selectors {
 		selector := &selectors[i]
@@ -371,18 +423,17 @@ func expand(dep *Deployment, route *Route, nodes map[uint64]Node, reachable func
 			if specific != nil && specific.NodeID != nodeID {
 				continue
 			}
-			node, known := nodes[nodeID]
-			if !known {
+			if _, known := nodes[nodeID]; !known {
 				continue
 			}
-			for _, expanded := range expandAddresses(selector.Addresses, node.HostAddresses) {
-				key := addrKey{nodeID, expanded.addr}
+			for _, set := range selectorSets(selector.Addresses) {
+				key := setKey{nodeID, set}
 				if _, dup := seen[key]; dup {
 					continue
 				}
 				seen[key] = struct{}{}
 				for _, port := range ports {
-					out = append(out, &claim{deployment: dep, route: route, nodeID: nodeID, address: expanded.addr, port: port, literal: expanded.literal})
+					out = append(out, &claim{deployment: dep, route: route, nodeID: nodeID, set: set, port: port})
 				}
 			}
 		}
@@ -390,65 +441,13 @@ func expand(dep *Deployment, route *Route, nodes map[uint64]Node, reachable func
 	return out
 }
 
-type expandedAddress struct {
-	addr    netip.Addr
-	literal bool
-}
-
-// expandAddresses filters a node's inventory by one address list: an empty
-// list selects every address, a /0 prefix selects every address of its
-// family, a single-address prefix names that address literally, and any other
-// prefix selects the covered addresses. With an unknown inventory the empty
-// list and family prefixes yield the wildcard entry and literal prefixes yield
-// their literal address; CIDR prefixes yield nothing, because there is no
-// inventory to intersect them with.
-func expandAddresses(addresses []apigen.IpPrefix, inventory []netip.Addr) []expandedAddress {
-	var prefixes []netip.Prefix
-	var literals []netip.Addr
-	family := false
+func selectorSets(addresses []apigen.IpPrefix) []addrSet {
+	if len(addresses) == 0 {
+		return []addrSet{{}}
+	}
+	out := make([]addrSet, 0, len(addresses))
 	for _, entry := range addresses {
-		prefix := entry.Prefix()
-		switch {
-		case !prefix.IsValid():
-		case prefix.IsSingleIP():
-			literals = append(literals, prefix.Addr().Unmap())
-		case prefix.Bits() == 0:
-			family = true
-			prefixes = append(prefixes, prefix)
-		default:
-			prefixes = append(prefixes, prefix.Masked())
-		}
-	}
-	var out []expandedAddress
-	if len(prefixes) == 0 && len(literals) == 0 {
-		if len(inventory) == 0 {
-			return []expandedAddress{{}}
-		}
-		for _, addr := range inventory {
-			out = append(out, expandedAddress{addr: addr})
-		}
-		return out
-	}
-	if len(inventory) == 0 {
-		if family {
-			out = append(out, expandedAddress{})
-		}
-		for _, addr := range literals {
-			out = append(out, expandedAddress{addr: addr, literal: true})
-		}
-		return out
-	}
-	for _, addr := range inventory {
-		if slices.Contains(literals, addr) {
-			out = append(out, expandedAddress{addr: addr, literal: true})
-			continue
-		}
-		for _, prefix := range prefixes {
-			if prefix.Contains(addr) {
-				out = append(out, expandedAddress{addr: addr})
-				break
-			}
-		}
+		out = append(out, setOf(entry.Prefix()))
 	}
 	return out
 }
@@ -465,38 +464,26 @@ func RoutePorts(route *Route) []uint32 {
 	return []uint32{route.HostPort}
 }
 
-// DeploymentFromSpec builds the evaluator's view of one deployment. Hostnames
-// and prefixes are expected to be normalised already (validation runs before
-// save); the function lower-cases hostnames defensively.
+// DeploymentFromSpec builds the evaluator's view of one validated deployment
+// spec: hostnames and path prefixes are stored in canonical form.
 func DeploymentFromSpec(id, nodeID uint64, name string, spec *apigen.DeploymentSpec) Deployment {
 	dep := Deployment{ID: id, NodeID: nodeID, Name: name}
-	if spec == nil {
-		return dep
-	}
 	if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
 		dep.HostMode = spec.Networking.Mode == apigen.NetworkingMode_NETWORKING_MODE_HOST
 		return dep
 	}
 	for _, pf := range spec.Networking.PortForwarding {
-		if pf.Protocol == apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP && pf.HostPort >= 1 && pf.HostPort <= 65535 {
+		if pf.Protocol == apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP {
 			dep.TCPPorts = append(dep.TCPPorts, pf.HostPort)
 		}
 	}
 	for _, route := range spec.Networking.Ingress {
-		hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(route.Hostname)), ".")
-		if hostname == "" {
-			continue
-		}
 		switch {
 		case route.Config.Value.TlsPassthrough != nil:
-			dep.Routes = append(dep.Routes, Route{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: hostname, HostPort: route.Config.Value.TlsPassthrough.HostPort.Value, Listen: route.Listen})
+			dep.Routes = append(dep.Routes, Route{Kind: apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH, Hostname: route.Hostname, HostPort: route.Config.Value.TlsPassthrough.HostPort.Value, Listen: route.Listen})
 		case route.Config.Value.Https != nil:
 			https := route.Config.Value.Https
-			prefix := strings.TrimSpace(https.PathPrefix)
-			if prefix == "" {
-				prefix = "/"
-			}
-			dep.Routes = append(dep.Routes, Route{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: hostname, PathPrefix: prefix, CertSource: CertSourceClaim(https.CertSource), Listen: route.Listen})
+			dep.Routes = append(dep.Routes, Route{Kind: apigen.IngressKind_INGRESS_KIND_HTTPS, Hostname: route.Hostname, PathPrefix: https.PathPrefix, CertSource: CertSourceClaim(https.CertSource), Listen: route.Listen})
 		}
 	}
 	return dep
@@ -509,19 +496,14 @@ func CertSourceClaim(source apigen.Maybe[apigen.CertSource]) string {
 	return "acme"
 }
 
-// HostAddresses converts a node's reported address inventory to addresses,
-// dropping anything invalid.
+// HostAddresses converts a node's stored address inventory, which the node
+// write path keeps canonical, deduplicated and sorted.
 func HostAddresses(values []apigen.IpAddress) []netip.Addr {
 	out := make([]netip.Addr, 0, len(values))
 	for _, value := range values {
-		addr := value.Addr()
-		if !addr.IsValid() || addr.Zone() != "" {
-			continue
-		}
-		out = append(out, addr.Unmap())
+		out = append(out, value.Addr())
 	}
-	slices.SortFunc(out, netip.Addr.Compare)
-	return slices.Compact(out)
+	return out
 }
 
 // WebUIReservations derives the platform's own listeners from the resolved
@@ -553,7 +535,7 @@ func listenReservation(nodeID uint64, listen, name string) (Reservation, bool) {
 			return Reservation{}, false
 		}
 		if !addr.IsUnspecified() {
-			r.Address = addr.Unmap()
+			r.Address = addr
 		}
 	}
 	return r, true

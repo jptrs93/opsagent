@@ -37,7 +37,7 @@ func assertInstanceMutationsMatchRows(t *testing.T, store *state.Service, update
 func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	startScheduler(t, store, newFakeBarrier())
 	sub, unsub := store.SubscribeUpdates()
 	defer unsub()
@@ -90,7 +90,7 @@ func TestDesiredAndStatusChangesIncludeImmediateSchedule(t *testing.T) {
 func TestStaleReportIsDroppedAndCannotDriveScheduler(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	barrier := newFakeBarrier()
 	barrier.held = true
 	startScheduler(t, store, barrier)
@@ -137,7 +137,7 @@ func TestDrainDeadlineSurvivesRepeatedTriggers(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	ctx := context.Background()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	barrier := newFakeBarrier()
 	barrier.held = true
 	scheduling := New(store, barrier)

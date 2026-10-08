@@ -78,7 +78,7 @@ func fetchState(t *testing.T, store *state.Service, instanceID uint64) apigen.Sc
 func TestOlderRunningStatusCannotDrainReplacement(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 	older := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	barrier := newFakeBarrier()
@@ -102,7 +102,7 @@ func TestOlderRunningStatusCannotDrainReplacement(t *testing.T) {
 func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
 	older := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -134,7 +134,7 @@ func TestStartupReconcileDoesNotLetOlderRunningKillReplacement(t *testing.T) {
 func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 	older := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
@@ -188,7 +188,7 @@ func TestRolloverReplacementWarmsUpAsStandby(t *testing.T) {
 func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 	serving := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, serving.ID, cfg.Meta.SpecVersion, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
@@ -250,7 +250,7 @@ func TestFailedRolloutDoesNotAccumulateStandbys(t *testing.T) {
 func TestDrainedInstanceWaitsForTheBarrier(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 	older := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	updated := statetest.UpdateDeploymentSpec(store, apigen.Context{}, cfg.Deployment.ID, rolloverSpec("v2"))
@@ -284,7 +284,7 @@ func TestDrainedInstanceWaitsForTheBarrier(t *testing.T) {
 func TestStandbyPromotedWhenServingDies(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 	older := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
@@ -312,7 +312,7 @@ func TestStandbyPromotedWhenServingDies(t *testing.T) {
 func TestSpaceMoveRidesTheRolloverPath(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 	serving := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0,
 		apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -363,7 +363,7 @@ func TestSpaceMoveRidesTheRolloverPath(t *testing.T) {
 func TestTerminateDeploymentStopsEveryRunnableState(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 
 	serving := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -443,7 +443,7 @@ func TestRestartHandlesEveryInstanceState(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 			t.Cleanup(func() { _ = store.Close() })
-			node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+			node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 			cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 			// Instances are always born runnable; non-runnable targets are reached
 			// by transition, so build the fixture the same way.
@@ -473,7 +473,7 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "primary.db")
 	store := state.Open(path)
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 
 	// Mid-rollover, as found on disk: the superseded placement draining, its
@@ -521,7 +521,7 @@ func TestRestartAdoptsDrainingInstances(t *testing.T) {
 func TestRestartEventReplacesThePlacement(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
 	serving := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, serving.ID, cfg.Meta.SpecVersion, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
@@ -550,7 +550,7 @@ func TestRestartEventReplacesThePlacement(t *testing.T) {
 func TestRestartEventRollsOverThePlacement(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, rolloverSpec("v1"))
 	serving := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	markRunning(t, store, serving.ID, cfg.Meta.SpecVersion, apigen.RunningStatus_RUNNING_STATUS_RUNNING)
@@ -585,7 +585,7 @@ func TestRestartEventRollsOverThePlacement(t *testing.T) {
 func TestStoppedInstanceIsFinalized(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
 	inst := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -612,7 +612,7 @@ func TestStoppedInstanceIsFinalized(t *testing.T) {
 func TestRestartingAfterStopLeavesOnlyTheReplacement(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
 	older := statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, cfg.Deployment.PlacementNodeID(), 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -642,7 +642,7 @@ func TestRestartingAfterStopLeavesOnlyTheReplacement(t *testing.T) {
 func TestStartupFinalizesStoppedInstances(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, testRunningSpec("v1"))
 

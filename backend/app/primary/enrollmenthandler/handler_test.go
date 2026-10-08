@@ -143,7 +143,7 @@ func TestHelloRejectsEnrolledIdentifier(t *testing.T) {
 	h, store := newTestHandler(t)
 	ctx := context.Background()
 	id := newTestIdentity(t)
-	member := nodes.EnsurePrimaryNode(store, "primary", id.identifier, netip.MustParseAddr("192.0.2.1"))
+	member := nodes.EnsurePrimaryNode(store, "primary", id.identifier, netip.MustParseAddr("192.0.2.1"), "")
 	before, err := store.Queries().GetNodeRowByIdentifier(ctx, member.Identifier)
 	if err != nil {
 		t.Fatal(err)

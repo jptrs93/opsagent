@@ -299,7 +299,7 @@ func TestKeyslotsAreNodeKeyedEvents(t *testing.T) {
 	dir := t.TempDir()
 	store := state.Open(filepath.Join(dir, "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("10.0.0.1"))
+	primary := nodes.EnsurePrimaryNode(store, "primary", "primary-id", netip.MustParseAddr("10.0.0.1"), "")
 	mgr, err := Initialize(dir, store)
 	if err != nil {
 		t.Fatalf("Initialize: %v", err)

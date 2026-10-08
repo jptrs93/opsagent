@@ -20,7 +20,7 @@ const netproxyFileDescriptorLimit = uint32(65_536)
 
 func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	created := statetest.MustCreateStoppedDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, node.ID, statetest.SpecWithVersion(""))
 	statetest.SetDeploymentWorkloadState(store, apigen.Context{}, created.Deployment.ID, "v0.0.194", true)
 
@@ -49,7 +49,7 @@ func TestEnsureSystemDeploymentRepairsExistingSpec(t *testing.T) {
 
 func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	cfg := EnsureNetproxy(store, node.ID, "v0.0.200")
 	if cfg == nil {
 		t.Fatal("netproxy config not returned")
@@ -77,8 +77,8 @@ func TestEnsureNetproxyDeploymentCreatesInternalConfig(t *testing.T) {
 
 func TestInternalDeploymentsAreScopedByNodeID(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	nodeA := nodes.EnsurePrimaryNode(store, "node-a", "node-a", netip.MustParseAddr("10.0.0.1"))
-	nodeB := nodes.EnsurePrimaryNode(store, "node-b", "node-b", netip.MustParseAddr("10.0.0.2"))
+	nodeA := nodes.EnsurePrimaryNode(store, "node-a", "node-a", netip.MustParseAddr("10.0.0.1"), "")
+	nodeB := nodes.EnsurePrimaryNode(store, "node-b", "node-b", netip.MustParseAddr("10.0.0.2"), "")
 
 	a := EnsureNetproxy(store, nodeA.ID, "v0.0.200")
 	b := EnsureNetproxy(store, nodeB.ID, "v0.0.200")
@@ -92,7 +92,7 @@ func TestInternalDeploymentsAreScopedByNodeID(t *testing.T) {
 
 func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	cfg := EnsureNetproxy(store, node.ID, "v0.0.200")
 	broken := internaldeploy.NetproxySpec()
 	broken.Container().Runtime.FileDescriptorLimit = apigen.Some[uint32](128)
@@ -113,7 +113,7 @@ func TestEnsureNetproxyDeploymentRepairsExistingSpec(t *testing.T) {
 
 func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	cfg := EnsureNetproxy(store, node.ID, "v0.0.200")
 	broken := internaldeploy.NetproxySpec()
 	broken.Container().Runtime.FileDescriptorLimit = apigen.Some[uint32](128)
@@ -134,7 +134,7 @@ func TestEnsureNetproxyDeploymentRepairsSpecOnceConcurrently(t *testing.T) {
 
 func TestEnsureNetproxyDeploymentPreservesDesiredStateConcurrently(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	cfg := EnsureNetproxy(store, node.ID, "v0.0.200")
 	statetest.SetDeploymentWorkloadState(store, apigen.Context{}, cfg.Deployment.ID, "v0.0.199", false)
 	manualVersion := erru.Must(store.Queries().GetLatestDeployment(context.Background(), cfg.Deployment.ID)).Meta.SpecVersion
@@ -156,7 +156,7 @@ func TestEnsureNetproxyDeploymentPreservesDesiredStateConcurrently(t *testing.T)
 
 func TestEnsureNetproxyDeploymentRequiresExplicitVersion(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	defer func() {
 		if recover() == nil {
 			t.Fatal("EnsureNetproxyDeployment did not panic without version")
@@ -167,7 +167,7 @@ func TestEnsureNetproxyDeploymentRequiresExplicitVersion(t *testing.T) {
 
 func TestEnsureNetproxyDeploymentPreservesExistingVersion(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	cfg := EnsureNetproxy(store, node.ID, "v0.0.200")
 
 	again := EnsureNetproxy(store, node.ID, "v0.0.201")

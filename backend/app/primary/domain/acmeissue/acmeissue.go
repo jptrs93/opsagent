@@ -44,7 +44,12 @@ type Manager struct {
 	Holder       *acmestate.Holder
 	DirectoryURL string
 
-	challenges map[string]string
+	challenges map[string]pendingChallenge
+}
+
+type pendingChallenge struct {
+	hostname         string
+	keyAuthorization string
 }
 
 func New(secretsMgr *secrets.Manager, snapshot func() []apigen.DeploymentRecord, store *state.Service, holder *acmestate.Holder) *Manager {
@@ -58,7 +63,7 @@ func New(secretsMgr *secrets.Manager, snapshot func() []apigen.DeploymentRecord,
 		Store:        store,
 		Holder:       holder,
 		DirectoryURL: directory,
-		challenges:   map[string]string{},
+		challenges:   map[string]pendingChallenge{},
 	}
 }
 
@@ -203,7 +208,7 @@ func (m *Manager) publish(bindings map[string]apigen.ValueRef) {
 	}
 	sort.Strings(tokens)
 	for _, token := range tokens {
-		state.Challenges = append(state.Challenges, apigen.AcmeHttpChallenge{Token: token, KeyAuthorization: m.challenges[token]})
+		state.Challenges = append(state.Challenges, apigen.AcmeHttpChallenge{Token: token, KeyAuthorization: m.challenges[token].keyAuthorization, Hostname: m.challenges[token].hostname})
 	}
 	m.Holder.Set(state)
 }
@@ -220,7 +225,7 @@ func (m *Manager) issue(ctx context.Context, hostname string) error {
 		return fmt.Errorf("authorizing order: %w", err)
 	}
 	for _, authzURL := range order.AuthzURLs {
-		if err := m.completeAuthorization(ctx, client, authzURL); err != nil {
+		if err := m.completeAuthorization(ctx, client, hostname, authzURL); err != nil {
 			return err
 		}
 	}
@@ -253,7 +258,7 @@ func (m *Manager) issue(ctx context.Context, hostname string) error {
 	return nil
 }
 
-func (m *Manager) completeAuthorization(ctx context.Context, client *acme.Client, authzURL string) error {
+func (m *Manager) completeAuthorization(ctx context.Context, client *acme.Client, hostname, authzURL string) error {
 	authz, err := client.GetAuthorization(ctx, authzURL)
 	if err != nil {
 		return fmt.Errorf("fetching authorization: %w", err)
@@ -275,7 +280,7 @@ func (m *Manager) completeAuthorization(ctx context.Context, client *acme.Client
 	if err != nil {
 		return err
 	}
-	m.challenges[challenge.Token] = auth
+	m.challenges[challenge.Token] = pendingChallenge{hostname: hostname, keyAuthorization: auth}
 	m.publishCurrent()
 	defer func() {
 		delete(m.challenges, challenge.Token)

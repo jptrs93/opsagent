@@ -1,21 +1,14 @@
-package netmappublisher
+package nodepublisher
 
 import (
 	"net/netip"
-	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
-	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/network"
-	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
-	"github.com/jptrs93/opsagent/backend/util/version"
 )
 
 const (
@@ -23,81 +16,14 @@ const (
 	testWGKeyB = "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="
 )
 
-func renderNI(prefix network.Prefix, nodeList []*nodes.Node, instances []apigen.ScheduledInstanceState) (*apigen.ClusterNetMap, error) {
-	got, _, err := render(prefix, nodes.NetworkMapInputs{Nodes: nodeList, Instances: instances}, nil)
-	return got, err
-}
-
-func TestPublisherStampsAndCoalescesLatestMap(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "primary.db")
-	prefix := network.GeneratePrefix()
-	store := state.Open(dbPath)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id", mustAddr("192.0.2.10").Addr())
-	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: mustAddr("192.0.2.10"), WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
-	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: node.Reported().UnderlayAddress, WgPublicKey: testWGKeyA, HostAddresses: node.HostAddresses})
-	deployments.EnsureNetproxy(store, node.ID, version.Version)
-
-	publisher, err := New(store, prefix, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	initial := publisher.SnapshotForNode(node.ID)
-	if initial == nil || initial.DerivedFromSeq <= 0 || initial.TargetNodeID != node.ID {
-		t.Fatalf("unexpected initial map: %+v", initial)
-	}
-	if len(initial.Nodes) != 1 || initial.Nodes[0].UnderlayAddress != "192.0.2.10" {
-		t.Fatalf("initial nodes = %+v", initial.Nodes)
-	}
-	if len(initial.Routes) != 0 {
-		t.Fatalf("initial routes = %+v, want none before the netproxy is scheduled", initial.Routes)
-	}
-	if err := publisher.Refresh(); err != nil {
-		t.Fatal(err)
-	}
-	if got := publisher.SnapshotForNode(node.ID).DerivedFromSeq; got != initial.DerivedFromSeq {
-		t.Fatalf("unchanged refresh stamp = %d, want %d", got, initial.DerivedFromSeq)
-	}
-
-	_, updates, unsubscribe := publisher.SnapshotAndSubscribe(node.ID)
-	defer unsubscribe()
-	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: mustAddr("192.0.2.11"), WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
-	if err := publisher.Refresh(); err != nil {
-		t.Fatal(err)
-	}
-	node = nodes.ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: mustAddr("192.0.2.12"), WgPublicKey: node.WGPublicKey, HostAddresses: node.HostAddresses})
-	if err := publisher.Refresh(); err != nil {
-		t.Fatal(err)
-	}
-	latest := <-updates
-	if latest.DerivedFromSeq <= initial.DerivedFromSeq || latest.Nodes[0].UnderlayAddress != "192.0.2.12" {
-		t.Fatalf("coalesced map = %+v", latest)
-	}
-
-	wantContent := string(canonicalContent(latest))
-	wantStamp := latest.DerivedFromSeq
-	publisher.Close()
-	if err := store.Close(); err != nil {
-		t.Fatal(err)
-	}
-	store = state.Open(dbPath)
-	defer store.Close()
-	restarted, err := New(store, prefix, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer restarted.Close()
-	got := restarted.SnapshotForNode(node.ID)
-	if string(canonicalContent(got)) != wantContent {
-		t.Fatalf("restarted map content = %+v, want the same derivation", got)
-	}
-	if got.DerivedFromSeq < wantStamp {
-		t.Fatalf("restarted stamp = %d, below %d: the counter never goes backwards", got.DerivedFromSeq, wantStamp)
-	}
+func renderNI(prefix network.Prefix, nodeList []*apigen.Node, instances []apigen.ScheduledInstanceState) *apigen.ClusterNetMap {
+	got, _ := render(prefix, renderInputs{nodes: nodeList, instances: instances})
+	return got
 }
 
 func TestRenderDnsCatalog(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{
+	nodeList := []*apigen.Node{
 		testNode(1, "192.0.2.1", testWGKeyA),
 		testNode(2, "192.0.2.2", testWGKeyB),
 	}
@@ -118,12 +44,9 @@ func TestRenderDnsCatalog(t *testing.T) {
 	hostMode.Config.Deployment.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
 	unnamed := servingInstance(103, 13, 1, 3)
 
-	got, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{
+	got := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{
 		unnamed, hostMode, standbyOnly, serving, promotingOld, promotingNew,
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(got.DnsServices) != 4 {
 		t.Fatalf("dns services = %+v, want database, webapp, promoting, and the fallback-labelled deployment", got.DnsServices)
 	}
@@ -153,7 +76,7 @@ func TestRenderDnsCatalog(t *testing.T) {
 
 func TestRenderIsDeterministic(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodesA := []*nodes.Node{
+	nodesA := []*apigen.Node{
 		testNode(2, "2001:db8::2", testWGKeyB),
 		testNode(1, "2001:db8::1", testWGKeyA),
 	}
@@ -161,16 +84,10 @@ func TestRenderIsDeterministic(t *testing.T) {
 		servingInstance(200, 20, 2, 4),
 		servingInstance(100, 10, 1, 3),
 	}
-	nodesB := []*nodes.Node{nodesA[1], nodesA[0]}
+	nodesB := []*apigen.Node{nodesA[1], nodesA[0]}
 	instancesB := []apigen.ScheduledInstanceState{instancesA[1], instancesA[0]}
-	a, err := renderNI(prefix, nodesA, instancesA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, err := renderNI(prefix, nodesB, instancesB)
-	if err != nil {
-		t.Fatal(err)
-	}
+	a := renderNI(prefix, nodesA, instancesA)
+	b := renderNI(prefix, nodesB, instancesB)
 	if string(canonicalContent(a)) != string(canonicalContent(b)) {
 		t.Fatalf("render depends on input order:\n%+v\n%+v", a, b)
 	}
@@ -182,7 +99,7 @@ func TestRenderIsDeterministic(t *testing.T) {
 
 func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{testNode(1, "192.0.2.1", testWGKeyA)}
+	nodeList := []*apigen.Node{testNode(1, "192.0.2.1", testWGKeyA)}
 
 	host := servingInstance(101, 11, 1, 3)
 	host.Config.Deployment.Spec.Networking.Mode = apigen.NetworkingMode_NETWORKING_MODE_HOST
@@ -191,12 +108,9 @@ func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 	finalized := servingInstance(103, 13, 1, 3)
 	finalized.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_FINALIZED
 
-	got, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{
+	got := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{
 		host, terminating, finalized, servingInstance(100, 10, 1, 3),
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(got.Routes) != 2 {
 		t.Fatalf("routes = %+v, want only the running virtual placement", got.Routes)
 	}
@@ -208,7 +122,7 @@ func TestRenderOmitsHostNetworkingAndNonRunnableStates(t *testing.T) {
 // new sequence.
 func TestRenderIgnoresRunnerStatus(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{testNode(1, "192.0.2.1", testWGKeyA)}
+	nodeList := []*apigen.Node{testNode(1, "192.0.2.1", testWGKeyA)}
 	quiet := servingInstance(100, 10, 1, 3)
 
 	restarted := servingInstance(100, 10, 1, 3)
@@ -220,17 +134,11 @@ func TestRenderIgnoresRunnerStatus(t *testing.T) {
 	noStatus := servingInstance(100, 10, 1, 3)
 	noStatus.Status = apigen.Maybe[apigen.ScheduledInstanceStatus]{}
 
-	base, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{quiet})
-	if err != nil {
-		t.Fatal(err)
-	}
+	base := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{quiet})
 	for name, item := range map[string]apigen.ScheduledInstanceState{
 		"restarted": restarted, "crashed": crashed, "starting": starting, "no status": noStatus,
 	} {
-		got, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{item})
-		if err != nil {
-			t.Fatalf("%s: %v", name, err)
-		}
+		got := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{item})
 		if string(canonicalContent(got)) != string(canonicalContent(base)) {
 			t.Fatalf("%s changed the map:\n%+v\nwant\n%+v", name, got.Routes, base.Routes)
 		}
@@ -243,7 +151,7 @@ func TestRenderIgnoresRunnerStatus(t *testing.T) {
 // already moved to its replacement.
 func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{
+	nodeList := []*apigen.Node{
 		testNode(1, "192.0.2.1", testWGKeyA),
 		testNode(2, "192.0.2.2", testWGKeyB),
 	}
@@ -265,10 +173,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	old := servingInstance(100, 10, 1, 3)
 	replacement := servingInstance(101, 10, 2, 3)
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
-	warming, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
-	if err != nil {
-		t.Fatal(err)
-	}
+	warming := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
 	assertRoutes(t, "warming up", warming, map[string]uint64{
 		instancePrefix.String(): 1,
 		oldPlacement.String():   1,
@@ -279,10 +184,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 	// placement keeps its own prefix pointed at the node still running it.
 	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
-	promoted, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
-	if err != nil {
-		t.Fatal(err)
-	}
+	promoted := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
 	assertRoutes(t, "promoted", promoted, map[string]uint64{
 		instancePrefix.String(): 2,
 		oldPlacement.String():   1,
@@ -291,10 +193,7 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 
 	// Retired: nothing left of the old placement.
 	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE
-	retired, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
-	if err != nil {
-		t.Fatal(err)
-	}
+	retired := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
 	assertRoutes(t, "retired", retired, map[string]uint64{
 		instancePrefix.String(): 2,
 		newPlacement.String():   2,
@@ -307,66 +206,17 @@ func TestRenderCrossNodeRolloverKeepsDrainingPlacementReachable(t *testing.T) {
 // is nothing for anyone to wait on.
 func TestRenderSameNodeRolloverChangesNothing(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{testNode(1, "192.0.2.1", testWGKeyA)}
+	nodeList := []*apigen.Node{testNode(1, "192.0.2.1", testWGKeyA)}
 	old := servingInstance(100, 10, 1, 3)
 	replacement := servingInstance(101, 10, 1, 3)
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
 
-	before, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
 	old.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING
 	replacement.Instance.State = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
-	after, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
-	if err != nil {
-		t.Fatal(err)
-	}
+	after := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{old, replacement})
 	if string(canonicalContent(before)) != string(canonicalContent(after)) {
 		t.Fatalf("same-node promotion changed the map:\nbefore %+v\nafter  %+v", before.Routes, after.Routes)
-	}
-}
-
-func TestRenderRejectsTwoServingPlacements(t *testing.T) {
-	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{
-		testNode(1, "192.0.2.1", testWGKeyA),
-		testNode(2, "192.0.2.2", testWGKeyB),
-	}
-	first := servingInstance(100, 10, 1, 3)
-	second := servingInstance(101, 10, 2, 3)
-	if _, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{first, second}); err == nil {
-		t.Fatal("two serving placements of one ordinal accepted: the map cannot express it")
-	}
-}
-
-func TestRenderRejectsUnknownNode(t *testing.T) {
-	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{testNode(1, "192.0.2.1", testWGKeyA)}
-	orphan := servingInstance(100, 10, 9, 3)
-	if _, err := renderNI(prefix, nodeList, []apigen.ScheduledInstanceState{orphan}); err == nil {
-		t.Fatal("placement on an unknown node accepted")
-	}
-}
-
-func TestPublishLatestDoesNotBlockIfSubscriberDrains(t *testing.T) {
-	ch := make(chan *apigen.ClusterNetMap, 1)
-	ch <- &apigen.ClusterNetMap{DerivedFromSeq: 1}
-	drained := make(chan struct{})
-	go func() {
-		<-ch
-		close(drained)
-	}()
-	<-drained
-	done := make(chan struct{})
-	go func() {
-		publishLatest(ch, &apigen.ClusterNetMap{DerivedFromSeq: 2})
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("publishLatest blocked after concurrent drain")
 	}
 }
 
@@ -406,10 +256,10 @@ func mustAddr(s string) apigen.IpAddress {
 	return apigen.AddrOf(netip.MustParseAddr(s))
 }
 
-func testNode(id uint64, underlay, wgKey string, hostAddresses ...string) *nodes.Node {
-	node := &nodes.Node{ID: id, UnderlayAddress: mustAddr(underlay), WGPublicKey: wgKey}
+func testNode(id uint64, underlay, wgKey string, hostAddresses ...string) *apigen.Node {
+	node := &apigen.Node{ID: id, Status: apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL, Reported: apigen.NodeReported{UnderlayAddress: mustAddr(underlay), WgPublicKey: wgKey}}
 	for _, value := range hostAddresses {
-		node.HostAddresses = append(node.HostAddresses, mustAddr(value))
+		node.Reported.HostAddresses = append(node.Reported.HostAddresses, mustAddr(value))
 	}
 	return node
 }
@@ -436,7 +286,7 @@ func servingInstance(instanceID, deploymentID, nodeID, spaceID uint64) apigen.Sc
 
 func TestRenderIngressPublishPerNode(t *testing.T) {
 	prefix := network.GeneratePrefix()
-	nodeList := []*nodes.Node{
+	nodeList := []*apigen.Node{
 		testNode(1, "192.0.2.10", testWGKeyA, "192.0.2.10", "2001:db8::10"),
 		testNode(2, "192.0.2.20", testWGKeyB, "192.0.2.20"),
 	}
@@ -447,12 +297,8 @@ func TestRenderIngressPublishPerNode(t *testing.T) {
 		}}}, Meta: apigen.EntityMeta{Version: 1, SpecVersion: 1}}
 	}
 	ipv6 := apigen.IngressListen{Addresses: []apigen.IpPrefix{apigen.PrefixOf(netip.MustParsePrefix("::/0"))}}
-	inputs := nodes.NetworkMapInputs{Nodes: nodeList, Deployments: []*apigen.DeploymentRecord{virtual(10, 1, ipv6), virtual(11, 2)}}
-	reservations := []ingressplan.Reservation{{NodeID: 1, Port: 80, Name: "primary Web UI (http_web.listen)"}}
-	got, diagnostics, err := render(prefix, inputs, reservations)
-	if err != nil {
-		t.Fatal(err)
-	}
+	inputs := renderInputs{nodes: nodeList, deployments: []*apigen.DeploymentRecord{virtual(10, 1, ipv6), virtual(11, 2)}}
+	got, diagnostics := render(prefix, inputs)
 	publish := func(nodeID uint64) []string {
 		for _, node := range got.Nodes {
 			if node.NodeID == nodeID {
@@ -465,13 +311,13 @@ func TestRenderIngressPublishPerNode(t *testing.T) {
 		}
 		return nil
 	}
-	if want := []string{"2001:db8::10:443"}; !slices.Equal(publish(1), want) {
-		t.Fatalf("node 1 publish = %v, want %v (ipv6 only, port 80 reserved)", publish(1), want)
+	if want := []string{"2001:db8::10:80", "2001:db8::10:443"}; !slices.Equal(publish(1), want) {
+		t.Fatalf("node 1 publish = %v, want %v (ipv6 only)", publish(1), want)
 	}
 	if want := []string{"192.0.2.20:80", "192.0.2.20:443"}; !slices.Equal(publish(2), want) {
 		t.Fatalf("node 2 publish = %v, want %v", publish(2), want)
 	}
-	if len(diagnostics.Items) != 1 || diagnostics.Items[0].DeploymentID != 10 || !strings.Contains(diagnostics.Items[0].Message, "reserved by the primary Web UI") {
-		t.Fatalf("diagnostics = %+v, want the port 80 exclusion for deployment 10", diagnostics.Items)
+	if len(diagnostics.Items) != 0 {
+		t.Fatalf("diagnostics = %+v, want none", diagnostics.Items)
 	}
 }

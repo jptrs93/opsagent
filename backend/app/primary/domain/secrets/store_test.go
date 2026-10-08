@@ -55,7 +55,7 @@ func latestDeploymentEvent(t *testing.T, store *state.Service, id uint64) *apige
 
 func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 
 	first, err := CreateWithVersion(store, "token", nodes.DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
@@ -96,7 +96,7 @@ func TestInsertSecretAtomicallyUpdatesAllHistoricalReferences(t *testing.T) {
 
 func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 
 	first, err := CreateWithVersion(store, "pgpassword", nodes.DefaultSpaceID, 0, 0, testSealFunc(1))
 	if err != nil {
@@ -137,7 +137,7 @@ func TestRotationIgnoresDeletedDeploymentReferences(t *testing.T) {
 
 func TestRotationChecksExpectedSeqsBeforeSealingAndPreservesRenames(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	secret, err := CreateWithVersion(store, "token", nodes.DefaultSpaceID, 0, 1, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)
@@ -185,7 +185,7 @@ func TestRotationChecksExpectedSeqsBeforeSealingAndPreservesRenames(t *testing.T
 
 func TestTransactionUpdateIncludesRotationAndAllDeploymentEvents(t *testing.T) {
 	store := openTestStore(t)
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	secret, err := CreateWithVersion(store, "password", nodes.DefaultSpaceID, 0, 1, testSealFunc(1))
 	if err != nil {
 		t.Fatal(err)

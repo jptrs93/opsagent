@@ -41,7 +41,7 @@ func nodeRow(t *testing.T, store *state.Service, identifier string) *Node {
 func TestEvictNodeRefusesPinnedDeploymentsWithoutForce(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	node := acceptSecondary(t, store, "secondary-id")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, DefaultSpaceID, "web", node.ID, statetest.SpecWithVersion("v1"))
 	statetest.CreateScheduledInstance(store, cfg.Deployment.ID, cfg.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
@@ -62,7 +62,7 @@ func TestEvictNodeRefusesPinnedDeploymentsWithoutForce(t *testing.T) {
 func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	web := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "web", node.ID, statetest.SpecWithVersion("v1"))
@@ -128,7 +128,7 @@ func TestEvictNodeForceFinalizesPlacementsAndDeletesSystemDeployments(t *testing
 func TestEvictNodeRefusesPrimaryAndStaleSeq(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	primary := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	primary := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	if _, err := EvictNode(ctx, store, primary.Identifier, primary.Seq, true); !errors.Is(err, ErrNodeIsPrimary) {
@@ -145,7 +145,7 @@ func TestEvictNodeRefusesPrimaryAndStaleSeq(t *testing.T) {
 func TestEvictedIdentifierCanNeverReenroll(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	node := acceptSecondary(t, store, "secondary-id")
 	if _, err := EvictNode(apigen.Context{Ctx: context.Background()}, store, node.Identifier, node.Seq, false); err != nil {
 		t.Fatalf("EvictNode: %v", err)
@@ -165,7 +165,7 @@ func TestEvictedIdentifierCanNeverReenroll(t *testing.T) {
 func TestSetNodeDrainingTogglesCordon(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	event, err := SetNodeDraining(ctx, store, node.Identifier, true)
@@ -184,7 +184,7 @@ func TestSetNodeDrainingTogglesCordon(t *testing.T) {
 func TestNodeExposureListsDeliveredData(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	node := acceptSecondary(t, store, "secondary-id")
 	ctx := apigen.Context{Ctx: context.Background()}
 	cfg := statetest.MustCreateDeploymentForNode(store, ctx, DefaultSpaceID, "web", node.ID, statetest.EnvRefSpec(map[string]apigen.ValueRef{"CONF": {ID: 9, Version: 2}}, map[string]apigen.ValueRef{"SECRET": {ID: 7, Version: 3}}))

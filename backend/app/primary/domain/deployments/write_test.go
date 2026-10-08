@@ -17,7 +17,7 @@ import (
 func TestUpdateCannotUseStaleAuthorizedDeployment(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	svc := &Service{Store: store}
 	ctx := apigen.Context{Ctx: context.Background()}
 	initial, err := svc.Create(ctx, &apigen.Deployment{
@@ -58,7 +58,7 @@ func TestUpdateCannotUseStaleAuthorizedDeployment(t *testing.T) {
 func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	svc := &Service{Store: store}
 	ctx := apigen.Context{Ctx: context.Background()}
 	initial, err := svc.Create(ctx, &apigen.Deployment{
@@ -120,7 +120,7 @@ func TestRestartUpdateWritesTheUnchangedDefinition(t *testing.T) {
 func TestRestartUpdateRejectsTheSelfDeployment(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"))
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("10.0.0.1"), "")
 	EnsureSystem(store, node.ID, "v0.0.1")
 	var self *apigen.DeploymentRecord
 	for _, cfg := range Active(store.Queries(), nil) {

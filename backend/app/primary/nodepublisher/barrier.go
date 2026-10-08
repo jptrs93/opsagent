@@ -1,4 +1,4 @@
-package netmappublisher
+package nodepublisher
 
 // Applied-stamp tracking. A published map is not in force the moment it is
 // sent: each secondary has to accept it durably and program its kernel. Anything
@@ -12,9 +12,6 @@ package netmappublisher
 // records after reconciling its own targeted map, so the barrier advances on
 // its own.
 func (p *Publisher) RecordApplied(nodeID uint64, appliedSeq int64) {
-	if nodeID == 0 {
-		return
-	}
 	p.ackMu.Lock()
 	if current, ok := p.applied[nodeID]; ok && current >= appliedSeq {
 		p.ackMu.Unlock()
@@ -39,14 +36,15 @@ func (p *Publisher) ForgetNode(nodeID uint64) {
 }
 
 // DecisionInForce reports whether the routing implied by the sequenced write
-// at seq has been rendered and applied by every node known to hold a map.
+// at seq has been rendered and applied by every node whose map it changed.
 //
 // Two conditions compose it. First, a render must have seen state@seq: until
-// then the current map may predate the decision entirely. Second, every
-// reporting node must have applied the current map's stamp. When the render
-// at seq changed no routes, the current map keeps its older stamp, nodes
-// already applied it, and the wait is satisfied immediately — that is what
-// makes a same-node rollover need no propagation wait, with no special case.
+// then the maps may predate the decision entirely. Second, every reporting
+// node whose map is stamped at or after seq must have applied that stamp. A
+// node whose map kept an older stamp was not changed by the decision, and a
+// render at seq that changed no map satisfies the wait immediately — that is
+// what makes a same-node rollover need no propagation wait, with no special
+// case.
 //
 // Nodes that have never reported are not counted. A node only reports after
 // accepting a map, so one that has never reported holds no routes at all and
@@ -55,10 +53,12 @@ func (p *Publisher) ForgetNode(nodeID uint64) {
 // network state.
 func (p *Publisher) DecisionInForce(seq int64) bool {
 	p.mu.Lock()
-	rendered := p.lastRenderedSeq >= seq
-	var stamp int64
-	if p.current != nil {
-		stamp = p.current.DerivedFromSeq
+	rendered := p.appliedSeq >= seq
+	stamps := make(map[uint64]int64, len(p.maps))
+	for nodeID, entry := range p.maps {
+		if entry.current.DerivedFromSeq >= seq {
+			stamps[nodeID] = entry.current.DerivedFromSeq
+		}
 	}
 	p.mu.Unlock()
 	if !rendered {
@@ -66,8 +66,8 @@ func (p *Publisher) DecisionInForce(seq int64) bool {
 	}
 	p.ackMu.Lock()
 	defer p.ackMu.Unlock()
-	for _, applied := range p.applied {
-		if applied < stamp {
+	for nodeID, stamp := range stamps {
+		if applied, ok := p.applied[nodeID]; ok && applied < stamp {
 			return false
 		}
 	}

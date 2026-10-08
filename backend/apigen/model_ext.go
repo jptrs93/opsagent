@@ -10,7 +10,7 @@ import (
 
 // Bumped to 13 when the api-contract was rewritten from the data model: every
 // wire shape changed, so an older node must be refused at the hello.
-const ClusterProtocolVersion uint32 = 13
+const ClusterProtocolVersion uint32 = 15
 
 // WantsRunning reports whether a node should be running this placement. The
 // three RUN_* states are deliberately indistinguishable here: they differ only

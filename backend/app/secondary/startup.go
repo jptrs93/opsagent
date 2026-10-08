@@ -8,11 +8,9 @@ import (
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/ainit"
-	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/runtimebin"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 	"github.com/jptrs93/opsagent/backend/util/version"
@@ -75,7 +73,7 @@ func MustLoadRuntimeConfig(ctx context.Context, cfg ainit.StaticConfiguration, c
 	for _, item := range store.FetchScheduledSnapshot(nil) {
 		cached = append(cached, fmt.Sprintf("{instance=%d deployment=%d node=%d name=%q space=%d}",
 			item.Instance.ID, item.Config.Deployment.ID, item.Instance.NodeID, item.Config.Deployment.Name, item.Config.Deployment.SpaceID))
-		if internaldeploy.IsNetproxyConfig(&item.Config) && item.Config.Deployment.ID != 0 {
+		if internaldeploy.IsNetproxyConfig(&item.Config) {
 			netDeploymentID = item.Config.Deployment.ID
 			nodeID = item.Instance.NodeID
 		}
@@ -85,24 +83,12 @@ func MustLoadRuntimeConfig(ctx context.Context, cfg ainit.StaticConfiguration, c
 			version.Version, dbPath, cached))
 	}
 
-	var prefix network.Prefix
-	if _, mapPrefix, ok, err := cachedClusterNetMap(ctx, store, nodeID, network.Prefix{}); err != nil {
+	_, prefix, ok, err := cachedClusterNetMap(ctx, store, nodeID, network.Prefix{})
+	if err != nil {
 		panic(err)
-	} else if ok {
-		prefix = mapPrefix
-	} else {
-		b, ok := store.FetchLocalKV(storage.LocalKVClusterNetwork)
-		if !ok {
-			panic("cached cluster network is missing")
-		}
-		info, err := apigen.DecodeClusterNetworkInfo(b)
-		if err != nil {
-			panic(fmt.Sprintf("decoding cached cluster network: %v", err))
-		}
-		prefix, err = network.ParsePrefix(info.UlaPrefix)
-		if err != nil {
-			panic(fmt.Sprintf("parsing cached cluster network: %v", err))
-		}
+	}
+	if !ok {
+		panic("cached cluster network map is missing")
 	}
 
 	return runtimeConfig{

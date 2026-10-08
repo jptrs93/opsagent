@@ -52,14 +52,15 @@ func TestIngressListenOnPrimaryAgainstWebUIReservation(t *testing.T) {
 	echo := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "echo", primary.ID, httpsSpec("web.example.test"))
 
 	wildcardWebUI := ingressplan.WebUIReservations(primary.ID, true, ":443", false, "")
-	// Default listen: accepted; the reservation drops the 443 claims instead
-	// of rejecting the route.
-	if err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), wildcardWebUI, primary.ID, echo.Deployment.ID, httpsSpec("web.example.test")); err != nil {
-		t.Fatalf("default listen on the primary rejected: %v", err)
+	// Default listen: every address intersects the wildcard reservation, so
+	// the save is rejected naming the Web UI.
+	err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), wildcardWebUI, primary.ID, echo.Deployment.ID, httpsSpec("web.example.test"))
+	if err == nil || !strings.Contains(err.Error(), "reserved by the primary Web UI") {
+		t.Fatalf("default listen on a wildcard-reserved port must be rejected, got %v", err)
 	}
-	// Literal address on the reserved port: rejected naming the Web UI.
+	// Literal address on the reserved port: rejected the same way.
 	literal := listenAddresses("203.0.113.10")
-	err := deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), wildcardWebUI, primary.ID, echo.Deployment.ID, httpsSpec("web.example.test", literal))
+	err = deployments.ValidateNodeNetworkingClaims(liveNodes(store.Queries()), wildcardWebUI, primary.ID, echo.Deployment.ID, httpsSpec("web.example.test", literal))
 	if err == nil || !strings.Contains(err.Error(), "reserved by the primary Web UI") {
 		t.Fatalf("literal listen on a wildcard-reserved port must be rejected, got %v", err)
 	}

@@ -196,36 +196,87 @@ func TestUnknownInventoryPublishesWildcardAndLiterals(t *testing.T) {
 	}
 }
 
-func TestWildcardReservationDropsWildcardClaimsAndRejectsLiterals(t *testing.T) {
+func TestReservationIntersectsEveryOverlappingSelector(t *testing.T) {
 	reservations := []Reservation{{NodeID: 1, Port: 443, Name: "primary Web UI"}}
+	for _, listen := range [][]apigen.IngressListen{nil, {family(anyIPv4)}, {literal(v4A.String())}, {literal("203.0.113.0/24")}, {literal("10.0.0.0/8")}} {
+		result := Evaluate(Inputs{
+			Nodes:        nodes(),
+			Reservations: reservations,
+			Candidate:    10,
+			Deployments:  []Deployment{{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", listen...)}}},
+		})
+		if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, "reserved by the primary Web UI") {
+			t.Fatalf("listen %v: any candidate selector intersecting a wildcard reservation is an error, got %q", listen, messages(result.Errors))
+		}
+		if got := publishSet(t, result, 1); got[v4A.String()+":443"] || got[v6A.String()+":443"] {
+			t.Fatalf("listen %v: 443 must not be published beside the reservation: %v", listen, got)
+		}
+	}
+
 	result := Evaluate(Inputs{
 		Nodes:        nodes(),
 		Reservations: reservations,
 		Deployments:  []Deployment{{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/")}}},
 	})
 	if len(result.Errors) != 0 {
-		t.Fatalf("wildcard claims against a reservation are dropped, not errors: %s", messages(result.Errors))
+		t.Fatalf("a stored deployment overlapping a reservation is not an error: %s", messages(result.Errors))
+	}
+	if len(result.Excluded) != 1 || !strings.Contains(result.Excluded[0].Message, "reserved by the primary Web UI") {
+		t.Fatalf("the stored overlap is reported as excluded, got %q", messages(result.Excluded))
 	}
 	got := publishSet(t, result, 1)
-	if got[v4A.String()+":443"] || got[v6A.String()+":443"] {
-		t.Fatalf("443 must not be published on a node whose Web UI binds :443: %v", got)
-	}
-	if !got[v4A.String()+":80"] {
-		t.Fatalf("port 80 is not reserved and must still publish: %v", got)
-	}
-	if len(result.Excluded) == 0 || !strings.Contains(messages(result.Excluded), "reserved by the primary Web UI") {
-		t.Fatalf("exclusion must be reported, got %q", messages(result.Excluded))
+	if got[v4A.String()+":443"] || got[v6A.String()+":443"] || !got[v4A.String()+":80"] {
+		t.Fatalf("443 is kept out of the publish set and 80 still publishes: %v", got)
 	}
 
 	result = Evaluate(Inputs{
-		Nodes:        nodes(),
-		Reservations: reservations,
-		Candidate:    10,
-		Deployments:  []Deployment{{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", literal(v4A.String()))}}},
+		Nodes:       nodes(),
+		Candidate:   10,
+		Deployments: []Deployment{{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/")}}},
 	})
-	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, "reserved by the primary Web UI") {
-		t.Fatalf("a literal claim on a reserved port is an error, got %q", messages(result.Errors))
+	if len(result.Errors)+len(result.Excluded)+len(result.Warnings) != 0 {
+		t.Fatalf("without reservations the same inputs are clean: %s", messages(append(result.Errors, append(result.Excluded, result.Warnings...)...)))
 	}
+	if got := publishSet(t, result, 1); !got[v4A.String()+":443"] || !got[v6A.String()+":443"] || !got[v4A.String()+":80"] {
+		t.Fatalf("without reservations every address publishes: %v", got)
+	}
+}
+
+func TestSelectorSetsCollideRegardlessOfInventory(t *testing.T) {
+	evaluate := func(first, second []apigen.IngressListen) Result {
+		return Evaluate(Inputs{
+			Nodes:     nodes(),
+			Candidate: 11,
+			Deployments: []Deployment{
+				{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", first...)}},
+				{ID: 11, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", second...)}},
+			},
+		})
+	}
+	collide := func(name string, first, second []apigen.IngressListen) {
+		t.Helper()
+		result := evaluate(first, second)
+		if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, "already claimed by another deployment") {
+			t.Fatalf("%s must collide, got %q", name, messages(result.Errors))
+		}
+	}
+	disjoint := func(name string, first, second []apigen.IngressListen) {
+		t.Helper()
+		result := evaluate(first, second)
+		if len(result.Errors) != 0 {
+			t.Fatalf("%s must not collide: %s", name, messages(result.Errors))
+		}
+	}
+	collide("whole space against a prefix no inventory address matches", nil, []apigen.IngressListen{literal("10.0.0.0/8")})
+	collide("prefix against the whole space", []apigen.IngressListen{literal("10.0.0.0/8")}, nil)
+	collide("containing prefixes", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("10.1.0.0/16")})
+	collide("literal inside a prefix", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("10.1.2.3")})
+	collide("family against a prefix of that family", []apigen.IngressListen{family(anyIPv4)}, []apigen.IngressListen{literal("10.0.0.0/8")})
+	collide("family against the whole space", []apigen.IngressListen{family(anyIPv6)}, nil)
+	disjoint("disjoint prefixes", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("192.168.0.0/16")})
+	disjoint("different families", []apigen.IngressListen{family(anyIPv4)}, []apigen.IngressListen{family(anyIPv6)})
+	disjoint("literal outside a prefix", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("192.0.2.1")})
+	disjoint("IPv6 prefix against an IPv4 literal", []apigen.IngressListen{literal("2001:db8::/32")}, []apigen.IngressListen{literal(v4A.String())})
 }
 
 func TestLiteralReservationOnlyBlocksItsAddress(t *testing.T) {
@@ -324,32 +375,6 @@ func TestCertSourceAndKindConflicts(t *testing.T) {
 	}
 }
 
-func TestStoredCollisionResolvesToLowerIDWithWarnings(t *testing.T) {
-	result := Evaluate(Inputs{
-		Nodes: nodes(),
-		Deployments: []Deployment{
-			{ID: 20, NodeID: 1, Name: "second", Routes: []Route{httpsRoute("app.example", "/")}},
-			{ID: 10, NodeID: 1, Name: "first", Routes: []Route{httpsRoute("app.example", "/")}},
-		},
-	})
-	if len(result.Errors) != 0 {
-		t.Fatalf("stored collisions are warnings: %s", messages(result.Errors))
-	}
-	if len(result.Warnings) != 4 {
-		t.Fatalf("both deployments are warned per address, got %d: %s", len(result.Warnings), messages(result.Warnings))
-	}
-	seen := map[uint64]bool{}
-	for _, w := range result.Warnings {
-		seen[w.DeploymentID] = true
-	}
-	if !seen[10] || !seen[20] {
-		t.Fatalf("warnings must name both deployments: %+v", result.Warnings)
-	}
-	if got := publishSet(t, result, 1); !got[v4A.String()+":443"] {
-		t.Fatalf("the winning route still publishes: %v", got)
-	}
-}
-
 func TestTCPPortForwardConflictsWithIngress(t *testing.T) {
 	result := Evaluate(Inputs{
 		Nodes:     nodes(),
@@ -361,6 +386,28 @@ func TestTCPPortForwardConflictsWithIngress(t *testing.T) {
 	})
 	if !strings.Contains(messages(result.Errors), "TCP host port 5433 conflicts with ingress") {
 		t.Fatalf("port forward and ingress on one port must be rejected: %q", messages(result.Errors))
+	}
+	result = Evaluate(Inputs{
+		Nodes:     nodes(),
+		Candidate: 11,
+		Deployments: []Deployment{
+			{ID: 10, NodeID: 1, TCPPorts: []uint32{5433}},
+			{ID: 11, NodeID: 1, Routes: []Route{passthroughRoute("db.example", 5433, literal(v6A.String()))}},
+		},
+	})
+	if !strings.Contains(messages(result.Errors), "TCP host port 5433 conflicts with ingress") {
+		t.Fatalf("a port forward claims the port on every address of its node: %q", messages(result.Errors))
+	}
+	result = Evaluate(Inputs{
+		Nodes:     nodes(),
+		Candidate: 11,
+		Deployments: []Deployment{
+			{ID: 10, NodeID: 2, TCPPorts: []uint32{5433}},
+			{ID: 11, NodeID: 1, Routes: []Route{passthroughRoute("db.example", 5433)}},
+		},
+	})
+	if len(result.Errors) != 0 {
+		t.Fatalf("a port forward on another node does not conflict: %q", messages(result.Errors))
 	}
 }
 

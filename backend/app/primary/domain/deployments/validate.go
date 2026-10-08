@@ -240,6 +240,7 @@ func validateIngress(ingress []apigen.Ingress, secretStore SecretResolver) error
 		if !ok {
 			return InvalidConfigErrf("networking.ingress.hostname must be a valid DNS hostname")
 		}
+		route.Hostname = hostname
 		if err := ValidateIngressListen(route.Listen); err != nil {
 			return err
 		}

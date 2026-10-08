@@ -1525,10 +1525,6 @@
  * @property {SecretRef} secret
  */
 /**
- * @typedef {Object} ClusterNetworkInfo
- * @property {Uint8Array} ulaPrefix
- */
-/**
  * @typedef {Object} ClusterNetMap
  * @property {number} targetNodeId
  * @property {Uint8Array} ulaPrefix
@@ -1607,6 +1603,7 @@
  * @typedef {Object} AcmeHttpChallenge
  * @property {string} token
  * @property {string} keyAuthorization
+ * @property {string} hostname
  */
 /**
  * @typedef {Object} DnsService
@@ -1723,19 +1720,16 @@
  */
 /**
  * @typedef {Object} MsgToSecondary
- * @property {ScheduledInstanceSnapshot} scheduledInstancesSnapshot
- * @property {ScheduledInstanceState} scheduledInstanceUpdate
  * @property {DeploymentLogRequest} deploymentLogRequest
  * @property {string} stopLogRequestId
- * @property {ClusterNetworkInfo} clusterNetwork
- * @property {ClusterNetMap} clusterNetMap
- * @property {AcmeState} acmeState
  * @property {LogQueryRequest} logQueryRequest
  * @property {number} clusterProtocolVersion
  * @property {MetricsQueryRequest} metricsQueryRequest
  * @property {MetricsLatestRequest} metricsLatestRequest
  * @property {NixStoreResets} nixStoreResets
  * @property {boolean} evicted
+ * @property {NodeProjection} nodeSnapshot
+ * @property {NodeProjection} nodeUpdate
  */
 /**
  * @typedef {Object} NixStoreResetItem
@@ -1773,8 +1767,17 @@
  * @property {ScheduledInstanceStatus} status
  */
 /**
- * @typedef {Object} ScheduledInstanceSnapshot
- * @property {ScheduledInstanceState[]} items
+ * @typedef {Object} NodeInstance
+ * @property {ScheduledInstance} instance
+ * @property {DeploymentRecord} config
+ * @property {Date} statusWatermark
+ */
+/**
+ * @typedef {Object} NodeProjection
+ * @property {number} seq
+ * @property {NodeInstance[]} instances
+ * @property {ClusterNetMap} netMap
+ * @property {AcmeState} acme
  */
 /**
  * @typedef {Object} ClusterSecretsRequest
@@ -1853,10 +1856,7 @@
  * @property {string} nodeName
  * @property {Uint8Array} caCertificate
  * @property {Uint8Array} secondaryCertificate
- * @property {ClusterNetworkInfo} clusterNetwork
- * @property {ScheduledInstanceState} nodeDeployment
- * @property {ScheduledInstanceState} nodeNetDeployment
- * @property {ClusterNetMap} clusterNetMap
+ * @property {NodeProjection} nodeSnapshot
  */
 /**
  * @typedef {Object} StringSetting
@@ -19578,62 +19578,6 @@ export function decodeAcmeCertBinding(buffer) {
 
 
 /**
- * @param {ClusterNetworkInfo} message
- * @param {Writer} writer
- */
-export function writeClusterNetworkInfo(message, writer) {
-    if (message.ulaPrefix && message.ulaPrefix.length > 0) {
-        writer.uint32(tag(1, WIRE.LDELIM)).bytes(message.ulaPrefix);
-    }
-}
-
-
-/**
- * @param {ClusterNetworkInfo} message
- * @returns {Uint8Array}
- */
-export function encodeClusterNetworkInfo(message) {
-    const writer = Writer.create();
-    writeClusterNetworkInfo(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {ClusterNetworkInfo}
- */
-function decodeClusterNetworkInfoMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {ulaPrefix: new Uint8Array(0) };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.ulaPrefix = reader.bytes();
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {ClusterNetworkInfo}
- */
-export function decodeClusterNetworkInfo(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeClusterNetworkInfoMessage(reader);
-}
-
-
-
-/**
  * @param {ClusterNetMap} message
  * @param {Writer} writer
  */
@@ -20555,6 +20499,9 @@ export function writeAcmeHttpChallenge(message, writer) {
     if (message.keyAuthorization !== undefined && message.keyAuthorization !== null && message.keyAuthorization !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.keyAuthorization);
     }
+    if (message.hostname !== undefined && message.hostname !== null && message.hostname !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.hostname);
+    }
 }
 
 
@@ -20576,7 +20523,7 @@ export function encodeAcmeHttpChallenge(message) {
  */
 function decodeAcmeHttpChallengeMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {token: "", keyAuthorization: "" };
+    const message = {token: "", keyAuthorization: "", hostname: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -20586,6 +20533,10 @@ function decodeAcmeHttpChallengeMessage(reader, length) {
             }
             case 2: {
                 message.keyAuthorization = reader.string();
+                break;
+            }
+            case 3: {
+                message.hostname = reader.string();
                 break;
             }
             default:
@@ -21967,16 +21918,6 @@ export function decodeGithubCredentials(buffer) {
  * @param {Writer} writer
  */
 export function writeMsgToSecondary(message, writer) {
-    if (message.scheduledInstancesSnapshot !== undefined && message.scheduledInstancesSnapshot !== null) {
-        writer.uint32(tag(1, WIRE.LDELIM)).fork();
-        writeScheduledInstanceSnapshot(message.scheduledInstancesSnapshot, writer);
-        writer.ldelim();
-    }
-    if (message.scheduledInstanceUpdate !== undefined && message.scheduledInstanceUpdate !== null) {
-        writer.uint32(tag(2, WIRE.LDELIM)).fork();
-        writeScheduledInstanceState(message.scheduledInstanceUpdate, writer);
-        writer.ldelim();
-    }
     if (message.deploymentLogRequest !== undefined && message.deploymentLogRequest !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
         writeDeploymentLogRequest(message.deploymentLogRequest, writer);
@@ -21984,21 +21925,6 @@ export function writeMsgToSecondary(message, writer) {
     }
     if (message.stopLogRequestId !== undefined && message.stopLogRequestId !== null) {
         writer.uint32(tag(4, WIRE.LDELIM)).string(message.stopLogRequestId);
-    }
-    if (message.clusterNetwork !== undefined && message.clusterNetwork !== null) {
-        writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeClusterNetworkInfo(message.clusterNetwork, writer);
-        writer.ldelim();
-    }
-    if (message.clusterNetMap !== undefined && message.clusterNetMap !== null) {
-        writer.uint32(tag(6, WIRE.LDELIM)).fork();
-        writeClusterNetMap(message.clusterNetMap, writer);
-        writer.ldelim();
-    }
-    if (message.acmeState !== undefined && message.acmeState !== null) {
-        writer.uint32(tag(7, WIRE.LDELIM)).fork();
-        writeAcmeState(message.acmeState, writer);
-        writer.ldelim();
     }
     if (message.logQueryRequest !== undefined && message.logQueryRequest !== null) {
         writer.uint32(tag(8, WIRE.LDELIM)).fork();
@@ -22026,6 +21952,16 @@ export function writeMsgToSecondary(message, writer) {
     if (message.evicted !== undefined && message.evicted !== null) {
         writer.uint32(tag(13, WIRE.VARINT)).bool(message.evicted);
     }
+    if (message.nodeSnapshot !== undefined && message.nodeSnapshot !== null) {
+        writer.uint32(tag(14, WIRE.LDELIM)).fork();
+        writeNodeProjection(message.nodeSnapshot, writer);
+        writer.ldelim();
+    }
+    if (message.nodeUpdate !== undefined && message.nodeUpdate !== null) {
+        writer.uint32(tag(15, WIRE.LDELIM)).fork();
+        writeNodeProjection(message.nodeUpdate, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -22047,36 +21983,16 @@ export function encodeMsgToSecondary(message) {
  */
 function decodeMsgToSecondaryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {scheduledInstancesSnapshot: undefined, scheduledInstanceUpdate: undefined, deploymentLogRequest: undefined, stopLogRequestId: undefined, clusterNetwork: undefined, clusterNetMap: undefined, acmeState: undefined, logQueryRequest: undefined, clusterProtocolVersion: 0, metricsQueryRequest: undefined, metricsLatestRequest: undefined, nixStoreResets: undefined, evicted: undefined };
+    const message = {deploymentLogRequest: undefined, stopLogRequestId: undefined, logQueryRequest: undefined, clusterProtocolVersion: 0, metricsQueryRequest: undefined, metricsLatestRequest: undefined, nixStoreResets: undefined, evicted: undefined, nodeSnapshot: undefined, nodeUpdate: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
-            case 1: {
-                message.scheduledInstancesSnapshot = decodeScheduledInstanceSnapshotMessage(reader, reader.uint32());
-                break;
-            }
-            case 2: {
-                message.scheduledInstanceUpdate = decodeScheduledInstanceStateMessage(reader, reader.uint32());
-                break;
-            }
             case 3: {
                 message.deploymentLogRequest = decodeDeploymentLogRequestMessage(reader, reader.uint32());
                 break;
             }
             case 4: {
                 message.stopLogRequestId = reader.string();
-                break;
-            }
-            case 5: {
-                message.clusterNetwork = decodeClusterNetworkInfoMessage(reader, reader.uint32());
-                break;
-            }
-            case 6: {
-                message.clusterNetMap = decodeClusterNetMapMessage(reader, reader.uint32());
-                break;
-            }
-            case 7: {
-                message.acmeState = decodeAcmeStateMessage(reader, reader.uint32());
                 break;
             }
             case 8: {
@@ -22101,6 +22017,14 @@ function decodeMsgToSecondaryMessage(reader, length) {
             }
             case 13: {
                 message.evicted = reader.bool();
+                break;
+            }
+            case 14: {
+                message.nodeSnapshot = decodeNodeProjectionMessage(reader, reader.uint32());
+                break;
+            }
+            case 15: {
+                message.nodeUpdate = decodeNodeProjectionMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -22532,27 +22456,35 @@ export function decodeScheduledInstanceState(buffer) {
 
 
 /**
- * @param {ScheduledInstanceSnapshot} message
+ * @param {NodeInstance} message
  * @param {Writer} writer
  */
-export function writeScheduledInstanceSnapshot(message, writer) {
-    if (message.items && message.items.length > 0) {
-        for (const item of message.items) {
-            writer.uint32(tag(1, WIRE.LDELIM)).fork();
-            writeScheduledInstanceState(item, writer);
-            writer.ldelim();
-        }
+export function writeNodeInstance(message, writer) {
+    if (message.instance !== undefined && message.instance !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeScheduledInstance(message.instance, writer);
+        writer.ldelim();
+    }
+    if (message.config !== undefined && message.config !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDeploymentRecord(message.config, writer);
+        writer.ldelim();
+    }
+    if (message.statusWatermark !== undefined && message.statusWatermark !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeTimestamp(message.statusWatermark, writer);
+        writer.ldelim();
     }
 }
 
 
 /**
- * @param {ScheduledInstanceSnapshot} message
+ * @param {NodeInstance} message
  * @returns {Uint8Array}
  */
-export function encodeScheduledInstanceSnapshot(message) {
+export function encodeNodeInstance(message) {
     const writer = Writer.create();
-    writeScheduledInstanceSnapshot(message, writer);
+    writeNodeInstance(message, writer);
     return writer.finish();
 }
 
@@ -22560,16 +22492,24 @@ export function encodeScheduledInstanceSnapshot(message) {
 /**
  * @param {Reader} reader
  * @param {number} [length]
- * @returns {ScheduledInstanceSnapshot}
+ * @returns {NodeInstance}
  */
-function decodeScheduledInstanceSnapshotMessage(reader, length) {
+function decodeNodeInstanceMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {items: [] };
+    const message = {instance: undefined, config: undefined, statusWatermark: new Date(0) };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
-                message.items.push(decodeScheduledInstanceStateMessage(reader, reader.uint32()));
+                message.instance = decodeScheduledInstanceMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.config = decodeDeploymentRecordMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.statusWatermark = decodeTimestampMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -22582,11 +22522,96 @@ function decodeScheduledInstanceSnapshotMessage(reader, length) {
 
 /**
  * @param {ArrayBuffer} buffer
- * @returns {ScheduledInstanceSnapshot}
+ * @returns {NodeInstance}
  */
-export function decodeScheduledInstanceSnapshot(buffer) {
+export function decodeNodeInstance(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
-    return decodeScheduledInstanceSnapshotMessage(reader);
+    return decodeNodeInstanceMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeProjection} message
+ * @param {Writer} writer
+ */
+export function writeNodeProjection(message, writer) {
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(Math.trunc(message.seq));
+    }
+    if (message.instances && message.instances.length > 0) {
+        for (const item of message.instances) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeNodeInstance(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.netMap !== undefined && message.netMap !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeClusterNetMap(message.netMap, writer);
+        writer.ldelim();
+    }
+    if (message.acme !== undefined && message.acme !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeAcmeState(message.acme, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodeProjection} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeProjection(message) {
+    const writer = Writer.create();
+    writeNodeProjection(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeProjection}
+ */
+function decodeNodeProjectionMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {seq: 0, instances: [], netMap: undefined, acme: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.seq = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.instances.push(decodeNodeInstanceMessage(reader, reader.uint32()));
+                break;
+            }
+            case 3: {
+                message.netMap = decodeClusterNetMapMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.acme = decodeAcmeStateMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeProjection}
+ */
+export function decodeNodeProjection(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeProjectionMessage(reader);
 }
 
 
@@ -23529,24 +23554,9 @@ export function writeEnrollmentAccepted(message, writer) {
     if (message.secondaryCertificate && message.secondaryCertificate.length > 0) {
         writer.uint32(tag(4, WIRE.LDELIM)).bytes(message.secondaryCertificate);
     }
-    if (message.clusterNetwork !== undefined && message.clusterNetwork !== null) {
-        writer.uint32(tag(5, WIRE.LDELIM)).fork();
-        writeClusterNetworkInfo(message.clusterNetwork, writer);
-        writer.ldelim();
-    }
-    if (message.nodeDeployment !== undefined && message.nodeDeployment !== null) {
-        writer.uint32(tag(6, WIRE.LDELIM)).fork();
-        writeScheduledInstanceState(message.nodeDeployment, writer);
-        writer.ldelim();
-    }
-    if (message.nodeNetDeployment !== undefined && message.nodeNetDeployment !== null) {
-        writer.uint32(tag(7, WIRE.LDELIM)).fork();
-        writeScheduledInstanceState(message.nodeNetDeployment, writer);
-        writer.ldelim();
-    }
-    if (message.clusterNetMap !== undefined && message.clusterNetMap !== null) {
-        writer.uint32(tag(8, WIRE.LDELIM)).fork();
-        writeClusterNetMap(message.clusterNetMap, writer);
+    if (message.nodeSnapshot !== undefined && message.nodeSnapshot !== null) {
+        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writeNodeProjection(message.nodeSnapshot, writer);
         writer.ldelim();
     }
 }
@@ -23570,7 +23580,7 @@ export function encodeEnrollmentAccepted(message) {
  */
 function decodeEnrollmentAcceptedMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, nodeName: "", caCertificate: new Uint8Array(0), secondaryCertificate: new Uint8Array(0), clusterNetwork: undefined, nodeDeployment: undefined, nodeNetDeployment: undefined, clusterNetMap: undefined };
+    const message = {id: 0, nodeName: "", caCertificate: new Uint8Array(0), secondaryCertificate: new Uint8Array(0), nodeSnapshot: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -23590,20 +23600,8 @@ function decodeEnrollmentAcceptedMessage(reader, length) {
                 message.secondaryCertificate = reader.bytes();
                 break;
             }
-            case 5: {
-                message.clusterNetwork = decodeClusterNetworkInfoMessage(reader, reader.uint32());
-                break;
-            }
-            case 6: {
-                message.nodeDeployment = decodeScheduledInstanceStateMessage(reader, reader.uint32());
-                break;
-            }
-            case 7: {
-                message.nodeNetDeployment = decodeScheduledInstanceStateMessage(reader, reader.uint32());
-                break;
-            }
-            case 8: {
-                message.clusterNetMap = decodeClusterNetMapMessage(reader, reader.uint32());
+            case 9: {
+                message.nodeSnapshot = decodeNodeProjectionMessage(reader, reader.uint32());
                 break;
             }
             default:

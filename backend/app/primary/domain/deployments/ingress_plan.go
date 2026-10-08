@@ -44,7 +44,7 @@ func ingressPlanInputs(live nodes.LiveState, reservations []ingressplan.Reservat
 
 // ValidateNodeNetworkingClaims evaluates the candidate against every other
 // deployment and the Web UI reservations and rejects the save on the first
-// error. A node selector must name a registered node, and until netproxy
+// error; collisions are decided on the listen selectors, not the inventory. A node selector must name a registered node, and until netproxy
 // can dial backends on other machines it must be the deployment's own node:
 // a route named for another node would validate and then publish nothing.
 func ValidateNodeNetworkingClaims(live nodes.LiveState, reservations []ingressplan.Reservation, nodeID, deploymentID uint64, candidate *apigen.DeploymentSpec) error {
@@ -92,8 +92,8 @@ func ValidateNodeNetworkingClaims(live nodes.LiveState, reservations []ingresspl
 }
 
 // ValidateIngressAgainstSettings rejects a settings change whose Web UI
-// listeners would turn an existing literal ingress claim into an error. The
-// caller holds the global store lock (SystemConfig.LockForUpdate).
+// listeners intersect an existing ingress claim. The caller holds the global
+// store lock (SystemConfig.LockForUpdate).
 func ValidateIngressAgainstSettings(ctx context.Context, q *pq.Queries, primaryNodeID uint64, resolved *apigen.ClusterSettings) error {
 	reservations := ReservationsFromSettings(primaryNodeID, resolved, literalString, literalBool)
 	live, err := nodes.ReadLiveState(ctx, q)
@@ -101,7 +101,7 @@ func ValidateIngressAgainstSettings(ctx context.Context, q *pq.Queries, primaryN
 		return err
 	}
 	result := ingressplan.Evaluate(ingressPlanInputs(live, reservations, 0, 0, nil))
-	for _, diag := range result.Errors {
+	for _, diag := range result.Excluded {
 		name := fmt.Sprintf("deployment %d", diag.DeploymentID)
 		if cfg := live.Deployments[diag.DeploymentID]; cfg != nil {
 			name = fmt.Sprintf("deployment %q", cfg.Deployment.Name)

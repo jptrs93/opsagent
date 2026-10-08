@@ -20,7 +20,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 		Meta:       apigen.EntityMeta{Version: 3, SpecVersion: 3, UpdatedTime: 1000},
 	}
 	const instanceID uint64 = 11
-	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
+	store.MustApplyAssignments([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{
 			ID:         instanceID,
 			NodeID:     23,
@@ -28,7 +28,7 @@ func TestSecondaryFreshBootAndRoundTrip(t *testing.T) {
 			State:      apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: cfg,
-	})
+	}}, nil, nil)
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
 		s.Preparer = apigen.Some(apigen.PreparerStatus{
@@ -95,27 +95,27 @@ func TestSecondaryOlderAssignmentDoesNotStompPinnedConfig(t *testing.T) {
 		Config:   apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{TlsPassthrough: &apigen.TlsPassthroughConfig{ContainerPort: 8443}}},
 	}}
 
-	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
+	store.MustApplyAssignments([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{
 			ID: 14, Deployment: apigen.DeploymentRef{DeploymentID: 12, Version: 1}, NodeID: 3,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: v1,
-	})
-	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
+	}}, nil, nil)
+	store.MustApplyAssignments([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{
 			ID: 17, Deployment: apigen.DeploymentRef{DeploymentID: 12, Version: 2}, NodeID: 3,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
 		},
 		Config: v2,
-	})
-	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
+	}}, nil, nil)
+	store.MustApplyAssignments([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{
 			ID: 14, Deployment: apigen.DeploymentRef{DeploymentID: 12, Version: 1}, NodeID: 3,
 			State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_TERMINATE,
 		},
 		Config: v1,
-	})
+	}}, nil, nil)
 
 	assertPinnedAssignmentConfigs(t, store.FetchScheduledSnapshot(nil))
 	if err := store.Close(); err != nil {
@@ -155,7 +155,7 @@ func TestSecondaryFinalizeAbsentDropsInstanceDurably(t *testing.T) {
 	store := Open(dbPath)
 
 	write := func(id, deploymentID uint64) {
-		store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
+		store.MustApplyAssignments([]apigen.ScheduledInstanceState{{
 			Instance: apigen.ScheduledInstance{
 				ID: id, Deployment: apigen.DeploymentRef{DeploymentID: deploymentID, Version: 1}, NodeID: 5,
 				State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING,
@@ -164,7 +164,7 @@ func TestSecondaryFinalizeAbsentDropsInstanceDurably(t *testing.T) {
 				Deployment: apigen.Deployment{ID: deploymentID, Name: "app", Scheduling: apigen.DedicatedScheduling(false, 5), Spec: *nonEmptySpec()},
 				Meta:       apigen.EntityMeta{Version: 1, SpecVersion: 1},
 			},
-		})
+		}}, nil, nil)
 	}
 	write(41, 8)
 	write(42, 9)

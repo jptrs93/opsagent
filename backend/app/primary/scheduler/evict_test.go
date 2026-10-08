@@ -15,7 +15,7 @@ import (
 func TestSchedulerNeverPlacesOnEvictedNode(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	nodes.EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	nodes.EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	req, version, err := nodes.UpsertEnrollmentRequest(store, "127.0.0.1", "v0.0.1", apigen.NodeReported{Identifier: "secondary-id", UnderlayAddress: apigen.AddrOf(netip.MustParseAddr("10.0.0.2")), WgPublicKey: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="})
 	if err != nil {
 		t.Fatal(err)

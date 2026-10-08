@@ -54,8 +54,8 @@ func TestBuildAllowedRefs(t *testing.T) {
 
 func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	m1Node := nodes.EnsurePrimaryNode(store, "m1", "m1", netip.MustParseAddr("10.0.0.1"))
-	m2Node := nodes.EnsurePrimaryNode(store, "m2", "m2", netip.MustParseAddr("10.0.0.2"))
+	m1Node := nodes.EnsurePrimaryNode(store, "m1", "m1", netip.MustParseAddr("10.0.0.1"), "")
+	m2Node := nodes.EnsurePrimaryNode(store, "m2", "m2", netip.MustParseAddr("10.0.0.2"), "")
 	spec := statetest.SpecWithVersion("1")
 	spec.Container().Source = apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: "docker.io/library/nginx"}}}
 	m1 := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, 1, "web", m1Node.ID, spec)
@@ -63,7 +63,7 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 	m1Inst := statetest.CreateScheduledInstance(store, m1.Deployment.ID, m1.Meta.Version, m1Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	m2Inst := statetest.CreateScheduledInstance(store, m2.Deployment.ID, m2.Meta.Version, m2Node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 
-	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", scheduledInstancePredicateForNode(m1Node.ID), store, nil)
+	sess := newSession(context.Background(), func() {}, m1Node.ID, "m1", scheduledInstancePredicateForNode(m1Node.ID), store, &sessionNetMapProvider{current: &apigen.ClusterNetMap{}})
 	crossMachine := &apigen.ScheduledInstanceStatus{
 		ScheduledInstanceID: m2Inst.ID,
 		Runner:              apigen.Some(apigen.RunnerStatus{Status: apigen.RunningStatus_RUNNING_STATUS_RUNNING}),
@@ -87,9 +87,9 @@ func TestSessionRejectsCrossMachineStatusWrite(t *testing.T) {
 
 func TestSessionRoutingUsesNodeID(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
-	node := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn", netip.MustParseAddr("10.0.0.2"))
+	node := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn", netip.MustParseAddr("10.0.0.2"), "")
 	handler := New(store, nil, nil, nil, network.Prefix{}, nil, nil, nil, nil)
-	sess := newSession(context.Background(), func() {}, node.ID, "secondary-cn", scheduledInstancePredicateForNode(node.ID), store, nil)
+	sess := newSession(context.Background(), func() {}, node.ID, "secondary-cn", scheduledInstancePredicateForNode(node.ID), store, &sessionNetMapProvider{current: &apigen.ClusterNetMap{}})
 	handler.registerSession(node.ID, "secondary-cn", sess)
 	t.Cleanup(func() { handler.unregisterSession(node.ID, "secondary-cn", sess) })
 
@@ -147,11 +147,11 @@ func TestSessionRoutingUsesNodeID(t *testing.T) {
 func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	primary := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("192.0.2.1"))
+	primary := nodes.EnsurePrimaryNode(store, "primary", "primary", netip.MustParseAddr("192.0.2.1"), "")
 	nodes.ReportNode(store, primary.Identifier, apigen.NodeReported{Identifier: primary.Identifier, UnderlayAddress: apigen.AddrOf(netip.MustParseAddr("192.0.2.1")), WgPublicKey: primary.WGPublicKey, HostAddresses: primary.HostAddresses})
-	secondary := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn", netip.MustParseAddr("192.0.2.2"))
+	secondary := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn", netip.MustParseAddr("192.0.2.2"), "")
 	nodes.ReportNode(store, secondary.Identifier, apigen.NodeReported{Identifier: secondary.Identifier, UnderlayAddress: apigen.AddrOf(netip.MustParseAddr("192.0.2.2")), WgPublicKey: secondary.WGPublicKey, HostAddresses: secondary.HostAddresses})
-	sess := newSession(context.Background(), func() {}, secondary.ID, secondary.Identifier, scheduledInstancePredicateForNode(secondary.ID), store, nil)
+	sess := newSession(context.Background(), func() {}, secondary.ID, secondary.Identifier, scheduledInstancePredicateForNode(secondary.ID), store, &sessionNetMapProvider{current: &apigen.ClusterNetMap{}})
 
 	const helloWGKey = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
 	sess.handleIncoming(&apigen.MsgToPrimary{ClusterHello: apigen.Some(apigen.ClusterHello{Reported: apigen.NodeReported{UnderlayAddress: apigen.AddrOf(netip.MustParseAddr("192.0.2.3")), WgPublicKey: helloWGKey}, ClusterProtocolVersion: apigen.ClusterProtocolVersion})})
@@ -171,9 +171,9 @@ func TestSessionClusterHelloUpdatesAuthenticatedNodeUnderlay(t *testing.T) {
 func TestSessionRejectsClusterProtocolMismatch(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	secondary := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn", netip.MustParseAddr("10.0.0.2"))
+	secondary := nodes.EnsurePrimaryNode(store, "secondary", "secondary-cn", netip.MustParseAddr("10.0.0.2"), "")
 	cancelled := false
-	sess := newSession(context.Background(), func() { cancelled = true }, secondary.ID, secondary.Identifier, scheduledInstancePredicateForNode(secondary.ID), store, nil)
+	sess := newSession(context.Background(), func() { cancelled = true }, secondary.ID, secondary.Identifier, scheduledInstancePredicateForNode(secondary.ID), store, &sessionNetMapProvider{current: &apigen.ClusterNetMap{}})
 
 	sess.handleIncoming(&apigen.MsgToPrimary{ClusterHello: apigen.Some(apigen.ClusterHello{ClusterProtocolVersion: apigen.ClusterProtocolVersion - 1})})
 	if !cancelled {

@@ -24,42 +24,52 @@ var (
 	clusterNetMapMu       sync.Mutex
 )
 
-// acceptClusterNetMap validates and persists a received map. Acceptance is
+type netMapDecision struct {
+	next    *apigen.ClusterNetMap
+	prefix  network.Prefix
+	persist bool
+}
+
+func (d netMapDecision) status() *apigen.NetMapStatus { return statusForClusterNetMap(d.next, "") }
+
+func (d netMapDecision) commit(netMaps *netmapstate.Holder) {
+	if !d.persist {
+		return
+	}
+	network.Default.SetPrefix(d.prefix)
+	if netMaps != nil {
+		netMaps.Set(d.next)
+	}
+}
+
+// decideClusterNetMap validates a received map against the cache. Acceptance is
 // session-based: the first map accepted in a session replaces whatever is
 // cached unconditionally — the primary is the sole author of the map, so its
 // snapshot at connect is authoritative even when a restore rolled its history
 // (and stamps) backwards. Within a session the stream is ordered and stamps
 // only grow, so a lower stamp can only be a coalescing artifact and is
-// rejected as stale.
-func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *apigen.ClusterNetMap, nodeID uint64, expectedPrefix network.Prefix, sessionSnapshot bool, netMaps *netmapstate.Holder) (*apigen.NetMapStatus, error) {
+// rejected as stale. The caller holds clusterNetMapMu across the decision and
+// the write it guards.
+func decideClusterNetMap(ctx context.Context, store *state.Service, candidate *apigen.ClusterNetMap, nodeID uint64, expectedPrefix network.Prefix, sessionSnapshot bool) (netMapDecision, error) {
 	next, prefix, err := validateClusterNetMap(candidate, nodeID, expectedPrefix)
 	if err != nil {
-		return nil, err
+		return netMapDecision{}, err
 	}
-
-	clusterNetMapMu.Lock()
-	defer clusterNetMapMu.Unlock()
 	if !sessionSnapshot {
 		current, _, cached, err := cachedClusterNetMap(ctx, store, nodeID, expectedPrefix)
 		if err != nil {
-			return nil, err
+			return netMapDecision{}, err
 		}
 		if cached {
 			if next.DerivedFromSeq < current.DerivedFromSeq {
-				return nil, fmt.Errorf("%w: got seq %d, persisted %d", ErrStaleClusterNetMap, next.DerivedFromSeq, current.DerivedFromSeq)
+				return netMapDecision{}, fmt.Errorf("%w: got seq %d, persisted %d", ErrStaleClusterNetMap, next.DerivedFromSeq, current.DerivedFromSeq)
 			}
 			if next.DerivedFromSeq == current.DerivedFromSeq {
-				return statusForClusterNetMap(current, ""), nil
+				return netMapDecision{next: current, prefix: prefix}, nil
 			}
 		}
 	}
-
-	store.MustSetLocalKV(storage.LocalKVClusterNetMap, next.Encode())
-	network.Default.SetPrefix(prefix)
-	if netMaps != nil {
-		netMaps.Set(next)
-	}
-	return statusForClusterNetMap(next, ""), nil
+	return netMapDecision{next: next, prefix: prefix, persist: true}, nil
 }
 
 // cachedClusterNetMap returns the secondary's persisted map, or reports that it has
@@ -70,7 +80,7 @@ func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *a
 // it outlives the binary that wrote it, so a release that changes what a map may
 // contain inherits whatever the previous release persisted. Treating that as an
 // error is unrecoverable in both directions: it panics the secondary before it can
-// connect, and it makes acceptClusterNetMap reject the very map that would
+// connect, and it makes applyProjection reject the very map that would
 // replace it.
 func cachedClusterNetMap(ctx context.Context, store *state.Service, nodeID uint64, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, bool, error) {
 	encoded, ok := store.FetchLocalKV(storage.LocalKVClusterNetMap)
@@ -115,13 +125,10 @@ func statusForClusterNetMap(current *apigen.ClusterNetMap, reconcileErr string) 
 }
 
 func validateClusterNetMap(candidate *apigen.ClusterNetMap, nodeID uint64, expectedPrefix network.Prefix) (*apigen.ClusterNetMap, network.Prefix, error) {
-	if candidate == nil {
-		return nil, network.Prefix{}, fmt.Errorf("cluster network map is nil")
-	}
 	if candidate.DerivedFromSeq < 0 {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map derived_from_seq is negative")
 	}
-	if nodeID == 0 || candidate.TargetNodeID != nodeID {
+	if candidate.TargetNodeID != nodeID {
 		return nil, network.Prefix{}, fmt.Errorf("cluster network map target %d does not match local node %d", candidate.TargetNodeID, nodeID)
 	}
 	prefix, err := network.ParsePrefix(candidate.UlaPrefix)

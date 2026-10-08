@@ -39,8 +39,6 @@ message EnrollmentAccepted {
   string node_name = 2;
   bytes ca_certificate = 3;
   bytes secondary_certificate = 4;
-  ClusterNetworkInfo cluster_network = 5 [(cp.go_value) = true];
-  ScheduledInstanceState node_deployment = 6 [(cp.go_value) = true];
-  ScheduledInstanceState node_net_deployment = 7 [(cp.go_value) = true];
-  ClusterNetMap cluster_net_map = 8 [(cp.go_value) = true];
+  reserved 5, 6, 7, 8;
+  NodeProjection node_snapshot = 9 [(cp.go_value) = true]; // the node's complete projection, applied before the first cluster session
 }

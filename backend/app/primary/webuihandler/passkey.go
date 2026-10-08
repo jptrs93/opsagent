@@ -84,7 +84,8 @@ func (h *Handler) initPasskeyService() error {
 // hosts setting (which doubles as the ACME host list when ACME is on), or
 // localhost when none is configured.
 func (h *Handler) webUIHosts() []string {
-	hostsValue := h.SystemConfig.MustLoadStringSetting(h.Config.HttpsWeb.AcmeHosts)
+	cfg := h.Config()
+	hostsValue := h.SystemConfig.MustLoadStringSetting(cfg.HttpsWeb.AcmeHosts)
 	var hosts []string
 	for _, host := range stringu.ParseStringList(hostsValue) {
 		if host = strings.TrimSpace(host); host != "" {
@@ -118,10 +119,11 @@ func (h *Handler) passkeyRPID() (string, error) {
 // under each enabled scheme, with the listen port when it is not the scheme
 // default, plus the Vite dev server in HTTP-only mode and any explicit extras.
 func (h *Handler) passkeyOrigins() ([]string, error) {
-	httpEnabled := h.SystemConfig.MustLoadBoolSetting(h.Config.HttpWeb.Enabled)
-	httpsEnabled := h.SystemConfig.MustLoadBoolSetting(h.Config.HttpsWeb.Enabled)
-	httpPort := listenPortOrDefault(h.SystemConfig.MustLoadStringSetting(h.Config.HttpWeb.Listen), "80")
-	httpsPort := listenPortOrDefault(h.SystemConfig.MustLoadStringSetting(h.Config.HttpsWeb.Listen), "443")
+	cfg := h.Config()
+	httpEnabled := h.SystemConfig.MustLoadBoolSetting(cfg.HttpWeb.Enabled)
+	httpsEnabled := h.SystemConfig.MustLoadBoolSetting(cfg.HttpsWeb.Enabled)
+	httpPort := listenPortOrDefault(h.SystemConfig.MustLoadStringSetting(cfg.HttpWeb.Listen), "80")
+	httpsPort := listenPortOrDefault(h.SystemConfig.MustLoadStringSetting(cfg.HttpsWeb.Listen), "443")
 	var origins []string
 	add := func(origin string) {
 		if !slices.Contains(origins, origin) {
@@ -152,8 +154,9 @@ func (h *Handler) passkeyOrigins() ([]string, error) {
 }
 
 func (h *Handler) httpOnly() bool {
-	return h.SystemConfig.MustLoadBoolSetting(h.Config.HttpWeb.Enabled) &&
-		!h.SystemConfig.MustLoadBoolSetting(h.Config.HttpsWeb.Enabled)
+	cfg := h.Config()
+	return h.SystemConfig.MustLoadBoolSetting(cfg.HttpWeb.Enabled) &&
+		!h.SystemConfig.MustLoadBoolSetting(cfg.HttpsWeb.Enabled)
 }
 
 func originFor(scheme, host, port, defaultPort string) string {

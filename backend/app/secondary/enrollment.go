@@ -18,7 +18,6 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/enrollment"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/wgkey"
-	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
@@ -117,9 +116,6 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 		if err != nil {
 			return err
 		}
-		if msg == nil {
-			continue
-		}
 		if msg.RequestStatus.Present {
 			slog.InfoContext(ctx, fmt.Sprintf("secondary enrollment request registered id=%d status=%v", msg.RequestStatus.Value.ID, msg.RequestStatus.Value.Status))
 		}
@@ -139,40 +135,18 @@ func runEnrollmentSession(ctx context.Context, capi *apigen.EnrollmentV1Capi, ma
 }
 
 func cacheEnrollmentBootstrapState(ctx context.Context, cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted) error {
-	if accepted == nil {
-		return fmt.Errorf("accepted enrollment response is missing")
-	}
-	info := &accepted.ClusterNetwork
-	if len(info.UlaPrefix) == 0 {
-		return fmt.Errorf("accepted enrollment response missing cluster network")
-	}
-	if accepted.NodeDeployment.Config.Deployment.ID == 0 {
-		return fmt.Errorf("accepted enrollment response missing node deployment")
-	}
-	if accepted.NodeNetDeployment.Config.Deployment.ID == 0 {
-		return fmt.Errorf("accepted enrollment response missing node net deployment")
+	snapshot := &accepted.NodeSnapshot
+	netMap := &snapshot.NetMap.Value
+	nodeID := netMap.TargetNodeID
+	prefix, err := network.ParsePrefix(netMap.UlaPrefix)
+	if err != nil {
+		return fmt.Errorf("parsing enrollment cluster network map prefix: %w", err)
 	}
 	store := state.Open(filepath.Join(cfg.DataDir, "secondary.db"))
 	defer store.Close()
-	prefix, err := network.ParsePrefix(info.UlaPrefix)
-	if err != nil {
-		return fmt.Errorf("parsing enrollment cluster network: %w", err)
-	}
-	hasNetMap := !accepted.ClusterNetMap.IsZero()
-	if hasNetMap {
-		nodeID := accepted.NodeNetDeployment.Instance.NodeID
-		if _, _, err := validateClusterNetMap(&accepted.ClusterNetMap, nodeID, prefix); err != nil {
-			return fmt.Errorf("validating enrollment cluster network map: %w", err)
-		}
-	}
-	store.MustSetLocalKV(storage.LocalKVClusterNetwork, info.Encode())
-	store.MustWriteScheduledInstanceAssignment(&accepted.NodeDeployment)
-	store.MustWriteScheduledInstanceAssignment(&accepted.NodeNetDeployment)
-	if hasNetMap {
-		nodeID := accepted.NodeNetDeployment.Instance.NodeID
-		if _, err := acceptClusterNetMap(ctx, store, &accepted.ClusterNetMap, nodeID, prefix, true, nil); err != nil {
-			return fmt.Errorf("accepting enrollment cluster network map: %w", err)
-		}
+	frame := frameOf(snapshot, true)
+	if _, _, err := applyProjection(ctx, store, nodeID, frame, prefix, true, nil, nil); err != nil {
+		return fmt.Errorf("accepting enrollment cluster network map: %w", err)
 	}
 	return nil
 }
@@ -180,11 +154,6 @@ func cacheEnrollmentBootstrapState(ctx context.Context, cfg EnrollmentConfig, ac
 func writeEnrollmentTLSBundle(cfg EnrollmentConfig, accepted *apigen.EnrollmentAccepted, keyPEM []byte) error {
 	if len(accepted.CaCertificate) == 0 || len(accepted.SecondaryCertificate) == 0 || len(keyPEM) == 0 {
 		return fmt.Errorf("accepted enrollment response missing TLS material")
-	}
-	for _, path := range []string{cfg.ClusterCAPath, cfg.ClusterCertPath, cfg.ClusterKeyPath} {
-		if strings.TrimSpace(path) == "" {
-			return fmt.Errorf("cluster TLS output path is empty")
-		}
 	}
 	if err := os.WriteFile(cfg.ClusterCAPath, accepted.CaCertificate, 0o644); err != nil {
 		return fmt.Errorf("writing cluster CA: %w", err)

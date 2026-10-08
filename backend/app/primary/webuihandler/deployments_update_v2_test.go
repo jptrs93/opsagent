@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
@@ -20,7 +19,7 @@ func newV2DeploymentHandler(t *testing.T) (*Handler, *apigen.DeploymentRecord, *
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := ensureTestNode(store, "primary", "primary-id")
-	h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries()}
+	h := &Handler{SystemConfig: testConfigService(t, store), Store: store, Queries: store.Queries()}
 	cfg, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "web",
 		Scheduling: apigen.DedicatedScheduling(false, node.ID),
@@ -377,7 +376,7 @@ func TestPostV2DeploymentsUpdateNixVerification(t *testing.T) {
 		store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 		node := ensureTestNode(store, "primary", "primary")
 		provider := &fakeGitSourceProvider{sourceErr: errors.New("must not be called")}
-		h := &Handler{SystemConfig: &systemconfig.Service{}, Store: store, Queries: store.Queries(), GitVersions: provider}
+		h := &Handler{SystemConfig: testConfigService(t, store), Store: store, Queries: store.Queries(), GitVersions: provider}
 		cfg, err := h.deploymentsCreate(apigen.Context{Ctx: context.Background()}, &apigen.DeploymentCreateRequest{
 			SpaceID: 1, Name: "web",
 			Scheduling: apigen.DedicatedScheduling(false, node.ID),

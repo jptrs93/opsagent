@@ -3,10 +3,12 @@ package webuihandler
 import (
 	"hash/fnv"
 	"net/netip"
+	"testing"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
@@ -16,7 +18,7 @@ func ensureTestNode(store *state.Service, name, identifier string) *nodes.Node {
 	h.Write([]byte(identifier))
 	sum := h.Sum32()
 	addr := netip.AddrFrom4([4]byte{10, byte(sum >> 16), byte(sum >> 8), byte(sum)})
-	return nodes.EnsurePrimaryNode(store, name, identifier, addr)
+	return nodes.EnsurePrimaryNode(store, name, identifier, addr, "")
 }
 
 func allowEffect(delegationAllowed bool) apigen.AuthzEffect {
@@ -219,4 +221,13 @@ func foldEvents(events []apigen.CoreWriteUpdate) map[apigen.CoreEntityType]map[u
 		ptrs[i] = &events[i]
 	}
 	return statetest.Fold(ptrs)
+}
+
+func testConfigService(t *testing.T, store *state.Service) *systemconfig.Service {
+	t.Helper()
+	configService, err := systemconfig.InitializeService(store, *systemconfig.Default(systemconfig.DefaultInitial()))
+	if err != nil {
+		t.Fatalf("systemconfig.InitializeService: %v", err)
+	}
+	return configService
 }

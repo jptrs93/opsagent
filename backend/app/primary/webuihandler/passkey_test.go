@@ -16,13 +16,13 @@ func TestPasskeyOriginsIncludesExtraOrigins(t *testing.T) {
 
 	h := &Handler{
 		SystemConfig: &systemconfig.Service{},
-		Config: &apigen.ClusterSettings{
+		Config: settingsFunc(apigen.ClusterSettings{
 			HttpWeb: apigen.HttpWebSettings{Enabled: systemconfig.BoolLiteral(false)},
 			HttpsWeb: apigen.HttpsWebSettings{
 				Enabled:   systemconfig.BoolLiteral(true),
 				AcmeHosts: systemconfig.StringLiteral("primary.opendeploy.test"),
 			},
-		},
+		}),
 	}
 
 	got, err := h.passkeyOrigins()
@@ -93,7 +93,7 @@ func TestPasskeyRPAndOriginsFollowListenPortsAndSchemes(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := tc.cfg
-			h := &Handler{SystemConfig: &systemconfig.Service{}, Config: &cfg}
+			h := &Handler{SystemConfig: &systemconfig.Service{}, Config: settingsFunc(cfg)}
 			rpID, err := h.passkeyRPID()
 			if err != nil || rpID != tc.wantRPID {
 				t.Fatalf("passkeyRPID = %q, %v; want %q", rpID, err, tc.wantRPID)
@@ -104,4 +104,8 @@ func TestPasskeyRPAndOriginsFollowListenPortsAndSchemes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func settingsFunc(cfg apigen.ClusterSettings) func() *apigen.ClusterSettings {
+	return func() *apigen.ClusterSettings { return &cfg }
 }

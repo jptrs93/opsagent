@@ -1,3 +1,4 @@
 // Each module is an independent log with its own namespace.
 module opendeploy core
-module materialised
+module materialised_node
+module materialised_node_local

@@ -1,4 +1,4 @@
-package netmappublisher
+package nodepublisher
 
 import (
 	"testing"
@@ -7,13 +7,35 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-func newTestBarrier(currentStamp, lastRenderedSeq int64) *Publisher {
-	p := &Publisher{applied: make(map[uint64]int64), ackUpdates: make(chan struct{}, 1)}
-	p.lastRenderedSeq = lastRenderedSeq
+func newTestBarrier(currentStamp, appliedSeq int64) *Publisher {
+	p := &Publisher{maps: make(map[uint64]*nodeMap), applied: make(map[uint64]int64), ackUpdates: make(chan struct{}, 1)}
+	p.appliedSeq = appliedSeq
 	if currentStamp > 0 {
-		p.current = &apigen.ClusterNetMap{DerivedFromSeq: currentStamp}
+		for _, nodeID := range []uint64{1, 2} {
+			p.maps[nodeID] = &nodeMap{current: &apigen.ClusterNetMap{TargetNodeID: nodeID, DerivedFromSeq: currentStamp}}
+		}
 	}
 	return p
+}
+
+// TestBarrierIgnoresNodesOutsideTheDecision is the per-node rule: a node whose
+// map kept an older stamp was not changed by the decision, so its applied
+// stamp is not consulted even when it is behind.
+func TestBarrierIgnoresNodesOutsideTheDecision(t *testing.T) {
+	p := newTestBarrier(8, 8)
+	p.maps[2].current.DerivedFromSeq = 3
+	p.RecordApplied(1, 8)
+	p.RecordApplied(2, 2)
+	if !p.DecisionInForce(8) {
+		t.Fatal("node 2's map predates the decision and must not hold it")
+	}
+	if p.DecisionInForce(3) {
+		t.Fatal("node 2 has not applied stamp 3 yet")
+	}
+	p.RecordApplied(2, 3)
+	if !p.DecisionInForce(3) {
+		t.Fatal("both nodes applied their stamps at or after 3")
+	}
 }
 
 func TestBarrierWaitsForEveryReportingNode(t *testing.T) {
@@ -49,7 +71,7 @@ func TestBarrierWaitsForRender(t *testing.T) {
 		t.Fatal("a decision newer than every render cannot be in force")
 	}
 	p.mu.Lock()
-	p.lastRenderedSeq = 6
+	p.appliedSeq = 6
 	p.mu.Unlock()
 	if !p.DecisionInForce(6) {
 		t.Fatal("a render that changed nothing should satisfy the decision immediately")

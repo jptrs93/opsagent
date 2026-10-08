@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage"
@@ -45,8 +44,7 @@ type Session struct {
 	predicate     storage.ScheduledInstancePredicate
 	store         *state.Service
 	networkPrefix network.Prefix
-	networkMaps   networkMapProvider
-	acme          *acmestate.Holder
+	projection    nodeProjectionProvider
 	nixStores     nixStoreResetProvider
 
 	// outbox carries frames destined for the secondary. It is never closed;
@@ -67,17 +65,17 @@ type logChunk struct {
 	end         bool
 }
 
-func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID uint64, identifier string, predicate storage.ScheduledInstancePredicate, store *state.Service, networkMaps networkMapProvider) *Session {
+func newSession(sessCtx context.Context, cancel context.CancelFunc, nodeID uint64, identifier string, predicate storage.ScheduledInstancePredicate, store *state.Service, projection nodeProjectionProvider) *Session {
 	return &Session{
-		sessCtx:     sessCtx,
-		cancel:      cancel,
-		NodeID:      nodeID,
-		identifier:  identifier,
-		predicate:   predicate,
-		store:       store,
-		networkMaps: networkMaps,
-		outbox:      make(chan *apigen.MsgToSecondary, outboxSize),
-		logStreams:  make(map[string]chan logChunk),
+		sessCtx:    sessCtx,
+		cancel:     cancel,
+		NodeID:     nodeID,
+		identifier: identifier,
+		predicate:  predicate,
+		store:      store,
+		projection: projection,
+		outbox:     make(chan *apigen.MsgToSecondary, outboxSize),
+		logStreams: make(map[string]chan logChunk),
 	}
 }
 
@@ -102,35 +100,23 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 	defer s.cancel()
 	defer s.closeAllLogStreams()
 
-	snapshot, updatesCh, unsubUpdates := s.store.MustFetchScheduledSnapshotAndSubscribe(s.predicate)
-	defer unsubUpdates()
-	var netMap *apigen.ClusterNetMap
-	var netMapUpdates <-chan *apigen.ClusterNetMap
-	if s.networkMaps != nil {
-		var unsubscribeNetMaps func()
-		netMap, netMapUpdates, unsubscribeNetMaps = s.networkMaps.SnapshotAndSubscribe(s.NodeID)
-		defer unsubscribeNetMaps()
-		// A disconnected secondary must stop holding the barrier: it is served a
-		// complete snapshot when it comes back, so it cannot still be acting on
-		// routing it never applied.
-		defer s.networkMaps.ForgetNode(s.NodeID)
+	snapshot, updates, unsubscribe, err := s.projection.Subscribe(s.NodeID)
+	if err != nil {
+		slog.ErrorContext(s.sessCtx, "refusing cluster session: node projection unavailable", "err", err)
+		yield(nil, fmt.Errorf("node projection unavailable: %w", err))
+		return
 	}
-	var acmeState *apigen.AcmeState
-	var acmeUpdates <-chan *apigen.AcmeState
-	if s.acme != nil {
-		var unsubscribeAcme func()
-		acmeState, acmeUpdates, unsubscribeAcme = s.acme.SnapshotAndSubscribe()
-		defer unsubscribeAcme()
-	}
+	defer unsubscribe()
+	// A disconnected secondary must stop holding the barrier: it is served a
+	// complete snapshot when it comes back, so it cannot still be acting on
+	// routing it never applied.
+	defer s.projection.ForgetNode(s.NodeID)
 	var nixResets *apigen.NixStoreResets
 	var nixResetUpdates <-chan *apigen.NixStoreResets
 	if s.nixStores != nil {
 		var unsubscribeNixResets func()
 		nixResets, nixResetUpdates, unsubscribeNixResets = s.nixStores.SnapshotAndSubscribe()
 		defer unsubscribeNixResets()
-	}
-	initial := &apigen.MsgToSecondary{
-		ScheduledInstancesSnapshot: apigen.Some(apigen.ScheduledInstanceSnapshot{Items: snapshot}),
 	}
 
 	// Cancelling on return ends the feeder and unblocks the response loop when
@@ -153,16 +139,6 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 			select {
 			case <-s.sessCtx.Done():
 				return
-			case batch, ok := <-updatesCh:
-				if !ok {
-					slog.WarnContext(s.sessCtx, "scheduled instance subscription closed; ending session so the secondary resyncs")
-					return
-				}
-				for _, state := range batch {
-					if !s.send(&apigen.MsgToSecondary{ScheduledInstanceUpdate: apigen.Some(state)}) {
-						return
-					}
-				}
 			case <-heartbeat.C:
 				if !s.send(&apigen.MsgToSecondary{}) {
 					return
@@ -174,31 +150,12 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 	if !yield(&apigen.MsgToSecondary{ClusterProtocolVersion: apigen.ClusterProtocolVersion}, nil) {
 		return
 	}
-	// Cluster network parameters precede the snapshot so the secondary can program
-	// its netproxy before acting on any deployment config.
-	if !s.networkPrefix.IsZero() {
-		netInfo := &apigen.MsgToSecondary{ClusterNetwork: apigen.Some(apigen.ClusterNetworkInfo{UlaPrefix: s.networkPrefix.Bytes()})}
-		if !yield(netInfo, nil) {
-			return
-		}
-	}
-	if netMap != nil {
-		if !yield(&apigen.MsgToSecondary{ClusterNetMap: apigen.Some(*netMap)}, nil) {
-			return
-		}
-	}
-	if acmeState != nil {
-		if !yield(&apigen.MsgToSecondary{AcmeState: apigen.Some(*acmeState)}, nil) {
-			return
-		}
-	}
 	if nixResets != nil && len(nixResets.Items) > 0 {
 		if !yield(&apigen.MsgToSecondary{NixStoreResets: apigen.Some(*nixResets)}, nil) {
 			return
 		}
 	}
-	// Send the snapshot first so the secondary's stream call returns promptly.
-	if !yield(initial, nil) {
+	if !yield(&apigen.MsgToSecondary{NodeSnapshot: apigen.Some(snapshot)}, nil) {
 		return
 	}
 
@@ -210,20 +167,12 @@ func (s *Session) run(reqs iter.Seq2[*apigen.MsgToPrimary, error], yield func(*a
 			if !yield(msg, nil) || msg.Evicted.Present && msg.Evicted.Value {
 				return
 			}
-		case next, ok := <-netMapUpdates:
+		case update, ok := <-updates:
 			if !ok {
-				netMapUpdates = nil
-				continue
-			}
-			if next != nil && !yield(&apigen.MsgToSecondary{ClusterNetMap: apigen.Some(*next)}, nil) {
+				slog.WarnContext(s.sessCtx, "node projection queue closed; ending session so the secondary resyncs")
 				return
 			}
-		case next, ok := <-acmeUpdates:
-			if !ok {
-				acmeUpdates = nil
-				continue
-			}
-			if next != nil && !yield(&apigen.MsgToSecondary{AcmeState: apigen.Some(*next)}, nil) {
+			if !yield(&apigen.MsgToSecondary{NodeUpdate: apigen.Some(*update)}, nil) {
 				return
 			}
 		case next, ok := <-nixResetUpdates:
@@ -252,8 +201,8 @@ func (s *Session) handleIncoming(msg *apigen.MsgToPrimary) {
 		// Only a clean apply counts. A secondary reporting a reconciliation error
 		// still has whatever its kernel held before, so treating it as caught up
 		// would retire a placement that node can still be routing to.
-		if s.networkMaps != nil && status.ReconciliationError == "" {
-			s.networkMaps.RecordApplied(s.NodeID, status.AppliedSeq)
+		if status.ReconciliationError == "" {
+			s.projection.RecordApplied(s.NodeID, status.AppliedSeq)
 		}
 	case msg.LogData.Present && len(msg.LogData.Value) > 0:
 		s.routeLogChunk(requestID, logChunk{data: msg.LogData.Value})

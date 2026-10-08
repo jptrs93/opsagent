@@ -15,6 +15,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
+	"github.com/jptrs93/opsagent/backend/lib/wgkey"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/util/certu"
 )
@@ -60,7 +61,11 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 	primaryIdentifier := uuid.NewString()
-	nodes.EnsurePrimaryNode(store, "primary", primaryIdentifier, underlay)
+	nodeKey, err := wgkey.LoadOrGenerate(s.DataDir)
+	if err != nil {
+		return nil, fmt.Errorf("generating WireGuard node key: %w", err)
+	}
+	nodes.EnsurePrimaryNode(store, "primary", primaryIdentifier, underlay, nodeKey.PublicBase64())
 	secretsMgr, err := secrets.Initialize(s.DataDir, store)
 	if err != nil {
 		return nil, err

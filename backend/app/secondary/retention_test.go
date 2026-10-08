@@ -75,7 +75,7 @@ func referencingConfig(version uint32) apigen.DeploymentRecord {
 
 func writeInstance(t *testing.T, store *state.Service, instanceID uint64, cfg apigen.DeploymentRecord, target apigen.ScheduledInstanceTarget, preparerVersion, runnerVersion uint32) {
 	t.Helper()
-	store.MustWriteScheduledInstanceAssignment(&apigen.ScheduledInstanceState{
+	store.MustApplyAssignments([]apigen.ScheduledInstanceState{{
 		Instance: apigen.ScheduledInstance{
 			ID:         instanceID,
 			NodeID:     23,
@@ -83,7 +83,7 @@ func writeInstance(t *testing.T, store *state.Service, instanceID uint64, cfg ap
 			State:      target,
 		},
 		Config: cfg,
-	})
+	}}, nil, nil)
 	store.MustWriteScheduledInstanceStatus(instanceID, func(s *apigen.ScheduledInstanceStatus) bool {
 		s.BumpUpdatedAt()
 		s.Preparer = apigen.Some(apigen.PreparerStatus{DeploymentSpecVersion: preparerVersion, Inputs: apigen.InputsStatus_INPUTS_STATUS_READY, Image: apigen.Some(apigen.ImageStatus_IMAGE_STATUS_READY)})

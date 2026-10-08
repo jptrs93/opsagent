@@ -35,8 +35,8 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 	store := state.Open(dbPath)
 	defer func() { _ = store.Close() }()
 
-	primaryNode := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
-	secondaryNode := nodes.EnsurePrimaryNode(store, "secondary", "secondary", testUnderlay)
+	primaryNode := nodes.EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
+	secondaryNode := nodes.EnsurePrimaryNode(store, "secondary", "secondary", testUnderlay, "")
 	create := func(nodeID uint64, name string, spec *apigen.DeploymentSpec) *apigen.DeploymentRecord {
 		return statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, name, nodeID, spec)
 	}
@@ -102,7 +102,7 @@ func TestInvalidateNodeRuntimeStatePreservesConfigAndHistory(t *testing.T) {
 func TestEnsureRunScheduledInstanceIsConcurrentAndIdempotent(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	t.Cleanup(func() { _ = store.Close() })
-	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	node := nodes.EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	cfg := statetest.MustCreateDeploymentForNode(store, apigen.Context{}, nodes.DefaultSpaceID, "api", node.ID, statetest.SpecWithVersion("v1"))
 
 	const callers = 16
@@ -145,7 +145,7 @@ func TestInvalidationPublishesTombstonesAndRetainsAllHistory(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	ctx := context.Background()
-	node := nodes.EnsurePrimaryNode(s, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(s, "primary", "primary", testUnderlay, "")
 	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithVersion("v1"))
 	inst := statetest.CreateScheduledInstance(s, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	nodes.SetNodeStatusByIdentifier(s, node.Identifier, true, time.Now())
@@ -210,7 +210,7 @@ func TestMergedCommitFinalCacheAndRollback(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	ctx := context.Background()
-	node := nodes.EnsurePrimaryNode(s, "primary", "primary", testUnderlay)
+	node := nodes.EnsurePrimaryNode(s, "primary", "primary", testUnderlay, "")
 	dep := statetest.MustCreateDeploymentForNode(s, apigen.Context{}, nodes.DefaultSpaceID, "app", node.ID, statetest.SpecWithVersion("v1"))
 	inst := statetest.CreateScheduledInstance(s, dep.Deployment.ID, dep.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	scheduledinstances.WriteStatus(s, inst.ID, func(st *apigen.ScheduledInstanceStatus) bool {

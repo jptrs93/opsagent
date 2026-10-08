@@ -13,8 +13,8 @@ import (
 func TestNodeNameUniquenessEnforcedInGo(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
-	EnsurePrimaryNode(store, "worker", "worker-id", testUnderlay)
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
+	EnsurePrimaryNode(store, "worker", "worker-id", testUnderlay, "")
 
 	if _, err := RenameNode(store, "worker-id", "primary"); !errors.Is(err, ErrDuplicateNodeName) {
 		t.Fatalf("rename collision error = %v, want ErrDuplicateNodeName", err)

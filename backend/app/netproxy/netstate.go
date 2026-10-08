@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
@@ -74,7 +75,7 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 		_, acmeUpdates, unsubAcme = acme.SnapshotAndSubscribe()
 		defer unsubAcme()
 	}
-	var clusterMap *apigen.ClusterNetMap
+	clusterMap := &apigen.ClusterNetMap{}
 	var netMapUpdates <-chan *apigen.ClusterNetMap
 	if netMaps != nil {
 		var unsubNetMaps func()
@@ -82,6 +83,9 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 		defer unsubNetMaps()
 	}
 	write := func(items []apigen.ScheduledInstanceState) {
+		if clusterMap == nil {
+			return
+		}
 		var acmeState *apigen.AcmeState
 		if acme != nil {
 			acmeState = acme.Get()
@@ -134,9 +138,7 @@ func RunNetStateWriter(ctx context.Context, store scheduledInstanceStore, predic
 				netMapUpdates = nil
 				continue
 			}
-			if next != nil {
-				clusterMap = next
-			}
+			clusterMap = next
 			write(store.FetchScheduledSnapshot(predicate))
 		}
 	}
@@ -168,8 +170,7 @@ func initialArtifactSequence(ctx context.Context, path string, seqOf func([]byte
 // RenderNetState derives DNS and ingress as a pure function of target state:
 // an endpoint is published for every ordinal that is supposed to be serving,
 // whether or not its workload is currently up. The cluster map's catalog
-// covers all nodes; without a catalog the render falls back to the placements
-// this node holds. Every catalogued service contributes its DNS name, so the
+// covers all nodes. Every catalogued service contributes its DNS name, so the
 // DNS server can answer authoritatively for a service that exists but has no
 // established ordinal instead of leaking the lookup upstream.
 func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledInstanceState, acme *apigen.AcmeState, clusterMap *apigen.ClusterNetMap) *apigen.NetState {
@@ -195,85 +196,20 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 		svc.Endpoints = appendNewEndpoints(svc.Endpoints, endpoints)
 	}
 	endpointsByDeployment := make(map[uint64][]apigen.Endpoint)
-	if clusterMap != nil && len(clusterMap.DnsServices) > 0 {
-		for i := range clusterMap.DnsServices {
-			service := &clusterMap.DnsServices[i]
-			spaceID, deploymentID, ok := addressIDs(service.SpaceID, service.DeploymentID)
-			if service.Name == "" || !ok {
-				continue
-			}
-			endpoints := make([]apigen.Endpoint, 0, len(service.Ordinals))
-			for _, ordinal := range service.Ordinals {
-				addr, err := prefix.InboundAddr(spaceID, deploymentID, int32(ordinal.Ordinal))
-				if err != nil {
-					continue
-				}
-				endpoints = append(endpoints, apigen.Endpoint{
-					Ordinal: ordinal.Ordinal,
-					Address: addr.String(),
-					State:   apigen.EndpointState_ENDPOINT_STATE_READY,
-				})
-			}
-			endpointsByDeployment[service.DeploymentID] = appendNewEndpoints(endpointsByDeployment[service.DeploymentID], endpoints)
-			addService(service.Name, network.SpaceDNSName(spaceID), endpoints)
-		}
-	} else {
-		type ordinalKey struct {
-			deploymentID uint64
-			ordinal      uint32
-		}
-		type ordinalStates struct{ serving, standby, draining bool }
-		statesByOrdinal := make(map[ordinalKey]*ordinalStates)
-		for _, item := range virtual {
-			if item.Config.Deployment.ID == 0 {
-				continue
-			}
-			key := ordinalKey{item.Config.Deployment.ID, item.Instance.InstanceOrdinal}
-			states := statesByOrdinal[key]
-			if states == nil {
-				states = &ordinalStates{}
-				statesByOrdinal[key] = states
-			}
-			switch item.Instance.State {
-			case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING:
-				states.serving = true
-			case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY:
-				states.standby = true
-			case apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_DRAINING:
-				states.draining = true
-			}
-		}
-		for _, item := range virtual {
-			if item.Config.Deployment.ID == 0 {
-				continue
-			}
-			states := statesByOrdinal[ordinalKey{item.Config.Deployment.ID, item.Instance.InstanceOrdinal}]
-			if !states.serving && !(states.standby && states.draining) {
-				continue
-			}
-			spaceID, deploymentID, ok := addressIDs(item.Config.Deployment.SpaceID, item.Config.Deployment.ID)
-			if !ok {
-				continue
-			}
-			addr, err := prefix.InboundAddr(spaceID, deploymentID, int32(item.Instance.InstanceOrdinal))
-			if err != nil {
-				continue
-			}
-			endpoint := apigen.Endpoint{
-				Ordinal: item.Instance.InstanceOrdinal,
+	for i := range clusterMap.DnsServices {
+		service := &clusterMap.DnsServices[i]
+		spaceID, deploymentID := int32(service.SpaceID), int32(service.DeploymentID)
+		endpoints := make([]apigen.Endpoint, 0, len(service.Ordinals))
+		for _, ordinal := range service.Ordinals {
+			addr := erru.Must(prefix.InboundAddr(spaceID, deploymentID, int32(ordinal.Ordinal)))
+			endpoints = append(endpoints, apigen.Endpoint{
+				Ordinal: ordinal.Ordinal,
 				Address: addr.String(),
 				State:   apigen.EndpointState_ENDPOINT_STATE_READY,
-			}
-			endpointsByDeployment[item.Config.Deployment.ID] = appendNewEndpoints(endpointsByDeployment[item.Config.Deployment.ID], []apigen.Endpoint{endpoint})
+			})
 		}
-		for _, item := range virtual {
-			name := network.DNSLabel(item.Config.Deployment.Name)
-			spaceID, _, ok := addressIDs(item.Config.Deployment.SpaceID, item.Config.Deployment.ID)
-			if name == "" || !ok {
-				continue
-			}
-			addService(name, network.SpaceDNSName(spaceID), endpointsByDeployment[item.Config.Deployment.ID])
-		}
+		endpointsByDeployment[service.DeploymentID] = appendNewEndpoints(endpointsByDeployment[service.DeploymentID], endpoints)
+		addService(service.Name, network.SpaceDNSName(spaceID), endpoints)
 	}
 
 	ingress := make([]*apigen.NetIngress, 0)
@@ -299,12 +235,7 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 	sort.Slice(ingress, func(i, j int) bool { return ingressRouteKey(ingress[i]) < ingressRouteKey(ingress[j]) })
 	var challenges []apigen.AcmeHttpChallenge
 	if acme != nil {
-		for _, challenge := range acme.Challenges {
-			if challenge.Token == "" {
-				continue
-			}
-			challenges = append(challenges, challenge)
-		}
+		challenges = acme.Challenges
 	}
 	state := &apigen.NetState{
 		Seq:               seq,
@@ -324,29 +255,16 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 	return state
 }
 
-func addressIDs(spaceID, deploymentID uint64) (int32, int32, bool) {
-	if spaceID > uint64(network.MaxSpaceID) || deploymentID > uint64(network.MaxDeploymentID) {
-		return 0, 0, false
-	}
-	return int32(spaceID), int32(deploymentID), true
-}
-
 func renderIngress(item apigen.ScheduledInstanceState, endpoints []apigen.Endpoint) []*apigen.NetIngress {
 	var out []*apigen.NetIngress
 	for _, route := range item.Config.Deployment.Spec.Networking.Ingress {
-		hostname := ingressHostname(route.Hostname)
-		if hostname == "" {
-			continue
-		}
+		hostname := route.Hostname
 		switch {
 		case route.Config.Value.TlsPassthrough != nil:
 			cfg := route.Config.Value.TlsPassthrough
 			port := cfg.HostPort.Value
 			if port == 0 {
 				port = 443
-			}
-			if port == netproxyDNSPort || port < 1 || port > 65535 || cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
-				continue
 			}
 			out = append(out, &apigen.NetIngress{
 				Kind:     apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH,
@@ -358,18 +276,11 @@ func renderIngress(item apigen.ScheduledInstanceState, endpoints []apigen.Endpoi
 			})
 		case route.Config.Value.Https != nil:
 			cfg := route.Config.Value.Https
-			if cfg.ContainerPort < 1 || cfg.ContainerPort > 65535 {
-				continue
-			}
-			prefix := cfg.PathPrefix
-			if prefix == "" {
-				prefix = "/"
-			}
 			out = append(out, &apigen.NetIngress{
 				Kind:     apigen.IngressKind_INGRESS_KIND_HTTPS,
 				Hostname: hostname,
 				Https: apigen.Some(apigen.HttpsNetIngress{
-					PathPrefix:          prefix,
+					PathPrefix:          cfg.PathPrefix,
 					StripPrefix:         cfg.StripPrefix,
 					BackendProtocol:     cfg.BackendProtocol,
 					MaxRequestBodyBytes: cfg.MaxRequestBodyBytes.Value,
@@ -437,9 +348,6 @@ func appendNewEndpoints(dst, src []apigen.Endpoint) []apigen.Endpoint {
 func ingressBackends(endpoints []apigen.Endpoint, containerPort uint32) []apigen.IngressBackend {
 	backends := make([]apigen.IngressBackend, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		if endpoint.Address == "" {
-			continue
-		}
 		backends = append(backends, apigen.IngressBackend{
 			Address: endpoint.Address,
 			Port:    containerPort,
@@ -468,18 +376,15 @@ func RenderCertBundle(ctx context.Context, seq int64, items []apigen.ScheduledIn
 			if https == nil {
 				continue
 			}
-			hostname := ingressHostname(route.Hostname)
-			id := HTTPSCertID(https, hostname)
+			id := HTTPSCertID(https, route.Hostname)
 			if _, ok := wanted[id]; ok {
 				continue
 			}
 			if https.CertSource.Present && https.CertSource.Value.Value.Secret != nil {
-				if secret := https.CertSource.Value.Value.Secret.Secret; secret.Valid() {
-					wanted[id] = secret.Ref()
-				}
+				wanted[id] = https.CertSource.Value.Value.Secret.Secret.Ref()
 				continue
 			}
-			if ref, ok := acmeBindings[hostname]; ok {
+			if ref, ok := acmeBindings[route.Hostname]; ok {
 				wanted[id] = ref
 			}
 		}
@@ -519,10 +424,6 @@ func WriteCertBundle(path string, bundle *apigen.CertBundle) error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-func ingressHostname(value string) string {
-	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
 }
 
 func WriteNetState(path string, state *apigen.NetState) error {

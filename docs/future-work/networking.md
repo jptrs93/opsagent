@@ -29,12 +29,6 @@ Still open here:
   `service-balancing-and-attachment-nat.md`), but the address code does not
   yet reserve the ordinal and the balancing rungs that consume it are not
   built. The workload ABI allocates only `I` and `O`.
-- Whole-cluster map snapshots are accepted in the medium term only. One map
-  is rendered for the whole cluster and every node receives an identical copy
-  (only `target_node_id` differs), so every placement, node, or policy change
-  fans out to every node, and every node holds routes, WireGuard peers, and a
-  DNS catalog for the whole cluster. The agreed replacement (2026-10-05) is
-  the per-node map scoped by reachability described in the next item.
 - A node address inside the cluster prefix and readiness-gated inbound
   addresses, so that connections to unready instances and to stale
   placements fail fast across nodes; see Endpoint selection and health. The
@@ -42,7 +36,13 @@ Still open here:
 - Sender-side peer liveness probes feeding the balancing rungs' selection
   set; see Endpoint selection and health. Cadence and recovery window are
   undecided.
-- Per-node maps scoped by reachability. Identity addressing cannot aggregate
+- Per-node maps scoped by reachability. Shipped 2026-10-06 (phase one of
+  `per-node-netmap-implementation-plan.md`): the closure, the per-node render
+  and stamps, the persisted `node_netmap` stamps, the per-node barrier rule,
+  and the map as the only carrier of the cluster prefix. Still open from the
+  design below: the per-commit dirty set (phase one re-renders every node
+  from shared indexes and compares bytes), the hello-time hash, and deltas.
+  Identity addressing cannot aggregate
   routes by node, so without pruning a node's route table is the cluster's
   placement count. The only sound basis for pruning is policy-derived
   reachability; pruning by observed traffic is rejected because it
@@ -71,8 +71,9 @@ Still open here:
   - Each node's map is stamped with the global write seq of the last render
     that changed that node's content, held beside the cached per-node map.
     The global seq is monotonic across primary restarts, so a node's
-    acceptance rule is unchanged and no separate counter or table is needed;
-    persisting the per-node stamps is an optimisation.
+    acceptance rule is unchanged. The per-node stamps are persisted with a
+    content hash (`node_netmap`) so a primary restart keeps the stamp of an
+    unchanged map; the table is a cache, not a fold of the log.
   - On each commit the primary derives the affected nodes from the mutations
     (a placement, node row, policy, space, or networking spec change) through
     a reverse index from space to hosting nodes and the policy adjacency,
@@ -110,9 +111,9 @@ Still open here:
      has not applied a map within a short liveness window (a few heartbeats)
      drops out of the barrier and is flagged unhealthy. The fixed backstop
      stays as the last resort and is expected never to fire in practice.
-  2. Membership by reachability. Once routes are pruned by policy, the barrier
-     waits only on nodes that hold a route to the old placement or an ingress
-     route to it — the same set the pruning rule produces.
+  2. Membership by reachability. Shipped with the per-node maps: the barrier
+     waits only on nodes whose map is stamped at or after the decision's
+     write sequence, which is the set the pruning rule changed.
   3. Balanced traffic never depends on the barrier: a draining instance leaves
      the ready set, so clients dialing the service address are steered away
      as soon as their own node sees the readiness change. The barrier matters

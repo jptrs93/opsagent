@@ -16,6 +16,14 @@ and the e2e coverage lives on worker-1 because a node's publish set is the
 union over its routes, so a restriction is only observable on a node whose
 port the case owns.
 
+Revised 2026-10-07: collisions and reservations are decided on the selector
+sets rather than on the inventory-expanded addresses (see Evaluation). The
+inventory only expands accepted claims into the publish set, so the answer
+cannot change when a node's addresses change, and the publisher needs no
+reservation input to stay consistent with validation. The e2e case
+`ingress-listen-primary-reservation` now expects the default listen on the
+primary to be rejected as well.
+
 ## Purpose
 
 This document is the implementation plan for publishing ingress routes on a
@@ -235,41 +243,53 @@ Inputs:
   and `any` selectors widen without a config change.
 
 Expansion of one route: nodes matching the node selector, intersected with the
-reachable set; for each node, its host addresses filtered by the address
-selector. A prefix literal that matches no current address expands to nothing
-on that node and is not an error. Port is `443` for `HTTPS` and
-`tls_passthrough_config.host_port` (default 443) for passthrough.
+reachable set; for each node, one claim per address entry of the selector,
+where an entry denotes a set: no entry is every address of the node, a `/0`
+prefix is one family, a CIDR is its range, and a single address is that
+address. Port is `443` and `80` for `HTTPS` and
+`tls_passthrough_config.host_port` (default 443) for passthrough. Two sets
+intersect when one contains the other; the whole space intersects everything
+and the two families never intersect each other.
 
 Outputs:
 
-- Per node, the publish set `[(address, port)]`, the union over all routes.
-- Per route, the concrete claims `(node, address, port, hostname[, path_prefix])`.
-- Diagnostics: errors (rejected at save) and warnings (surfaced on status).
+- Per node, the publish set `[(address, port)]`: the union over the accepted
+  claims, each expanded against the node's inventory (every address, the
+  family's addresses, the covered addresses, or the literal when present; with
+  an unknown inventory the whole space and a family publish the wildcard, a
+  literal publishes itself, and a CIDR publishes nothing).
+- Per node, the deployments with at least one published claim.
+- Diagnostics: errors (rejected at save, raised for the candidate only) and
+  warnings (surfaced on status).
 
-Rules:
+Rules (set semantics, 2026-10-07):
 
-- A claim whose address is a literal and equals a reservation's address on the
-  same node and port is an error naming the reservation.
-- A claim produced by a wildcard or family selector that equals a reservation is
-  dropped from the publish set, and the save response reports the exclusion.
-- A reservation with a wildcard listen host reserves the port on every address
-  of that node. Literal claims on that node and port are errors; wildcard claims
-  are dropped with a report.
-- Two deployments whose expanded claims share (node, address, port, hostname),
-  or for HTTPS (node, address, hostname, path_prefix), are an error. This
-  replaces the existing per-node hostname and prefix maps.
-- `certSource` must match across all HTTPS routes sharing a hostname on a node,
-  as today.
-- A wildcard or family selector expanding onto a node that hosts host-mode
-  deployments produces a warning naming those deployments. Host-mode port
-  bindings are not visible to the evaluator.
-- Inventory changes after save are re-evaluated by the publisher. A newly
-  created overlap between two deployments resolves to the lower deployment id
-  and is surfaced as a warning on both deployments. Reservations always win.
+- A reservation is a set on its node and port: every address for a wildcard
+  listen host, one address otherwise. A candidate claim whose set intersects a
+  reservation is an error naming the reservation, whatever its selector. A
+  stored claim intersecting a reservation is kept out of the publish set and
+  reported as a warning.
+- Two deployments whose claims share (node, port, hostname), or for HTTPS
+  (node, port, hostname, path_prefix), with intersecting sets collide. The
+  candidate is rejected.
+- `certSource` must match across all HTTPS routes whose sets intersect on a
+  hostname and node, within one deployment too.
+- A raw TCP port forward claims its port on every address of its node and
+  collides with any ingress claim on that port.
+- A wildcard, family, or CIDR selector expanding onto a node that hosts
+  host-mode deployments produces a warning naming those deployments. Host-mode
+  port bindings are not visible to the evaluator.
+- There is no fallback for a collision between two stored deployments. The
+  evaluator had one for a log written under the inventory-based rules (lower
+  deployment id wins, both warned); it was removed on 2026-10-07 on the
+  assumption that no live log carries such a pair, so write-time validation
+  is the only rule.
 
-The settings path runs the same evaluator: a change to `https_web.listen` or
-`https_web.enabled` that turns an existing literal claim into an error is
-rejected by `validateResolvedSettings`.
+The settings path runs the same evaluator: a change to `https_web.listen`,
+`http_web.listen`, or their `enabled` flags whose listeners would intersect
+any stored claim is rejected by `validateResolvedSettings`. The Web UI
+rebinding on such a save is a separate prerequisite of the node publisher
+plan.
 
 ## Data plane
 

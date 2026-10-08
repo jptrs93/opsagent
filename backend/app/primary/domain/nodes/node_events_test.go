@@ -115,8 +115,8 @@ func TestEnrollmentReportsHaveNoTrailingEvents(t *testing.T) {
 func TestNodeObservedClockMonotonic(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
-	seq := FetchNetworkMapInputs(store).Seq
+	node := EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
+	seq := globalSeq(t, store)
 	SetNodeStatusByIdentifier(store, node.Identifier, true, node.CreatedAt)
 	first := erru.Must(store.Queries().ListLatestNodeStatuses(context.Background()))[0]
 	SetNodeStatusByIdentifier(store, node.Identifier, false, node.CreatedAt)
@@ -124,7 +124,7 @@ func TestNodeObservedClockMonotonic(t *testing.T) {
 	if !second.UpdatedAt.Value.After(first.UpdatedAt.Value) || !first.UpdatedAt.Present {
 		t.Fatalf("node clocks: %v, %v", first.UpdatedAt, second.UpdatedAt)
 	}
-	if FetchNetworkMapInputs(store).Seq != seq+2 {
+	if globalSeq(t, store) != seq+2 {
 		t.Fatal("observed writes did not each consume one sequence")
 	}
 }

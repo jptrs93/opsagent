@@ -26,7 +26,7 @@ func TestEnrollmentHelloRejectsEnrolledIdentifiers(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	ctx := context.Background()
-	primary := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	primary := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	before := fingerprint(t, store)
 	_, _, err := UpsertEnrollmentRequest(store, "192.0.2.9", "v1", apigen.NodeReported{Identifier: primary.Identifier, UnderlayAddress: mustAddr("192.0.2.9"), WgPublicKey: testEnrollmentWGKey})
 	if !errors.Is(err, ErrEnrollmentIdentifierEnrolled) {

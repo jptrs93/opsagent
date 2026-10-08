@@ -23,6 +23,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler"
+	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
@@ -54,7 +55,8 @@ type Handler struct {
 	Authz                 *authz.Service
 	Assets                *assets.Store
 	SystemConfig          *systemconfig.Service
-	Config                *apigen.ClusterSettings
+	Config                func() *apigen.ClusterSettings
+	WebUI                 *webui.Manager
 	GitVersions           GitSourceProvider
 	GithubReleaseVersions *versionprovider.GithubReleaseVersionProvider
 	GithubCredentials     githubcredentials.Provider
@@ -109,6 +111,7 @@ type Dependencies struct {
 	GithubCredentials     githubcredentials.Provider
 	Secrets               *secrets.Manager
 	NixStores             *nixstores.Service
+	WebUI                 *webui.Manager
 }
 
 func (h *Handler) Get(ctx apigen.Context, request *http.Request, writer http.ResponseWriter) error {
@@ -158,21 +161,24 @@ func (h *Handler) GetV1Healthz(ctx apigen.Context, request *http.Request, writer
 
 // New constructs the Web UI handler without starting application services.
 func New(staticFS fs.FS, nodeID uint64, deps Dependencies) (*Handler, error) {
-	snapshot := deps.SystemConfig.Snapshot()
 	authzService, err := authz.Open(deps.Store)
 	if err != nil {
 		return nil, err
 	}
 	h := &Handler{
-		BackupStatus:          deps.BackupStatus,
-		staticFS:              staticFS,
-		Store:                 deps.Store,
-		Queries:               deps.Store.Queries(),
-		AgentSessions:         deps.AgentSessions,
-		Authz:                 authzService,
-		Assets:                deps.Assets,
-		SystemConfig:          deps.SystemConfig,
-		Config:                &snapshot.Settings,
+		BackupStatus:  deps.BackupStatus,
+		staticFS:      staticFS,
+		Store:         deps.Store,
+		Queries:       deps.Store.Queries(),
+		AgentSessions: deps.AgentSessions,
+		Authz:         authzService,
+		Assets:        deps.Assets,
+		SystemConfig:  deps.SystemConfig,
+		Config: func() *apigen.ClusterSettings {
+			settings := deps.SystemConfig.Snapshot().Settings
+			return &settings
+		},
+		WebUI:                 deps.WebUI,
 		GitVersions:           deps.GitVersions,
 		GithubReleaseVersions: deps.GithubReleaseVersions,
 		GithubCredentials:     deps.GithubCredentials,

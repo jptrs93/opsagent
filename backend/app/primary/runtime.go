@@ -27,8 +27,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
-	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
+	"github.com/jptrs93/opsagent/backend/app/primary/nodepublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/scheduler"
+	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
@@ -171,10 +172,11 @@ func (r *runtime) webUIHandlerDependencies() webuihandler.Dependencies {
 		GithubCredentials:     r.github,
 		Secrets:               r.secrets,
 		NixStores:             r.nixStores,
+		WebUI:                 webui.NewManager(r.configService, r.secrets),
 	}
 }
 
-func (r *runtime) start(ctx context.Context, nodeID uint64, nodeIdentifier string, networkMaps *netmappublisher.Publisher) {
+func (r *runtime) start(ctx context.Context, nodeID uint64, nodeIdentifier string, projection *nodepublisher.Publisher) {
 	deployments.EnsureSystem(r.store, nodeID, version.Version)
 	nodes.SetNodeStatusByIdentifier(r.store, nodeIdentifier, true, time.Now())
 	nodes.UpdateNodeObservedMeta(r.store, nodeIdentifier, "", version.Version, runtimebin.InstalledSummary())
@@ -190,14 +192,14 @@ func (r *runtime) start(ctx context.Context, nodeID uint64, nodeIdentifier strin
 	predicate := storage.ScheduledInstancePredicate(func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == nodeID
 	})
-	scheduling := scheduler.New(r.store, networkMaps)
+	scheduling := scheduler.New(r.store, projection)
 	if err := scheduling.Start(ctx); err != nil {
 		panic(fmt.Sprintf("start scheduler: %v", err))
 	}
 	go scheduling.Run(ctx)
 	go r.acmeIssuer.Run(ctx)
 	netMapSource := netproxy.ClusterNetMapSourceFunc(func() (*apigen.ClusterNetMap, <-chan *apigen.ClusterNetMap, func()) {
-		return networkMaps.SnapshotAndSubscribe(nodeID)
+		return projection.SnapshotAndSubscribeMap(nodeID)
 	})
 	go netproxy.RunNetStateWriter(ctx, r.store, predicate, nodeIdentifier, ainit.StaticConfig.NetproxyStatePath, netproxy.CertSecretResolverFunc(r.secrets.Resolve), r.acmeHolder, netMapSource, nil)
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)

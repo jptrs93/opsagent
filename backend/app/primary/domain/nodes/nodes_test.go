@@ -15,13 +15,13 @@ import (
 )
 
 func testNode(store *state.Service, identifier string) *Node {
-	return EnsurePrimaryNode(store, identifier, identifier, testUnderlay)
+	return EnsurePrimaryNode(store, identifier, identifier, testUnderlay, "")
 }
 
 func TestEnsurePrimaryNodeCreatesPrimaryRole(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 
-	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 
 	nodes := ListNodes(store.Queries())
 	if len(nodes) != 1 {
@@ -62,7 +62,7 @@ func TestEnsurePrimaryNodeUsesCertificateIdentifier(t *testing.T) {
 		}
 	}
 
-	node := EnsurePrimaryNode(store, "primary", "primary", testUnderlay)
+	node := EnsurePrimaryNode(store, "primary", "primary", testUnderlay, "")
 	if node.Name != "primary" || node.Identifier != "primary" {
 		t.Fatalf("primary node = %+v, want primary certificate identity", node)
 	}
@@ -120,28 +120,28 @@ func TestAcceptEnrollmentRequestCreatesNode(t *testing.T) {
 func TestSetNodeWGPublicKeyIsDiffGatedAndVersioned(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	node := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	node := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 
 	const keyA = "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE="
 	const keyB = "QkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkI="
 
-	before := FetchNetworkMapInputs(store).Seq
+	before := globalSeq(t, store)
 	updated := ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: node.Reported().UnderlayAddress, WgPublicKey: keyA, HostAddresses: node.HostAddresses})
 	if updated.WGPublicKey != keyA {
 		t.Fatalf("node wg key = %q, want %q", updated.WGPublicKey, keyA)
 	}
-	afterSet := FetchNetworkMapInputs(store).Seq
+	afterSet := globalSeq(t, store)
 	if afterSet != before+1 {
 		t.Fatalf("seq after set = %d, want %d", afterSet, before+1)
 	}
 
 	ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: node.Reported().UnderlayAddress, WgPublicKey: keyA, HostAddresses: node.HostAddresses})
-	if seq := FetchNetworkMapInputs(store).Seq; seq != afterSet {
+	if seq := globalSeq(t, store); seq != afterSet {
 		t.Fatalf("unchanged key advanced seq to %d", seq)
 	}
 
 	ReportNode(store, node.Identifier, apigen.NodeReported{Identifier: node.Identifier, UnderlayAddress: node.Reported().UnderlayAddress, WgPublicKey: keyB, HostAddresses: node.HostAddresses})
-	if seq := FetchNetworkMapInputs(store).Seq; seq != afterSet+1 {
+	if seq := globalSeq(t, store); seq != afterSet+1 {
 		t.Fatalf("seq after change = %d, want %d", seq, afterSet+1)
 	}
 
@@ -170,7 +170,7 @@ func TestAcceptEnrollmentRequestRejectsReplacedSessionRevision(t *testing.T) {
 func TestRenameNodePreservesIdentifier(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
-	primaryNode := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay)
+	primaryNode := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
 	statetest.MustCreateDeploymentForNode(store, apigen.Context{}, internaldeploy.SpaceID, internaldeploy.SelfName, primaryNode.ID, statetest.SpecWithVersion("v1"))
 
 	node, err := RenameNode(store, "primary-id", "control plane")
@@ -189,8 +189,8 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 func TestSpaceAndNodeChangesPublishTogether(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
-	EnsurePrimaryNode(s, "one", "one", testUnderlay)
-	EnsurePrimaryNode(s, "two", "two", testUnderlay)
+	EnsurePrimaryNode(s, "one", "one", testUnderlay, "")
+	EnsurePrimaryNode(s, "two", "two", testUnderlay, "")
 	before := globalSeq(t, s)
 	sub, unsub := s.SubscribeUpdates()
 	defer unsub()

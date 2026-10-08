@@ -18,11 +18,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterserver"
 	"github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler"
-	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
-	"github.com/jptrs93/opsagent/backend/app/primary/webui"
+	"github.com/jptrs93/opsagent/backend/app/primary/nodepublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
-	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
@@ -66,23 +64,20 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	if err != nil {
 		return err
 	}
-	primaryNode := nodes.EnsurePrimaryNode(primaryRuntime.store, "primary", certificateIdentifier, underlayAddress)
-	reported := primaryNode.Reported()
-	reported.UnderlayAddress = apigen.AddrOf(underlayAddress)
-	primaryNode = nodes.ReportNode(primaryRuntime.store, primaryNode.Identifier, reported)
+	if _, err := nodes.NormalizeNodeUnderlay(primaryRuntime.store.Queries(), certificateIdentifier, underlayAddress.String()); err != nil {
+		return fmt.Errorf("primary underlay address %s: %w", underlayAddress, err)
+	}
 	// The primary's WireGuard key follows the same custody rule as secondaries:
 	// generated locally, private key only ever in the data directory, public
-	// key registered on the node row (a map input, so registration re-renders
-	// the map). WireGuard is the only cross-node transport, so a key failure
-	// blocks boot.
+	// key registered on the node row. It is loaded before the row is written
+	// so no render ever sees a keyless member; WireGuard is the only cross-node
+	// transport, so a key failure blocks boot.
 	nodeKey, err := wgkey.LoadOrGenerate(ainit.StaticConfig.DataDir)
 	if err != nil {
 		return fmt.Errorf("loading WireGuard node key: %w", err)
 	}
 	network.Default.SetWGPrivateKey(nodeKey.Private)
-	reported = primaryNode.Reported()
-	reported.WgPublicKey = nodeKey.PublicBase64()
-	nodes.ReportNode(primaryRuntime.store, primaryNode.Identifier, reported)
+	primaryNode := nodes.EnsurePrimaryNode(primaryRuntime.store, "primary", certificateIdentifier, underlayAddress, nodeKey.PublicBase64())
 	nodeIdentifier := primaryNode.Identifier
 	slog.InfoContext(ctx, fmt.Sprintf("opendeploy starting primary version=%v nodeIdentifier=%v", version.Version, nodeIdentifier))
 	webUIHandler, err := webuihandler.New(staticFS, primaryNode.ID, primaryRuntime.webUIHandlerDependencies())
@@ -92,20 +87,15 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	// The publisher is created before the runtime starts: the scheduler waits on
 	// its applied-sequence barrier before retiring a drained placement, so it
 	// cannot be started without one.
-	networkMaps, err := netmappublisher.New(primaryRuntime.store, primaryRuntime.configService.NetworkPrefix(), func() []ingressplan.Reservation {
-		settings := primaryRuntime.configService.Snapshot().Settings
-		return ingressplan.WebUIReservations(primaryNode.ID,
-			primaryRuntime.configService.MustLoadBoolSetting(settings.HttpsWeb.Enabled), primaryRuntime.configService.MustLoadStringSetting(settings.HttpsWeb.Listen),
-			primaryRuntime.configService.MustLoadBoolSetting(settings.HttpWeb.Enabled), primaryRuntime.configService.MustLoadStringSetting(settings.HttpWeb.Listen))
-	})
+	projection, err := nodepublisher.New(primaryRuntime.store, primaryRuntime.configService.NetworkPrefix(), primaryRuntime.acmeHolder)
 	if err != nil {
-		return fmt.Errorf("creating network map publisher: %w", err)
+		return fmt.Errorf("creating node publisher: %w", err)
 	}
-	go networkMaps.Run(ctx)
+	go projection.Run(ctx)
 	if network.TopologySupported {
-		go newNetMapApplier(primaryNode.ID, primaryRuntime.configService.NetworkPrefix(), networkMaps).run(ctx)
+		go newNetMapApplier(primaryNode.ID, primaryRuntime.configService.NetworkPrefix(), projection).run(ctx)
 	}
-	primaryRuntime.start(ctx, primaryNode.ID, nodeIdentifier, networkMaps)
+	primaryRuntime.start(ctx, primaryNode.ID, nodeIdentifier, projection)
 	assetReconcileDone := primaryRuntime.assets.StartReconciler(ctx)
 	backupDone := backup.StartReplication(ctx, primaryRuntime.configService, primaryRuntime.secrets, primaryRuntime.backupStatus, primaryRuntime.assets)
 	defer func() {
@@ -117,11 +107,11 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	if err != nil {
 		return fmt.Errorf("computing enrollment TLS fingerprint: %w", err)
 	}
-	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), networkMaps, primaryRuntime.acmeHolder, primaryRuntime.nixStores, primaryRuntime.issuedTLS)
-	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, networkMaps)
+	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), projection, primaryRuntime.acmeHolder, primaryRuntime.nixStores, primaryRuntime.issuedTLS)
+	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, projection)
 	go clusterHandler.RunEvictionWatch(ctx)
 	webUIHandler.Cluster = clusterHandler
-	webUIHandler.IngressDiagnostics = networkMaps
+	webUIHandler.IngressDiagnostics = projection
 	webUIHandler.LogManager = logmanager.StartManager(ctx, primaryRuntime.store, func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == primaryNode.ID
 	})
@@ -155,10 +145,8 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		StreamCompression:  erru.Must(gzhttp.NewWrapper(gzhttp.MinSize(0))),
 		Middlewares:        middlewares,
 	})
-	g.Go(func() error { return webui.RunPrimaryHTTPWebUI(ctx, primaryRuntime.configService, m) })
-	g.Go(func() error {
-		return webui.RunPrimaryHTTPSWebUI(ctx, primaryRuntime.configService, primaryRuntime.secrets, m)
-	})
+	g.Go(func() error { return webUIHandler.WebUI.RunHTTP(ctx, m) })
+	g.Go(func() error { return webUIHandler.WebUI.RunHTTPS(ctx, m) })
 	g.Go(func() error { return watchServerConfig(ctx, primaryRuntime.configService, initialConfig) })
 	err1 := g.Wait()
 	err2 := parentCtx.Err()

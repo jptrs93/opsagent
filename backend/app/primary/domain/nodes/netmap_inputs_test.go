@@ -21,16 +21,16 @@ func testPolicy() *apigen.NetworkPolicy {
 	}
 }
 
-func TestNetworkPolicyMapInputsIncludeActivePolicies(t *testing.T) {
+func TestNetworkPolicyWriteAdvancesTheSequence(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer store.Close()
 	createNetworkPolicyForTest(store, testPolicy(), 1)
-	inputs := FetchNetworkMapInputs(store)
-	if len(inputs.Policies) != 1 || inputs.Policies[0].NetworkPolicyID != 1 {
-		t.Fatalf("map input policies = %+v, want the created policy", inputs.Policies)
+	policies := erru.Must(store.Queries().ListNetworkPolicies(context.Background()))
+	if len(policies) != 1 || policies[0].NetworkPolicyID != 1 {
+		t.Fatalf("policies = %+v, want the created policy", policies)
 	}
-	if inputs.Seq <= 0 {
-		t.Fatalf("map input seq = %d, want positive after policy write", inputs.Seq)
+	if globalSeq(t, store) <= 0 {
+		t.Fatal("global seq not advanced by the policy write")
 	}
 }
 

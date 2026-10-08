@@ -1,7 +1,6 @@
 package nodes
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -67,33 +66,33 @@ func normalizeAllowedSpaces(spaces []uint64) []uint64 {
 	return out
 }
 
-func EnsurePrimaryNode(store *state.Service, name, identifier string, underlay netip.Addr) *Node {
+func EnsurePrimaryNode(store *state.Service, name, identifier string, underlay netip.Addr, wgPublicKey string) *Node {
 	ctx := context.Background()
-	row, err := store.Queries().GetNodeRowByIdentifier(ctx, identifier)
-	if errors.Is(err, sql.ErrNoRows) {
-		if !underlay.IsValid() {
-			panic(fmt.Sprintf("ensure primary node: %v", ErrUnderlayAddressRequired))
-		}
-		err = store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-			now := time.Now().UnixMilli()
-			var txErr error
-			row, txErr = q.NewNode(ctx, seq, now, apigen.Node{
-				Status:   apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL,
-				Operator: apigen.NodeOperator{Name: name, EnrolledTime: millisToMaybe(now), Roles: []apigen.NodeRole{NodeRolePrimary}},
-				Reported: apigen.NodeReported{Identifier: identifier, UnderlayAddress: apigen.AddrOf(underlay), HostAddresses: []apigen.IpAddress{}},
-			})
-			if txErr != nil {
-				return nil, txErr
-			}
-			return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, &row.Event)), nil
-		})
+	_, err := store.Queries().GetNodeRowByIdentifier(ctx, identifier)
+	if err == nil {
+		return ReportNode(store, identifier, apigen.NodeReported{Identifier: identifier, UnderlayAddress: apigen.AddrOf(underlay), WgPublicKey: wgPublicKey, HostAddressesUnknown: true})
 	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		panic(fmt.Sprintf("ensure primary node: %v", err))
+	}
+	var row pq.CurrentNode
+	err = store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
+		now := time.Now().UnixMilli()
+		var txErr error
+		row, txErr = q.NewNode(ctx, seq, now, apigen.Node{
+			Status:   apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_NORMAL,
+			Operator: apigen.NodeOperator{Name: name, EnrolledTime: millisToMaybe(now), Roles: []apigen.NodeRole{NodeRolePrimary}},
+			Reported: apigen.NodeReported{Identifier: identifier, UnderlayAddress: apigen.AddrOf(underlay), WgPublicKey: wgPublicKey, HostAddresses: []apigen.IpAddress{}},
+		})
+		if txErr != nil {
+			return nil, txErr
+		}
+		return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_CREATE, &row.Event)), nil
+	})
 	if err != nil {
 		panic(fmt.Sprintf("ensure primary node: %v", err))
 	}
-	node := nodeRowToNode(row)
-
-	return node
+	return nodeRowToNode(row)
 }
 
 type nodeEventSpec struct {
@@ -234,37 +233,6 @@ func ListNodes(q *pq.Queries) []*Node {
 		out = append(out, nodeRowToNode(row))
 	}
 	return out
-}
-
-type NetworkMapInputs struct {
-	Nodes            []*Node
-	Instances        []apigen.ScheduledInstanceState
-	Policies         []*pq.NetworkPolicyEvent
-	Deployments      []*apigen.DeploymentRecord
-	DeploymentSpaces map[uint64]uint64
-	Seq              int64
-}
-
-func FetchNetworkMapInputs(store *state.Service) NetworkMapInputs {
-	store.Mu.Lock()
-	defer store.Mu.Unlock()
-	ctx := context.Background()
-	q := store.Queries()
-	seq := erru.Must(q.GetGlobalSeq(ctx))
-	deployments := erru.Must(q.ListActiveDeployments(ctx))
-	spaces := make(map[uint64]uint64, len(deployments))
-	for _, cfg := range deployments {
-		spaces[cfg.Deployment.ID] = cfg.Deployment.SpaceID
-	}
-	slices.SortFunc(deployments, func(a, b *apigen.DeploymentRecord) int { return cmp.Compare(a.Deployment.ID, b.Deployment.ID) })
-	return NetworkMapInputs{
-		Nodes:            ListNodes(store.Queries()),
-		Instances:        store.FetchScheduledSnapshot(nil),
-		Policies:         erru.Must(q.ListNetworkPolicies(ctx)),
-		Deployments:      deployments,
-		DeploymentSpaces: spaces,
-		Seq:              seq,
-	}
 }
 
 func SetNodeStatusByIdentifier(store *state.Service, identifier string, connected bool, connectedAt time.Time) {

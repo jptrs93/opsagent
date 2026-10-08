@@ -8,7 +8,7 @@ import (
 
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
-	"github.com/jptrs93/opsagent/backend/app/primary/netmappublisher"
+	"github.com/jptrs93/opsagent/backend/app/primary/nodepublisher"
 	"github.com/jptrs93/opsagent/backend/lib/network"
 )
 
@@ -23,12 +23,12 @@ type netMapApplier struct {
 	retryDelay           time.Duration
 }
 
-func newNetMapApplier(nodeID uint64, prefix network.Prefix, maps *netmappublisher.Publisher) *netMapApplier {
+func newNetMapApplier(nodeID uint64, prefix network.Prefix, projection *nodepublisher.Publisher) *netMapApplier {
 	return &netMapApplier{
 		nodeID:               nodeID,
 		prefix:               prefix,
-		snapshotAndSubscribe: maps.SnapshotAndSubscribe,
-		recordApplied:        maps.RecordApplied,
+		snapshotAndSubscribe: projection.SnapshotAndSubscribeMap,
+		recordApplied:        projection.RecordApplied,
 		reconcile:            network.Default.ReconcileTopology,
 		setPolicyRules:       network.Default.SetPolicyRules,
 		setNetproxyPublish:   network.Default.SetNetproxyPublish,

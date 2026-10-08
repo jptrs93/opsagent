@@ -2,7 +2,7 @@
 
 ## Overview
 
-The API is HTTP + binary protobuf v3. Each service has its own file — `api-contract/api_service.proto`, `cluster_service.proto`, and `enrollment_service.proto` — holding its RPC definitions and per-route access policies; model messages are split per entity into `api-contract/model/<entity>.proto` (data model shapes) and `api-contract/model_<entity>_operations.proto` (endpoint request/response shapes). The generator concatenates every file into one schema before running, so a message defined in any of them is visible to all. The contract is written from the DSL under `datamodel/` (`datamodel/core/*.dm` for the logged entities, `datamodel/materialised/netstate.dm` for the rendered `NetState`): every entity shape is the DSL's and field numbers equal the DSL tags. Go and JS code is generated from the proto schema using [cleanproto](https://github.com/jptrs93/cleanproto/blob/main/README.md), the branch `feat/go-presence-and-oneofs` pinned by commit in `api-contract/proto_generate.sh` (a sibling `../cleanproto` checkout is used when present), whose Go output carries presence and unions: an `optional` field is a `Maybe[T]` (`Present`, `Value`), a `oneof` is a `<Msg>ValueOneof` struct of pointers of which exactly one is set, every message has `Validate()` from its `buf.validate` rules, `Encode()` panics on a message that fails validation, and `EncodeChecked()` returns the error instead. Ids are `uint64` on the wire and in Go. In JS a 64-bit integer field is a `bigint` unless it carries `(cp.js_type) = "number"`, which decodes to a number and throws beyond the safe integer range; every id, seq, counter and epoch-millisecond field carries the option, and only the nanosecond fields `RawLogLine.time`, `LogRecord.time` and `MetricsSample.time` stay `bigint`. `lib/network` keeps `int32` addressing ids internally and callers narrow at that boundary.
+The API is HTTP + binary protobuf v3. Each service has its own file — `api-contract/api_service.proto`, `cluster_service.proto`, and `enrollment_service.proto` — holding its RPC definitions and per-route access policies; model messages are split per entity into `api-contract/model/<entity>.proto` (data model shapes) and `api-contract/model_<entity>_operations.proto` (endpoint request/response shapes). The generator concatenates every file into one schema before running, so a message defined in any of them is visible to all. The contract is written from the DSL under `datamodel/` (`datamodel/core/*.dm` for the logged entities, `datamodel/materialised_node/node_projection.dm` for the per-node projection, `datamodel/materialised_node_local/netstate.dm` for the rendered `NetState`): every entity shape is the DSL's and field numbers equal the DSL tags. Go and JS code is generated from the proto schema using [cleanproto](https://github.com/jptrs93/cleanproto/blob/main/README.md), the branch `feat/go-presence-and-oneofs` pinned by commit in `api-contract/proto_generate.sh` (a sibling `../cleanproto` checkout is used when present), whose Go output carries presence and unions: an `optional` field is a `Maybe[T]` (`Present`, `Value`), a `oneof` is a `<Msg>ValueOneof` struct of pointers of which exactly one is set, every message has `Validate()` from its `buf.validate` rules, `Encode()` panics on a message that fails validation, and `EncodeChecked()` returns the error instead. Ids are `uint64` on the wire and in Go. In JS a 64-bit integer field is a `bigint` unless it carries `(cp.js_type) = "number"`, which decodes to a number and throws beyond the safe integer range; every id, seq, counter and epoch-millisecond field carries the option, and only the nanosecond fields `RawLogLine.time`, `LogRecord.time` and `MetricsSample.time` stay `bigint`. `lib/network` keeps `int32` addressing ids internally and callers narrow at that boundary.
 
 The split follows the security boundary, not just size: each service is served on a different listener with a different notion of caller identity, so which file an RPC lives in decides what can reach it.
 
@@ -542,13 +542,15 @@ transition of an instance retention already pruned has nothing to read
 live path because the scheduler only transitions non-final rows it read in
 the same commit. A commit that finalizes an instance while a newer one
 holds its ordinal (a rollover, a deployment delete) prunes the finalized
-row before any subscriber reads it, so the scheduled-instance subscription
-(`MustFetchScheduledSnapshotAndSubscribe`, the feed behind the cluster
-sessions) falls back to `PrunedScheduledInstanceState`: the instance from
-the commit's own payload, its pinned version from the tables while another
-instance pins it and from the write log otherwise, and the status from the
-commit or the log. Without it a worker never hears that the instance ended
-and keeps its ingress routes alive. `pq.ScheduledInstanceEvent` is the backend's row view (envelope plus
+row before any subscriber reads it. The node publisher
+(`app/primary/nodepublisher`, the feed behind the cluster sessions) does not
+read the tables for it: it holds the pinned deployment version in its cache
+while any live instance pins it and builds the finalized row from the
+commit's own payload, so the worker hears that the instance ended and drops
+its ingress routes. A session receives one `NodeProjection` at its head, complete, and one
+per commit that changed its node's rows, map, or ACME subset, carrying only
+what changed; a status write advances the publisher's applied sequence and
+the instance watermarks and sends nothing. `pq.ScheduledInstanceEvent` is the backend's row view (envelope plus
 `ScheduledInstance`); the message of that name is gone.
 
 The snapshot (`pq.Snapshot`, `pq/snapshot.go`) reads every type from its

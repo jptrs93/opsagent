@@ -39,7 +39,7 @@ func TestGHCRWorkerCredentialAuthorization(t *testing.T) {
 		{"no-assignment", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			node := nodes.EnsurePrimaryNode(store, tc.name, tc.name, netip.MustParseAddr("10.0.0.1"))
+			node := nodes.EnsurePrimaryNode(store, tc.name, tc.name, netip.MustParseAddr("10.0.0.1"), "")
 			if tc.image != "" {
 				spec := statetest.SpecWithVersion("latest")
 				spec.Container().Source = apigen.ContainerSource{Value: apigen.ContainerSourceValueOneof{RemoteImage: &apigen.RemoteImage{Image: tc.image}}}

@@ -20440,79 +20440,6 @@ func mergeAcmeCertBinding(b []byte, m *AcmeCertBinding) (*AcmeCertBinding, error
 	return m, nil
 }
 
-func (m ClusterNetworkInfo) IsZero() bool {
-	return len(m.UlaPrefix) == 0 &&
-		len(m.unknownFields) == 0
-}
-
-// Encode panics if validation fails. Use EncodeChecked for untrusted values.
-func (m *ClusterNetworkInfo) Encode() []byte {
-	b, err := m.EncodeChecked()
-	if err != nil {
-		panic(err)
-	}
-	return b
-}
-
-func (m *ClusterNetworkInfo) EncodeChecked() ([]byte, error) {
-	if err := m.Validate(); err != nil {
-		return nil, err
-	}
-	return m.encodeUnchecked(), nil
-}
-
-func (m *ClusterNetworkInfo) encodeUnchecked() []byte {
-	var b []byte
-	b = AppendBytesField(b, m.UlaPrefix, 1)
-	return append(b, m.unknownFields...)
-}
-
-func (m *ClusterNetworkInfo) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
-
-func DecodeClusterNetworkInfo(b []byte) (*ClusterNetworkInfo, error) {
-	return mergeClusterNetworkInfo(b, nil)
-}
-
-func mergeClusterNetworkInfo(b []byte, m *ClusterNetworkInfo) (*ClusterNetworkInfo, error) {
-	if m == nil {
-		m = new(ClusterNetworkInfo)
-	}
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		original := b
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.UlaPrefix, err = ConsumeBytesCopy(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-			if err == nil {
-				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
-			}
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return m, nil
-}
-
-func (m ClusterNetMap) IsZero() bool {
-	return m.TargetNodeID == 0 &&
-		len(m.UlaPrefix) == 0 &&
-		len(m.Nodes) == 0 &&
-		len(m.Routes) == 0 &&
-		m.DerivedFromSeq == 0 &&
-		len(m.PolicyRules) == 0 &&
-		len(m.DnsServices) == 0 &&
-		len(m.unknownFields) == 0
-}
-
 // Encode panics if validation fails. Use EncodeChecked for untrusted values.
 func (m *ClusterNetMap) Encode() []byte {
 	b, err := m.EncodeChecked()
@@ -21464,6 +21391,7 @@ func (m *AcmeHttpChallenge) encodeUnchecked() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Token, 1)
 	b = AppendStringField(b, m.KeyAuthorization, 2)
+	b = AppendStringField(b, m.Hostname, 3)
 	return append(b, m.unknownFields...)
 }
 
@@ -21491,6 +21419,8 @@ func mergeAcmeHttpChallenge(b []byte, m *AcmeHttpChallenge) (*AcmeHttpChallenge,
 			b, m.Token, err = ConsumeString(b, typ)
 		case 2:
 			b, m.KeyAuthorization, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Hostname, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {
@@ -23068,26 +22998,6 @@ func (m *MsgToSecondary) EncodeChecked() ([]byte, error) {
 func (m *MsgToSecondary) encodeUnchecked() []byte {
 	var b []byte
 	{
-		if m.ScheduledInstancesSnapshot.Present {
-			v := m.ScheduledInstancesSnapshot.Value
-			value := &v
-			if value != nil {
-				b = AppendTag(b, 1, BytesType)
-				b = AppendBytes(b, value.encodeUnchecked())
-			}
-		}
-	}
-	{
-		if m.ScheduledInstanceUpdate.Present {
-			v := m.ScheduledInstanceUpdate.Value
-			value := &v
-			if value != nil {
-				b = AppendTag(b, 2, BytesType)
-				b = AppendBytes(b, value.encodeUnchecked())
-			}
-		}
-	}
-	{
 		if m.DeploymentLogRequest.Present {
 			v := m.DeploymentLogRequest.Value
 			value := &v
@@ -23102,36 +23012,6 @@ func (m *MsgToSecondary) encodeUnchecked() []byte {
 			v := m.StopLogRequestID.Value
 			value := &v
 			b = AppendStringFieldOpt(b, value, 4)
-		}
-	}
-	{
-		if m.ClusterNetwork.Present {
-			v := m.ClusterNetwork.Value
-			value := &v
-			if value != nil {
-				b = AppendTag(b, 5, BytesType)
-				b = AppendBytes(b, value.encodeUnchecked())
-			}
-		}
-	}
-	{
-		if m.ClusterNetMap.Present {
-			v := m.ClusterNetMap.Value
-			value := &v
-			if value != nil {
-				b = AppendTag(b, 6, BytesType)
-				b = AppendBytes(b, value.encodeUnchecked())
-			}
-		}
-	}
-	{
-		if m.AcmeState.Present {
-			v := m.AcmeState.Value
-			value := &v
-			if value != nil {
-				b = AppendTag(b, 7, BytesType)
-				b = AppendBytes(b, value.encodeUnchecked())
-			}
 		}
 	}
 	{
@@ -23182,6 +23062,26 @@ func (m *MsgToSecondary) encodeUnchecked() []byte {
 			b = AppendBoolFieldOpt(b, value, 13)
 		}
 	}
+	{
+		if m.NodeSnapshot.Present {
+			v := m.NodeSnapshot.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 14, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.NodeUpdate.Present {
+			v := m.NodeUpdate.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 15, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
 	return append(b, m.unknownFields...)
 }
 
@@ -23206,40 +23106,6 @@ func mergeMsgToSecondary(b []byte, m *MsgToSecondary) (*MsgToSecondary, error) {
 			return nil, err
 		}
 		switch num {
-		case 1:
-			var value *ScheduledInstanceSnapshot
-			if m.ScheduledInstancesSnapshot.Present {
-				v := m.ScheduledInstancesSnapshot.Value
-				value = &v
-			}
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstanceSnapshot
-				item, err = mergeScheduledInstanceSnapshot(msgBytes, value)
-				if err == nil {
-					value = item
-				}
-			}
-			if err == nil {
-				m.ScheduledInstancesSnapshot = Maybe[ScheduledInstanceSnapshot]{Value: *value, Present: true}
-			}
-		case 2:
-			var value *ScheduledInstanceState
-			if m.ScheduledInstanceUpdate.Present {
-				v := m.ScheduledInstanceUpdate.Value
-				value = &v
-			}
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstanceState
-				item, err = mergeScheduledInstanceState(msgBytes, value)
-				if err == nil {
-					value = item
-				}
-			}
-			if err == nil {
-				m.ScheduledInstanceUpdate = Maybe[ScheduledInstanceState]{Value: *value, Present: true}
-			}
 		case 3:
 			var value *DeploymentLogRequest
 			if m.DeploymentLogRequest.Present {
@@ -23266,57 +23132,6 @@ func mergeMsgToSecondary(b []byte, m *MsgToSecondary) (*MsgToSecondary, error) {
 			b, value, err = ConsumeStringOpt(b, typ)
 			if err == nil {
 				m.StopLogRequestID = Maybe[string]{Value: *value, Present: true}
-			}
-		case 5:
-			var value *ClusterNetworkInfo
-			if m.ClusterNetwork.Present {
-				v := m.ClusterNetwork.Value
-				value = &v
-			}
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterNetworkInfo
-				item, err = mergeClusterNetworkInfo(msgBytes, value)
-				if err == nil {
-					value = item
-				}
-			}
-			if err == nil {
-				m.ClusterNetwork = Maybe[ClusterNetworkInfo]{Value: *value, Present: true}
-			}
-		case 6:
-			var value *ClusterNetMap
-			if m.ClusterNetMap.Present {
-				v := m.ClusterNetMap.Value
-				value = &v
-			}
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterNetMap
-				item, err = mergeClusterNetMap(msgBytes, value)
-				if err == nil {
-					value = item
-				}
-			}
-			if err == nil {
-				m.ClusterNetMap = Maybe[ClusterNetMap]{Value: *value, Present: true}
-			}
-		case 7:
-			var value *AcmeState
-			if m.AcmeState.Present {
-				v := m.AcmeState.Value
-				value = &v
-			}
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *AcmeState
-				item, err = mergeAcmeState(msgBytes, value)
-				if err == nil {
-					value = item
-				}
-			}
-			if err == nil {
-				m.AcmeState = Maybe[AcmeState]{Value: *value, Present: true}
 			}
 		case 8:
 			var value *LogQueryRequest
@@ -23397,6 +23212,40 @@ func mergeMsgToSecondary(b []byte, m *MsgToSecondary) (*MsgToSecondary, error) {
 			b, value, err = ConsumeBoolOpt(b, typ)
 			if err == nil {
 				m.Evicted = Maybe[bool]{Value: *value, Present: true}
+			}
+		case 14:
+			var value *NodeProjection
+			if m.NodeSnapshot.Present {
+				v := m.NodeSnapshot.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeProjection
+				item, err = mergeNodeProjection(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeSnapshot = Maybe[NodeProjection]{Value: *value, Present: true}
+			}
+		case 15:
+			var value *NodeProjection
+			if m.NodeUpdate.Present {
+				v := m.NodeUpdate.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeProjection
+				item, err = mergeNodeProjection(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeUpdate = Maybe[NodeProjection]{Value: *value, Present: true}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -23911,13 +23760,6 @@ func mergeMsgToPrimary(b []byte, m *MsgToPrimary) (*MsgToPrimary, error) {
 	return m, nil
 }
 
-func (m ScheduledInstanceState) IsZero() bool {
-	return m.Instance.IsZero() &&
-		m.Config.IsZero() &&
-		m.Status.IsZero() &&
-		len(m.unknownFields) == 0
-}
-
 // Encode panics if validation fails. Use EncodeChecked for untrusted values.
 func (m *ScheduledInstanceState) Encode() []byte {
 	b, err := m.EncodeChecked()
@@ -24045,7 +23887,7 @@ func mergeScheduledInstanceState(b []byte, m *ScheduledInstanceState) (*Schedule
 }
 
 // Encode panics if validation fails. Use EncodeChecked for untrusted values.
-func (m *ScheduledInstanceSnapshot) Encode() []byte {
+func (m *NodeInstance) Encode() []byte {
 	b, err := m.EncodeChecked()
 	if err != nil {
 		panic(err)
@@ -24053,33 +23895,50 @@ func (m *ScheduledInstanceSnapshot) Encode() []byte {
 	return b
 }
 
-func (m *ScheduledInstanceSnapshot) EncodeChecked() ([]byte, error) {
+func (m *NodeInstance) EncodeChecked() ([]byte, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
 	return m.encodeUnchecked(), nil
 }
 
-func (m *ScheduledInstanceSnapshot) encodeUnchecked() []byte {
+func (m *NodeInstance) encodeUnchecked() []byte {
 	var b []byte
-	for _, item := range m.Items {
-		b = AppendTag(b, 1, BytesType)
-		b = AppendBytes(b, item.encodeUnchecked())
+	{
+		value := &m.Instance
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Config
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		if m.StatusWatermark.Present {
+			v := m.StatusWatermark.Value
+			value := &v
+			if value != nil {
+				b = AppendBytesElem(b, EncodeTimestamp(*value), 3)
+			}
+		}
 	}
 	return append(b, m.unknownFields...)
 }
 
-func (m *ScheduledInstanceSnapshot) UnknownFields() []byte {
-	return append([]byte(nil), m.unknownFields...)
+func (m *NodeInstance) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeInstance(b []byte) (*NodeInstance, error) {
+	return mergeNodeInstance(b, nil)
 }
 
-func DecodeScheduledInstanceSnapshot(b []byte) (*ScheduledInstanceSnapshot, error) {
-	return mergeScheduledInstanceSnapshot(b, nil)
-}
-
-func mergeScheduledInstanceSnapshot(b []byte, m *ScheduledInstanceSnapshot) (*ScheduledInstanceSnapshot, error) {
+func mergeNodeInstance(b []byte, m *NodeInstance) (*NodeInstance, error) {
 	if m == nil {
-		m = new(ScheduledInstanceSnapshot)
+		m = new(NodeInstance)
 	}
 	var num Number
 	var typ Type
@@ -24093,13 +23952,185 @@ func mergeScheduledInstanceSnapshot(b []byte, m *ScheduledInstanceSnapshot) (*Sc
 		}
 		switch num {
 		case 1:
+			var value *ScheduledInstance
+			value = &m.Instance
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ScheduledInstanceState
-				item, err = DecodeScheduledInstanceState(msgBytes)
+				var item *ScheduledInstance
+				item, err = mergeScheduledInstance(msgBytes, value)
 				if err == nil {
-					m.Items = append(m.Items, *item)
+					value = item
 				}
+			}
+			if err == nil {
+				m.Instance = *value
+			}
+		case 2:
+			var value *DeploymentRecord
+			value = &m.Config
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentRecord
+				item, err = mergeDeploymentRecord(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Config = *value
+			}
+		case 3:
+			var value *time.Time
+			if m.StatusWatermark.Present {
+				v := m.StatusWatermark.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				if value != nil {
+					msgBytes = append(EncodeTimestamp(*value), msgBytes...)
+				}
+				decoded, decodeErr := DecodeTimestamp(msgBytes)
+				err = decodeErr
+				if err == nil {
+					value = &decoded
+				}
+			}
+			if err == nil {
+				m.StatusWatermark = Maybe[time.Time]{Value: *value, Present: true}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m NodeProjection) IsZero() bool {
+	return m.Seq == 0 &&
+		len(m.Instances) == 0 &&
+		m.NetMap.IsZero() &&
+		m.Acme.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeProjection) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeProjection) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeProjection) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Seq, 1)
+	for _, item := range m.Instances {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	{
+		if m.NetMap.Present {
+			v := m.NetMap.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 3, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.Acme.Present {
+			v := m.Acme.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 4, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeProjection) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeProjection(b []byte) (*NodeProjection, error) {
+	return mergeNodeProjection(b, nil)
+}
+
+func mergeNodeProjection(b []byte, m *NodeProjection) (*NodeProjection, error) {
+	if m == nil {
+		m = new(NodeProjection)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Seq, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeInstance
+				item, err = DecodeNodeInstance(msgBytes)
+				if err == nil {
+					m.Instances = append(m.Instances, *item)
+				}
+			}
+		case 3:
+			var value *ClusterNetMap
+			if m.NetMap.Present {
+				v := m.NetMap.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ClusterNetMap
+				item, err = mergeClusterNetMap(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NetMap = Maybe[ClusterNetMap]{Value: *value, Present: true}
+			}
+		case 4:
+			var value *AcmeState
+			if m.Acme.Present {
+				v := m.Acme.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AcmeState
+				item, err = mergeAcmeState(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Acme = Maybe[AcmeState]{Value: *value, Present: true}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -25186,30 +25217,9 @@ func (m *EnrollmentAccepted) encodeUnchecked() []byte {
 	b = AppendBytesField(b, m.CaCertificate, 3)
 	b = AppendBytesField(b, m.SecondaryCertificate, 4)
 	{
-		value := &m.ClusterNetwork
+		value := &m.NodeSnapshot
 		if value != nil {
-			b = AppendTag(b, 5, BytesType)
-			b = AppendBytes(b, value.encodeUnchecked())
-		}
-	}
-	{
-		value := &m.NodeDeployment
-		if value != nil {
-			b = AppendTag(b, 6, BytesType)
-			b = AppendBytes(b, value.encodeUnchecked())
-		}
-	}
-	{
-		value := &m.NodeNetDeployment
-		if value != nil {
-			b = AppendTag(b, 7, BytesType)
-			b = AppendBytes(b, value.encodeUnchecked())
-		}
-	}
-	{
-		value := &m.ClusterNetMap
-		if value != nil {
-			b = AppendTag(b, 8, BytesType)
+			b = AppendTag(b, 9, BytesType)
 			b = AppendBytes(b, value.encodeUnchecked())
 		}
 	}
@@ -25245,61 +25255,19 @@ func mergeEnrollmentAccepted(b []byte, m *EnrollmentAccepted) (*EnrollmentAccept
 			b, m.CaCertificate, err = ConsumeBytesCopy(b, typ)
 		case 4:
 			b, m.SecondaryCertificate, err = ConsumeBytesCopy(b, typ)
-		case 5:
-			var value *ClusterNetworkInfo
-			value = &m.ClusterNetwork
+		case 9:
+			var value *NodeProjection
+			value = &m.NodeSnapshot
 			b, msgBytes, err = ConsumeMessage(b, typ)
 			if err == nil {
-				var item *ClusterNetworkInfo
-				item, err = mergeClusterNetworkInfo(msgBytes, value)
+				var item *NodeProjection
+				item, err = mergeNodeProjection(msgBytes, value)
 				if err == nil {
 					value = item
 				}
 			}
 			if err == nil {
-				m.ClusterNetwork = *value
-			}
-		case 6:
-			var value *ScheduledInstanceState
-			value = &m.NodeDeployment
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstanceState
-				item, err = mergeScheduledInstanceState(msgBytes, value)
-				if err == nil {
-					value = item
-				}
-			}
-			if err == nil {
-				m.NodeDeployment = *value
-			}
-		case 7:
-			var value *ScheduledInstanceState
-			value = &m.NodeNetDeployment
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ScheduledInstanceState
-				item, err = mergeScheduledInstanceState(msgBytes, value)
-				if err == nil {
-					value = item
-				}
-			}
-			if err == nil {
-				m.NodeNetDeployment = *value
-			}
-		case 8:
-			var value *ClusterNetMap
-			value = &m.ClusterNetMap
-			b, msgBytes, err = ConsumeMessage(b, typ)
-			if err == nil {
-				var item *ClusterNetMap
-				item, err = mergeClusterNetMap(msgBytes, value)
-				if err == nil {
-					value = item
-				}
-			}
-			if err == nil {
-				m.ClusterNetMap = *value
+				m.NodeSnapshot = *value
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

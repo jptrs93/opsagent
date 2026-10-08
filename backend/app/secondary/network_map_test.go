@@ -13,6 +13,11 @@ import (
 	"github.com/jptrs93/opsagent/backend/storage/secondarydb/state"
 )
 
+func acceptClusterNetMap(ctx context.Context, store *state.Service, candidate *apigen.ClusterNetMap, nodeID uint64, expectedPrefix network.Prefix, sessionSnapshot bool) (*apigen.NetMapStatus, error) {
+	status, _, err := applyProjection(ctx, store, nodeID, projectionFrame{netMap: candidate}, expectedPrefix, sessionSnapshot, nil, nil)
+	return status, err
+}
+
 func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "secondary.db")
 	store := state.Open(dbPath)
@@ -20,7 +25,7 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 	prefix := network.GeneratePrefix()
 
 	first := testClusterNetMap(t, prefix, 5)
-	status, err := acceptClusterNetMap(context.Background(), store, first, 1, prefix, true, nil)
+	status, err := acceptClusterNetMap(context.Background(), store, first, 1, prefix, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,15 +35,15 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 
 	duplicate := testClusterNetMap(t, prefix, 5)
 	duplicate.Nodes[0], duplicate.Nodes[1] = duplicate.Nodes[1], duplicate.Nodes[0]
-	if _, err := acceptClusterNetMap(context.Background(), store, duplicate, 1, prefix, false, nil); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, duplicate, 1, prefix, false); err != nil {
 		t.Fatalf("idempotent map rejected: %v", err)
 	}
 	stale := testClusterNetMap(t, prefix, 4)
-	if _, err := acceptClusterNetMap(context.Background(), store, stale, 1, prefix, false, nil); !errors.Is(err, ErrStaleClusterNetMap) {
+	if _, err := acceptClusterNetMap(context.Background(), store, stale, 1, prefix, false); !errors.Is(err, ErrStaleClusterNetMap) {
 		t.Fatalf("stale error = %v", err)
 	}
 	higher := testClusterNetMap(t, prefix, 8)
-	if _, err := acceptClusterNetMap(context.Background(), store, higher, 1, prefix, false, nil); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, higher, 1, prefix, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -47,7 +52,7 @@ func TestAcceptClusterNetMapSessionSemantics(t *testing.T) {
 	// is authoritative even so.
 	rolledBack := testClusterNetMap(t, prefix, 2)
 	rolledBack.Nodes[1].UnderlayAddress = "192.0.2.9"
-	if _, err := acceptClusterNetMap(context.Background(), store, rolledBack, 1, prefix, true, nil); err != nil {
+	if _, err := acceptClusterNetMap(context.Background(), store, rolledBack, 1, prefix, true); err != nil {
 		t.Fatalf("session snapshot with a lower stamp rejected: %v", err)
 	}
 	cached, _, ok, err := cachedClusterNetMap(context.Background(), store, 1, prefix)
@@ -70,7 +75,7 @@ func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
 	invalid := testClusterNetMap(t, prefix, 1)
 	invalid.TargetNodeID = 2
 	sess := &primarySessionState{netMapSnapshotPending: true}
-	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToSecondary{ClusterNetMap: apigen.Some(*invalid)}, 1, nil, nil, nil)
+	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToSecondary{NodeUpdate: apigen.Some(apigen.NodeProjection{Seq: 1, NetMap: apigen.Some(*invalid)})}, 1, nil, nil, nil)
 	status := (<-out.ch).NetMapStatus
 	if !status.Present || status.Value.ReconciliationError == "" || status.Value.PersistedSeq != 0 {
 		t.Fatalf("rejection status = %+v", status)
@@ -151,7 +156,7 @@ func TestValidateClusterNetMapRejectsInvalidTopology(t *testing.T) {
 // what a map may contain inherits whatever the previous release persisted. A
 // cached blob this build cannot validate must be dropped rather than surfaced,
 // because the two callers that see the error cannot survive it: startup
-// panics, and acceptClusterNetMap would refuse the replacement map on the
+// panics, and applyProjection would refuse the replacement map on the
 // strength of the unreadable one it is replacing.
 func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
@@ -179,7 +184,7 @@ func TestUnreadableCachedClusterNetMapIsDiscarded(t *testing.T) {
 	}
 
 	next := testClusterNetMap(t, prefix, 8)
-	status, err := acceptClusterNetMap(context.Background(), store, next, 1, prefix, false, nil)
+	status, err := acceptClusterNetMap(context.Background(), store, next, 1, prefix, false)
 	if err != nil {
 		t.Fatalf("republished map rejected after discarding the unreadable cache: %v", err)
 	}

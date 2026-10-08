@@ -1974,6 +1974,9 @@ type NixStoreResetRequest struct {
 	Repo          string `json:"repo,omitempty"`
 }
 
+// AcmeState is the ACME manager's output on the primary and, scoped to the
+// hostnames a node publishes or hosts, the acme section of that node's
+// NodeSnapshot and NodeUpdate.
 type AcmeState struct {
 	unknownFields []byte
 	Seq           int64               `json:"seq"`
@@ -1987,16 +1990,11 @@ type AcmeCertBinding struct {
 	Secret        SecretRef `json:"secret"`
 }
 
-// ClusterNetworkInfo carries the cluster-wide virtual network parameters.
-// Every address is a pure function of the ULA prefix, space, deployment,
-// ordinal, version, and run, so this is the only distributed IPAM state.
-type ClusterNetworkInfo struct {
-	unknownFields []byte
-	UlaPrefix     []byte `json:"ula_prefix"`
-}
-
-// ClusterNetMap is a complete placement and underlay snapshot targeted to one
-// node. derived_from_seq is the primary's write seq at render time; the first
+// ClusterNetMap is the placement and underlay snapshot one node needs: the
+// routes, peers, DNS catalog and policy rules within the node's reachability
+// scope. ula_prefix is the cluster-wide /48 every address is a pure function
+// of, so the map is the only distributed IPAM state. derived_from_seq is the
+// primary's write seq of the last change to this node's content; the first
 // map accepted in a session replaces the node's cache, later ones must carry
 // a higher stamp.
 type ClusterNetMap struct {
@@ -2104,6 +2102,7 @@ type AcmeHttpChallenge struct {
 	unknownFields    []byte
 	Token            string `json:"token,omitempty"`
 	KeyAuthorization string `json:"key_authorization,omitempty"`
+	Hostname         string `json:"hostname,omitempty"`
 }
 
 // DnsService is one deployment's discovery record set:
@@ -2241,22 +2240,22 @@ type GithubCredentials struct {
 
 // Primary and secondary communicate over an HTTP/2 mTLS protobuf stream.
 // Each frame carries one field. cluster_protocol_version keeps tag 9 so a
-// node on the previous contract still reads the refusal.
+// node on the previous contract still reads the refusal. The session head is
+// the protocol version, then the node's complete NodeProjection as
+// node_snapshot, then the outstanding Nix store resets; afterwards one
+// NodeProjection as node_update per write event that touched the node.
 type MsgToSecondary struct {
-	unknownFields              []byte
-	ScheduledInstancesSnapshot Maybe[ScheduledInstanceSnapshot] `json:"scheduled_instances_snapshot,omitzero"`
-	ScheduledInstanceUpdate    Maybe[ScheduledInstanceState]    `json:"scheduled_instance_update,omitzero"`
-	DeploymentLogRequest       Maybe[DeploymentLogRequest]      `json:"deployment_log_request,omitzero"`
-	StopLogRequestID           Maybe[string]                    `json:"stop_log_request_id,omitzero"`
-	ClusterNetwork             Maybe[ClusterNetworkInfo]        `json:"cluster_network,omitzero"`
-	ClusterNetMap              Maybe[ClusterNetMap]             `json:"cluster_net_map,omitzero"`
-	AcmeState                  Maybe[AcmeState]                 `json:"acme_state,omitzero"`
-	LogQueryRequest            Maybe[LogQueryRequest]           `json:"log_query_request,omitzero"`
-	ClusterProtocolVersion     uint32                           `json:"cluster_protocol_version"`
-	MetricsQueryRequest        Maybe[MetricsQueryRequest]       `json:"metrics_query_request,omitzero"`
-	MetricsLatestRequest       Maybe[MetricsLatestRequest]      `json:"metrics_latest_request,omitzero"`
-	NixStoreResets             Maybe[NixStoreResets]            `json:"nix_store_resets,omitzero"`
-	Evicted                    Maybe[bool]                      `json:"evicted,omitzero"`
+	unknownFields          []byte
+	DeploymentLogRequest   Maybe[DeploymentLogRequest] `json:"deployment_log_request,omitzero"`
+	StopLogRequestID       Maybe[string]               `json:"stop_log_request_id,omitzero"`
+	LogQueryRequest        Maybe[LogQueryRequest]      `json:"log_query_request,omitzero"`
+	ClusterProtocolVersion uint32                      `json:"cluster_protocol_version"`
+	MetricsQueryRequest    Maybe[MetricsQueryRequest]  `json:"metrics_query_request,omitzero"`
+	MetricsLatestRequest   Maybe[MetricsLatestRequest] `json:"metrics_latest_request,omitzero"`
+	NixStoreResets         Maybe[NixStoreResets]       `json:"nix_store_resets,omitzero"`
+	Evicted                Maybe[bool]                 `json:"evicted,omitzero"`
+	NodeSnapshot           Maybe[NodeProjection]       `json:"node_snapshot,omitzero"`
+	NodeUpdate             Maybe[NodeProjection]       `json:"node_update,omitzero"`
 }
 
 type NixStoreResetItem struct {
@@ -2304,9 +2303,22 @@ type ScheduledInstanceState struct {
 	Status        Maybe[ScheduledInstanceStatus] `json:"status,omitzero"`
 }
 
-type ScheduledInstanceSnapshot struct {
+type NodeInstance struct {
+	unknownFields   []byte
+	Instance        ScheduledInstance `json:"instance"`
+	Config          DeploymentRecord  `json:"config"`
+	StatusWatermark Maybe[time.Time]  `json:"status_watermark,omitzero"`
+}
+
+// NodeProjection is one node's view of the cluster. As node_snapshot it is
+// complete (every live instance, the map, the ACME subset); as node_update it
+// carries only what one write event changed, with unchanged sections absent.
+type NodeProjection struct {
 	unknownFields []byte
-	Items         []ScheduledInstanceState `json:"items,omitempty"`
+	Seq           int64                `json:"seq"`
+	Instances     []NodeInstance       `json:"instances,omitempty"`
+	NetMap        Maybe[ClusterNetMap] `json:"net_map,omitzero"`
+	Acme          Maybe[AcmeState]     `json:"acme,omitzero"`
 }
 
 type ClusterSecretsRequest struct {
@@ -2396,14 +2408,11 @@ type EnrollmentAcceptRequest struct {
 
 type EnrollmentAccepted struct {
 	unknownFields        []byte
-	ID                   uint64                 `json:"id"`
-	NodeName             string                 `json:"node_name,omitempty"`
-	CaCertificate        []byte                 `json:"ca_certificate"`
-	SecondaryCertificate []byte                 `json:"secondary_certificate"`
-	ClusterNetwork       ClusterNetworkInfo     `json:"cluster_network"`
-	NodeDeployment       ScheduledInstanceState `json:"node_deployment"`
-	NodeNetDeployment    ScheduledInstanceState `json:"node_net_deployment"`
-	ClusterNetMap        ClusterNetMap          `json:"cluster_net_map"`
+	ID                   uint64         `json:"id"`
+	NodeName             string         `json:"node_name,omitempty"`
+	CaCertificate        []byte         `json:"ca_certificate"`
+	SecondaryCertificate []byte         `json:"secondary_certificate"`
+	NodeSnapshot         NodeProjection `json:"node_snapshot"`
 }
 
 type StringSetting struct {
