@@ -2,31 +2,33 @@ package webuihandler
 
 import (
 	"errors"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/jptrs93/goutil/authu"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/pki"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 )
 
-// Password login lets the cluster master password open a full session
-// directly, instead of only minting a bootstrap token for passkey enrolment.
-// It exists for installs where a browser will not run WebAuthn at all: plain
-// HTTP on anything other than localhost, or HTTPS behind a certificate the
-// browser does not trust. It is gated by
-// ClusterSettings.Auth.PasswordLoginEnabled so a production install that never
-// turns it on exposes no password login surface.
+// Password login checks the user's own Argon2id hash. It is the default way
+// in; ClusterSettings.Auth.RequirePasskey turns it off so only passkeys open
+// a session. A wrong name and a wrong password fail the same way, and the
+// hash is still verified against a decoy when the name is unknown so the
+// response time does not reveal which.
 
 var (
-	PasswordLoginDisabledErr = apigen.NewApiErr("Password login is not enabled", "password_login_disabled", http.StatusForbidden)
-	InvalidPasswordLoginErr  = apigen.NewApiErr("Invalid master password", "invalid_master_password", http.StatusUnauthorized)
-	PasskeysUnavailableErr   = apigen.NewApiErr("Passkeys are unavailable on this server", "passkeys_unavailable", http.StatusServiceUnavailable)
+	PasskeyRequiredErr      = apigen.NewApiErr("Password sign-in is turned off; sign in with a passkey", "passkey_required", http.StatusForbidden)
+	InvalidPasswordLoginErr = apigen.NewApiErr("Invalid username or password", "invalid_password_login", http.StatusUnauthorized)
+	PasskeysUnavailableErr  = apigen.NewApiErr("Passkeys are unavailable on this server", "passkeys_unavailable", http.StatusServiceUnavailable)
 )
 
-func (h *Handler) passwordLoginEnabled() bool {
+func (h *Handler) requirePasskey() bool {
 	settings := h.SystemConfig.Snapshot().Settings
-	return h.SystemConfig.MustLoadBoolSetting(settings.Auth.PasswordLoginEnabled)
+	return h.SystemConfig.MustLoadBoolSetting(settings.Auth.RequirePasskey)
 }
 
 // localCAAvailable reports whether the Web UI is served under the locally
@@ -49,32 +51,47 @@ func (h *Handler) localCAAvailable() bool {
 // controls to render before anyone has a token.
 func (h *Handler) GetV1AuthMethods(ctx apigen.Context) (*apigen.AuthMethodsResponse, error) {
 	return &apigen.AuthMethodsResponse{
-		PasskeyLoginEnabled:  h.PasskeyService != nil,
-		PasswordLoginEnabled: h.passwordLoginEnabled(),
-		LocalCaAvailable:     h.localCAAvailable(),
+		PasskeyLoginEnabled: h.PasskeyService != nil,
+		RequirePasskey:      h.requirePasskey(),
+		LocalCaAvailable:    h.localCAAvailable(),
 	}, nil
 }
 
-// PostV1AuthPasswordLogin signs the named user in with the master password.
-// The user is created on first use with the same defaults as first-time
-// setup, and the result is an ordinary personal session.
+// decoyPasswordHash is verified against when the username is unknown, so an
+// unknown name costs the same as a wrong password.
+var decoyPasswordHash = func() string {
+	hash, err := authu.HashPassword("decoy")
+	if err != nil {
+		panic(err)
+	}
+	return hash
+}()
+
+// PostV1AuthPasswordLogin signs the named user in with that user's password
+// and opens an ordinary session; a pending user is activated by it.
 func (h *Handler) PostV1AuthPasswordLogin(ctx apigen.Context, req *apigen.PasswordLoginRequest) (*apigen.LoginResponse, error) {
-	if !h.passwordLoginEnabled() {
-		return nil, PasswordLoginDisabledErr
+	if h.requirePasskey() {
+		return nil, PasskeyRequiredErr
 	}
 	username := strings.TrimSpace(req.Username)
 	if username == "" {
 		return nil, UsernameRequiredErr
 	}
-	if err := h.verifyMasterPassword(req.Password); err != nil {
-		if errors.Is(err, InvalidMasterPasswordErr) {
-			return nil, InvalidPasswordLoginErr
-		}
-		return nil, err
+	user, err := users.ByName(h.Store.Queries(), username)
+	if err != nil && !errors.Is(err, users.ErrNotFound) {
+		return nil, fmt.Errorf("looking up user: %w", err)
 	}
-	user, err := h.resolveOrCreateUser(username)
+	hash := decoyPasswordHash
+	if user != nil && user.PasswordHash.Present {
+		hash = user.PasswordHash.Value
+	}
+	ok, err := authu.VerifyPassword(req.Password, hash)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("verifying password: %w", err)
+	}
+	if !ok || user == nil || !user.PasswordHash.Present {
+		slog.InfoContext(ctx, "password login refused", "user", username)
+		return nil, InvalidPasswordLoginErr
 	}
 	return h.startDefaultUserSession(ctx, user)
 }

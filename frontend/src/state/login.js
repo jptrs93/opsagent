@@ -7,7 +7,7 @@ import {navigate} from "../lib/router.js";
  * @property {number} userId - The authenticated user ID
  * @property {string} name - The authenticated user name
  * @property {Date} expiry - The expiration date of the token
- * @property {number} kind - UserSessionKind: 0 full, 1 bootstrap (passkey registration only)
+ * @property {number} kind - UserSessionKind: 0 full, 1 root (master password; enrol and recover only, userId 0)
  * @property {string} sessionId - The user session this token belongs to
  */
 

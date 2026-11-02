@@ -17,8 +17,9 @@ enum AgentSessionStatus {
 }
 
 enum UserSessionKind {
-  USER_SESSION_KIND_FULL = 0;       // opened by a passkey or password login
-  USER_SESSION_KIND_BOOTSTRAP = 1;  // opened by master-password exchange; may only register a passkey
+  USER_SESSION_KIND_FULL = 0;  // opened by a password or passkey login, a redeemed link, or a root open-session
+  USER_SESSION_KIND_ROOT = 1;  // opened by the master password; no user, may only enrol and recover users
+  USER_SESSION_KIND_LINK = 2;  // an enrolment or recovery link; never a bearer, redeemed once into a FULL session
 }
 
 message AgentSession {
@@ -43,11 +44,14 @@ message AgentToken {
 message UserSession {
   uint64 id = 1 [(cp.js_type) = "number"];
   string session_id = 2 [(buf.validate.field).string.min_len = 1];
-  uint64 user_id = 3 [(cp.js_type) = "number"];
+  optional uint64 user_id = 3 [(cp.js_type) = "number"]; // absent on a ROOT session
   UserSessionKind kind = 4 [(buf.validate.field).enum.defined_only = true];
   int64 expires_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   optional int64 revoked_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
-  string requesting_address = 7;
+  string requesting_address = 7; // the issuer's on a LINK session
   string user_agent = 8;
   optional bytes token_hash = 9 [(buf.validate.field).bytes.min_len = 1]; // absent on the browser stream
+  optional int64 redeemed_at = 10 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // LINK only
+  optional uint64 opened_by = 11 [(cp.js_type) = "number"]; // the LINK session a FULL session was redeemed from
+  optional uint64 issued_by = 12 [(cp.js_type) = "number"]; // LINK only: the user who issued it, absent when root did
 }

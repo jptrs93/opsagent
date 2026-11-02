@@ -66,11 +66,11 @@ func TestRenderEnvTemplateDoesNotWriteInitialWebTLS(t *testing.T) {
 }
 
 func TestStripInitialEnvValuesPreservesRuntimeSettings(t *testing.T) {
-	env := stripInitialEnvValues([]byte("OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH=hash\nOPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED=true\nOPENDEPLOY_PRIMARY_NAME=primary\n"))
+	env := stripInitialEnvValues([]byte("OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH=hash\nOPENDEPLOY_INITIAL_WEB_HTTPS_ENABLED=true\nOPENDEPLOY_UNDERLAY_ADDRESS=10.0.0.1\n"))
 	if strings.Contains(string(env), "OPENDEPLOY_INITIAL_") {
 		t.Fatalf("initial values remain:\n%s", env)
 	}
-	if !strings.Contains(string(env), "OPENDEPLOY_PRIMARY_NAME=primary") {
+	if !strings.Contains(string(env), "OPENDEPLOY_UNDERLAY_ADDRESS=10.0.0.1") {
 		t.Fatalf("runtime setting was removed:\n%s", env)
 	}
 }
@@ -195,7 +195,7 @@ func TestParseUpgradeVersion(t *testing.T) {
 
 func TestUpgradedEnvIsStableAcrossUpgrades(t *testing.T) {
 	opts := installOptions{role: "primary"}
-	first := upgradedEnv([]byte("OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH=hash\nOPENDEPLOY_PRIMARY_NAME=primary\nOPENDEPLOY_GITHUB_TOKEN='a b'\n\n"), opts)
+	first := upgradedEnv([]byte("OPENDEPLOY_INITIAL_MASTER_PASSWORD_HASH=hash\nOPENDEPLOY_UNDERLAY_ADDRESS=10.0.0.1\nOPENDEPLOY_GITHUB_TOKEN='a b'\n\n"), opts)
 	if strings.Contains(string(first), "OPENDEPLOY_INITIAL_") {
 		t.Fatalf("initial values remain:\n%s", first)
 	}

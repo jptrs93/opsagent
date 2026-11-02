@@ -10,7 +10,6 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message MasterPasswordRequest {
   string password = 1;
-  string username = 2;
 }
 
 message MasterPasswordVerifyRequest {
@@ -21,8 +20,7 @@ message MasterPasswordSaveRequest {
   string password = 1;
 }
 
-// PasswordLoginRequest signs in with the cluster master password. The named
-// user is created on first use.
+// PasswordLoginRequest signs in with the user's own password.
 message PasswordLoginRequest {
   string username = 1;
   string password = 2;
@@ -32,17 +30,69 @@ message PasswordLoginRequest {
 // and whether a locally generated Web UI CA is served at /v1/tls/ca.crt.
 message AuthMethodsResponse {
   bool passkey_login_enabled = 1;
-  bool password_login_enabled = 2;
+  bool require_passkey = 2;
   bool local_ca_available = 3;
+}
+
+// LinkRedeemRequest carries an enrolment or recovery link token exactly once.
+message LinkRedeemRequest {
+  string token = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+// LinkRedeemResponse is the FULL session the link opened, with what the
+// landing page still has to ask the user for.
+message LinkRedeemResponse {
+  LoginResponse session = 1 [(cp.go_value) = true];
+  bool name_set = 2;
+  bool password_set = 3;
+}
+
+// OpenSessionRequest is a root session opening a FULL session for a user
+// without that user's credential.
+message OpenSessionRequest {
+  uint64 user_id = 1 [(cp.js_type) = "number"];
 }
 
 message LoginResponse {
   string token = 1;
-  uint64 user_id = 2 [(cp.js_type) = "number"];
+  uint64 user_id = 2 [(cp.js_type) = "number"]; // 0 for a ROOT session
   string name = 3;
   int64 expiry = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   string session_id = 5;
   UserSessionKind kind = 6; // FULL for agent tokens too
+}
+
+// AccountView is the caller's own account, the only place credential
+// details and the password's presence leave the server.
+message AccountView {
+  uint64 user_id = 1 [(cp.js_type) = "number"];
+  optional string name = 2;
+  optional string email = 3;
+  bool has_password = 4;
+  optional int64 activated_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  repeated AccountPasskey passkeys = 6;
+}
+
+message AccountPasskey {
+  bytes id = 1;
+  string label = 2;
+  int64 created_at = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  optional int64 last_used_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+}
+
+message AccountRenameRequest {
+  string name = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+// AccountPasswordRequest sets, changes, or clears (empty next) the caller's
+// password. current is required while a password exists.
+message AccountPasswordRequest {
+  optional string current = 1;
+  string next = 2;
+}
+
+message AccountPasskeyDeleteRequest {
+  bytes id = 1 [(buf.validate.field).bytes.min_len = 1];
 }
 
 message WebAuthNOptionsResponse {

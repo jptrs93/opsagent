@@ -292,6 +292,7 @@ func (q *Queries) snapshotOf(ctx context.Context, t apigen.CoreEntityType) ([]*a
 			return nil, err
 		}
 		cfg.ID = uint32(SystemConfigEntityID)
+		apigen.FillClusterSettingDefaults(&cfg.Settings)
 		out = append(out, entry(t, SystemConfigEntityID, entityOf(apigen.CoreEntityValueOneof{SystemConfig: cfg}), rowMeta(r.CreatedTime, r.Seq, r.UpdatedAt, r.Author)))
 	}
 	return out, nil

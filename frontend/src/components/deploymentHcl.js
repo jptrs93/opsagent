@@ -514,15 +514,13 @@ export function deploymentDocumentToHcl(document, catalogs = {}, options = {}) {
     }
     add(2, "}");
 
-    const hasProcess = Boolean(runtime.user || runtime.overrideWorkingDir || (runtime.overrideCommand || []).length
-        || (defaultVolume.disabled && defaultVolume.containerPath));
+    const hasProcess = Boolean(runtime.user || runtime.overrideWorkingDir || (runtime.overrideCommand || []).length);
     if (hasProcess) {
         add(0);
         add(2, "process {");
         if (runtime.user) add(3, `user = ${quote(runtime.user)}`);
         if ((runtime.overrideCommand || []).length) add(3, `command = [${runtime.overrideCommand.map(quote).join(", ")}]`);
         if (runtime.overrideWorkingDir) add(3, `working_dir = ${quote(runtime.overrideWorkingDir)}`);
-        if (defaultVolume.disabled && defaultVolume.containerPath) add(3, `data_mount_path = ${quote(defaultVolume.containerPath)}`);
         add(2, "}");
     }
 
@@ -1355,7 +1353,7 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
 
         const process = firstBlock(containerBlock, "process");
         if (process) {
-            validateMembers(text, diagnostics, process, new Set(["user", "command", "working_dir", "data_mount_path"]), new Set());
+            validateMembers(text, diagnostics, process, new Set(["user", "command", "working_dir"]), new Set());
             const userAttr = firstAttribute(process, "user");
             const user = stringValue(text, diagnostics, userAttr, "Process user");
             if (userAttr && user !== null) runtime.user = user;
@@ -1370,9 +1368,6 @@ function parseValidatedDocument(text, ast, catalogs, constraints, diagnostics) {
             const workingDirAttr = firstAttribute(process, "working_dir");
             const workingDir = stringValue(text, diagnostics, workingDirAttr, "Process working_dir");
             if (workingDirAttr && workingDir !== null) runtime.overrideWorkingDir = workingDir;
-            const dataMountPathAttr = firstAttribute(process, "data_mount_path");
-            const dataMountPath = stringValue(text, diagnostics, dataMountPathAttr, "Process data_mount_path");
-            if (dataMountPathAttr && dataMountPath !== null) runtime.defaultVolume.containerPath = dataMountPath;
         }
 
         parseEnvVars(text, diagnostics, firstBlock(containerBlock, "env_vars"), firstAttribute(containerBlock, "env_vars"), catalogs, spaceId, nodeId, runtime);

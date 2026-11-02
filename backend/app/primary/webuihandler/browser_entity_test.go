@@ -69,6 +69,7 @@ func expectedBrowserEntity(e *apigen.CoreEntity) *apigen.CoreEntity {
 	}
 	if e.Value.User != nil {
 		e.Value.User.Authentication = apigen.UserAuthentication{}
+		e.Value.User.PasswordHash = apigen.Maybe[string]{}
 	}
 	if e.Value.AgentSession != nil && e.Value.AgentSession.Token.Present {
 		e.Value.AgentSession.Token.Value.Hash = apigen.Maybe[[]byte]{}

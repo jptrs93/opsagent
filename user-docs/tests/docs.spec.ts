@@ -1,14 +1,15 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import { logEventVariants } from '../src/lib/log-event';
+import { groups } from '../src/lib/nav';
 
 const articles = [
   {
-    slug: 'networking', title: 'Networking', editors: 5, figures: 2,
+    slug: 'design/networking', title: 'Networking', editors: 5, figures: 1,
     anchors: ['goals', 'addressing', 'dns', 'balancing', 'routing', 'rollover', 'policy', 'egress', 'ingress'],
-    section: 'DNS', hash: 'dns', content: 'private cluster network',
+    section: 'DNS', hash: 'dns', content: 'virtual private network',
   },
   {
-    slug: 'logging', title: 'Logging', editors: 6, figures: 0,
+    slug: 'design/logging', title: 'Logging', editors: 6, figures: 0,
     anchors: ['goals', 'structure', 'storage', 'collector', 'search', 'system', 'capture'],
     section: 'Log collector', hash: 'collector', content: 'built-in logging system',
   },
@@ -25,6 +26,15 @@ const test = base.extend<{ browserErrors: void }>({
     expect(errors, 'Browser JavaScript and console errors').toEqual([]);
   }, { auto: true }],
 });
+
+// A click before hydration is lost, so retry until the button reports the sidebar open.
+async function openMenu(page: Page) {
+  const menu = page.getByRole('button', { name: 'Menu', exact: true });
+  await expect(async () => {
+    await menu.click();
+    await expect(menu).toHaveAttribute('aria-expanded', 'true', { timeout: 500 });
+  }).toPass();
+}
 
 async function assertDocument(page: Page) {
   const problems = await page.evaluate(() => {
@@ -108,7 +118,7 @@ test('schema tabs change highlighted, read-only source and copy the active schem
       }).copyForTest(text) },
     });
   });
-  await page.goto('/logging/');
+  await page.goto('/design/logging/');
   await assertEditors(page, 6);
   const tabs = page.getByRole('tablist', { name: 'LogEvent representation' });
   const panel = page.getByRole('tabpanel');
@@ -163,7 +173,7 @@ test('schema tabs change highlighted, read-only source and copy the active schem
 });
 
 test('client navigation replaces sidebar anchors and remounts editors without duplicates', async ({ page }) => {
-  await page.goto('/logging/');
+  await page.goto('/design/logging/');
   await assertEditors(page, 6);
   await page.getByRole('tab', { name: 'Smithy', exact: true }).click();
   await page.evaluate(() => { document.documentElement.dataset.navigationTest = 'same-document'; });
@@ -171,7 +181,7 @@ test('client navigation replaces sidebar anchors and remounts editors without du
   for (const article of articles) {
     const previousEditors = await page.locator('.cm-editor').elementHandles();
     const previousSidebar = await page.locator('#page-nav').elementHandle();
-    if (page.viewportSize()!.width < 900) await page.getByRole('button', { name: 'Menu', exact: true }).click();
+    if (page.viewportSize()!.width < 900) await openMenu(page);
     await page.getByRole('navigation', { name: 'Documentation', exact: true })
       .getByRole('link', { name: article.title, exact: true }).click();
     await expect(page).toHaveURL(`/${article.slug}/`);
@@ -187,23 +197,42 @@ test('client navigation replaces sidebar anchors and remounts editors without du
   await expect(page.getByRole('tab', { name: 'Protobuf', exact: true })).toHaveAttribute('aria-selected', 'true');
 });
 
-test('legacy static URLs preserve query/hash and the data-model reference loads', async ({ page }) => {
+test('legacy static URLs preserve query/hash', async ({ page }) => {
   for (const [legacy, destination, heading, target] of [
-    ['/logging.html?test=1#capture', '/logging/?test=1#capture', 'Logging', 'capture'],
-    ['/networking.html#dns', '/networking/#dns', 'Networking', 'dns'],
+    ['/logging.html?test=1#capture', '/design/logging/?test=1#capture', 'Logging', 'capture'],
+    ['/networking.html#dns', '/design/networking/#dns', 'Networking', 'dns'],
   ]) {
     await page.goto(legacy);
     await expect(page).toHaveURL(destination);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(heading);
     await expect(page.locator(`#${target}`)).toBeInViewport();
   }
-  const response = await page.goto('/data-model/index.html');
-  expect(response?.status()).toBe(200);
-  await expect(page).toHaveTitle(/OpenDeploy.*Data model/);
-  await expect(page.locator('.topbar')).toContainText('Data model');
-  await expect(page.locator('#canvas')).toBeVisible();
-  await expect(page.locator('#canvas .gv-schema').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeVisible();
+});
+
+test('home page and every sidebar page load with the expected title, heading, and section anchors', async ({ page }) => {
+  const home = await page.goto('/');
+  expect(home?.status()).toBe(200);
+  const navigation = page.getByRole('navigation', { name: 'Documentation', exact: true });
+  for (const group of groups) {
+    await expect(page.getByRole('heading', { level: 2, name: group.title, exact: true })).toBeVisible();
+    for (const document of group.documents) {
+      await expect(page.getByRole('main').getByRole('link', { name: document.title, exact: true })).toHaveAttribute('href', `/${document.slug}/`);
+    }
+  }
+  await assertDocument(page);
+  for (const group of groups) {
+    for (const document of group.documents) {
+      const response = await page.goto(`/${document.slug}/`);
+      expect(response?.status()).toBe(200);
+      await expect(page).toHaveTitle(new RegExp(`${document.title}.*OpenDeploy Docs`));
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(document.title);
+      if (page.viewportSize()!.width < 900) await openMenu(page);
+      await expect(navigation.getByRole('link', { name: document.title, exact: true })).toHaveAttribute('aria-current', 'page');
+      await expect(page.locator('#page-nav a')).toHaveCount(document.sections.length);
+      for (const [id] of document.sections) await expect(page.locator(`#${id}`)).toBeAttached();
+      await assertDocument(page);
+    }
+  }
 });
 
 test.describe('without JavaScript', () => {
@@ -225,7 +254,7 @@ test.describe('without JavaScript', () => {
       }
       await expect(page.locator('.cm-editor')).toHaveCount(0);
       await expect(page.locator('figure')).toHaveCount(article.figures);
-      if (article.slug === 'logging') {
+      if (article.slug === 'design/logging') {
         const event = JSON.parse((await page.locator('pre code.language-json').textContent())!);
         expect(typeof event.source.deployment_id).toBe('number');
         expect(JSON.parse(event.payload)).toEqual({
@@ -239,4 +268,50 @@ test.describe('without JavaScript', () => {
       await assertDocument(page);
     });
   }
+});
+
+test('getting started defaults to the managed certificate and remembers a switch', async ({ page }) => {
+  await page.goto('/guides/getting-started/');
+  const tabs = page.getByRole('tablist', { name: 'Certificate management', exact: true });
+  const panel = page.getByRole('tabpanel');
+  await expect(tabs.getByRole('tab', { name: 'OpenDeploy managed (most common)', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(panel).toContainText('--web-hosts opendeploy.example.com');
+  await expect(panel).not.toContainText('--web-tls-self-signed');
+  await expect(page.locator('#install')).toContainText('--http-only true');
+
+  await tabs.getByRole('tab', { name: 'Self managed', exact: true }).click();
+  await expect(tabs.getByRole('tab', { name: 'Self managed', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(panel).toContainText('--web-tls-cert-pem-file');
+  await expect(page).toHaveURL(/\/guides\/getting-started\/\?cert=self-managed$/);
+
+  await page.reload();
+  await expect(tabs.getByRole('tab', { name: 'Self managed', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await page.goto('/guides/getting-started/');
+  await expect(tabs.getByRole('tab', { name: 'Self managed', exact: true })).toHaveAttribute('aria-selected', 'true');
+
+  await tabs.getByRole('tab', { name: 'Self managed', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(tabs.getByRole('tab', { name: 'OpenDeploy self-signed', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(tabs.getByRole('tab', { name: 'OpenDeploy self-signed', exact: true })).toBeFocused();
+  await expect(panel).toContainText('--web-tls-self-signed true');
+  await expect(panel).not.toContainText('--web-tls-cert-pem-file');
+  await page.keyboard.press('Home');
+  await expect(tabs.getByRole('tab', { name: 'OpenDeploy managed (most common)', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(page).toHaveURL(/\/guides\/getting-started\/$/);
+
+  await page.getByRole('main').getByRole('link', { name: 'What does the installation do?', exact: true }).click();
+  await expect(page.locator('#install-effects')).toBeInViewport();
+  await assertDocument(page);
+});
+
+test.describe('getting started without JavaScript', () => {
+  test.use({ javaScriptEnabled: false });
+
+  test('renders the managed certificate install', async ({ page }) => {
+    await page.goto('/guides/getting-started/?cert=self-managed');
+    await expect(page.getByRole('tab', { name: 'OpenDeploy managed (most common)', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('tabpanel')).toContainText('--web-hosts');
+    await expect(page.locator('#install')).toContainText('--http-only true');
+    await assertDocument(page);
+  });
 });

@@ -4067,8 +4067,18 @@ func (m *User) validate(seen map[any]bool) error {
 	}
 	seen[m] = true
 	defer delete(seen, m)
-	if utf8.RuneCountInString(m.Name) < 1 {
-		return newValidationError([]string{"name"}, "must be at least 1 character")
+	{
+		v, present := m.Name.Value, m.Name.Present
+		var value *string
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if utf8.RuneCountInString((*value)) < 1 {
+				return newValidationError([]string{"name"}, "must be at least 1 character")
+			}
+		}
+		_ = value
 	}
 	{
 		value := &m.Authentication
@@ -4076,6 +4086,40 @@ func (m *User) validate(seen map[any]bool) error {
 			if err := value.validate(seen); err != nil {
 				return wrapValidationError(err, "authentication")
 			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.Email.Value, m.Email.Present
+		var value *string
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if utf8.RuneCountInString((*value)) < 1 {
+				return newValidationError([]string{"email"}, "must be at least 1 character")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.PasswordHash.Value, m.PasswordHash.Present
+		var value *string
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if utf8.RuneCountInString((*value)) < 1 {
+				return newValidationError([]string{"password_hash"}, "must be at least 1 character")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.ActivatedAt.Value, m.ActivatedAt.Present
+		var value *time.Time
+		if present {
+			value = &v
 		}
 		_ = value
 	}
@@ -4116,6 +4160,14 @@ func (m *WebAuthnCredential) validate(seen map[any]bool) error {
 	}
 	if len(m.Data) < 1 {
 		return newValidationError([]string{"data"}, "must be at least 1 byte")
+	}
+	{
+		v, present := m.LastUsedAt.Value, m.LastUsedAt.Present
+		var value *time.Time
+		if present {
+			value = &v
+		}
+		_ = value
 	}
 	return nil
 }
@@ -4185,6 +4237,57 @@ func (m *AuthMethodsResponse) validate(seen map[any]bool) error {
 	return nil
 }
 
+func (m *LinkRedeemRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *LinkRedeemRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if utf8.RuneCountInString(m.Token) < 1 {
+		return newValidationError([]string{"token"}, "must be at least 1 character")
+	}
+	return nil
+}
+
+func (m *LinkRedeemResponse) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *LinkRedeemResponse) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Session
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "session")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *OpenSessionRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *OpenSessionRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
 func (m *LoginResponse) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *LoginResponse) validate(seen map[any]bool) error {
 	if m == nil {
@@ -4195,6 +4298,123 @@ func (m *LoginResponse) validate(seen map[any]bool) error {
 	}
 	seen[m] = true
 	defer delete(seen, m)
+	return nil
+}
+
+func (m *AccountView) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *AccountView) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.Name.Value, m.Name.Present
+		var value *string
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.Email.Value, m.Email.Present
+		var value *string
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.ActivatedAt.Value, m.ActivatedAt.Present
+		var value *time.Time
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	for i, item := range m.Passkeys {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("passkeys[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *AccountPasskey) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *AccountPasskey) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.LastUsedAt.Value, m.LastUsedAt.Present
+		var value *time.Time
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *AccountRenameRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *AccountRenameRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if utf8.RuneCountInString(m.Name) < 1 {
+		return newValidationError([]string{"name"}, "must be at least 1 character")
+	}
+	return nil
+}
+
+func (m *AccountPasswordRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *AccountPasswordRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.Current.Value, m.Current.Present
+		var value *string
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *AccountPasskeyDeleteRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *AccountPasskeyDeleteRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if len(m.ID) < 1 {
+		return newValidationError([]string{"id"}, "must be at least 1 byte")
+	}
 	return nil
 }
 
@@ -4324,8 +4544,16 @@ func (m *UserSession) validate(seen map[any]bool) error {
 	if utf8.RuneCountInString(m.SessionID) < 1 {
 		return newValidationError([]string{"session_id"}, "must be at least 1 character")
 	}
+	{
+		v, present := m.UserID.Value, m.UserID.Present
+		var value *uint64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
 	switch int32(m.Kind) {
-	case 0, 1:
+	case 0, 1, 2:
 	default:
 		return newValidationError([]string{"kind"}, "must be a defined enum value")
 	}
@@ -4347,6 +4575,30 @@ func (m *UserSession) validate(seen map[any]bool) error {
 			if len((*value)) < 1 {
 				return newValidationError([]string{"token_hash"}, "must be at least 1 byte")
 			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.RedeemedAt.Value, m.RedeemedAt.Present
+		var value *time.Time
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.OpenedBy.Value, m.OpenedBy.Present
+		var value *uint64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.IssuedBy.Value, m.IssuedBy.Present
+		var value *uint64
+		if present {
+			value = &v
 		}
 		_ = value
 	}
@@ -5714,6 +5966,77 @@ func (m *AuthzGlobalRuleCreateRequest) validate(seen map[any]bool) error {
 
 func (m *AuthzGlobalRuleDeleteRequest) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *AuthzGlobalRuleDeleteRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *UserCreateRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *UserCreateRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.Name.Value, m.Name.Present
+		var value *string
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if utf8.RuneCountInString((*value)) < 1 {
+				return newValidationError([]string{"name"}, "must be at least 1 character")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.Password.Value, m.Password.Present
+		var value *string
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if utf8.RuneCountInString((*value)) < 1 {
+				return newValidationError([]string{"password"}, "must be at least 1 character")
+			}
+		}
+		_ = value
+	}
+	for i, item := range m.Grants {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("grants[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *UserLinkRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *UserLinkRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *UserLinkResponse) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *UserLinkResponse) validate(seen map[any]bool) error {
 	if m == nil {
 		return newValidationError(nil, "message is nil")
 	}
@@ -8050,6 +8373,15 @@ func (m *AuthSettings) validate(seen map[any]bool) error {
 		if value != nil {
 			if err := value.validate(seen); err != nil {
 				return wrapValidationError(err, "password_login_enabled")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.RequirePasskey
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "require_passkey")
 			}
 		}
 		_ = value

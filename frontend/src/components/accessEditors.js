@@ -421,17 +421,13 @@ const previewPanel = (label, ...children) => div(
     ...children,
 );
 
-// grantOverlay assigns a template (with argument bindings) or a direct rule
-// to one user.
-export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
+// One grant's editor: build() returns the grant source or throws when no role is chosen.
+export function grantEditor({templates, spaces, spaceNames, openMenu, menuPrefix = "direct"}) {
     const usable = () => (templates() || []).filter((t) => t && !t.deleted);
     const mode = van.state("template");
     const templateId = van.state(usable()[0]?.id || 0);
     const bindingStates = new Map();
     const directRule = newRuleState(null);
-    const error = van.state(null);
-    const saving = van.state(false);
-    const openMenu = van.state(null);
 
     const selectedTemplate = () => usable().find((t) => Number(t.id) === Number(templateId.val)) || null;
 
@@ -443,31 +439,16 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
         return bindingStates.get(key);
     };
 
-    const save = async () => {
-        if (saving.val) return;
-        try {
-            saving.val = true;
-            error.val = null;
-            const request = {userId: Number(user.id)};
-            if (mode.val === "template") {
-                const template = selectedTemplate();
-                if (!template) throw new Error("Choose a role");
-                const args = templateArguments(template.spec).map((arg) => {
-                    const st = bindingState(arg);
-                    const values = arg.kind === "entityRefs" ? parseEntityRefs(st.refsText.val) : [...st.values.val];
-                    return argumentBinding(arg.id, arg.kind, values);
-                });
-                request.grant = templateGrantSource(template.id, args);
-            } else {
-                request.grant = ruleGrantSource(ruleFromState(directRule));
-            }
-            await capi.postV1AccessGrantsCreate(request);
-            onClose();
-        } catch (e) {
-            error.val = e.message;
-        } finally {
-            saving.val = false;
-        }
+    const build = () => {
+        if (mode.val !== "template") return ruleGrantSource(ruleFromState(directRule));
+        const template = selectedTemplate();
+        if (!template) throw new Error("Choose a role");
+        const args = templateArguments(template.spec).map((arg) => {
+            const st = bindingState(arg);
+            const values = arg.kind === "entityRefs" ? parseEntityRefs(st.refsText.val) : [...st.values.val];
+            return argumentBinding(arg.id, arg.kind, values);
+        });
+        return templateGrantSource(template.id, args);
     };
 
     const modeButton = (value, text) => button({
@@ -487,47 +468,74 @@ export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
             ...rules.map((rule) => ruleDisplay(rule, {spaceNames: spaceNames(), argNames})));
     };
 
+    const node = div({class: "flex flex-col gap-4"},
+        div({class: "flex items-center gap-2"}, modeButton("template", "From role"), modeButton("direct", "Direct rule")),
+        () => mode.val === "template"
+            ? div({class: "flex flex-col gap-3"},
+                div({class: "flex items-center gap-3"},
+                    fieldLabel("Role"),
+                    select({
+                        class: "input min-w-56",
+                        onchange: (e) => { templateId.val = Number(e.target.value); },
+                    }, ...usable().map((t) => option({value: t.id, selected: Number(t.id) === Number(templateId.val)}, t.name)))),
+                () => {
+                    const template = selectedTemplate();
+                    if (!template) return p({class: "text-sm text-gray-400"}, "No roles available.");
+                    const args = templateArguments(template.spec);
+                    return div({class: "flex flex-col gap-3"},
+                        args.length
+                            ? div({class: "flex flex-col gap-2"},
+                                ...args.map((arg) => div({class: "flex flex-col gap-1"},
+                                    fieldLabel("${" + arg.name + "}"),
+                                    bindingValueChips(arg.kind, bindingState(arg), spaces, spaceNames))))
+                            : p({class: "text-sm text-gray-400"}, "This role takes no arguments."),
+                        templateRules(template));
+                })
+            : ruleEditorRow({
+                rs: directRule,
+                index: 0,
+                heading: "Rule",
+                menuPrefix,
+                allowArgument: false,
+                spaces,
+                spaceNames,
+                openMenu,
+                onRemove: null,
+            }));
+    return {node, build};
+}
+
+// grantOverlay assigns a template (with argument bindings) or a direct rule
+// to one user.
+export function grantOverlay({user, templates, spaces, spaceNames, onClose}) {
+    const error = van.state(null);
+    const saving = van.state(false);
+    const openMenu = van.state(null);
+    const editor = grantEditor({templates, spaces, spaceNames, openMenu});
+
+    const save = async () => {
+        if (saving.val) return;
+        try {
+            saving.val = true;
+            error.val = null;
+            await capi.postV1AccessGrantsCreate({userId: Number(user.id), grant: editor.build()});
+            onClose();
+        } catch (e) {
+            error.val = e.message;
+        } finally {
+            saving.val = false;
+        }
+    };
+
     return overlayShell({
         title: `Grant access to ${user.name || `user ${user.id}`}`,
-        body: [
-            div({class: "flex items-center gap-2"}, modeButton("template", "From role"), modeButton("direct", "Direct rule")),
-            () => mode.val === "template"
-                ? div({class: "flex flex-col gap-3"},
-                    div({class: "flex items-center gap-3"},
-                        fieldLabel("Role"),
-                        select({
-                            class: "input min-w-56",
-                            onchange: (e) => { templateId.val = Number(e.target.value); },
-                        }, ...usable().map((t) => option({value: t.id, selected: Number(t.id) === Number(templateId.val)}, t.name)))),
-                    () => {
-                        const template = selectedTemplate();
-                        if (!template) return p({class: "text-sm text-gray-400"}, "No roles available.");
-                        const args = templateArguments(template.spec);
-                        return div({class: "flex flex-col gap-3"},
-                            args.length
-                                ? div({class: "flex flex-col gap-2"},
-                                    ...args.map((arg) => div({class: "flex flex-col gap-1"},
-                                        fieldLabel("${" + arg.name + "}"),
-                                        bindingValueChips(arg.kind, bindingState(arg), spaces, spaceNames))))
-                                : p({class: "text-sm text-gray-400"}, "This role takes no arguments."),
-                            templateRules(template));
-                    })
-                : ruleEditorRow({
-                    rs: directRule,
-                    index: 0,
-                    heading: "Rule",
-                    menuPrefix: "direct",
-                    allowArgument: false,
-                    spaces,
-                    spaceNames,
-                    openMenu,
-                    onRemove: null,
-                }),
-        ],
+        body: [editor.node],
         actions: overlayActions({error, saveLabel: "Grant", onSave: save, onClose, saving}),
         backdrop: menuBackdrop(openMenu),
     });
 }
+
+export {menuBackdrop};
 
 // globalRuleOverlay creates a global rule: a deny evaluated before every
 // grant, or an allow evaluated alongside grants as if every user held it.

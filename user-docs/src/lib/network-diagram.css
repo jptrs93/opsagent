@@ -1,0 +1,65 @@
+/* Colour tokens and side panel for NetworkDiagram.svelte */
+  .nd {
+    --nd-underlay: #b45309; --nd-underlay-fill: rgba(245, 158, 11, 0.13); --nd-underlay-line: rgba(180, 83, 9, 0.5);
+    --nd-virtual: #2563eb; --nd-virtual-fill: rgba(37, 99, 235, 0.13); --nd-virtual-line: rgba(37, 99, 235, 0.55);
+    --nd-ingress: #e11d48; --nd-egress: #059669;
+    --nd-wg: #475569; --nd-wg-core: #cbd5e1;
+    --nd-slab: #e2e8f0;
+    --nd-cube: #dbeafe;
+    --nd-proxy-foot: #fde68a;
+    display: flex; flex-direction: column; gap: 14px;
+    margin: 20px 0;
+  }
+  @media (prefers-color-scheme: dark) {
+    .nd {
+      --nd-underlay: #fbbf24; --nd-underlay-fill: rgba(251, 191, 36, 0.1); --nd-underlay-line: rgba(251, 191, 36, 0.45);
+      --nd-virtual: #60a5fa; --nd-virtual-fill: rgba(96, 165, 250, 0.12); --nd-virtual-line: rgba(96, 165, 250, 0.5);
+      --nd-ingress: #fb7185; --nd-egress: #34d399;
+      --nd-wg: #94a3b8; --nd-wg-core: #1e293b;
+      --nd-slab: #1e293b;
+      --nd-cube: #1e3a5f;
+      --nd-proxy-foot: #4a3407;
+    }
+  }
+
+  .nd-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 2px; }
+  .nd-legend button {
+    display: flex; align-items: center; gap: 8px; text-align: left; white-space: nowrap;
+    padding: 5px 9px; border-radius: 8px; border: 1px solid transparent; background: transparent;
+    color: var(--ink, #0f172a); font-size: 12.5px; cursor: pointer;
+  }
+  .nd-legend button:hover, .nd-legend button.active { background: var(--accent-soft, #eff6ff); border-color: var(--accent-line, #bfdbfe); }
+  .nd-swatch { width: 20px; height: 11px; border-radius: 3px; flex: none; }
+  .nd-swatch-underlay { background: var(--nd-underlay-fill); border: 1.5px solid var(--nd-underlay-line); }
+  .nd-swatch-virtual { background: var(--nd-virtual-fill); border: 1.5px solid var(--nd-virtual-line); }
+  .nd-swatch-wg { background: linear-gradient(var(--nd-wg), var(--nd-wg)) center / 100% 100% no-repeat; border-radius: 6px; height: 8px; box-shadow: inset 0 0 0 2px var(--nd-wg), inset 0 0 0 4px var(--nd-wg-core); }
+  .nd-swatch-ew { background: repeating-linear-gradient(90deg, var(--nd-virtual) 0 5px, transparent 5px 9px); height: 3px; }
+  .nd-swatch-ingress { background: repeating-linear-gradient(90deg, var(--nd-ingress) 0 5px, transparent 5px 9px); height: 3px; }
+  .nd-swatch-egress { background: repeating-linear-gradient(90deg, var(--nd-egress) 0 5px, transparent 5px 9px); height: 3px; }
+
+  .nd-detail { border: 1px solid var(--line, #e2e8f0); border-radius: 10px; padding: 12px 16px 14px; background: var(--card, #fff); min-height: 172px; }
+  .nd-detail h4 { margin: 0 0 8px; font-size: 14px; display: flex; align-items: baseline; gap: 12px; }
+  .nd-hint { font-size: 12px; font-weight: 400; font-style: italic; color: var(--faint, #64748b); }
+  .nd-prose { display: flex; flex-wrap: wrap; gap: 6px 28px; }
+  .nd-prose p { margin: 0; flex: 1 1 260px; font-size: 13px; line-height: 1.5; color: var(--sub, #475569); }
+  .nd-step-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .nd-step-cards li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; background: var(--bg, #f8fafc); border: 1px solid var(--line, #e2e8f0); }
+  .nd-step-cards p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--sub, #475569); }
+  .nd-step-badge { flex: none; width: 22px; height: 22px; border-radius: 50%; color: #fff; font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center; }
+  .nd-step-ingress { background: var(--nd-ingress); }
+  .nd-step-ew { background: var(--nd-virtual); }
+  .nd-step-egress { background: var(--nd-egress); }
+  .nd-swatch-container { background: var(--nd-virtual-fill); border: 1.5px solid var(--nd-virtual-line); }
+  .nd-swatch-host { background: var(--nd-slab); border: 1.5px solid var(--nd-wg); }
+  .nd-swatch-veth { background: var(--nd-wg); height: 8px; border-radius: 6px; box-shadow: inset 0 0 0 2px var(--nd-wg), inset 0 0 0 4px var(--nd-wg-core); }
+  .nd-swatch-agent { background: transparent; border: 1.5px dashed var(--ink, #0f172a); height: 10px; }
+  .nd-swatch-in { background: repeating-linear-gradient(90deg, var(--nd-virtual) 0 2px, transparent 2px 5px); height: 3px; }
+  .nd-step-badge.ndn-step-out, .nd-step-badge.ndn-step-in { background: var(--nd-virtual); }
+  .nd-step-badge.ndn-step-egress { background: var(--nd-egress); }
+  .nd-swatch-log { background: var(--nd-underlay-fill); border: 1.5px solid var(--nd-underlay-line); }
+  .nd-swatch-primary { background: var(--nd-slab); border: 1.5px solid var(--nd-wg); }
+  .nd-swatch-identity { background: var(--nd-slab); border: 1.5px solid var(--nd-wg); opacity: 0.6; }
+  .nd-swatch-projection { background: var(--nd-cube); border: 1.5px solid var(--nd-virtual); }
+  .nd-step-badge.ndc-step-update { background: var(--nd-virtual); }
+  .nd-step-badge.ndc-step-status { background: var(--nd-egress); }
+  .nd-step-badge.ndc-step-refused { background: var(--nd-ingress); }

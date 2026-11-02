@@ -37,7 +37,7 @@ func TestApplyRestoredSystemConfigOverrides(t *testing.T) {
 		webListen:        &webListen,
 		clusterListen:    &clusterListen,
 		enrollmentListen: &enrollmentListen,
-		acmeHosts:        &acmeHostList,
+		webHosts:         &acmeHostList,
 	}, noChown)
 	if err != nil {
 		t.Fatalf("apply overrides: %v", err)

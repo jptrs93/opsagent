@@ -169,10 +169,11 @@ func initialArtifactSequence(ctx context.Context, path string, seqOf func([]byte
 
 // RenderNetState derives DNS and ingress as a pure function of target state:
 // an endpoint is published for every ordinal that is supposed to be serving,
-// whether or not its workload is currently up. The cluster map's catalog
-// covers all nodes. Every catalogued service contributes its DNS name, so the
-// DNS server can answer authoritatively for a service that exists but has no
-// established ordinal instead of leaking the lookup upstream.
+// whether or not its workload is currently up. The cluster map's catalog is
+// scoped to the services this node may reach. Every catalogued service
+// contributes its DNS name, so the DNS server can answer authoritatively for a
+// service that exists but has no established ordinal instead of leaking the
+// lookup upstream.
 func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledInstanceState, acme *apigen.AcmeState, clusterMap *apigen.ClusterNetMap) *apigen.NetState {
 	prefix, _ := network.Default.PrefixValue()
 	virtual := make([]apigen.ScheduledInstanceState, 0, len(items))

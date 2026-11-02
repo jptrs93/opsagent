@@ -2,8 +2,9 @@
 // with two pinned tabs, Users and Roles & rules, each with a toolbar on the
 // 30px baseline. Every rule pill, role name and grant chip opens the rule
 // explainer (components/ruleExplainer.js). Users come into existence through
-// passkey registration during bootstrap or recovery; this page manages what
-// they are allowed to do, not who they are.
+// the Enrol or recover dialog here or on the login page; a user is pending
+// until a session is first opened for it. The You tab is the signed-in
+// user's own account.
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {loginS} from "../state/login.js";
@@ -11,6 +12,7 @@ import {authzGlobalRulesS, authzGrantsS, authzTemplatesS, spacesS, usersMapS} fr
 import {describeGrant, grantRevokeBlock, grantTemplateId, groupGrantsByUser, isClusterAdminGrant, ruleEffect, templateArguments} from "../lib/authz.js";
 import {grantSubject} from "../lib/authzExplain.js";
 import {globalRuleOverlay, grantOverlay, grantTemplateOverlay} from "../components/accessEditors.js";
+import {accountPanel} from "../components/accountPanel.js";
 import {formatDate} from "../lib/date.js";
 import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
 import {explorerBand} from "../components/sectionBand.js";
@@ -21,12 +23,14 @@ const {div, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, c
 
 const USERS = "users";
 const RULES = "rules";
+const YOU = "you";
 
 const sortedUsers = () => [...usersMapS.val.entries()]
     .map(([id, user]) => ({
         id: Number(id),
         name: user?.name || "",
         createdAt: Number(user?.createdAt || 0),
+        pending: !user?.activatedAt,
     }))
     .sort((a, b) => a.id - b.id);
 
@@ -35,7 +39,7 @@ const spaceNameMap = () => new Map(liveSpaces().map((space) => [Number(space.id)
 const templatesById = () => new Map((authzTemplatesS.val || []).map((t) => [Number(t.id), t]));
 const argNamesOf = (template) => new Map(templateArguments(template).map((a) => [a.id, a.name]));
 
-export function usersPage() {
+export function usersPage({enrol, account} = {}) {
     mountExplainerLayer();
     const activeTab = van.state(USERS);
     const userSearch = van.state("");
@@ -150,7 +154,7 @@ export function usersPage() {
         if (active.type === "template") return grantTemplateOverlay({record: active.record, ...shared});
         if (active.type === "grant") return grantOverlay({user: active.user, templates: () => authzTemplatesS.val, ...shared});
         if (active.type === "globalRule") return globalRuleOverlay(shared);
-        if (active.type === "newUser") return newUserOverlay();
+        if (active.type === "newUser") return enrol ? enrol({onClose: close}) : newUserOverlay();
         if (active.type === "confirm") return confirmOverlay(active);
         return "";
     };
@@ -281,7 +285,10 @@ export function usersPage() {
                     span({class: "truncate text-gray-200"}, user.name || `user ${user.id}`),
                     isSelf ? span(
                         {class: "shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500"},
-                        "you") : "")),
+                        "you") : "",
+                    user.pending ? span(
+                        {class: "shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300", title: "Has not signed in yet"},
+                        "pending") : "")),
             td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, String(user.id)),
             td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap"}, formatDate(new Date(user.createdAt), "—")),
             td({class: "py-1.5 pr-3"},
@@ -313,7 +320,7 @@ export function usersPage() {
         toolbar(
             searchBox(userSearch, "Search users"),
             div({class: "flex-1"}),
-            toolbarButton("New user", () => { overlayS.val = {type: "newUser"}; }, {"data-testid": "new-user-button"})),
+            toolbarButton(enrol ? "Enrol or recover" : "New user", () => { overlayS.val = {type: "newUser"}; }, {"data-testid": "new-user-button"})),
         div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"}, readingHint("permission"), usersTable),
     );
 
@@ -454,7 +461,7 @@ export function usersPage() {
                 },
             },
             span({class: "font-medium"}, title),
-            span({class: () => `rounded px-1 text-[10px] tabular-nums ${active() ? "bg-white/10 text-gray-300" : "bg-white/5 text-gray-500"}`}, count),
+            count ? span({class: () => `rounded px-1 text-[10px] tabular-nums ${active() ? "bg-white/10 text-gray-300" : "bg-white/5 text-gray-500"}`}, count) : "",
         );
     };
 
@@ -462,7 +469,19 @@ export function usersPage() {
         {class: "flex h-[34px] flex-none flex-nowrap items-end gap-0.5 border-b border-gray-700 bg-gray-900/80 pr-2 pt-0.5", role: "tablist", "aria-label": "Users and roles"},
         tabButton({id: USERS, title: "Users", count: () => String(sortedUsers().length), first: true}),
         tabButton({id: RULES, title: "Roles & rules", count: () => String((authzTemplatesS.val || []).length + (authzGlobalRulesS.val || []).length)}),
+        account ? tabButton({id: YOU, title: "You"}) : "",
     );
+
+    const youPanel = () => account ? accountPanel({
+        self: () => account.self(Number(loginS.val?.userId || 0)),
+        users: sortedUsers,
+        grants: () => authzGrantsS.val || [],
+        templates: () => authzTemplatesS.val || [],
+        spaces: liveSpaces,
+        spaceNames: spaceNameMap,
+        actions: account.actions,
+        onManageSessions: account.onManageSessions,
+    }) : "";
 
     const panel = (id, content) => div({class: () => `h-full min-h-0 min-w-0 ${activeTab.val === id ? "" : "hidden"}`}, content);
 
@@ -474,7 +493,8 @@ export function usersPage() {
             `Error: ${error.val}`) : "",
         div({class: "relative flex-1 min-h-0 min-w-0"},
             panel(USERS, usersPanel),
-            panel(RULES, rulesPanel)),
+            panel(RULES, rulesPanel),
+            account ? panel(YOU, youPanel()) : ""),
         overlay,
     );
 }

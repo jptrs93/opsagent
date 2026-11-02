@@ -9,8 +9,11 @@ import (
 // generated mux hands over the route's ANY_OF list of labels; a session
 // satisfies it when its own kind is listed.
 func (k UserSessionKind) policyLabel() string {
-	if k == UserSessionKind_USER_SESSION_KIND_BOOTSTRAP {
-		return "bootstrap"
+	switch k {
+	case UserSessionKind_USER_SESSION_KIND_ROOT:
+		return "root"
+	case UserSessionKind_USER_SESSION_KIND_LINK:
+		return "link"
 	}
 	return "full"
 }

@@ -15,12 +15,20 @@ import {sessionsPage} from "./sessions.js";
 import {logsPage} from "./logs.js";
 import {metricsPage} from "./metrics.js";
 import {preloadDeploymentCodeWidget} from "../components/deploymentEditorWidget.js";
+import {userEnrolOverlay} from "../components/userEnrol.js";
+import {enrolActions, enrolData} from "../state/enrol.js";
+import {accountActions, accountSelf, loadAccount} from "../state/account.js";
+import {isRootSession} from "../lib/userSessions.js";
 
 const { div, h1, span } = van.tags;
 
 export function dashboard() {
     if (!loginS.val) {
         navigate("/login", {replace: true});
+        return div();
+    }
+    if (isRootSession(loginS.val)) {
+        navigate("/enrol", {replace: true});
         return div();
     }
 
@@ -71,7 +79,13 @@ export function dashboard() {
                 if (activePage.val === 'spaces') return spacesPage();
                 if (activePage.val === 'policies') return policiesPage();
                 if (PLANNED.has(activePage.val)) return plannedPage();
-                if (activePage.val === 'users') return usersPage();
+                if (activePage.val === 'users') {
+                    loadAccount().catch((e) => console.log(`error loading account: ${e}`));
+                    return usersPage({
+                        enrol: ({onClose}) => userEnrolOverlay({onClose, actions: enrolActions, ...enrolData}),
+                        account: {self: accountSelf, actions: accountActions, onManageSessions: () => { activePage.val = 'sessions'; }},
+                    });
+                }
                 if (activePage.val === 'sessions') return sessionsPage();
                 if (activePage.val === 'cluster') return clusterPage();
                 if (activePage.val === 'settings') return '';

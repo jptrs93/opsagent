@@ -128,12 +128,12 @@ const typical = () => ({
         {id: 0, name: "_system"}, {id: 1, name: "global"}, {id: 2, name: "prod"}, {id: 3, name: "staging"}, {id: 4, name: "dev"},
     ],
     users: [
-        {id: 1, name: "joss", createdAt: day("2026-03-02T09:04:00Z")},
-        {id: 2, name: "alice", createdAt: day("2026-04-11T13:30:00Z")},
-        {id: 3, name: "bob", createdAt: day("2026-05-20T10:15:00Z")},
-        {id: 4, name: "priya", createdAt: day("2026-06-02T08:00:00Z")},
-        {id: 5, name: "deploy-bot", createdAt: day("2026-07-15T12:00:00Z")},
-        {id: 6, name: "sam", createdAt: day("2026-08-30T16:20:00Z")},
+        {id: 1, name: "joss", createdAt: day("2026-03-02T09:04:00Z"), activatedAt: day("2026-03-02T09:04:00Z")},
+        {id: 2, name: "alice", createdAt: day("2026-04-11T13:30:00Z"), activatedAt: day("2026-04-11T13:30:00Z")},
+        {id: 3, name: "bob", createdAt: day("2026-05-20T10:15:00Z"), activatedAt: day("2026-05-20T10:15:00Z")},
+        {id: 4, name: "priya", createdAt: day("2026-06-02T08:00:00Z"), activatedAt: day("2026-06-02T08:00:00Z")},
+        {id: 5, name: "deploy-bot", createdAt: day("2026-07-15T12:00:00Z"), activatedAt: day("2026-07-15T12:00:00Z")},
+        {id: 6, name: "sam", createdAt: day("2026-08-30T16:20:00Z"), activatedAt: day("2026-08-30T16:20:00Z")},
     ],
     templates: [...builtinTemplates(), ...customTemplates()],
     grants: [
@@ -217,7 +217,7 @@ const busy = () => {
 // empty: a fresh install a minute after bootstrap.
 const empty = () => ({
     spaces: [{id: 0, name: "_system"}, {id: 1, name: "global"}],
-    users: [{id: 1, name: "joss", createdAt: day("2026-09-14T08:00:00Z")}],
+    users: [{id: 1, name: "joss", createdAt: day("2026-09-14T08:00:00Z"), activatedAt: day("2026-09-14T08:00:00Z")}],
     templates: builtinTemplates(),
     grants: [templateGrant(1, 1, 1, [], 0, day("2026-09-14T08:00:00Z"))],
     globalRules: [
@@ -234,7 +234,7 @@ export const DATASETS = {typical, busy, empty};
 export function populate(datasetKey) {
     const data = (DATASETS[datasetKey] || typical)();
     spacesS.val = data.spaces;
-    usersMapS.val = new Map(data.users.map((u) => [u.id, {id: u.id, name: u.name, createdAt: u.createdAt}]));
+    usersMapS.val = new Map(data.users.map((u) => [u.id, {id: u.id, name: u.name, createdAt: u.createdAt, activatedAt: u.activatedAt}]));
     authzTemplatesS.val = data.templates;
     authzGrantsS.val = data.grants;
     authzGlobalRulesS.val = data.globalRules;

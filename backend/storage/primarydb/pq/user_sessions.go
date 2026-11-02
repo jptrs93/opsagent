@@ -22,6 +22,9 @@ type UserSession struct {
 	Kind              int64
 	RequestingAddress string
 	UserAgent         string
+	RedeemedAt        int64
+	OpenedBy          uint64
+	IssuedBy          uint64
 	Seq               int64
 	EventTime         int64
 	Author            int64
@@ -38,17 +41,17 @@ func (r UserSession) Proto() *apigen.UserSession {
 // token hash.
 func (r UserSession) Entity() *apigen.UserSession {
 	return &apigen.UserSession{
-		ID: r.ID, SessionID: r.SessionID, UserID: r.UserID, ExpiresAt: unixTime(r.ExpiresAt).Value,
+		ID: r.ID, SessionID: r.SessionID, UserID: maybeID(r.UserID), ExpiresAt: unixTime(r.ExpiresAt).Value,
 		RevokedAt: unixTime(r.RevokedAt), Kind: apigen.UserSessionKind(r.Kind), RequestingAddress: r.RequestingAddress, UserAgent: r.UserAgent,
-		TokenHash: apigen.Some(r.TokenHash),
+		TokenHash: apigen.Some(r.TokenHash), RedeemedAt: unixTime(r.RedeemedAt), OpenedBy: maybeID(r.OpenedBy), IssuedBy: maybeID(r.IssuedBy),
 	}
 }
 
-const userSessionColumns = `id, session_id, user_id, created_at, expires_at, token_hash, revoked_at, kind, requesting_address, user_agent, seq, event_time, author`
+const userSessionColumns = `id, session_id, user_id, created_at, expires_at, token_hash, revoked_at, kind, requesting_address, user_agent, redeemed_at, opened_by, issued_by, seq, event_time, author`
 
 func scanUserSession(row scanner) (UserSession, error) {
 	var i UserSession
-	err := row.Scan(&i.ID, &i.SessionID, &i.UserID, &i.CreatedAt, &i.ExpiresAt, &i.TokenHash, &i.RevokedAt, &i.Kind, &i.RequestingAddress, &i.UserAgent, &i.Seq, &i.EventTime, &i.Author)
+	err := row.Scan(&i.ID, &i.SessionID, &i.UserID, &i.CreatedAt, &i.ExpiresAt, &i.TokenHash, &i.RevokedAt, &i.Kind, &i.RequestingAddress, &i.UserAgent, &i.RedeemedAt, &i.OpenedBy, &i.IssuedBy, &i.Seq, &i.EventTime, &i.Author)
 	return i, err
 }
 
@@ -73,8 +76,10 @@ func (q *Queries) GetUserSession(ctx context.Context, sessionID string) (UserSes
 	return scanUserSession(q.db.QueryRowContext(ctx, `SELECT `+userSessionColumns+` FROM user_sessions WHERE session_id = ?`, sessionID))
 }
 
+// ListUserSessionsForUser lists the user's own sessions and the LINK
+// sessions the user issued for others.
 func (q *Queries) ListUserSessionsForUser(ctx context.Context, userID uint64) ([]UserSession, error) {
-	return q.listUserSessions(ctx, `WHERE user_id = ? ORDER BY created_at DESC, id DESC`, userID)
+	return q.listUserSessions(ctx, `WHERE user_id = ? OR (kind = ? AND issued_by = ?) ORDER BY created_at DESC, id DESC`, userID, int64(apigen.UserSessionKind_USER_SESSION_KIND_LINK), userID)
 }
 
 func (q *Queries) ListAllUserSessions(ctx context.Context) ([]UserSession, error) {
@@ -88,14 +93,14 @@ func (q *Queries) reduceUserSession(ctx context.Context, env rowEnvelope, meta *
 	if !s.TokenHash.Present {
 		return fmt.Errorf("payload has no token hash")
 	}
-	return q.upsert(ctx, meta, `INSERT INTO user_sessions (id, session_id, user_id, created_at, expires_at, token_hash, revoked_at, kind, requesting_address, user_agent, seq, event_time, author)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	return q.upsert(ctx, meta, `INSERT INTO user_sessions (id, session_id, user_id, created_at, expires_at, token_hash, revoked_at, kind, requesting_address, user_agent, redeemed_at, opened_by, issued_by, seq, event_time, author)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET session_id = excluded.session_id, user_id = excluded.user_id, expires_at = excluded.expires_at,
   token_hash = excluded.token_hash, revoked_at = excluded.revoked_at, kind = excluded.kind, requesting_address = excluded.requesting_address,
-  user_agent = excluded.user_agent, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
+  user_agent = excluded.user_agent, redeemed_at = excluded.redeemed_at, opened_by = excluded.opened_by, issued_by = excluded.issued_by, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_at`,
-		id, s.SessionID, s.UserID, env.EventTime, s.ExpiresAt.Unix(), notNullBlob(s.TokenHash.Value), unixOrZero(s.RevokedAt), int64(s.Kind), s.RequestingAddress, s.UserAgent,
-		env.Seq, env.EventTime, env.Author)
+		id, s.SessionID, s.UserID.Value, env.EventTime, s.ExpiresAt.Unix(), notNullBlob(s.TokenHash.Value), unixOrZero(s.RevokedAt), int64(s.Kind), s.RequestingAddress, s.UserAgent,
+		unixOrZero(s.RedeemedAt), s.OpenedBy.Value, s.IssuedBy.Value, env.Seq, env.EventTime, env.Author)
 }
 
 func (q *Queries) deleteUserSessionRow(ctx context.Context, id uint64) error {

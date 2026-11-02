@@ -11,9 +11,10 @@ import {keyRoundIcon} from "../lib/icons.js";
 
 const {a, button, div, form, p, span} = van.tags;
 
-// The login page on the shared auth card: the sign-in controls (passkey
-// first, then the master-password form when that login is enabled) and a
-// footer band with the transport row and the setup link.
+// The login page on the shared auth card: the username and password form
+// first, the passkey button under it, or the passkey button alone when the
+// cluster requires passkeys; and a footer band with the transport row and
+// the enrol link.
 export function loginPage() {
     const loginErr = van.state('');
     // One attempt at a time across both methods, so a slow failing password
@@ -62,21 +63,19 @@ export function loginPage() {
         return button;
     };
 
-    // Master-password login: the name is created on first use, so this is
-    // both the login and the account-creation path when it is enabled.
     const passwordForm = () => {
         const usernameInput = fieldInput({
             type: "text",
             "data-testid": "login-username-input",
             required: true,
-            placeholder: "Your name",
+            placeholder: "Username",
             autocomplete: "username",
         });
         const passwordInput = fieldInput({
             type: "password",
             "data-testid": "login-password-input",
             required: true,
-            placeholder: "Master password",
+            placeholder: "Password",
             autocomplete: "current-password",
         });
         const submit = spinnerButton("Sign in", null, authButtonClass, 'submit', () => busy.val, {base: authButtonBase});
@@ -105,7 +104,7 @@ export function loginPage() {
             },
             fieldGroup(
                 fieldRow("Username", usernameInput),
-                fieldRow("Master password", passwordInput, revealToggle(passwordInput))),
+                fieldRow("Password", passwordInput, revealToggle(passwordInput))),
             submit,
         );
     };
@@ -114,7 +113,7 @@ export function loginPage() {
         const methods = authMethodsS.val;
         if (methods.status === 'loading') {
             return div({class: "flex animate-pulse flex-col gap-4"},
-                div({class: "h-10 rounded-lg bg-gray-800/70"}), div({class: "h-[86px] rounded-lg border border-gray-700 bg-gray-900/40"}), div({class: "h-10 rounded-lg bg-gray-800/70"}));
+                div({class: "h-[86px] rounded-lg border border-gray-700 bg-gray-900/40"}), div({class: "h-10 rounded-lg bg-gray-800/70"}), div({class: "h-10 rounded-lg bg-gray-800/70"}));
         }
         if (methods.status === 'error') {
             return div(
@@ -122,11 +121,16 @@ export function loginPage() {
                 notice("warning", "login-methods-error",
                     "Could not load the available sign-in methods: ", span({class: "font-mono text-xs"}, methods.error), " ",
                     button({type: "button", class: "cursor-pointer underline decoration-amber-200/40 underline-offset-2 hover:text-amber-100", onclick: () => loadAuthMethods()}, "Retry")),
-                passkeySection(true),
+                passwordForm(),
             );
         }
-        if (!methods.passwordLoginEnabled) return passkeySection(methods.passkeyLoginEnabled);
-        return div({class: "flex flex-col gap-5"}, passkeySection(methods.passkeyLoginEnabled), divider("or"), passwordForm());
+        if (methods.requirePasskey) {
+            return div({class: "flex flex-col gap-3"},
+                passkeySection(methods.passkeyLoginEnabled),
+                p({class: "text-center text-xs text-gray-500", "data-testid": "login-passkey-required"}, "This cluster requires passkey sign-in."));
+        }
+        if (!methods.passkeyLoginEnabled) return passwordForm();
+        return div({class: "flex flex-col gap-5"}, passwordForm(), divider("or"), passkeySection(true));
     };
 
     return authCard({
@@ -137,7 +141,7 @@ export function loginPage() {
         ],
         footer: () => footerBand(
             transportRow(authMethodsS.val, caOpen, "login-ca-open"),
-            footerText("First time here? ", a({class: authLinkClass, onclick: () => navigate("/bootstrap")}, "Set up your passkey")),
+            footerText("New here, or locked out? ", a({class: authLinkClass, "data-testid": "login-enrol-link", onclick: () => navigate("/enrol")}, "Enrol or recover a user")),
         ),
         overlays: [caTrustHelp(caOpen)],
     });

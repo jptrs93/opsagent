@@ -55,15 +55,56 @@ async function step(name, fn) {
   return test.step(name, fn);
 }
 
-export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = process.env.OPD_SETUP_PASSWORD || 'opendeploy-setup'} = {}) {
-  await page.goto('/bootstrap');
-  await expect(page.getByRole('heading', {name: 'First time setup'})).toBeVisible();
-  await byTestId(page, 'bootstrap-username-input', page.getByPlaceholder('Your name')).fill(username);
-  await byTestId(page, 'bootstrap-password-input', page.getByPlaceholder('Master password')).fill(password);
-  await byTestId(page, 'bootstrap-authenticate-button', page.getByRole('button', {name: 'Authenticate'})).click();
-  await expect(page.getByText('Authenticated. Now register a passkey for future logins.')).toBeVisible();
-  await byTestId(page, 'bootstrap-register-passkey-button', page.getByRole('button', {name: 'Register passkey'})).click();
-  await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible();
+const SETUP_PASSWORD = process.env.OPD_SETUP_PASSWORD || 'opendeploy-setup';
+export const OPERATOR_PASSWORD = 'e2e-operator-password';
+
+// enrolMasterPassword opens the Enrol or recover page and gets past the
+// master password step, leaving the page on the enrol-or-recover choice.
+export async function enrolMasterPassword(page, {password = SETUP_PASSWORD} = {}) {
+  await page.goto('/enrol');
+  await byTestId(page, 'enrol-master-password-input', page.getByPlaceholder('Master password')).fill(password);
+  await byTestId(page, 'enrol-master-continue', page.getByRole('button', {name: 'Continue'})).click();
+  await expect(page.getByTestId('enrol-choose-new')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+}
+
+// addEnrolGrant adds a role grant in the open enrol widget; the grant editor
+// opens on "From role" with the role select beside it.
+export async function addEnrolGrant(root, roleName) {
+  await root.getByTestId('enrol-add-grant-open').click();
+  const editor = root.getByTestId('enrol-add-grant');
+  await expect(editor).toBeVisible();
+  await editor.getByRole('combobox').first().selectOption({label: roleName});
+  await editor.getByTestId('enrol-add-grant-confirm').click();
+  await expect(editor).toBeHidden();
+}
+
+// bootstrapFirstUser creates a cluster administrator from the login screen:
+// the master password opens a root session, the admin is enrolled with a
+// password and signed in straight away, and a passkey is then registered
+// from the You tab so later cases can sign in without the password.
+export async function bootstrapFirstUser(page, {username = 'E2E Operator', password = SETUP_PASSWORD, userPassword = OPERATOR_PASSWORD} = {}) {
+  await enrolMasterPassword(page, {password});
+  await page.getByTestId('enrol-choose-new').click();
+  await addEnrolGrant(page, 'cluster_admin');
+  await page.getByTestId('enrol-name-input').fill(username);
+  await page.getByRole('button', {name: 'Set it now'}).click();
+  await page.getByTestId('enrol-password-input').fill(userPassword);
+  await page.getByTestId('enrol-sign-in').click();
+  await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await registerPasskeyFromAccount(page);
+}
+
+// registerPasskeyFromAccount adds a passkey for the signed-in user from
+// Users & roles › You and returns to the deployments page.
+export async function registerPasskeyFromAccount(page) {
+  await byTestId(page, 'nav-users', page.getByText('Users')).click();
+  await page.getByTestId('users-tab-you').click();
+  const panel = page.getByTestId('account-panel');
+  await expect(panel).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await panel.getByTestId('account-passkey-add').click();
+  await expect(panel.locator('[data-testid^="account-passkey-"]:not([data-testid="account-passkey-add"])').first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await byTestId(page, 'nav-status', page.getByText('Deployments')).click();
+  await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible({timeout: LONG_UI_TIMEOUT});
 }
 
 export async function signOutAndLoginWithPasskey(page) {
@@ -74,25 +115,20 @@ export async function signOutAndLoginWithPasskey(page) {
   await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible();
 }
 
-// passwordLoginRoundTrip turns master-password login on in Settings, signs
-// out, signs in as a new operator with just a name and the setup password,
-// then signs out and returns to the passkey operator so later cases keep
-// running as the original user.
-export async function passwordLoginRoundTrip(page, {username = 'E2E Password Operator', setupPassword = process.env.OPD_SETUP_PASSWORD || 'opendeploy-setup'} = {}) {
-  await byTestId(page, 'nav-settings', page.getByText('Settings')).click();
-  await expect(settingRow(page, 'Master password login enabled')).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  await setSettingBool(page, 'Master password login enabled', true);
-  await expect(page.getByText('Unsaved changes')).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  await page.getByRole('button', {name: 'Save changes'}).click();
-  await expect(page.getByText('Unsaved changes')).toBeHidden({timeout: LONG_UI_TIMEOUT});
+export async function signInWithPassword(page, {username, password}) {
+  await byTestId(page, 'login-username-input', page.getByPlaceholder('Username')).fill(username);
+  await byTestId(page, 'login-password-input', page.getByPlaceholder('Password')).fill(password);
+  await byTestId(page, 'login-password-button', page.getByRole('button', {name: 'Sign in', exact: true})).click();
+}
 
+// passwordLoginRoundTrip signs out, fails a password login on purpose, signs
+// in with the operator's own password, then signs out and returns through
+// the passkey so later cases keep running as the original user.
+export async function passwordLoginRoundTrip(page, {username = 'E2E Operator', password = OPERATOR_PASSWORD} = {}) {
   await byTestId(page, 'nav-sign-out', page.getByText('Sign out')).click();
-  await byTestId(page, 'login-username-input', page.getByPlaceholder('Your name')).fill(username);
-  await byTestId(page, 'login-password-input', page.getByPlaceholder('Master password')).fill('not the password');
-  await byTestId(page, 'login-password-button', page.getByRole('button', {name: 'Sign in', exact: true})).click();
-  await expect(page.getByText('Invalid master password')).toBeVisible();
-  await byTestId(page, 'login-password-input', page.getByPlaceholder('Master password')).fill(setupPassword);
-  await byTestId(page, 'login-password-button', page.getByRole('button', {name: 'Sign in', exact: true})).click();
+  await signInWithPassword(page, {username, password: 'not the password'});
+  await expect(page.getByText('Invalid username or password')).toBeVisible();
+  await signInWithPassword(page, {username, password});
   await expect(byTestId(page, 'add-deployment-button', page.getByRole('button', {name: 'Add deployment'}))).toBeVisible();
 
   await signOutAndLoginWithPasskey(page);
@@ -214,7 +250,8 @@ export async function acceptWaitingWorker(page, {machineID, workerName, expectNo
   if (!machineID) throw new Error('worker machine ID is required');
   if (!workerName) throw new Error('worker name is required');
   await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
-  await expect(page.getByRole('heading', {name: 'Enrollment requests'})).toBeVisible();
+  await page.getByTestId('nodes-tab-enrollments').click();
+  await expect(page.getByRole('heading', {name: 'Pending requests'})).toBeVisible();
 
   const requestRow = page.locator('tr').filter({hasText: machineID}).filter({hasText: 'Accept'});
   await expect(requestRow).toBeVisible({timeout: LONG_UI_TIMEOUT});
@@ -223,7 +260,7 @@ export async function acceptWaitingWorker(page, {machineID, workerName, expectNo
 
   await expect(requestRow).toBeHidden({timeout: LONG_UI_TIMEOUT});
   if (expectNoPending) await expect(page.getByText('No pending enrollment requests.')).toBeVisible({timeout: LONG_UI_TIMEOUT});
-  const workerRow = (await clusterMachineRow(page, workerName)).filter({hasText: 'secondary'});
+  const workerRow = await clusterMachineRow(page, workerName);
   await expect(workerRow).toContainText('connected', {timeout: LONG_UI_TIMEOUT});
 }
 
@@ -792,10 +829,15 @@ export async function expectHttpsRoutesDiagnostic(page, {name, machine, routes, 
 export async function expectNodeHostAddresses(page, {machine, contains = []}) {
   await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
   const row = await clusterMachineRow(page, machine);
-  const cell = row.getByTestId('node-host-addresses');
+  // The table cell collapses several addresses to a count; the full list is
+  // in the inspector the row opens.
+  await row.click();
+  const list = page.getByTestId('node-inspector').getByTestId('node-inspector-host-addresses');
+  await expect(list).toBeVisible({timeout: LONG_UI_TIMEOUT});
   for (const address of contains) {
-    await expect(cell).toContainText(address, {timeout: LONG_UI_TIMEOUT});
+    await expect(list).toContainText(address, {timeout: LONG_UI_TIMEOUT});
   }
+  await page.getByTestId('node-inspector').getByLabel('Close details').click();
 }
 
 // expectDeploymentIngressWarnings opens the networking pane of the update
@@ -1128,6 +1170,7 @@ export async function runBackupRestoreSetup(page, opts = {}) {
 async function waitForBackupReplicationInSync(page) {
   await step('wait for backup replication in sync', async () => {
     await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
+    await page.getByTestId('nodes-tab-replication').click();
     const status = byTestId(page, 'backup-replication-status', page.getByText(/in sync|syncing|error|not configured|not running/));
     await expect(status).toContainText('in sync', {timeout: BACKUP_RESTORE_TIMEOUT});
   });
@@ -1166,6 +1209,7 @@ export async function configureLargeAssetStorage(page, opts = {}) {
 export async function expectBackupStorageDisabled(page) {
   await step('verify backup storage is disabled', async () => {
     await byTestId(page, 'nav-cluster', page.getByText('Machines')).click();
+    await page.getByTestId('nodes-tab-replication').click();
     const status = byTestId(page, 'backup-replication-status', page.getByText(/not configured|not running|syncing|in sync|error/));
     await expect(status).toContainText('not configured', {timeout: LONG_UI_TIMEOUT});
   });
@@ -2018,20 +2062,15 @@ async function selectDeploymentNode(dialog, nodeName) {
   await select.selectOption(await option.getAttribute('value'));
 }
 
+// A row of the Nodes tab, found by its exact name. The name is a plain cell
+// now; renaming happens in the inspector the row opens.
 async function clusterMachineRow(page, machine, timeout = LONG_UI_TIMEOUT) {
-  let match;
-  await expect.poll(async () => {
-    const rows = page.locator('tr').filter({has: page.getByRole('textbox', {name: /^(Machine|Node) name for /})});
-    for (let i = 0; i < await rows.count(); i++) {
-      const row = rows.nth(i);
-      if (await row.getByRole('textbox').inputValue() === machine) {
-        match = row;
-        return true;
-      }
-    }
-    return false;
-  }, {message: `expected machine row for ${machine}`, timeout}).toBe(true);
-  return match;
+  await page.getByTestId('nodes-tab-nodes').click();
+  const escaped = machine.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const row = page.locator('[data-testid^="machine-row-"]')
+    .filter({has: page.locator('[data-testid="node-name"]', {hasText: new RegExp(`^${escaped}$`)})});
+  await expect(row, `expected machine row for ${machine}`).toBeVisible({timeout});
+  return row;
 }
 
 export async function expectDeploymentRunning(page, opts = {}) {

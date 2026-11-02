@@ -37,7 +37,7 @@ const GLOBAL_SPACE_ID = 1;
 
 const schemaProperties = [
     "name", "space", "node", "image", "repo", "flake", "target", "user", "command",
-    "working_dir", "data_mount_path", "mounts", "dev_shm_size_kb", "file_descriptor_limit", "strategy",
+    "working_dir", "mounts", "dev_shm_size_kb", "file_descriptor_limit", "strategy",
     "readiness_timeout_seconds", "version", "mode", "scheduling", "desired_running",
     "read_only", "executable", "hostname", "container_port", "host_port", "protocol", "allow", "deny",
     "path_prefix", "strip_prefix", "backend", "max_request_body_bytes", "flush_interval_ms", "cert",

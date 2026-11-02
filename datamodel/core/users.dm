@@ -1,16 +1,28 @@
 type User@9 root {
     id@1: u64 [key]
-    name@2: string [min_length = 1]
+    name@2: ?string [min_length = 1]
     authentication@3: type UserAuthentication {
         web_authn_id@1: bytes [mutable = false]
         credentials@2: []type WebAuthnCredential {
             id@1: bytes [min_length = 1]
             data@2: bytes [min_length = 1]
+            label@3: string
+            created_at@4: i64 [mutable = false]
+            last_used_at@5: ?i64
         }
     }
+    email@4: ?string [min_length = 1]
+    password_hash@5: ?string [min_length = 1]
+    activated_at@6: ?i64
     laws {
-        user_name {
+        user_name where name is present {
             unique (name)
+        }
+        user_email where email is present {
+            unique (email)
+        }
+        activated_once on update {
+            assert before.activated_at is absent || before.activated_at == after.activated_at
         }
         credential_ids_distinct {
             assert all c in authentication.credentials : (count d in authentication.credentials where d.id == c.id) == 1
@@ -70,22 +82,35 @@ type AgentSession@18 root {
 type UserSession@19 root {
     id@1: u64 [key]
     session_id@2: string [min_length = 1, mutable = false]
-    user_id@3: User.id [mutable = false]
+    user_id@3: ?User.id [mutable = false]
     kind@4: enum UserSessionKind {
         Full@0
-        Bootstrap@1
+        Root@1
+        Link@2
     } [mutable = false]
     expires_at@5: i64 [mutable = false]
     revoked_at@6: ?i64
     requesting_address@7: string [mutable = false]
     user_agent@8: string [mutable = false]
     token_hash@9: ?bytes [min_length = 1, mutable = false]
+    redeemed_at@10: ?i64
+    opened_by@11: ?UserSession.id [mutable = false]
+    issued_by@12: ?User.id [mutable = false]
     laws {
         user_session_id {
             unique (session_id)
         }
         revoked_once on update {
             assert before.revoked_at is absent || before.revoked_at == after.revoked_at
+        }
+        root_has_no_user {
+            assert user_id is present || kind == Root
+        }
+        redeemed_once on update {
+            assert before.redeemed_at is absent || before.redeemed_at == after.redeemed_at
+        }
+        only_links_redeem {
+            assert redeemed_at is absent || kind == Link
         }
         never_deleted on delete {
             forbid true

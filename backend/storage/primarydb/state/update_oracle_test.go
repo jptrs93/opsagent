@@ -482,7 +482,7 @@ func createUserForTest(s *Service, name string) uint64 {
 		}
 		now := time.Now().UnixMilli()
 		meta := pq.EventMeta{GlobalSeq: seq, EventTime: now, Author: int64(id), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
-		return pq.NewUpdate(pq.UserMutation(meta, apigen.User{ID: id, Name: name, Authentication: apigen.UserAuthentication{WebAuthnID: []byte{byte(id)}}})), nil
+		return pq.NewUpdate(pq.UserMutation(meta, apigen.User{ID: id, Name: apigen.Some(name), Authentication: apigen.UserAuthentication{WebAuthnID: []byte{byte(id)}}})), nil
 	}))
 	return id
 }
@@ -780,7 +780,7 @@ func createUserSessionForTest(t *testing.T, s *Service, sessionID string, userID
 		if err != nil {
 			return nil, err
 		}
-		doc := &apigen.UserSession{SessionID: sessionID, UserID: userID, ExpiresAt: time.Unix(1_700_200_000, 0), TokenHash: apigen.Some([]byte{1, 2}), UserAgent: "test"}
+		doc := &apigen.UserSession{SessionID: sessionID, UserID: apigen.Some(userID), ExpiresAt: time.Unix(1_700_200_000, 0), TokenHash: apigen.Some([]byte{1, 2}), UserAgent: "test"}
 		return pq.NewUpdate(pq.UserSessionMutation(pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: int64(userID), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}, id, doc)), nil
 	}); err != nil {
 		t.Fatal(err)
@@ -900,7 +900,7 @@ func testSystemConfig(hash string) *apigen.SystemConfig {
 				S3Region: stringSetting(""), S3Endpoint: stringSetting("")},
 			LargeAssets: apigen.LargeAssetsSettings{UseSeparateS3: boolSetting(false), S3AccessKeyID: stringSetting(""), S3Bucket: stringSetting(""), S3Path: stringSetting(""),
 				S3Region: stringSetting(""), S3Endpoint: stringSetting(""), KeepLocalCopy: boolSetting(true)},
-			Auth: apigen.AuthSettings{PasswordLoginEnabled: boolSetting(false)},
+			Auth: apigen.AuthSettings{PasswordLoginEnabled: boolSetting(false), RequirePasskey: boolSetting(false)},
 		},
 	}
 }

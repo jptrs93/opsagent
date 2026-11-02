@@ -3,6 +3,7 @@ package apigen
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/go-webauthn/webauthn/webauthn"
@@ -12,12 +13,21 @@ func (m *User) WebAuthnID() []byte {
 	return m.Authentication.WebAuthnID
 }
 
+// DisplayName is the name shown for the account: the chosen name, or a
+// placeholder built from the id while an invitee has not picked one yet.
+func (m *User) DisplayName() string {
+	if m.Name.Present {
+		return m.Name.Value
+	}
+	return fmt.Sprintf("user-%d", m.ID)
+}
+
 func (m *User) WebAuthnName() string {
-	return m.Name
+	return m.DisplayName()
 }
 
 func (m *User) WebAuthnDisplayName() string {
-	return m.Name
+	return m.DisplayName()
 }
 
 func (m *User) WebAuthnCredentials() []webauthn.Credential {

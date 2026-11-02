@@ -10,8 +10,11 @@ option go_package = "github.com/jptrs93/opsagent/backend/apigen";
 
 message User {
   uint64 id = 1 [(cp.js_type) = "number"];
-  string name = 2 [(buf.validate.field).string.min_len = 1];
+  optional string name = 2 [(buf.validate.field).string.min_len = 1]; // absent until an invitee picks it
   UserAuthentication authentication = 3 [(cp.go_value) = true]; // replica class only, never sent to a browser
+  optional string email = 4 [(buf.validate.field).string.min_len = 1];
+  optional string password_hash = 5 [(buf.validate.field).string.min_len = 1]; // replica class only, never sent to a browser
+  optional int64 activated_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"]; // absent while the user is pending
 }
 
 message UserAuthentication {
@@ -22,4 +25,7 @@ message UserAuthentication {
 message WebAuthnCredential {
   bytes id = 1 [(buf.validate.field).bytes.min_len = 1];
   bytes data = 2 [(buf.validate.field).bytes.min_len = 1];
+  string label = 3;
+  int64 created_at = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
+  optional int64 last_used_at = 5 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }

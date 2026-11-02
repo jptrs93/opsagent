@@ -196,7 +196,7 @@ func TestApprovedSessionExpiresUncollected(t *testing.T) {
 // be the request's own user doing it.
 func TestApproveIsScopedToTheRequestedUser(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: "other"}
+	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: apigen.Some("other")}
 	users.Write(h.Store, other)
 	req := h.mustRequestStart(t, user.ID)
 

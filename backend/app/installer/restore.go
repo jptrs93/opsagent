@@ -22,7 +22,7 @@ import (
 const (
 	primaryConfigWebListen         = "WEB_LISTEN"
 	primaryConfigWebHTTPOnly       = "WEB_HTTP_ONLY"
-	primaryConfigPasswordLogin     = "PASSWORD_LOGIN_ENABLED"
+	primaryConfigRequirePasskey    = "REQUIRE_PASSKEY"
 	primaryConfigWebTLSSelfManaged = "WEB_TLS_SELF_MANAGED"
 	primaryConfigWebTLSCertPEM     = "WEB_TLS_CERT_PEM"
 	primaryConfigClusterListen     = "CLUSTER_LISTEN"
@@ -122,13 +122,6 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 	return nil
 }
 
-func restoredPrimaryName(opts installOptions) string {
-	if opts.primaryName != nil {
-		return *opts.primaryName
-	}
-	return "primary"
-}
-
 func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
 	store := state.Open(dbPath)
 	nodeID, err := nodes.PrimaryNodeID(store.Queries())
@@ -174,11 +167,11 @@ func restoredSystemConfigOverrides(opts installOptions) []restoredSystemConfigOv
 	if opts.httpOnly != nil {
 		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigWebHTTPOnly, value: strconv.FormatBool(*opts.httpOnly)})
 	}
-	if opts.passwordLogin != nil {
-		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigPasswordLogin, value: strconv.FormatBool(*opts.passwordLogin)})
+	if opts.requirePasskey != nil {
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigRequirePasskey, value: strconv.FormatBool(*opts.requirePasskey)})
 	}
-	if opts.webTLSSelfManaged != nil {
-		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigWebTLSSelfManaged, value: strconv.FormatBool(*opts.webTLSSelfManaged)})
+	if opts.selfManagedTLS() {
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigWebTLSSelfManaged, value: "true"})
 	}
 	if opts.webTLSCertPEM != nil {
 		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigWebTLSCertPEM, value: *opts.webTLSCertPEM, sensitive: true})
@@ -189,8 +182,8 @@ func restoredSystemConfigOverrides(opts installOptions) []restoredSystemConfigOv
 	if opts.enrollmentListen != nil {
 		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigEnrollmentListen, value: *opts.enrollmentListen})
 	}
-	if opts.acmeHosts != nil {
-		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigAcmeHosts, value: *opts.acmeHosts})
+	if opts.webHosts != nil {
+		overrides = append(overrides, restoredSystemConfigOverride{key: primaryConfigAcmeHosts, value: *opts.webHosts})
 	}
 	return overrides
 }
@@ -224,9 +217,9 @@ func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions, own 
 			httpOnly, _ := strconv.ParseBool(override.value)
 			settings.HttpWeb.Enabled = systemconfig.BoolLiteral(httpOnly)
 			settings.HttpsWeb.Enabled = systemconfig.BoolLiteral(!httpOnly)
-		case primaryConfigPasswordLogin:
-			enabled, _ := strconv.ParseBool(override.value)
-			settings.Auth.PasswordLoginEnabled = systemconfig.BoolLiteral(enabled)
+		case primaryConfigRequirePasskey:
+			required, _ := strconv.ParseBool(override.value)
+			settings.Auth.RequirePasskey = systemconfig.BoolLiteral(required)
 		case primaryConfigWebTLSSelfManaged:
 			selfManaged, _ := strconv.ParseBool(override.value)
 			settings.HttpsWeb.TlsSelfManaged = systemconfig.BoolLiteral(selfManaged)

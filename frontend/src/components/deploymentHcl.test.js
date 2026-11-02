@@ -358,3 +358,20 @@ test("deployment record ids survive address and volume reference round trips", (
     const deleted = {...database, meta: {...database.meta, deleted: true}};
     assert.ok(parseDeploymentHcl(text, {...catalogs, deployments: [deleted]}).diagnostics.some(item => /No deployment named "database"/.test(item.message)));
 });
+
+test("the default volume path is set only through the mount list", () => {
+    const volumeDocument = runtime => {
+        const doc = document({mode: 1});
+        containerOf(doc).runtime = runtime;
+        return doc;
+    };
+    const withVolume = deploymentDocumentToHcl(volumeDocument({defaultVolume: {containerPath: "/srv/data"}}), catalogs);
+    assert.match(withVolume, /mount\(default_volume\(\), "\/srv\/data"\)/);
+    assert.doesNotMatch(withVolume, /data_mount_path|process \{/);
+    const disabledWithPath = deploymentDocumentToHcl(volumeDocument({defaultVolume: {disabled: true, containerPath: "/stale"}}), catalogs);
+    assert.doesNotMatch(disabledWithPath, /data_mount_path|\/stale/);
+    const source = withVolume.replace("\n  container {", '\n  container {\n    process { data_mount_path = "/y" }');
+    const {document: parsed, diagnostics} = parseDeploymentHcl(source, catalogs);
+    assert.equal(parsed, null);
+    assert.deepEqual(diagnostics.map(item => item.message), ["Attribute data_mount_path is not valid in process."]);
+});

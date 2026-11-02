@@ -6,7 +6,7 @@ import { protobuf } from '@codemirror/legacy-modes/mode/protobuf';
 import { json } from '@codemirror/legacy-modes/mode/javascript';
 import { tags } from '@lezer/highlight';
 
-export type CodeLanguage = 'text' | 'json' | 'hcl' | 'protobuf' | 'typescript' | 'smithy';
+export type CodeLanguage = 'text' | 'json' | 'hcl' | 'protobuf' | 'typescript' | 'smithy' | 'typedef';
 
 export interface CodeVariant {
   label: string;
@@ -16,7 +16,7 @@ export interface CodeVariant {
 
 // Legacy modes ships Protobuf but not HCL or Smithy. These are display lexers,
 // not validators; preserve multiline comments, text blocks, and HCL heredocs.
-function configLanguage(name: 'hcl' | 'smithy') {
+function configLanguage(name: 'hcl' | 'smithy' | 'typedef') {
   return StreamLanguage.define({
     name,
     startState: () => ({ blockComment: false, textBlock: false, heredoc: '' }),
@@ -43,7 +43,7 @@ function configLanguage(name: 'hcl' | 'smithy') {
         return 'string';
       }
       if (stream.eatSpace()) return null;
-      if (stream.match('//') || (name === 'hcl' && stream.match('#'))) {
+      if (stream.match('//') || (name !== 'smithy' && stream.match('#'))) {
         stream.skipToEnd();
         return 'comment';
       }
@@ -57,6 +57,12 @@ function configLanguage(name: 'hcl' | 'smithy') {
       if (stream.match(/^"(?:[^"\\]|\\.)*(?:"|$)/)) return 'string';
       if (stream.match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/)) return 'number';
       if (stream.match(/^[@$][A-Za-z_][\w.#]*/)) return 'meta';
+      if (name === 'typedef') {
+        if (stream.match(/^(?:type|enum|id|root|mat|map)\b/)) return 'keyword';
+        if (stream.match(/^(?:bool|string|bytes|uuid|i32|i64|u8|u32|u64|f32|f64)\b/)) return 'typeName';
+        if (stream.match(/^(?:->|\||\?|\[\d*\])/)) return 'operator';
+        if (stream.match(/^[A-Z][\w]*/)) return 'typeName';
+      }
       if (stream.match(/^(?:namespace|use|structure|list|map|blob|bigInteger|long|double|string|boolean|integer|timestamp|document|union|enum|intEnum|service|operation|resource|apply|metadata|for|in|if|true|false|null)\b/)) return 'keyword';
       if (stream.match(/^[A-Za-z_][\w.-]*/)) return 'variableName';
       stream.next();
@@ -72,6 +78,7 @@ const languages: Record<CodeLanguage, Extension> = {
   protobuf: StreamLanguage.define(protobuf),
   typescript: javascript({ typescript: true }),
   smithy: configLanguage('smithy'),
+  typedef: configLanguage('typedef'),
 };
 
 // Imported by CodeBlock only after mount, keeping the editor out of SSR.
@@ -91,28 +98,27 @@ export function createCodeEditor(parent: HTMLElement, code: string, language: Co
       doc: code,
       extensions: [
         EditorState.readOnly.of(true),
-        // Keep the native caret and keyboard selection; readOnly rejects edits.
-        EditorView.editable.of(true),
+        EditorView.editable.of(false),
         syntax.of(languages[language]),
         accessibility.of(attributes(label)),
         syntaxHighlighting(HighlightStyle.define([
-          { tag: tags.comment, color: '#94a3b8' },
-          { tag: tags.keyword, color: '#c4b5fd' },
-          { tag: tags.string, color: '#86efac' },
-          { tag: [tags.number, tags.bool], color: '#fdba74' },
-          { tag: tags.typeName, color: '#7dd3fc' },
-          { tag: tags.meta, color: '#f0abfc' },
-          { tag: tags.operator, color: '#93c5fd' },
+          { tag: tags.comment, color: 'var(--tok-comment)' },
+          { tag: tags.keyword, color: 'var(--tok-keyword)' },
+          { tag: tags.string, color: 'var(--tok-string)' },
+          { tag: [tags.number, tags.bool], color: 'var(--tok-number)' },
+          { tag: tags.typeName, color: 'var(--tok-type)' },
+          { tag: tags.meta, color: 'var(--tok-meta)' },
+          { tag: tags.operator, color: 'var(--tok-operator)' },
         ])),
         EditorView.theme({
-          '&': { backgroundColor: 'transparent', color: 'var(--code-ink, #e2e8f0)', fontSize: '13px' },
+          '&': { backgroundColor: 'transparent', color: 'var(--code-ink)', fontSize: '13px' },
           '&.cm-focused': { outline: 'none' },
           '.cm-scroller': { overflowX: 'auto', fontFamily: 'inherit', lineHeight: '1.55' },
-          '.cm-content': { padding: '15px 0', caretColor: '#7dd3fc' },
+          '.cm-content': { padding: '14px 0' },
           '.cm-content:focus': { outline: 'none' },
-          '.cm-line': { padding: '0 17px' },
-          '.cm-content ::selection, .cm-content::selection': { backgroundColor: '#1e4976' },
-        }, { dark: true }),
+          '.cm-line': { padding: '0 16px' },
+          '.cm-content ::selection, .cm-content::selection': { backgroundColor: 'var(--code-select)' },
+        }),
       ],
     }),
   });

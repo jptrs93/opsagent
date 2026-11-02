@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/insta
   --web-listen "[$IPV6]:443" \
   --cluster-listen "[$IPV6]:9443" \
   --enrollment-listen "[$IPV6]:9444" \
-  --acme-hosts "$DOMAIN"
+  --web-hosts "$DOMAIN"
 ```
 
 Use the IPv6 address without the `/128` prefix length in listen addresses, and point the domain's `AAAA` record at that address.
@@ -87,26 +87,14 @@ Use the IPv6 address without the `/128` prefix length in listen addresses, and p
 ## Local or evaluation install
 
 Single-machine installs for trying OpenDeploy out. The installer prints the **master password** once.
-`--password-login true` lets that password sign in directly with any username. Without it, the master
-password only registers a passkey under *First time setup*. Passkeys need `http://localhost` or HTTPS
-with a trusted certificate, so pick the flow that matches how you will reach the machine.
+It signs nobody in: on the sign-in page click *Enrol or recover a user*, enter it, and create the first
+administrator with a username and password. Every user then signs in with their own password; passkeys
+are optional and registered from *Users & roles › You* (they need `http://localhost` or HTTPS with a
+trusted certificate), and `--require-passkey true` turns password sign-in off. The user documentation's
+Getting started guide walks through each certificate option.
 
-**1. Plain HTTP, master-password login.** Open `http://localhost:8080` (tunnel with
-`ssh -L 8080:localhost:8080 <vm>` if remote) and sign in with a name and the master password.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s -- \
-  --http-only true \
-  --web-listen 127.0.0.1:8080 \
-  --web-hosts localhost \
-  --password-login true
-```
-
-Use `--web-listen :8080` instead to reach it as `http://<machine-address>:8080` over a trusted LAN;
-credentials then cross the network in clear text.
-
-**1b. Plain HTTP, passkeys.** Open `http://localhost:8080`, click *First time setup*, register a
-passkey. Only works when the address bar says `localhost`.
+**1. Plain HTTP on loopback.** Open `http://localhost:8080` (tunnel with
+`ssh -L 8080:localhost:8080 <vm>` if remote).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s -- \
@@ -115,26 +103,28 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/insta
   --web-hosts localhost
 ```
 
-**2. HTTPS with a local CA, master-password login.** The installer generates a local CA and a
-certificate for the listed hosts. Open `https://localhost:8443`, continue through the browser
-warning, sign in with a name and the master password. Trusting the CA (below) is optional here.
+Use `--web-listen :8080` (the default) instead to reach it as `http://<machine-address>:8080` over a
+trusted LAN; credentials then cross the network in clear text.
+
+**2. HTTPS with a local CA.** The installer generates a local CA and a certificate for the listed
+hosts. Open `https://localhost:8443`, continue through the browser warning, and enrol the first user
+with the master password. Password sign-in works through the warning; passkeys need the CA trusted
+first, using the steps the installer prints (also behind *Trust the CA* on the sign-in page).
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s -- \
-  --web-tls-self-managed true \
+  --web-tls-self-signed true \
   --web-listen 127.0.0.1:8443 \
-  --web-hosts localhost \
-  --password-login true
+  --web-hosts localhost
 ```
 
-**3. HTTPS with a local CA, passkeys.** Same certificate setup; passkeys need the CA trusted first.
-Trust it using the steps the installer prints (also behind *Trust the CA* on the login page), restart the browser, open `https://opendeploy.test.local`, use *First time setup*.
-The host name must resolve to the machine, for example via `/etc/hosts`. The cluster and enrollment
-listeners are only used by worker nodes, but binding them explicitly keeps the layout predictable.
+**3. HTTPS with a local CA on a host name.** Same certificate setup on the default port. The host
+name must resolve to the machine, for example via `/etc/hosts`. The cluster and enrollment listeners
+are only used by worker nodes, but binding them explicitly keeps the layout predictable.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/install_primary.sh | bash -s -- \
-  --web-tls-self-managed true \
+  --web-tls-self-signed true \
   --web-listen :443 \
   --web-hosts opendeploy.test.local \
   --cluster-listen :9443 \
@@ -165,7 +155,7 @@ The installer:
 - downloads and checksum-verifies the release binary into `/var/lib/opendeploy-releases/jptrs93/opsagent/<version>/opendeploy-linux-<arch>` and symlinks `/var/lib/opendeploy/bin/opendeploy` to it
 - provisions a bundled, pinned containerd + runc runtime and the `opendeploy-containerd.service` unit
 - creates `primary.db`, the secrets machine key, the cluster ULA prefix, and primary cluster mTLS material before the first service start
-- stores the generated temporary setup password hash in `primary.db` and prints the password once; bootstrap values are not written to `/etc/opendeploy/env`
+- stores the generated master password hash in `primary.db` and prints the password once; bootstrap values are not written to `/etc/opendeploy/env`
 - installs sudoers + the `opendeploy.service` systemd unit
 - on upgrade: atomically swaps the binary and restarts the service
 - on first install: starts `opendeploy.service` and prints the Web UI address plus the current service log directory/file
@@ -186,11 +176,11 @@ Uninstall always stops the services, kills and deletes every container (and its 
 
 Fresh primary configuration is persisted by the installer. Later changes use the Settings UI/API; `/etc/opendeploy/env` is reserved for process-level settings such as passkey origins and worker connection addresses.
 
-1. **Initial setup password** — fresh primary installs print a high-entropy password like `opendeploy-...`. This is the master password. Use it under *First time setup* to create the first operator account and register a passkey or, with `--password-login true`, sign in with it directly. It remains available for recovery and additional user enrollment until rotated in Settings.
+1. **Master password** — fresh primary installs print a high-entropy password like `opendeploy-...`. It signs nobody in. Use it under *Enrol or recover a user* on the sign-in page to create the first administrator with a username and password. It remains available for recovery and further enrolment until rotated in Settings.
 2. **Primary vs. worker node** — install primaries with `opendeploy install primary`; install workers from the Cluster page command, or with `opendeploy install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex>`.
 3. **Cluster mTLS** — primary cluster (`:9443`) and HTTPS enrollment (`:9444`) listeners start by default. Set `--cluster-listen` and `--enrollment-listen` during primary install to bind them to specific addresses. Primary CA/server key material is generated by the installer and stored encrypted in the primary secrets store. Workers use `OPENDEPLOY_PRIMARY_CLUSTER_ADDR` for mTLS traffic, `OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR` for bootstrap enrollment, and `OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT` to pin the enrollment TLS certificate SPKI before sending a CSR. During enrollment the worker generates its private key locally, sends a CSR, and caches the received `ca.crt` / `node.crt` plus its local `node.key` under `/var/lib/opendeploy/tls/`.
-4. **Web UI listeners / TLS** — HTTPS is enabled by default on `:443`. Use `--http-only`, `--web-listen`, `--web-hosts` (alias `--acme-hosts`), and the self-managed TLS flags during installation; use Settings afterward. If initial self-managed TLS has no supplied PEM bundle, the installer generates a local CA and a certificate under it, exports the CA to `/var/lib/opendeploy/web-ca.crt`, and prints trust instructions.
-5. **Login methods** — passkeys are always available. `--password-login true` (or *Settings → Authentication*) additionally lets the master password sign in directly; see the local install section above for when that is needed.
+4. **Web UI listeners / TLS** — HTTPS is enabled by default on `:443`. Without a certificate flag the Web UI certificate comes from Let's Encrypt for `--web-hosts`. `--web-tls-cert-pem-file` serves your own bundle; `--web-tls-self-signed true` generates a local CA and a certificate under it, exports the CA to `/var/lib/opendeploy/web-ca.crt`, and prints trust instructions. The two are mutually exclusive, and neither combines with `--http-only`. Use Settings afterward.
+5. **Login methods** — every user signs in with their own password; passkeys are an optional addition registered from *Users & roles › You*. `--require-passkey true` (or *Settings → Authentication*) turns password sign-in off once everyone has a passkey.
 
 For diagnostics, inspect the printed OpenDeploy service log file first. It is under:
 

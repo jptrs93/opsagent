@@ -1,7 +1,6 @@
 import van from 'vanjs-core';
 import {capi} from '../capi/index.js';
 import {loginS} from './login.js';
-import {isBootstrapSession} from '../lib/userSessions.js';
 import {createTree, applyMessage, resetTree} from './tree.js';
 import {publishDerived, SEEDED_SPACES} from './derive.js';
 export * from './derive.js';
@@ -22,7 +21,9 @@ let streamRetryTimer = null;
 let streamInactivityTimer = null;
 const tree = createTree();
 
-const hasStateStreamAccess = () => loginS.val != null && !isBootstrapSession(loginS.val);
+// A root session streams too: the enrol page needs users, spaces,
+// templates and grants, and the server sends it nothing else.
+const hasStateStreamAccess = () => loginS.val != null;
 
 const setStreamState = (status, sentence, lastError = '') => {
     deploymentsStreamS.val = { status, sentence, lastError };

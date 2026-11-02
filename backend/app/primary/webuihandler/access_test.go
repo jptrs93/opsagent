@@ -23,7 +23,7 @@ func newAccessTestHandler(t *testing.T) (*Handler, apigen.Context) {
 		t.Fatalf("seed admin grant: %v", err)
 	}
 	h := &Handler{Store: store, Queries: store.Queries(), Authz: authzService}
-	ctx := apigen.Context{Ctx: context.Background(), User: &apigen.User{ID: 1, Name: "operator"}}
+	ctx := apigen.Context{Ctx: context.Background(), User: &apigen.User{ID: 1, Name: apigen.Some("operator")}}
 	return h, ctx
 }
 

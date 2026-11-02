@@ -64,6 +64,7 @@ func (h *Handler) settingsConfigRefDetails(ids map[uint64]struct{}) []string {
 			{"HTTPS web ACME hosts", settings.HttpsWeb.AcmeHosts.Value.Value.ConfigRef},
 			{"HTTPS web ACME email", settings.HttpsWeb.AcmeEmail.Value.Value.ConfigRef},
 			{"password login enabled", settings.Auth.PasswordLoginEnabled.Value.Value.ConfigRef},
+			{"require passkey sign-in", settings.Auth.RequirePasskey.Value.Value.ConfigRef},
 			{"cluster listen", settings.Cluster.Listen.Value.Value.ConfigRef},
 			{"cluster enrollment listen", settings.Cluster.EnrollmentListen.Value.Value.ConfigRef},
 			{"backup enabled", settings.Backup.Enabled.Value.Value.ConfigRef},

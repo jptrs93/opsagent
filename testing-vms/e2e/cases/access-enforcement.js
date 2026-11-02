@@ -116,7 +116,7 @@ export const accessEnforcementCases = [
   {
     id: 'access-restricted-user-created',
     title: 'create restricted user in a second session',
-    description: 'Creates a second user through the setup-password bootstrap flow in an isolated browser context with its own passkey.',
+    description: 'Creates a second user through the master-password enrol flow in an isolated browser context: enrolled as cluster_admin with a password, signed in directly, with its own passkey.',
     requires: ['bootstrap', 'worker-enrolled', 'nix-docker-baseline', 'config-created', 'secret-created', 'small-asset-created'],
     async run(ctx) {
       const browser = ctx.page.context().browser();
@@ -447,10 +447,14 @@ export const accessEnforcementCases = [
         await page.getByTestId('nav-cluster').click();
         const row = page.getByTestId(`machine-row-${machineID}`);
         await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
-        await row.getByLabel(`Node name for ${machineID}`, {exact: true}).fill('worker-1-denied');
-        await row.getByRole('button', {name: `Save node name ${machineID}`, exact: true}).click();
-        await expect(row.getByText('Access denied')).toBeVisible({timeout: LONG_UI_TIMEOUT});
-        await row.getByRole('button', {name: `Discard node name change for ${machineID}`, exact: true}).click();
+        // The name is edited in the inspector the row opens.
+        await row.click();
+        const inspector = page.getByTestId('node-inspector');
+        await inspector.getByLabel(`Node name for ${machineID}`, {exact: true}).fill('worker-1-denied');
+        await inspector.getByRole('button', {name: `Save node name ${machineID}`, exact: true}).click();
+        await expect(inspector.getByText('Access denied')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+        await inspector.getByRole('button', {name: `Discard node name change for ${machineID}`, exact: true}).click();
+        await inspector.getByLabel('Close details').click();
       });
     },
   },

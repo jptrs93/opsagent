@@ -72,8 +72,8 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			// transient blip reconnects promptly.
 			backoff = time.Second
 		}
-		slog.WarnContext(ctx, fmt.Sprintf("slave disconnected from primary; reconnecting addr=%s peer=%s connected_for=%s retry_in=%s",
-			cfg.PrimaryClusterAddr, cfg.PrimaryName, time.Since(connectedAt).Round(time.Second), backoff), "err", err)
+		slog.WarnContext(ctx, fmt.Sprintf("secondary disconnected from primary; reconnecting addr=%s connected_for=%s retry_in=%s",
+			cfg.PrimaryClusterAddr, time.Since(connectedAt).Round(time.Second), backoff), "err", err)
 
 		select {
 		case <-ctx.Done():

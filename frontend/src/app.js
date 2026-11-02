@@ -1,15 +1,21 @@
 import van from "vanjs-core";
 import {loginPage} from "./pages/login.js";
-import {bootstrapPage} from "./pages/bootstrap.js";
+import {enrolPage} from "./pages/enrol.js";
+import {enrolLandingPage} from "./pages/enrolLanding.js";
 import {dashboard} from "./pages/dashboard.js";
 import "./state/deployments.js";
 import {clearLoginState, initLoginState, loginS, setLoginFromResponse} from "./state/login.js";
 import {currentPath, navigate} from "./lib/router.js";
+import {isRootSession} from "./lib/userSessions.js";
 import {capi} from "./capi/index.js";
 
 function renderRoute() {
     const path = currentPath.val;
-    if (path === "/bootstrap") return bootstrapPage();
+    const landing = /^\/enrol\/([^/]+)$/.exec(path);
+    if (landing) return enrolLandingPage(decodeURIComponent(landing[1]));
+    if (path === "/enrol" || path === "/bootstrap") return enrolPage();
+    // A root session is not a user: it stays on the enrol page.
+    if (path === "/" && isRootSession(loginS.val)) return enrolPage();
     if (path === "/") return dashboard();
     return loginPage();
 }

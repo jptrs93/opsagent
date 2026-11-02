@@ -185,3 +185,24 @@ export const logoMark = ({size = 28, class: className = ""} = {}) => svg(
     path({d: "M16 8.5l7 11.5H9z", fill: "#fff", opacity: "0.95"}),
     path({d: "M11.5 23.5h9", stroke: "#fff", "stroke-width": "2", "stroke-linecap": "round", opacity: "0.55"}),
 );
+
+export const userPlusIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"}),
+    circle({cx: "9", cy: "7", r: "4"}),
+    line({x1: "19", y1: "8", x2: "19", y2: "14"}),
+    line({x1: "22", y1: "11", x2: "16", y2: "11"}),
+);
+
+export const lifeBuoyIcon = (attrs) => svg(iconAttrs(attrs),
+    circle({cx: "12", cy: "12", r: "10"}),
+    path({d: "m4.93 4.93 4.24 4.24"}),
+    path({d: "m14.83 9.17 4.24-4.24"}),
+    path({d: "m14.83 14.83 4.24 4.24"}),
+    path({d: "m9.17 14.83-4.24 4.24"}),
+    circle({cx: "12", cy: "12", r: "4"}),
+);
+
+export const linkIcon = (attrs) => svg(iconAttrs(attrs),
+    path({d: "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"}),
+    path({d: "M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"}),
+);

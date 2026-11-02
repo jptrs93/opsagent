@@ -129,9 +129,14 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	middlewares := []apigen.MiddlewareFunc{
 		clientaddr.Middleware(),
 		ratelimit.PerIP(rate.Limit(40), 100, time.Minute),
-		ratelimit.PerIPAndPrefix("/v1/auth", rate.Limit(1), 10, time.Minute),
+		// Discovery is a cheap unauthenticated read every auth page fetches on
+		// mount; counting it against the family would spend the burst on page
+		// loads rather than credential attempts.
+		ratelimit.PerIPAndPrefixExcept("/v1/auth", []string{"/v1/auth/methods"}, rate.Limit(1), 10, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/auth/master", rate.Limit(0.2), 10, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/auth/password/login", rate.Limit(0.2), 10, time.Minute),
+		ratelimit.PerIPAndPrefix("/v1/auth/link/redeem", rate.Limit(0.2), 10, time.Minute),
+		ratelimit.PerIPAndPrefix("/v1/auth/open-session", rate.Limit(0.2), 10, time.Minute),
 		// The agent-session family is reachable without a credential.
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions", rate.Limit(2), 30, time.Minute),
 		ratelimit.PerIPAndPrefix("/v1/agent-sessions/instructions", rate.Limit(0.2), 5, time.Minute),

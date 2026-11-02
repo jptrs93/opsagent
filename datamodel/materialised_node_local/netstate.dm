@@ -1,6 +1,6 @@
-import core "opendeploy"
+import "core"
 
-type NetState {
+type NetState mat {
     seq@1: i64
     ula_prefix@2: [6]u8
     node_identifier@3: string

@@ -4,10 +4,9 @@ Node-local storage and query of workload and system logs: the per-deployment
 WAL, the collector that commits it to parquet, the sqlite catalog, the
 maintenance loop that rewrites and expires archive files, and the query
 engine. Code lives in `backend/lib/log` (`v2` frame format, `logmanager`
-collector, maintenance and query, `logconsumer` raw capture). The design
-rationale is in [log-compaction.md](../future-work/log-compaction.md); the
-remaining open items are in
-[logmanager-implementation-plan.md](../future-work/logmanager-implementation-plan.md).
+collector, maintenance and query, `logconsumer` raw capture). The settled
+design decisions are at the end of this page; the remaining open items are
+in [todo.md](../product/todo.md).
 
 ## Layout
 
@@ -219,3 +218,52 @@ the owning secondary over the cluster session.
 The field sidebar from `log_file_keys`, the display map from columns
 instead of `raw_message`, a level 3 cross-node merge, and S3 upload. See
 the implementation plan.
+
+## Design decisions
+
+- **Column type is the JSON value type, never coerced.** `2` is int64;
+  `2.0` and `1e3` are float64; integer text outside int64 goes to the float
+  column. A key with mixed types gets one column per type
+  (`f_<key>__i`, `__f`, `__b`, `__s`), and all of a key's variants are dense
+  or all spill.
+- **Budget: 400 leaf key columns per file.** Under budget every key is a
+  column. Over budget, keys rank by row presence from the tally pass; a key
+  is admitted only if all its variants fit. The tally tracks at most 4,096
+  distinct keys per batch; later keys are uncounted and spill.
+- **Nested objects flatten to dotted keys**, depth capped at 8. Arrays stay
+  JSON text in the string variant and match per element. `null` is absent.
+  Duplicate keys: last wins. Key length capped at 256 bytes.
+- **Spill is four typed maps** (`spill_int`, `spill_float`, `spill_bool`,
+  `spill_str`).
+- **Query resolution is typed and cross-variant.** A literal that parses as
+  a number matches the int and float variants numerically and the string
+  variant textually; range ops touch numeric variants only; `contains` runs
+  over the textual rendering of any variant. The WAL tail applies the same
+  rules through the shared shredder.
+- **Batch commits trigger on 64MB of raw WAL bytes**, or the day deadline,
+  or producer exit, whichever comes first. Size is the axis that bounds the
+  tail: filtered queries scan the uncommitted WAL raw, so the threshold caps
+  that scan at 64MB regardless of how quiet or busy a deployment is. The day
+  deadline keeps files day-scoped; the one-minute tick keeps silent
+  deployments committing.
+- **Roll-up triggers on accumulated parquet bytes within the day.** When a
+  day's level 1 files sum to at least 256MB of parquet they merge into one
+  level 2 file; at day end plus 15 minutes the remainder merges if there are
+  at least two files. Each byte is written exactly twice. Merging on every
+  commit was rejected: it rewrites the growing file about twenty times
+  before it is full.
+- **`level` is a processing ladder.** Each level implies everything below
+  it, and every rewrite re-runs shredding from `raw_message`: 1 is batch
+  output, 2 is the node day roll-up. Level 0 (unshredded batches) no longer
+  exists anywhere. A level 3 cross-node merge is deferred: at current scale
+  the node-level passes are enough, and when it comes it must trigger on
+  previous day plus grace rather than on every node having advanced, so a
+  dead node never blocks it, and record which inputs produced each merged
+  file so a late file from a recovered node stays valid standalone.
+- **Row group size stays at 128k rows.** The footer tax scales with row
+  groups times columns, not with file count; larger groups would shrink it
+  at the cost of coarser time pruning. Change it only on measured footers.
+- **Record identity.** The API is one-shot with no cursor. If pagination or
+  tail-follow ever need one, `(time, node, instance_ordinal, run, stream,
+  seq)` is unique per record and sorts the archive, so a cursor is that
+  tuple.

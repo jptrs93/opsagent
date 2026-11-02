@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
@@ -42,7 +43,7 @@ func newEnforcementTestHandler(t *testing.T) (*Handler, *apigen.Space) {
 		t.Fatalf("authz.Open: %v", err)
 	}
 	for id, name := range map[uint64]string{1: "admin", 2: "spaceop", 3: "viewer"} {
-		users.Write(store, &apigen.User{ID: id, Name: name})
+		users.Write(store, &apigen.User{ID: id, Name: apigen.Some(name), ActivatedAt: apigen.Some(time.Now())})
 	}
 	if _, err := authzService.CreateGrant(clusterAdminGrant(1), 0); err != nil {
 		t.Fatalf("seed admin grant: %v", err)
@@ -245,8 +246,8 @@ func TestEnforcementSystemLogIsTheSystemDeploymentsLog(t *testing.T) {
 			t.Fatalf("grant %v to user %d: %v", entity, userID, err)
 		}
 	}
-	users.Write(h.Store, &apigen.User{ID: 4, Name: "deploylogs"})
-	users.Write(h.Store, &apigen.User{ID: 5, Name: "nodelogs"})
+	users.Write(h.Store, &apigen.User{ID: 4, Name: apigen.Some("deploylogs")})
+	users.Write(h.Store, &apigen.User{ID: 5, Name: apigen.Some("nodelogs")})
 	grantRule(4, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT)
 	grantRule(5, apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_NODE)
 

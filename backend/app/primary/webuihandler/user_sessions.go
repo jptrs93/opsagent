@@ -17,31 +17,46 @@ import (
 
 var UserSessionNotFoundErr = apigen.NewApiErr("Session not found", "user_session_not_found", http.StatusNotFound)
 
-func (h *Handler) startUserSession(ctx apigen.Context, user *apigen.User, kind apigen.UserSessionKind, ttl time.Duration) (*apigen.LoginResponse, error) {
+// newSessionRecord mints a token of the given prefix and the row it will
+// resolve to, with the caller's address and agent. The row is not yet
+// stored.
+func newSessionRecord(ctx apigen.Context, tokenKind string, kind apigen.UserSessionKind, ttl time.Duration) (users.UserSession, string, error) {
 	sessionID, err := authu.GenerateRandomToken(32)
 	if err != nil {
-		return nil, fmt.Errorf("generating user session id: %w", err)
+		return users.UserSession{}, "", fmt.Errorf("generating user session id: %w", err)
 	}
-	token, err := mintToken(userTokenKind, sessionID)
+	token, err := mintToken(tokenKind, sessionID)
 	if err != nil {
-		return nil, fmt.Errorf("generating user session token: %w", err)
+		return users.UserSession{}, "", fmt.Errorf("generating user session token: %w", err)
 	}
 	now := time.Now()
-	rec := users.UserSession{
+	return users.UserSession{
 		ID:                sessionID,
-		UserID:            user.ID,
 		CreatedAt:         now,
 		ExpiresAt:         now.Add(ttl),
 		TokenHash:         hashToken(token),
 		Kind:              kind,
 		RequestingAddress: clientaddr.From(ctx),
 		UserAgent:         clientaddr.UserAgentFrom(ctx),
+	}, token, nil
+}
+
+// startUserSession opens a session and hands back its token. user is nil
+// for a root session; a full session for a pending user activates the user.
+func (h *Handler) startUserSession(ctx apigen.Context, user *apigen.User, kind apigen.UserSessionKind, ttl time.Duration) (*apigen.LoginResponse, error) {
+	rec, token, err := newSessionRecord(ctx, userTokenKind, kind, ttl)
+	if err != nil {
+		return nil, err
+	}
+	if user != nil {
+		rec.UserID = user.ID
+		rec.Author = int64(user.ID)
 	}
 	if err := users.InsertUserSession(h.Store, rec); err != nil {
 		return nil, fmt.Errorf("storing user session: %w", err)
 	}
-	slog.InfoContext(ctx, fmt.Sprintf("started user session address=%s kind=%s", rec.RequestingAddress, kind), "session", sessionID, "user", user.ID)
-	return newLoginResponse(user, token, kind, rec.ExpiresAt, sessionID), nil
+	slog.InfoContext(ctx, fmt.Sprintf("started user session address=%s", rec.RequestingAddress), "session", rec.ID, "session_kind", kind.String(), "user", rec.UserID)
+	return newLoginResponse(user, token, kind, rec.ExpiresAt, rec.ID), nil
 }
 
 func (h *Handler) startDefaultUserSession(ctx apigen.Context, user *apigen.User) (*apigen.LoginResponse, error) {
@@ -49,7 +64,8 @@ func (h *Handler) startDefaultUserSession(ctx apigen.Context, user *apigen.User)
 }
 
 // resolveUserSession turns a u_ token into its user and session, rejecting a
-// missing, revoked, expired, or mismatched one.
+// missing, revoked, expired, mismatched, or link one. A root session resolves
+// with no user.
 func (h *Handler) resolveUserSession(sessionID, token string, now time.Time) (*apigen.User, users.UserSession, error) {
 	rec, err := users.UserSessionByID(h.Store.Queries(), sessionID)
 	if errors.Is(err, users.ErrNotFound) {
@@ -63,6 +79,12 @@ func (h *Handler) resolveUserSession(sessionID, token string, now time.Time) (*a
 	}
 	if subtle.ConstantTimeCompare(rec.TokenHash, hashToken(token)) != 1 {
 		return nil, rec, InvalidAuthTokenErr
+	}
+	switch rec.Kind {
+	case apigen.UserSessionKind_USER_SESSION_KIND_LINK:
+		return nil, rec, InvalidAuthTokenErr
+	case apigen.UserSessionKind_USER_SESSION_KIND_ROOT:
+		return nil, rec, nil
 	}
 	user, err := users.ByID(h.Store.Queries(), rec.UserID)
 	if errors.Is(err, users.ErrNotFound) {
@@ -102,7 +124,7 @@ func (h *Handler) PostV1UserSessionsRevoke(ctx apigen.Context, req *apigen.UserS
 	}
 	if !revoked {
 		rec, fetchErr := users.UserSessionByID(h.Store.Queries(), req.SessionID)
-		if fetchErr != nil || rec.UserID != ctx.User.ID {
+		if fetchErr != nil || !users.CanRevoke(rec, ctx.User.ID) {
 			return UserSessionNotFoundErr
 		}
 		return nil

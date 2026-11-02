@@ -97,7 +97,6 @@ func TestMustLoadRuntimeConfigLoadsCachedBootstrapState(t *testing.T) {
 		ReleasesDir:        dataDir + "-releases",
 		NetproxyStatePath:  filepath.Join(dataDir, "netproxy", "netstate.pb"),
 		PrimaryClusterAddr: "primary:9443",
-		PrimaryName:        "primary",
 	}, caPath, certPath, keyPath)
 
 	wantPrefix, err := network.ParsePrefix(accepted.NodeSnapshot.NetMap.Value.UlaPrefix)

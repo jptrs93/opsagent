@@ -2,9 +2,12 @@
 -- maintained by the reducer in pq/materialise.go.
 
 CREATE TABLE IF NOT EXISTS users (
-    id           INTEGER PRIMARY KEY,
-    name         TEXT    NOT NULL,
-    data_blob    BLOB    NOT NULL,   -- UserAuthentication: WebAuthn id and credentials
+    id            INTEGER PRIMARY KEY,
+    name          TEXT    NOT NULL,   -- '' while an invitee has not picked one
+    email         TEXT    NOT NULL DEFAULT '',
+    password_hash TEXT    NOT NULL DEFAULT '',  -- Argon2id; '' while no password is set
+    activated_at  INTEGER NOT NULL DEFAULT 0,   -- epoch ms; 0 while pending
+    data_blob     BLOB    NOT NULL,   -- UserAuthentication: WebAuthn id and credentials
     created_time INTEGER NOT NULL,   -- epoch ms; 0 predates the fact
     seq          INTEGER NOT NULL,
     event_time   INTEGER NOT NULL,   -- epoch ms
@@ -36,7 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_agent_sessions_user ON agent_sessions (user_id, c
 CREATE TABLE IF NOT EXISTS user_sessions (
     id                 INTEGER PRIMARY KEY,
     session_id         TEXT    NOT NULL UNIQUE,  -- the id inside the u_ token
-    user_id            INTEGER NOT NULL,
+    user_id            INTEGER NOT NULL,   -- 0 on a ROOT session
     created_at         INTEGER NOT NULL,   -- epoch s
     expires_at         INTEGER NOT NULL,   -- epoch s
     token_hash         BLOB    NOT NULL,   -- SHA-256; the plaintext is never stored
@@ -44,6 +47,9 @@ CREATE TABLE IF NOT EXISTS user_sessions (
     kind               INTEGER NOT NULL,   -- UserSessionKind
     requesting_address TEXT    NOT NULL,
     user_agent         TEXT    NOT NULL,
+    redeemed_at        INTEGER NOT NULL DEFAULT 0,  -- epoch s; LINK only, 0 while unredeemed
+    opened_by          INTEGER NOT NULL DEFAULT 0,  -- the LINK session id a FULL session was redeemed from
+    issued_by          INTEGER NOT NULL DEFAULT 0,  -- LINK only: the issuing user, 0 when root issued it
     seq                INTEGER NOT NULL,
     event_time         INTEGER NOT NULL,   -- epoch ms
     author             INTEGER NOT NULL

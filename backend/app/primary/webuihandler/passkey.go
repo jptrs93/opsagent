@@ -65,7 +65,7 @@ func (h *Handler) initPasskeyService() error {
 		// The userID was just produced by an in-flight registration session, so
 		// the user must exist. Storage failure → crash; supervisor restarts.
 		users.UpdateMatching(h.Store, userIDMatcher(userID), func(d *apigen.User) {
-			users.SetCredential(d, credential.ID, b)
+			users.SetCredential(d, credential.ID, b, time.Now())
 		})
 		return nil
 	}, func(userID []byte) (*apigen.User, error) {
@@ -202,8 +202,9 @@ func (h *Handler) PostV1AuthPasskeyRegisterFinish(ctx apigen.Context, req *apige
 	if err != nil {
 		return nil, apigen.NewApiErr("bad credentials", fmt.Sprintf("err=%v", err), http.StatusBadRequest)
 	}
-	// Registration ends with a full session, so it counts as a login too.
-	return h.startDefaultUserSession(ctx, ctx.User)
+	// Registration happens from a signed-in session, which stays the
+	// session; nothing new is opened.
+	return newLoginResponse(ctx.User, ctx.Token, ctx.SessionKind, ctx.SessionExpiresAt, ctx.SessionID), nil
 }
 
 func (h *Handler) PostV1AuthPasskeyLoginStart(ctx apigen.Context) (*apigen.WebAuthNOptionsResponse, error) {

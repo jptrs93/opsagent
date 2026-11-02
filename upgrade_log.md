@@ -418,7 +418,7 @@ its `primary.db` and the secondary's `secondary.db` before upgrading.
   asset reference in deployment specs, cluster settings, ACME bindings,
   worker caches, and the cluster wire moves from an event log row id to
   `ValueRef{id, version}`: the stable entity id plus its value version.
-  Design and status: `docs/future-work/value-reference-pairs-implementation-plan.md`.
+  The reference shape is described in `docs/engineering/secrets.md`.
 - **Value event logs drop the space facet.** `space_version` and
   `space_changed` are removed from `secret_event_log`, `config_event_log`,
   and `asset_event_log`, and from the `SecretEvent`, `ConfigEvent`, and

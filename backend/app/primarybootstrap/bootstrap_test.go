@@ -22,8 +22,7 @@ func TestInitializeCreatesCompletePrimaryState(t *testing.T) {
 	initial.WebTLSSelfManaged = true
 	service := Service{DataDir: dir}
 	result, err := service.Initialize(context.Background(), Options{
-		Initial:     initial,
-		PrimaryName: "primary.test",
+		Initial: initial,
 	})
 	if err != nil {
 		t.Fatalf("Initialize: %v", err)
@@ -85,10 +84,10 @@ func TestInitializeRejectsExistingDatabase(t *testing.T) {
 	initial := systemconfig.DefaultInitial()
 	initial.MasterPasswordHash = "test-hash"
 	service := Service{DataDir: dir}
-	if _, err := service.Initialize(context.Background(), Options{Initial: initial, PrimaryName: "primary"}); err != nil {
+	if _, err := service.Initialize(context.Background(), Options{Initial: initial}); err != nil {
 		t.Fatalf("first Initialize: %v", err)
 	}
-	if _, err := service.Initialize(context.Background(), Options{Initial: initial, PrimaryName: "primary"}); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if _, err := service.Initialize(context.Background(), Options{Initial: initial}); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("second Initialize error = %v, want already exists", err)
 	}
 }

@@ -88,6 +88,7 @@ const emptySettings = () => ({
     },
     auth: {
         passwordLoginEnabled: boolSetting(false),
+        requirePasskey: boolSetting(false),
     },
     repo: {
         githubToken: secretSetting(),
@@ -163,7 +164,7 @@ const settingsSections = [
         key: "auth",
         title: "Authentication",
         settings: [
-            {label: "Master password login enabled", key: "PASSWORD_LOGIN_ENABLED", type: "bool", setting: (cfg) => cfg.auth?.passwordLoginEnabled, apply: applyTo("auth", "passwordLoginEnabled")},
+            {label: "Require passkey sign-in", key: "REQUIRE_PASSKEY", type: "bool", setting: (cfg) => cfg.auth?.requirePasskey, apply: applyTo("auth", "requirePasskey")},
         ],
     },
     {
@@ -485,7 +486,7 @@ export function settingsPage() {
             : effectiveStringSettingValue(httpsWeb.listen, ":443");
         const args = [
             ["--http-only", boolValue(httpOnly)],
-            ["--password-login", boolValue(effectiveBoolSettingValue(cfg.auth?.passwordLoginEnabled, false))],
+            ["--require-passkey", boolValue(effectiveBoolSettingValue(cfg.auth?.requirePasskey, false))],
             ["--web-listen", webListen || ":443"],
             ["--cluster-listen", effectiveStringSettingValue(cfg.cluster?.listen, ":9443")],
             ["--enrollment-listen", effectiveStringSettingValue(cfg.cluster?.enrollmentListen, ":9444")],
@@ -500,7 +501,7 @@ export function settingsPage() {
         const s3Endpoint = effectiveStringSettingValue(backup.s3Endpoint, "");
         if (s3Endpoint) args.splice(args.length - 1, 0, ["--restore-s3-endpoint", s3Endpoint]);
         const acmeHosts = effectiveStringSettingValue(httpsWeb.acmeHosts, "");
-        if (acmeHosts) args.push(["--acme-hosts", acmeHosts]);
+        if (acmeHosts) args.push(["--web-hosts", acmeHosts]);
         const invocation = [
             "curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/restore_primary.sh | bash -s --",
             ...args.map(([flag, value]) => `  ${flag} ${shellQuote(value)}`),
@@ -847,7 +848,7 @@ export function settingsPage() {
         button({type: "button", class: rowButtonClass, onclick: openMasterPasswordChange}, "Change…"),
         () => masterPasswordVerifyResult.val
             ? span({class: () => `text-[11px] ${masterPasswordVerifyOK.val ? "text-green-400" : "text-red-400"}`}, masterPasswordVerifyResult.val)
-            : span({class: mutedClass}, "Registers passkeys at bootstrap and recovery, and signs in when master password login is on."));
+            : span({class: mutedClass}, "Opens Enrol or recover on the sign-in page: creates users, issues sign-in links, and signs in as a user."));
 
     const recoveryCodeRow = () => {
         const status = secretsStatusS.val;
