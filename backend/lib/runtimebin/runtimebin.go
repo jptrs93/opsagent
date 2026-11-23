@@ -43,28 +43,28 @@ type Component struct {
 
 var Containerd = Component{
 	Name:     "containerd",
-	Version:  "2.3.5",
+	Version:  "2.3.7",
 	Binaries: []string{"containerd", "containerd-shim-runc-v2", "ctr"},
 	tarball:  true,
 	url: func(arch string) string {
-		return "https://github.com/containerd/containerd/releases/download/v2.3.5/containerd-2.3.5-linux-" + arch + ".tar.gz"
+		return "https://github.com/containerd/containerd/releases/download/v2.3.7/containerd-2.3.7-linux-" + arch + ".tar.gz"
 	},
 	sha256: map[string]string{
-		"amd64": "2f0a095a71e3262d0d91ff0e50e2e4ae73c3866c4d1ff6a15f341097fba3dd44",
-		"arm64": "06f46cbc073872c5ad1fbc922a53543e9a26b798d62ff106d44639dcb9947942",
+		"amd64": "09a1b669ac6d21e7e24c3c33a9805b48987ba5845e8d88f039c47013a0c0025c",
+		"arm64": "e08530c6c8a23c612606da5d2832aed9bed8fc7f8c1b41df0f148a701b931d69",
 	},
 }
 
 var Runc = Component{
 	Name:     "runc",
-	Version:  "1.5.1",
+	Version:  "1.5.3",
 	Binaries: []string{"runc"},
 	url: func(arch string) string {
-		return "https://github.com/opencontainers/runc/releases/download/v1.5.1/runc." + arch
+		return "https://github.com/opencontainers/runc/releases/download/v1.5.3/runc." + arch
 	},
 	sha256: map[string]string{
-		"amd64": "177df879d50c913eb205e898d5c1c05a18f574053c0ce5524c471208eaf06f6f",
-		"arm64": "ca70e7dbd6616ca782a59b5d3ac86909123fdaa9fa3f89dcf29051c70eee7ce9",
+		"amd64": "50dcc0b257d724fe07f3852c2dda52340223f038227c7572644eec870741223e",
+		"arm64": "07b52aee923cc432c38fe4fb6809a08fc6471994efed650af3635350588a20be",
 	},
 }
 

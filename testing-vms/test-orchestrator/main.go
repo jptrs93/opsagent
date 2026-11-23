@@ -292,8 +292,8 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	}
 	c.NixBuildMemoryMB = env("OPD_NIX_BUILD_MEMORY_MB", "2048")
 	c.RepoMirrorOCI = env("OPD_REPO_MIRROR_OCI_IMAGES", "docker.io/library/postgres:18="+c.PostgresImage+" "+c.DeclarativePostgresSourceImage+"="+c.DeclarativePostgresImage+" docker.io/bitnamilegacy/minio:latest="+c.MinioImage+" "+c.NixBuildSourceImage+"="+c.NixBuildImage)
-	c.ContainerdVersion = env("CONTAINERD_VERSION", "2.3.5")
-	c.RuncVersion = env("RUNC_VERSION", "1.5.1")
+	c.ContainerdVersion = env("CONTAINERD_VERSION", "2.3.7")
+	c.RuncVersion = env("RUNC_VERSION", "1.5.3")
 
 	switch runtime.GOARCH {
 	case "arm64":
