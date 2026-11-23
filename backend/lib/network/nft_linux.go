@@ -335,9 +335,9 @@ func (m *Manager) natSignatureLocked() uint64 {
 	fmt.Fprintf(hash, "prefix|%t|%s\n", m.hasPrefix, m.prefix)
 	for _, id := range m.sortedHostPortIDsLocked() {
 		for _, rule := range m.hostPorts[id].rules {
-			fmt.Fprintf(hash, "%d|%d|%d|%d|%s|%s|%t|%v|%v|%v\n",
+			fmt.Fprintf(hash, "%d|%d|%d|%d|%s|%s|%t|%v|%v|%v|%t\n",
 				id, rule.Protocol, rule.HostPort, rule.TargetPort,
-				rule.TargetV4, rule.TargetV6, rule.Filtered, rule.AllowV4, rule.AllowV6, rule.Dest)
+				rule.TargetV4, rule.TargetV6, rule.Filtered, rule.AllowV4, rule.AllowV6, rule.Dest, rule.SkipLoopback)
 		}
 	}
 	return hash.Sum64()
@@ -523,6 +523,9 @@ func addDNATRules(c *nftables.Conn, tbl *nftables.Table, pre, out *nftables.Chai
 	// One rule set per destination match: the fib local-address match when
 	// the rule is unrestricted, otherwise one literal daddr match per prefix.
 	matches := [][]expr.Any{fibLocalExprs()}
+	if rule.SkipLoopback {
+		matches = [][]expr.Any{concatExprs(notLoopbackExprs(family), fibLocalExprs())}
+	}
 	if restricted {
 		matches = matches[:0]
 		for _, dest := range dests {
@@ -568,6 +571,20 @@ func addrMatchExprs(prefix netip.Prefix, source bool) []expr.Any {
 		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: offset, Len: length},
 		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: length, Mask: net.CIDRMask(prefix.Bits(), int(length)*8), Xor: make([]byte, length)},
 		&expr.Cmp{Op: expr.CmpOpEq, Register: 1, Data: addr.AsSlice()},
+	}
+}
+
+// notLoopbackExprs: ip daddr != 127.0.0.0/8, or ip6 daddr != ::1
+func notLoopbackExprs(family int) []expr.Any {
+	prefix, offset := LoopbackV4, uint32(16)
+	if family == unix.AF_INET6 {
+		prefix, offset = LoopbackV6, 24
+	}
+	length := uint32(prefix.Addr().BitLen() / 8)
+	return []expr.Any{
+		&expr.Payload{DestRegister: 1, Base: expr.PayloadBaseNetworkHeader, Offset: offset, Len: length},
+		&expr.Bitwise{SourceRegister: 1, DestRegister: 1, Len: length, Mask: net.CIDRMask(prefix.Bits(), int(length)*8), Xor: make([]byte, length)},
+		&expr.Cmp{Op: expr.CmpOpNeq, Register: 1, Data: prefix.Addr().AsSlice()},
 	}
 }
 

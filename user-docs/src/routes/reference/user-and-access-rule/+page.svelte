@@ -134,6 +134,7 @@ enum AuthzVerb {
     Reveal
     UseHostMounts
     UseHostNetwork
+    UsePrivilegedPorts
 }
 
 enum AuthzEntityKind {

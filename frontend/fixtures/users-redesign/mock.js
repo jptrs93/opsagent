@@ -31,7 +31,7 @@ const list = (...ids) => (kind) => exactSelector(kind, ids);
 const arg = (id) => () => argumentSelector(id);
 
 // Verb and entity ids mirror AuthzVerb / AuthzEntityKind in api-contract/model/authz.proto.
-const V = {create: 1, update: 2, delete: 3, view: 4, view_logs: 5, reveal: 6, use_host_mounts: 7, use_host_network: 8};
+const V = {create: 1, update: 2, delete: 3, view: 4, view_logs: 5, reveal: 6, use_host_mounts: 7, use_host_network: 8, use_privileged_ports: 9};
 const E = {space: 1, deployment: 2, secret: 3, config: 4, asset: 5, node: 6, cluster: 7, user: 8, access: 9};
 const SPACES_ARG_KIND = 2;
 const REFS_ARG_KIND = 4;
@@ -61,7 +61,7 @@ const SPACE_ADMIN_SPACES_ARG = 1; // the builtin's own argument id
 // The editor assigns one fixed argument id per position kind (accessEditors.js).
 const UI_ARG = {permissions: 1, spaces: 2, entityTypes: 3, entityRefs: 4};
 
-const agentPerms = () => allExcept(V.use_host_mounts, V.use_host_network, V.view_logs);
+const agentPerms = () => allExcept(V.use_host_mounts, V.use_host_network, V.use_privileged_ports, V.view_logs);
 const delegableRules = (spaces) => [
     templateRule(agentPerms(), spaces(), allExcept(E.secret), all(), true),
     templateRule(list(V.view, V.create), spaces(), list(E.secret), all(), true),
@@ -77,7 +77,7 @@ const builtinTemplates = () => [
         spec: {
             arguments: [{id: SPACE_ADMIN_SPACES_ARG, name: "spaces", kind: SPACES_ARG_KIND}],
             rules: [
-                templateRule(allExcept(V.use_host_mounts, V.use_host_network), arg(SPACE_ADMIN_SPACES_ARG), all(), all(), false),
+                templateRule(allExcept(V.use_host_mounts, V.use_host_network, V.use_privileged_ports), arg(SPACE_ADMIN_SPACES_ARG), all(), all(), false),
                 ...delegableRules(() => arg(SPACE_ADMIN_SPACES_ARG)),
             ],
         },

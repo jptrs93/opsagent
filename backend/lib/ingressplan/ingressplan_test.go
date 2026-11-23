@@ -443,3 +443,101 @@ func TestWebUIReservations(t *testing.T) {
 		t.Fatalf("an unspecified host is a wildcard: %+v", got)
 	}
 }
+
+func TestPortForwardCollisionIsAnErrorForTheCandidate(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		candidate uint64
+		deps      []Deployment
+		want      string
+	}{
+		{"newcomer tcp", 11, []Deployment{{ID: 10, NodeID: 1, TCPPorts: []uint32{8080}}, {ID: 11, NodeID: 1, TCPPorts: []uint32{8080}}}, "TCP host port 8080 is already forwarded by another deployment"},
+		{"older deployment adding the port", 10, []Deployment{{ID: 10, NodeID: 1, TCPPorts: []uint32{8080}}, {ID: 11, NodeID: 1, TCPPorts: []uint32{8080}}}, "TCP host port 8080 is already forwarded by another deployment"},
+		{"udp", 11, []Deployment{{ID: 10, NodeID: 1, UDPPorts: []uint32{5353}}, {ID: 11, NodeID: 1, UDPPorts: []uint32{5353}}}, "UDP host port 5353 is already forwarded by another deployment"},
+		{"tcp and udp are separate", 11, []Deployment{{ID: 10, NodeID: 1, TCPPorts: []uint32{8080}}, {ID: 11, NodeID: 1, UDPPorts: []uint32{8080}}}, ""},
+		{"another node", 11, []Deployment{{ID: 10, NodeID: 2, TCPPorts: []uint32{8080}}, {ID: 11, NodeID: 1, TCPPorts: []uint32{8080}}}, ""},
+		{"host mode holds no forward", 11, []Deployment{{ID: 10, NodeID: 1, HostMode: true, TCPPorts: []uint32{8080}}, {ID: 11, NodeID: 1, TCPPorts: []uint32{8080}}}, ""},
+		{"bystander is not blamed", 12, []Deployment{{ID: 10, NodeID: 1, TCPPorts: []uint32{8080}}, {ID: 11, NodeID: 1, TCPPorts: []uint32{8080}}, {ID: 12, NodeID: 1, TCPPorts: []uint32{9090}}}, ""},
+	} {
+		result := Evaluate(Inputs{Nodes: nodes(), Candidate: tc.candidate, Deployments: tc.deps})
+		got := messages(result.Errors)
+		if tc.want == "" && got != "" || tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Errorf("%s: errors = %q, want %q", tc.name, got, tc.want)
+		}
+		for _, diag := range result.Errors {
+			if diag.DeploymentID != tc.candidate {
+				t.Errorf("%s: error raised against %d, want the candidate %d", tc.name, diag.DeploymentID, tc.candidate)
+			}
+		}
+	}
+}
+
+func TestStoredPortForwardCollisionIsAWarningForTheLoser(t *testing.T) {
+	result := Evaluate(Inputs{Nodes: nodes(), Deployments: []Deployment{
+		{ID: 11, NodeID: 1, TCPPorts: []uint32{8080}},
+		{ID: 10, NodeID: 1, TCPPorts: []uint32{8080}},
+	}})
+	if len(result.Errors) != 0 {
+		t.Fatalf("a render without a candidate raises no error: %q", messages(result.Errors))
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].DeploymentID != 11 || !strings.Contains(result.Warnings[0].Message, "TCP port forward 8080 on node 1 receives no traffic") {
+		t.Fatalf("the newer deployment is warned: %+v", result.Warnings)
+	}
+}
+
+func TestPortForwardOnReservedPort(t *testing.T) {
+	reservations := append(WebUIReservations(1, true, "203.0.113.10:443", false, ""), ClusterReservations(1, ":9443", ":9444", 51833)...)
+	for _, tc := range []struct {
+		name string
+		dep  Deployment
+		want string
+	}{
+		{"web ui port, any address", Deployment{ID: 10, NodeID: 1, TCPPorts: []uint32{443}}, "TCP host port 443 on node 1 is reserved by the primary Web UI"},
+		{"cluster listener", Deployment{ID: 10, NodeID: 1, TCPPorts: []uint32{9443}}, "reserved by the cluster listener"},
+		{"enrollment listener", Deployment{ID: 10, NodeID: 1, TCPPorts: []uint32{9444}}, "reserved by the enrollment listener"},
+		{"wireguard on the primary", Deployment{ID: 10, NodeID: 1, UDPPorts: []uint32{51833}}, "UDP host port 51833 on node 1 is reserved by the WireGuard cluster transport"},
+		{"wireguard on a worker", Deployment{ID: 10, NodeID: 2, UDPPorts: []uint32{51833}}, "UDP host port 51833 on node 2 is reserved by the WireGuard cluster transport"},
+		{"wireguard port over tcp", Deployment{ID: 10, NodeID: 2, TCPPorts: []uint32{51833}}, ""},
+		{"cluster port over udp", Deployment{ID: 10, NodeID: 1, UDPPorts: []uint32{9443}}, ""},
+		{"primary listeners on a worker", Deployment{ID: 10, NodeID: 2, TCPPorts: []uint32{443, 9443, 9444}}, ""},
+		{"passthrough on the cluster port", Deployment{ID: 10, NodeID: 1, Routes: []Route{passthroughRoute("db.example", 9443)}}, "reserved by the cluster listener"},
+		{"passthrough ignores the udp reservation", Deployment{ID: 10, NodeID: 2, Routes: []Route{passthroughRoute("db.example", 51833)}}, ""},
+	} {
+		result := Evaluate(Inputs{Nodes: nodes(), Reservations: reservations, Candidate: 10, Deployments: []Deployment{tc.dep}})
+		got := messages(result.Errors)
+		if tc.want == "" && got != "" || tc.want != "" && !strings.Contains(got, tc.want) {
+			t.Errorf("%s: errors = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	stored := Evaluate(Inputs{Nodes: nodes(), Reservations: reservations, Deployments: []Deployment{{ID: 10, NodeID: 1, TCPPorts: []uint32{9443}}}})
+	if len(stored.Errors) != 0 || len(stored.Excluded) != 1 || !strings.Contains(stored.Excluded[0].Message, "TCP port forward 9443 on node 1 collides with the cluster listener") {
+		t.Fatalf("a stored forward on a reserved port is reported as excluded: errors %q excluded %+v", messages(stored.Errors), stored.Excluded)
+	}
+}
+
+func TestDeploymentFromSpecCarriesBothForwardProtocols(t *testing.T) {
+	spec := apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{
+		Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL,
+		PortForwarding: []apigen.PortForward{
+			{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, HostPort: 8080, ContainerPort: 80},
+			{Protocol: apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP, HostPort: 5353, ContainerPort: 53},
+		},
+	}}
+	dep := DeploymentFromSpec(1, 1, "web", &spec)
+	if len(dep.TCPPorts) != 1 || dep.TCPPorts[0] != 8080 || len(dep.UDPPorts) != 1 || dep.UDPPorts[0] != 5353 {
+		t.Fatalf("forwards = tcp %v udp %v", dep.TCPPorts, dep.UDPPorts)
+	}
+}
+
+func TestClusterReservations(t *testing.T) {
+	got := ClusterReservations(7, "10.0.0.1:9443", "", 51833)
+	if len(got) != 2 {
+		t.Fatalf("an empty listen reserves nothing: %+v", got)
+	}
+	if got[0].NodeID != 7 || got[0].Port != 9443 || got[0].UDP || got[0].Address != netip.MustParseAddr("10.0.0.1") {
+		t.Fatalf("cluster listener: %+v", got[0])
+	}
+	if !got[1].EveryNode || !got[1].UDP || got[1].Port != 51833 {
+		t.Fatalf("wireguard: %+v", got[1])
+	}
+}

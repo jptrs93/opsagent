@@ -147,15 +147,16 @@ const (
 type AuthzVerb int32
 
 const (
-	AuthzVerb_AUTHZ_VERB_UNSPECIFIED      AuthzVerb = 0
-	AuthzVerb_AUTHZ_VERB_CREATE           AuthzVerb = 1
-	AuthzVerb_AUTHZ_VERB_UPDATE           AuthzVerb = 2
-	AuthzVerb_AUTHZ_VERB_DELETE           AuthzVerb = 3
-	AuthzVerb_AUTHZ_VERB_VIEW             AuthzVerb = 4
-	AuthzVerb_AUTHZ_VERB_VIEW_LOGS        AuthzVerb = 5
-	AuthzVerb_AUTHZ_VERB_REVEAL           AuthzVerb = 6
-	AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS  AuthzVerb = 7
-	AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK AuthzVerb = 8
+	AuthzVerb_AUTHZ_VERB_UNSPECIFIED          AuthzVerb = 0
+	AuthzVerb_AUTHZ_VERB_CREATE               AuthzVerb = 1
+	AuthzVerb_AUTHZ_VERB_UPDATE               AuthzVerb = 2
+	AuthzVerb_AUTHZ_VERB_DELETE               AuthzVerb = 3
+	AuthzVerb_AUTHZ_VERB_VIEW                 AuthzVerb = 4
+	AuthzVerb_AUTHZ_VERB_VIEW_LOGS            AuthzVerb = 5
+	AuthzVerb_AUTHZ_VERB_REVEAL               AuthzVerb = 6
+	AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS      AuthzVerb = 7
+	AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK     AuthzVerb = 8
+	AuthzVerb_AUTHZ_VERB_USE_PRIVILEGED_PORTS AuthzVerb = 9
 )
 
 type AuthzEntityKind int32

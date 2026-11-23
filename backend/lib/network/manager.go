@@ -133,18 +133,25 @@ func (m *Manager) scheduleReconcileRetryLocked() {
 // IPv4 traffic DNATs to the container's machine-local v4; IPv6 traffic DNATs
 // to the stable inbound address I. An empty Dest publishes on every local
 // address; otherwise only traffic addressed to one of the Dest prefixes is
-// forwarded, per address family.
+// forwarded, per address family. SkipLoopback keeps an unrestricted rule off
+// loopback destinations.
 type HostPortRule struct {
-	Protocol   uint8
-	HostPort   uint16
-	TargetPort uint16
-	TargetV6   netip.Addr
-	TargetV4   netip.Addr
-	Filtered   bool
-	AllowV4    []netip.Prefix
-	AllowV6    []netip.Prefix
-	Dest       []netip.Prefix
+	Protocol     uint8
+	HostPort     uint16
+	TargetPort   uint16
+	TargetV6     netip.Addr
+	TargetV4     netip.Addr
+	Filtered     bool
+	AllowV4      []netip.Prefix
+	AllowV6      []netip.Prefix
+	Dest         []netip.Prefix
+	SkipLoopback bool
 }
+
+var (
+	LoopbackV4 = netip.MustParsePrefix("127.0.0.0/8")
+	LoopbackV6 = netip.MustParsePrefix("::1/128")
+)
 
 // DestFor returns the destination prefixes of one family. restricted reports
 // whether the rule names destinations at all; a restricted rule with no

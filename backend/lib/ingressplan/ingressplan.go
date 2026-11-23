@@ -41,6 +41,7 @@ type Deployment struct {
 	// TCPPorts are raw TCP port forwards; they conflict with ingress ports
 	// node-wide because port forwards have no listen selector.
 	TCPPorts []uint32
+	UDPPorts []uint32
 }
 
 // Node is one cluster member and its reported host addresses. The inventory
@@ -54,13 +55,16 @@ type Node struct {
 }
 
 // Reservation is a listener the platform itself holds: the Web UI's HTTPS and
-// HTTP servers on the primary. An invalid Address reserves every address of
-// the node on that port.
+// HTTP servers and the cluster and enrollment listeners on the primary, and
+// the WireGuard port on every node. An invalid Address reserves every address
+// of the node on that port.
 type Reservation struct {
-	NodeID  uint64
-	Address netip.Addr
-	Port    uint32
-	Name    string
+	NodeID    uint64
+	EveryNode bool
+	UDP       bool
+	Address   netip.Addr
+	Port      uint32
+	Name      string
 }
 
 type Inputs struct {
@@ -134,6 +138,19 @@ type claim struct {
 type portKey struct {
 	nodeID uint64
 	port   uint32
+}
+
+type forwardKey struct {
+	nodeID uint64
+	udp    bool
+	port   uint32
+}
+
+func protocolName(udp bool) string {
+	if udp {
+		return "UDP"
+	}
+	return "TCP"
 }
 
 // addrSet is the address set one listen selector denotes on a node: the zero
@@ -219,15 +236,48 @@ func Evaluate(in Inputs) Result {
 		}
 	}
 	tcpPorts := make(map[portKey]uint64)
+	forwards := make(map[forwardKey]uint64)
 	for i := range deployments {
 		dep := &deployments[i]
 		if dep.HostMode {
 			continue
 		}
-		for _, port := range dep.TCPPorts {
-			key := portKey{dep.NodeID, port}
-			if _, ok := tcpPorts[key]; !ok {
-				tcpPorts[key] = dep.ID
+		for _, udp := range []bool{false, true} {
+			ports := dep.TCPPorts
+			if udp {
+				ports = dep.UDPPorts
+			}
+			for _, port := range ports {
+				if !udp {
+					if _, ok := tcpPorts[portKey{dep.NodeID, port}]; !ok {
+						tcpPorts[portKey{dep.NodeID, port}] = dep.ID
+					}
+				}
+				if reserved := matchForwardReservation(in.Reservations, dep.NodeID, udp, port); reserved != nil {
+					if in.Candidate != 0 && dep.ID == in.Candidate {
+						result.Errors = append(result.Errors, Diagnostic{dep.ID, fmt.Sprintf(
+							"networking.portForwarding: %s host port %d on node %d is reserved by the %s", protocolName(udp), port, dep.NodeID, reserved.Name)})
+					} else {
+						result.Excluded = append(result.Excluded, Diagnostic{dep.ID, fmt.Sprintf(
+							"%s port forward %d on node %d collides with the %s", protocolName(udp), port, dep.NodeID, reserved.Name)})
+					}
+				}
+				key := forwardKey{dep.NodeID, udp, port}
+				owner, taken := forwards[key]
+				if !taken {
+					forwards[key] = dep.ID
+					continue
+				}
+				if owner == dep.ID {
+					continue
+				}
+				if in.Candidate != 0 && (dep.ID == in.Candidate || owner == in.Candidate) {
+					result.Errors = append(result.Errors, Diagnostic{in.Candidate, fmt.Sprintf(
+						"networking.portForwarding: %s host port %d is already forwarded by another deployment on this node", protocolName(udp), port)})
+				} else {
+					result.Warnings = append(result.Warnings, Diagnostic{dep.ID, fmt.Sprintf(
+						"%s port forward %d on node %d receives no traffic: an older deployment forwards the same port", protocolName(udp), port, dep.NodeID)})
+				}
 			}
 		}
 	}
@@ -381,7 +431,17 @@ func resolveClaim(result *Result, candidate uint64, accepted []*claim, c *claim)
 func matchReservation(reservations []Reservation, c *claim) *Reservation {
 	for i := range reservations {
 		r := &reservations[i]
-		if r.NodeID == c.nodeID && r.Port == c.port && reservationSet(r).intersects(c.set) {
+		if !r.UDP && (r.EveryNode || r.NodeID == c.nodeID) && r.Port == c.port && reservationSet(r).intersects(c.set) {
+			return r
+		}
+	}
+	return nil
+}
+
+func matchForwardReservation(reservations []Reservation, nodeID uint64, udp bool, port uint32) *Reservation {
+	for i := range reservations {
+		r := &reservations[i]
+		if r.UDP == udp && (r.EveryNode || r.NodeID == nodeID) && r.Port == port {
 			return r
 		}
 	}
@@ -473,8 +533,11 @@ func DeploymentFromSpec(id, nodeID uint64, name string, spec *apigen.DeploymentS
 		return dep
 	}
 	for _, pf := range spec.Networking.PortForwarding {
-		if pf.Protocol == apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP {
+		switch pf.Protocol {
+		case apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP:
 			dep.TCPPorts = append(dep.TCPPorts, pf.HostPort)
+		case apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP:
+			dep.UDPPorts = append(dep.UDPPorts, pf.HostPort)
 		}
 	}
 	for _, route := range spec.Networking.Ingress {
@@ -519,6 +582,22 @@ func WebUIReservations(primaryNodeID uint64, httpsEnabled bool, httpsListen stri
 		if r, ok := listenReservation(primaryNodeID, httpListen, "primary Web UI (http_web.listen)"); ok {
 			out = append(out, r)
 		}
+	}
+	return out
+}
+
+// ClusterReservations lists the primary's cluster and enrollment listeners and
+// the WireGuard port every node listens on.
+func ClusterReservations(primaryNodeID uint64, clusterListen, enrollmentListen string, wireGuardPort uint32) []Reservation {
+	var out []Reservation
+	if r, ok := listenReservation(primaryNodeID, clusterListen, "cluster listener (cluster.listen)"); ok {
+		out = append(out, r)
+	}
+	if r, ok := listenReservation(primaryNodeID, enrollmentListen, "enrollment listener (cluster.enrollment_listen)"); ok {
+		out = append(out, r)
+	}
+	if wireGuardPort != 0 {
+		out = append(out, Reservation{EveryNode: true, UDP: true, Port: wireGuardPort, Name: "WireGuard cluster transport"})
 	}
 	return out
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
+	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -28,7 +29,7 @@ var MissingKeyErr = apigen.NewApiErr("Missing deployment identifier", "missing_k
 var NoPrepareOutputErr = apigen.NewApiErr("No prepare output found", "prepare_output_not_found", http.StatusNotFound)
 
 func (h *Handler) deploymentService() *deployments.Service {
-	s := &deployments.Service{Store: h.Store, Secrets: h.Secrets, GitVersions: h.GitVersions, Reservations: h.webUIReservations, PrimaryNodeID: h.NodeID}
+	s := &deployments.Service{Store: h.Store, Secrets: h.Secrets, GitVersions: h.GitVersions, Reservations: h.platformReservations, PrimaryNodeID: h.NodeID}
 	if h.Cluster != nil {
 		s.Cluster = h.Cluster
 	}
@@ -118,7 +119,37 @@ func (h *Handler) requireDeploymentHostAccess(ctx apigen.Context, saved, propose
 			return err
 		}
 	}
+	if saved != nil && claimsPrivilegedPort(saved) || proposed != nil && claimsPrivilegedPort(proposed) {
+		if !h.canAccess(ctx, apigen.AuthzVerb_AUTHZ_VERB_USE_PRIVILEGED_PORTS, eDeployment, spaceID, deploymentID) {
+			err := AccessDeniedErr
+			err.DisplayErr = fmt.Sprintf("Creating or updating a deployment that claims a host port below %d requires use_privileged_ports permission in space %d", privilegedPortLimit, spaceID)
+			return err
+		}
+	}
 	return nil
+}
+
+const privilegedPortLimit = 1024
+
+func claimsPrivilegedPort(spec *apigen.DeploymentSpec) bool {
+	if spec.Networking.Mode != apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL {
+		return false
+	}
+	for _, pf := range spec.Networking.PortForwarding {
+		if pf.HostPort < privilegedPortLimit {
+			return true
+		}
+	}
+	for _, route := range spec.Networking.Ingress {
+		passthrough := route.Config.Value.TlsPassthrough
+		if passthrough == nil || !passthrough.HostPort.Present {
+			continue
+		}
+		if port := passthrough.HostPort.Value; port < privilegedPortLimit && port != ingressplan.DefaultHTTPSPort {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) PostV1DeploymentsDelete(ctx apigen.Context, req *apigen.DeploymentDeleteRequest) error {

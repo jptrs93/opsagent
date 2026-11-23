@@ -125,7 +125,7 @@ func assertHostAccessDefaults(t *testing.T, svc *Service) {
 	for _, user := range []uint64{1, 2} {
 		for _, delegated := range []bool{false, true} {
 			for _, space := range []uint64{0, 2, 3} {
-				for _, verb := range []apigen.AuthzVerb{apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS, apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK} {
+				for _, verb := range []apigen.AuthzVerb{apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS, apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK, apigen.AuthzVerb_AUTHZ_VERB_USE_PRIVILEGED_PORTS} {
 					req := RequestedAccess{Verb: verb, SpaceID: space, EntityType: apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT, EntityID: 7, Delegated: delegated}
 					want := user == 1 && !delegated
 					if got := svc.HasAccess(user, req); got != want {

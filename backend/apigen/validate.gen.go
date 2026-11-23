@@ -5015,7 +5015,7 @@ func (m *AuthzVerbList) validate(seen map[any]bool) error {
 	for i, item := range m.Values {
 		_ = i
 		switch int32(item) {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8:
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9:
 		default:
 			return newValidationError([]string{fmt.Sprintf("values[%d]", i)}, "must be a defined enum value")
 		}
@@ -5556,7 +5556,7 @@ func (m *AuthzPermissionValues) validate(seen map[any]bool) error {
 	for i, item := range m.Values {
 		_ = i
 		switch int32(item) {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8:
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9:
 		default:
 			return newValidationError([]string{fmt.Sprintf("values[%d]", i)}, "must be a defined enum value")
 		}

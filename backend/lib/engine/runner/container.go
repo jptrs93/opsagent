@@ -1372,11 +1372,12 @@ func (r *containerRunner) hostPortRules(cn *network.ContainerNet) []network.Host
 			continue
 		}
 		rule := network.HostPortRule{
-			Protocol:   proto,
-			HostPort:   uint16(pf.HostPort),
-			TargetPort: uint16(pf.ContainerPort),
-			TargetV6:   cn.InboundAddr,
-			TargetV4:   cn.V4,
+			Protocol:     proto,
+			HostPort:     uint16(pf.HostPort),
+			TargetPort:   uint16(pf.ContainerPort),
+			TargetV6:     cn.InboundAddr,
+			TargetV4:     cn.V4,
+			SkipLoopback: true,
 		}
 		allowV4, allowV6 := allowedPrefixes(pf.IpFilter)
 		if len(allowV4)+len(allowV6) > 0 {

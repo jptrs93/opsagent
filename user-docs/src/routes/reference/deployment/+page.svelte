@@ -234,7 +234,7 @@ ipv6() -> ListenAddress
   <tbody>
     <tr><td class="mono">hostname</td><td>string</td><td>required</td><td>The SNI name to match. One route per hostname and host port.</td></tr>
     <tr><td class="mono">container_port</td><td>1 to 65535</td><td>required</td><td>The port the container listens on.</td></tr>
-    <tr><td class="mono">host_port</td><td>1 to 65535</td><td>443</td><td>The port the proxy listens on. Ports 53 and 80 are reserved. A hostname cannot have both an https and a passthrough route on port 443.</td></tr>
+    <tr><td class="mono">host_port</td><td>1 to 65535</td><td>443</td><td>The port the proxy listens on. Ports 53 and 80 are reserved, and any other port below 1024 except 443 requires the <code class="inl">use_privileged_ports</code> permission. A hostname cannot have both an https and a passthrough route on port 443.</td></tr>
     <tr><td class="mono">listen</td><td>block, repeatable</td><td>the scheduled node, every address</td><td>See listen below.</td></tr>
   </tbody>
 </table>
@@ -248,7 +248,7 @@ ipv6() -> ListenAddress
   <tbody>
     <tr><td class="mono">protocol</td><td><code class="inl">"tcp"</code> or <code class="inl">"udp"</code></td><td>required</td><td></td></tr>
     <tr><td class="mono">container_port</td><td>1 to 65535</td><td>required</td><td>The port the container listens on.</td></tr>
-    <tr><td class="mono">host_port</td><td>1 to 65535</td><td>container_port</td><td>The port opened on the node. One forward per protocol and host port.</td></tr>
+    <tr><td class="mono">host_port</td><td>1 to 65535</td><td>container_port</td><td>The port opened on the node. One forward per node, protocol and host port: a port another deployment forwards, or one the platform listens on, is refused at save. A port below 1024 requires the <code class="inl">use_privileged_ports</code> permission. The forward answers on the node's addresses, not on <code class="inl">localhost</code>.</td></tr>
     <tr><td class="mono">allow</td><td>list of addresses or prefixes</td><td>everyone</td><td>Only these sources may connect. Others see the port as closed. Tightening the list does not cut established connections.</td></tr>
     <tr><td class="mono">deny</td><td>list of addresses or prefixes</td><td>none</td><td>Reserved. Defined to win over allow, but not enforced yet, so a config that sets it is rejected at save.</td></tr>
   </tbody>

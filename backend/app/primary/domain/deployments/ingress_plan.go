@@ -9,12 +9,15 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
+	"github.com/jptrs93/opsagent/backend/lib/network"
 )
 
 func ReservationsFromSettings(primaryNodeID uint64, settings *apigen.ClusterSettings, str func(apigen.StringSetting) string, boolean func(apigen.BoolSetting) bool) []ingressplan.Reservation {
-	return ingressplan.WebUIReservations(primaryNodeID,
+	out := ingressplan.WebUIReservations(primaryNodeID,
 		boolean(settings.HttpsWeb.Enabled), str(settings.HttpsWeb.Listen),
 		boolean(settings.HttpWeb.Enabled), str(settings.HttpWeb.Listen))
+	return append(out, ingressplan.ClusterReservations(primaryNodeID,
+		str(settings.Cluster.Listen), str(settings.Cluster.EnrollmentListen), uint32(network.DefaultWGListenPort))...)
 }
 
 // ingressPlanInputs builds the evaluator's inputs from live state, replacing

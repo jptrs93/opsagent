@@ -87,7 +87,9 @@ in the approving operator's spaces except:
   default you may not read, overwrite, rename, move, or delete one.
 - **Deployments with host access.** Creating or updating a deployment with
   custom host mounts requires `use_host_mounts`; host networking requires
-  `use_host_network`. Neither is inherited by agents under the builtin roles.
+  `use_host_network`; a port forward on a host port below 1024, or a TLS
+  passthrough route on one other than 443, requires `use_privileged_ports`.
+  None is inherited by agents under the builtin roles.
   Every update is covered, including version changes, start/stop, removing
   host access, and space moves. An administrator can explicitly delegate these
   permissions. Managed volumes and asset mounts do not require `use_host_mounts`.

@@ -188,6 +188,7 @@ enum AuthzVerb {
     Reveal@6
     UseHostMounts@7
     UseHostNetwork@8
+    UsePrivilegedPorts@9
 }
 
 enum AuthzEntityKind {

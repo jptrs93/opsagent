@@ -125,6 +125,7 @@ test("a rule over every space gets a System tab first and one Any space tab", ()
     assert.equal(system["deployment:create"].state, "na");
     assert.equal(system["deployment:update"].state, "user");
     assert.equal(system["deployment:use_host_network"].state, "user");
+    assert.equal(system["deployment:use_privileged_ports"]?.state ?? "na", "na");
     assert.equal(system["secret:view"].state, "na");
     assert.equal(system["space:create"].state, "user");
     assert.equal(system["space:update"].state, "na");
@@ -150,7 +151,7 @@ test("a delegable rule reaches both sessions and a scoped one leaves the rest ou
 
 test("an open spaces argument gets its own tab and a System tab led by the argument", () => {
     const argNames = new Map([[1, "spaces"]]);
-    const rules = [rule(allExcept(V.use_host_mounts, V.use_host_network), arg(1), all(), all())];
+    const rules = [rule(allExcept(V.use_host_mounts, V.use_host_network, V.use_privileged_ports), arg(1), all(), all())];
     const m = explainMatrix(rules, {...opts, argNames});
     assert.deepEqual(tabKeys(m), ["argSystem", "arg"]);
     assert.deepEqual(m.tabs.map((t) => t.label), ["System", "${spaces}"]);
@@ -159,6 +160,8 @@ test("an open spaces argument gets its own tab and a System tab led by the argum
     const cells = cellsOf(tab(m, "arg"));
     assert.equal(cells["deployment:update"].state, "user");
     assert.equal(cells["deployment:use_host_mounts"].state, "none");
+    assert.equal(cells["deployment:use_privileged_ports"].state, "none");
+    assert.equal(cellsOf(tab(explainMatrix([rule(all(), arg(1), all(), all())], {...opts, argNames}), "arg"))["deployment:use_privileged_ports"].state, "user");
 
     const bound = explainMatrix(rules, {...opts, argNames, bindings: new Map([[1, [2, 3]]])});
     assert.deepEqual(tabKeys(bound), ["2-3"]);

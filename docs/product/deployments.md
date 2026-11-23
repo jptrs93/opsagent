@@ -127,7 +127,7 @@ the internal identities, and the self-deployment cannot be stopped.
 - An unspecified networking mode defaults to `VIRTUAL` during validation.
 - `HOST` joins the host network namespace and requires `use_host_network` when creating or updating the deployment.
 - `VIRTUAL` creates a per-run network namespace with stable inbound IPv6 address `I`, run-scoped preferred outbound IPv6 address `O`, and a machine-local IPv4 egress address. Both IPv6 addresses are preassigned; `I` is non-preferred and routed only to the current run, while `O` remains preferred and routed for that run's full lifetime.
-- `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 443, containerPort: 443}`. Its `ipFilter` is a list of `{mode: ALLOW | DENY, prefix: IpPrefix}` entries; a bare address is a host prefix. The HCL form writes them as `allow = [...]` and `deny = [...]` lists, and the UI form edits the allow list and carries deny entries through unchanged.
+- `portForwarding` publishes host-interface TCP or UDP ports to container ports through nftables DNAT and requires `VIRTUAL`, e.g. `{protocol: TCP, hostPort: 8443, containerPort: 443}`. A `hostPort` below 1024 requires `use_privileged_ports`. A save is refused when another deployment on the node already forwards the same protocol and port, or when the platform listens there (the Web UI, cluster and enrollment listeners on the primary, the WireGuard port on every node). Its `ipFilter` is a list of `{mode: ALLOW | DENY, prefix: IpPrefix}` entries; a bare address is a host prefix. The HCL form writes them as `allow = [...]` and `deny = [...]` lists, and the UI form edits the allow list and carries deny entries through unchanged.
 - `ingress` accepts passthrough and HTTPS routes in virtual mode; the route's `config` oneof is `tlsPassthrough {hostPort, containerPort}` (an absent `hostPort` means `443`) or `https {containerPort, pathPrefix, stripPrefix, backendProtocol, maxRequestBodyBytes, flushIntervalMs, certSource}`. Netproxy selects a passthrough route by TLS SNI and relays the original TCP stream to a READY backend without termination; an HTTPS route is terminated by netproxy and routed by hostname and path prefix, with `certSource` either `acme {challenge: HTTP_01}` or `secret {secret: SecretRef}`. Every route carries `listen` entries `{node: any | specific {nodeId}, addresses: IpPrefix[]}` choosing which node addresses it is published on; no entries means every address of the node the deployment is scheduled on, an empty `addresses` list means every address of the selected node, and the whole-family prefixes `0.0.0.0/0` and `::/0` (HCL `ipv4()` and `ipv6()`) select one family. `any_node()` opts into every node that can reach the backend. The primary Web UI's listener is a reserved claim: routes that would land on it are excluded (wildcard selectors) or rejected (literal selectors).
 - Virtual-mode deployments publish endpoint status for `.internal` DNS discovery through the per-machine netproxy deployment.
 - An environment variable of type `Address` selects a same-node virtual deployment and stores its deployment and space IDs. The consuming container receives that target's stable inbound IPv6 address `I` when it starts; run-scoped `O` is never exposed through Address refs. A target cannot be deleted, changed out of virtual networking, or moved to another space while Address references remain (see Config versioning).
@@ -136,9 +136,11 @@ the internal identities, and the self-deployment cannot be stopped.
 ### Host access permissions
 
 Custom host mounts (`spec.workload.container.runtime.mounts`) require `use_host_mounts`.
-Host networking requires `use_host_network`. These permissions are additional
-to normal deployment create/update permissions. A deployment using both
-features requires both permissions. Managed default volumes, cross-deployment
+Host networking requires `use_host_network`. A host port below 1024 requires
+`use_privileged_ports`: any port forward on such a port, or a TLS passthrough
+route on one other than 443. These permissions are additional to normal
+deployment create/update permissions. A deployment using several of these
+features requires each permission. Managed default volumes, cross-deployment
 volume mounts, and asset mounts do not require the custom host-mount permission.
 
 Every update checks the existing and proposed configuration. Changing a version,

@@ -94,6 +94,7 @@ test("positionValueName resolves each vocabulary", () => {
     assert.equal(positionValueName("permissions", 6, SPACES), "reveal");
     assert.equal(positionValueName("permissions", 7, SPACES), "use_host_mounts");
     assert.equal(positionValueName("permissions", 8, SPACES), "use_host_network");
+    assert.equal(positionValueName("permissions", 9, SPACES), "use_privileged_ports");
     assert.equal(positionValueName("entityTypes", 2, SPACES), "deployment");
     assert.equal(positionValueName("spaces", 3, SPACES), "staging");
     assert.equal(positionValueName("spaces", 9, SPACES), "9");
@@ -105,6 +106,7 @@ test("formatSelector covers everything, lists, arguments, and exclusions", () =>
     assert.equal(formatSelector(list("permissions", 4, 2), "permissions", {}), "view,update");
     assert.equal(formatSelector(list("permissions", 7, 8), "permissions", {}), "use_host_mounts,use_host_network");
     assert.equal(formatSelector(allExcept("permissions", 7, 8), "permissions", {}), "*-use_host_mounts-use_host_network");
+    assert.equal(formatSelector(allExcept("permissions", 7, 8, 9), "permissions", {}), "*-use_host_mounts-use_host_network-use_privileged_ports");
     assert.equal(formatSelector(allExcept("permissions", 6), "permissions", {}), "*-reveal");
     assert.equal(formatSelector(argumentSelector(1), "spaces", {argNames: new Map([[1, "spaces"]])}), "${spaces}");
     assert.equal(formatSelector(argumentSelector(7), "spaces", {}), "${arg_7}");

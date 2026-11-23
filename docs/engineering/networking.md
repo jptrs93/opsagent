@@ -47,6 +47,15 @@ Deployment networking is configured on `DeploymentSpec.networking`.
 
 `networking.portForwarding` maps one host-interface TCP or UDP port to one container port and requires virtual mode. TCP and UDP claims are independent, so the same numeric host port can be published once for TCP and once for UDP.
 
+A forward has no listen selector: it claims its protocol and port on every address of the node. The claim is checked at save time by the same evaluator as ingress (`lib/ingressplan`), under the write lock:
+
+- **One forward per node, protocol and port.** A save is refused when another deployment on the node already forwards the same protocol and port, whichever of the two is older. Two forwards stored before this check keep their kernel behaviour, where the lower deployment id's rule matches first; the ingress diagnostics list the newer one as receiving no traffic, and neither deployment can be saved again until one changes its port.
+- **Platform listeners are reserved.** The reservation list (`deployments.ReservationsFromSettings`) holds the Web UI's HTTPS and HTTP listeners, the cluster listener and the enrollment listener on the primary, and the WireGuard UDP port on every node. A forward on a reserved port is refused whatever address the listener is bound to, and a TLS passthrough route is refused where its listen selector intersects the listener. A settings change that moves a listener onto a port a deployment already holds is refused the same way.
+- **Ports below 1024 need `use_privileged_ports`.** The reservation list cannot know about sshd or any other service the host runs, so claiming a low port is a host permission held by cluster admins (see [auth](auth.md)).
+- **TCP forwards and ingress routes cannot share a port on a node**, as before.
+
+A forward's DNAT rules match `fib daddr type local` and exclude loopback destinations (`ip daddr != 127.0.0.0/8`, `ip6 daddr != ::1`; `HostPortRule.SkipLoopback`). Without the exclusion the output-chain rule rewrites a host-local connection to `127.0.0.1:<port>` or `[::1]:<port>` and the connection times out (`TestForwardLeavesHostLoopbackAlone`): a forward on port 5432 would cut the host off from a Postgres bound to `127.0.0.1:5432`. A forwarded port is therefore reachable from the host on the node's own addresses, not on `localhost`. The netproxy ingress rules are unchanged.
+
 Each port forward can carry an `ipFilter` restricting which sources are
 forwarded. `ipFilter.allow` is a list of source IPs or CIDR prefixes, IPv4 or
 IPv6; entries are validated at config save (no zones, no IPv4-mapped forms, no
