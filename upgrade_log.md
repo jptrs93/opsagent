@@ -4,6 +4,60 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## Unreleased (after v0.0.617)
+
+### What changed
+
+- **Host ports below 1024 need `use_privileged_ports`.** A deployment that
+  forwards a host port below 1024, TCP or UDP, or that takes a TLS
+  passthrough host port below 1024 other than 443, can only be created or
+  updated by a caller holding the new `use_privileged_ports` permission on
+  it. Like the other two host permissions it is checked against the saved
+  and the proposed spec on every update, including a version change and a
+  stop or start. Cluster admins hold it; space admins and agent sessions do
+  not.
+- **A port forward must be free on its node.** A save is refused when
+  another deployment on the node forwards the same protocol and port, or
+  when the port belongs to the platform: the Web UI, cluster and enrollment
+  listeners on the primary, and the WireGuard port (51833/UDP) on every
+  node. UDP forwards are checked for the first time. A settings change that
+  moves a listener onto a forwarded port is refused.
+- **A port forward no longer matches loopback.** The DNAT rules exclude
+  `127.0.0.0/8` and `::1`. Before, a host-local connection to
+  `localhost:<port>` on a forwarded port timed out, whether it was meant
+  for the forward or for a host service on the same port. Now it reaches
+  the host service. Reach a forward from the host on a node address.
+- **containerd 2.3.7 and runc 1.5.3** replace 2.3.5 and 1.5.1 as the
+  bundled runtime, and the agent is built with Go 1.27.4.
+
+### Before upgrading
+
+- **List the deployments that hold a port below 1024.** After the upgrade
+  only a caller with `use_privileged_ports` can deploy a version to them,
+  stop or start them. If a space admin or an agent session runs those
+  deploys, grant the permission on those deployments first thing after the
+  upgrade; the permission cannot be granted before it.
+- **Check custom rules that use `all_verbs_excluding`.** Such a rule
+  conveys `use_privileged_ports` from the first start on this release,
+  because the list was written before the permission existed. Add the
+  permission to the list where that is not intended. The builtin
+  `space_admin` template is updated at startup.
+- **Check for forwards that share a port.** Two deployments that already
+  forward the same protocol and port on one node keep running, the older
+  one receiving the traffic, but neither can be saved again until one
+  changes its port. The same applies to a deployment that forwards a
+  platform port, and no cluster settings change is accepted while one
+  exists.
+
+### Rollout
+
+- **Every node restarts containerd once**, when its agent first starts on
+  this release and installs the new runtime.
+- **Do not roll the primary back** once it has started on this release. The
+  first start rewrites the builtin `space_admin` template to name the new
+  permission, and an older binary rejects a permission it does not know
+  when it encodes that template.
+
 ## v0.0.617 (released 2026-10-08)
 
 ### What changed
