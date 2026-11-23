@@ -25,7 +25,7 @@ export const ENTITY_GLOSS = {
     asset: "assets",
     node: "nodes",
     cluster: "cluster settings, backup and export",
-    user: "the user roster",
+    user: "the user roster: adding users and issuing their sign-in links",
     access: "roles, grants and global rules",
 };
 
@@ -65,6 +65,7 @@ export const PAIR_GLOSS = {
     "cluster:view": "read cluster settings and the exported config",
     "user:view": "see the user roster",
     "access:create": "make roles, grants and global rules",
+    "user:create": "add users and issue their enrol and recovery links; both also need create on access",
     "access:update": "edit roles",
     "access:delete": "delete roles, grants and global rules",
     "access:view": "list roles, grants and global rules",
@@ -182,7 +183,7 @@ export const APPLICABLE = {
     asset: ["create", "update", "delete", "view"],
     node: ["create", "update", "delete", "view"],
     cluster: ["update", "view"],
-    user: ["view"],
+    user: ["create", "view"],
     access: ["create", "update", "delete", "view"],
 };
 
@@ -201,7 +202,7 @@ export const SYSTEM_APPLICABLE = {
     deployment: ["update", "delete", "view", "view_logs", "use_host_mounts", "use_host_network"],
     node: ["create", "update", "delete", "view"],
     cluster: ["update", "view"],
-    user: ["view"],
+    user: ["create", "view"],
     access: ["create", "update", "delete", "view"],
 };
 
@@ -226,7 +227,7 @@ export const ENTITY_SHORT = {
 };
 
 const NA_BY_TYPE = {
-    user: "users come into existence at sign-in; the roster can only be viewed",
+    user: "users can only be created or viewed; each user changes their own account",
     cluster: "cluster settings can only be viewed or updated",
 };
 

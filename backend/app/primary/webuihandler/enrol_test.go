@@ -129,6 +129,33 @@ func TestEnrolRoutesNeedRootOrGrants(t *testing.T) {
 	}
 }
 
+func TestLinkIssueNeedsAccessCreate(t *testing.T) {
+	h, admin := newAuthTestHandler(t)
+	setupAuth(t, h, admin)
+	if _, err := h.Authz.CreateGrant(clusterAdminGrant(admin.ID), 0); err != nil {
+		t.Fatal(err)
+	}
+	users.Write(h.Store, &apigen.User{ID: 2, Name: apigen.Some("helpdesk")})
+	users.Write(h.Store, &apigen.User{ID: 3, Name: apigen.Some("plain")})
+	if _, err := h.Authz.CreateGrant(ruleGrant(2, allowRule(apigen.AuthzSelector{
+		Permissions: exactVerbs(apigen.AuthzVerb_AUTHZ_VERB_CREATE, apigen.AuthzVerb_AUTHZ_VERB_UPDATE, apigen.AuthzVerb_AUTHZ_VERB_DELETE, apigen.AuthzVerb_AUTHZ_VERB_VIEW),
+		Spaces:      exactSpaces(0),
+		EntityTypes: exactEntityTypes(apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_USER),
+		EntityRefs:  allEntityRefs(),
+	})), 0); err != nil {
+		t.Fatal(err)
+	}
+	helpdesk := h.operatorCtx(t, &apigen.User{ID: 2})
+	for _, target := range []uint64{admin.ID, 3} {
+		if _, err := h.PostV1UsersLink(helpdesk, &apigen.UserLinkRequest{UserID: target}); !errors.Is(err, AccessDeniedErr) {
+			t.Fatalf("link for user %d with every user verb and no access:create: err = %v, want AccessDeniedErr", target, err)
+		}
+	}
+	if _, err := h.PostV1UsersLink(h.operatorCtx(t, admin), &apigen.UserLinkRequest{UserID: 3}); err != nil {
+		t.Fatalf("admin link: %v", err)
+	}
+}
+
 func TestLinkRedeemsOnce(t *testing.T) {
 	h, _ := newAuthTestHandler(t)
 	setupAuth(t, h, nil)

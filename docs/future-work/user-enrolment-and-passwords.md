@@ -154,7 +154,7 @@ Policy scopes become `full` and `root`. Authz continues to decide what a `full` 
 | `POST /v1/auth/password/login` | no auth, rate limited | username, password | `LoginResponse` | verifies `password_hash`; refuses with `passkey_required` when `auth.require_passkey` is on; opens `Full`; activates |
 | `POST /v1/auth/link/redeem` | no auth, rate limited as `/v1/auth/master` | token | `LoginResponse` plus `name_set`, `password_set` | redeems; opens `Full` with `opened_by`; activates |
 | `POST /v1/users/create` | root, or full with `create` on `user` and `access` | optional name, optional password, grant sources | `CoreWriteUpdate` with the user | writes the user, `password_hash` if given, and the grants in one commit |
-| `POST /v1/users/link` | root, or full with `update` on `user` | user id | token, session id, `expires_at` | writes a `Link` row |
+| `POST /v1/users/link` | root, or full with `create` on `user` and `access` | user id | token, session id, `expires_at` | writes a `Link` row |
 | `POST /v1/auth/open-session` | root only | user id | `LoginResponse` | opens `Full`; activates |
 | `GET /v1/account` | full | — | the caller's user with credentials (label, created, last used) and `has_password` | self-only projection; the stream's user entity stays stripped |
 | `POST /v1/account/rename` | full | name | `CoreWriteUpdate` | unique-name check; the pending-user name case included |

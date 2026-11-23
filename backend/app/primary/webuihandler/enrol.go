@@ -118,7 +118,7 @@ func (h *Handler) PostV1UsersCreate(ctx apigen.Context, req *apigen.UserCreateRe
 // PostV1UsersLink issues a single-use link that signs in as the user. The
 // link row records the issuer as author and the issuer's address.
 func (h *Handler) PostV1UsersLink(ctx apigen.Context, req *apigen.UserLinkRequest) (*apigen.UserLinkResponse, error) {
-	if err := h.requireEnrolAccess(ctx, need{vUpdate, eUser}); err != nil {
+	if err := h.requireEnrolAccess(ctx, need{vCreate, eUser}, need{vCreate, eAccess}); err != nil {
 		return nil, err
 	}
 	user, err := users.ByID(h.Store.Queries(), req.UserID)
