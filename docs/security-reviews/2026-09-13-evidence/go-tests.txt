@@ -1,84 +1,82 @@
 ?   	github.com/jptrs93/opsagent/backend	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/ainit	0.331s
-ok  	github.com/jptrs93/opsagent/backend/apigen	0.424s
-ok  	github.com/jptrs93/opsagent/backend/app/installer	0.531s
-ok  	github.com/jptrs93/opsagent/backend/app/netproxy	0.787s
-ok  	github.com/jptrs93/opsagent/backend/app/netproxy/netstatewatch	0.496s
-ok  	github.com/jptrs93/opsagent/backend/app/primary	0.881s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/backup	2.093s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/clusterhandler	1.190s
+ok  	github.com/jptrs93/opsagent/backend/ainit	0.305s
+ok  	github.com/jptrs93/opsagent/backend/apigen	0.469s
+ok  	github.com/jptrs93/opsagent/backend/app/installer	0.980s
+ok  	github.com/jptrs93/opsagent/backend/app/netproxy	0.358s
+ok  	github.com/jptrs93/opsagent/backend/app/netproxy/netstatewatch	0.829s
+ok  	github.com/jptrs93/opsagent/backend/app/primary	1.314s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/backup	1.371s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/clusterhandler	1.777s
 ?   	github.com/jptrs93/opsagent/backend/app/primary/clusterserver	[no test files]
 ?   	github.com/jptrs93/opsagent/backend/app/primary/domain/acmeissue	[no test files]
 ?   	github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/assets	2.302s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/authz	3.079s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/deployments	2.756s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/assets	6.461s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/authz	6.989s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/deployments	6.532s
 ?   	github.com/jptrs93/opsagent/backend/app/primary/domain/networkpolicies	[no test files]
 ?   	github.com/jptrs93/opsagent/backend/app/primary/domain/nixstores	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/nodes	2.804s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/pki	3.074s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/nodes	6.972s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/pki	4.401s
 ?   	github.com/jptrs93/opsagent/backend/app/primary/domain/scheduledinstances	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/secrets	2.303s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig	2.142s
-?   	github.com/jptrs93/opsagent/backend/app/primary/domain/users	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/values	3.272s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler	3.148s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/netmappublisher	3.302s
-ok  	github.com/jptrs93/opsagent/backend/app/primary/scheduler	3.525s
-?   	github.com/jptrs93/opsagent/backend/app/primary/webui	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	7.962s
-ok  	github.com/jptrs93/opsagent/backend/app/primarybootstrap	3.257s
-ok  	github.com/jptrs93/opsagent/backend/app/secondary	2.626s
-ok  	github.com/jptrs93/opsagent/backend/app/secondary/localinputs	2.768s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/secrets	6.673s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig	5.990s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/users	4.452s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/values	6.014s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler	5.757s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/nodepublisher	8.243s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/scheduler	5.899s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/webui	5.096s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	21.880s
+ok  	github.com/jptrs93/opsagent/backend/app/primarybootstrap	2.673s
+ok  	github.com/jptrs93/opsagent/backend/app/secondary	2.700s
+ok  	github.com/jptrs93/opsagent/backend/app/secondary/localinputs	1.623s
 ?   	github.com/jptrs93/opsagent/backend/lib/acmestate	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/engine	2.843s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine	6.586s
 ?   	github.com/jptrs93/opsagent/backend/lib/engine/configdist	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/ctrd	3.063s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/ctrd	1.795s
 ?   	github.com/jptrs93/opsagent/backend/lib/engine/imageref	[no test files]
-?   	github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare	2.830s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy	1.977s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare	2.409s
 ?   	github.com/jptrs93/opsagent/backend/lib/engine/prepare/containerimage	[no test files]
 ?   	github.com/jptrs93/opsagent/backend/lib/engine/prepare/nix2container	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker	3.027s
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixstore	3.433s
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease	3.203s
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/preparerlog	3.205s
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs	3.189s
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/registryauth	3.221s
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/runner	3.030s
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/versionprovider	2.932s
-ok  	github.com/jptrs93/opsagent/backend/lib/enrollment	2.875s
-ok  	github.com/jptrs93/opsagent/backend/lib/ingressplan	2.898s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker	2.798s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixstore	3.560s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease	2.865s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/preparerlog	3.058s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/prepare/runtimeinputs	3.609s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/registryauth	3.396s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/runner	3.503s
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/versionprovider	3.511s
+ok  	github.com/jptrs93/opsagent/backend/lib/enrollment	3.052s
+ok  	github.com/jptrs93/opsagent/backend/lib/ingressplan	3.212s
 ?   	github.com/jptrs93/opsagent/backend/lib/issuedtls	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/log	2.884s
-ok  	github.com/jptrs93/opsagent/backend/lib/log/logconsumer	2.879s
-ok  	github.com/jptrs93/opsagent/backend/lib/log/logmanager	6.393s
-ok  	github.com/jptrs93/opsagent/backend/lib/log/v2	2.866s
+ok  	github.com/jptrs93/opsagent/backend/lib/log	2.984s
+ok  	github.com/jptrs93/opsagent/backend/lib/log/logconsumer	2.824s
+ok  	github.com/jptrs93/opsagent/backend/lib/log/logmanager	9.923s
+ok  	github.com/jptrs93/opsagent/backend/lib/log/v2	2.827s
 ?   	github.com/jptrs93/opsagent/backend/lib/machinekey	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/metrics	2.623s
-ok  	github.com/jptrs93/opsagent/backend/lib/metrics/metricstore	2.818s
+ok  	github.com/jptrs93/opsagent/backend/lib/metrics	2.882s
+ok  	github.com/jptrs93/opsagent/backend/lib/metrics/metricstore	3.155s
 ?   	github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit	2.865s
-ok  	github.com/jptrs93/opsagent/backend/lib/netaudit	2.877s
+ok  	github.com/jptrs93/opsagent/backend/lib/middleware/ratelimit	2.823s
+ok  	github.com/jptrs93/opsagent/backend/lib/netaudit	3.013s
 ?   	github.com/jptrs93/opsagent/backend/lib/netmapstate	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/network	2.874s
-ok  	github.com/jptrs93/opsagent/backend/lib/repo/git	6.448s
-ok  	github.com/jptrs93/opsagent/backend/lib/repo/github	2.870s
+ok  	github.com/jptrs93/opsagent/backend/lib/network	2.984s
+ok  	github.com/jptrs93/opsagent/backend/lib/repo/git	9.479s
+ok  	github.com/jptrs93/opsagent/backend/lib/repo/github	3.101s
 ?   	github.com/jptrs93/opsagent/backend/lib/repo/githubcredentials	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/lib/runtimebin	4.995s
-ok  	github.com/jptrs93/opsagent/backend/lib/wgkey	2.895s
+ok  	github.com/jptrs93/opsagent/backend/lib/runtimebin	5.433s
+ok  	github.com/jptrs93/opsagent/backend/lib/wgkey	3.084s
 ?   	github.com/jptrs93/opsagent/backend/storage	[no test files]
 ?   	github.com/jptrs93/opsagent/backend/storage/logdb	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/storage/primarydb/pq	2.908s
-ok  	github.com/jptrs93/opsagent/backend/storage/primarydb/state	3.324s
+ok  	github.com/jptrs93/opsagent/backend/storage/primarydb/pq	3.240s
+ok  	github.com/jptrs93/opsagent/backend/storage/primarydb/state	6.599s
 ?   	github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest	[no test files]
-?   	github.com/jptrs93/opsagent/backend/storage/secondarydb/sq	[no test files]
-ok  	github.com/jptrs93/opsagent/backend/storage/secondarydb/state	2.791s
-ok  	github.com/jptrs93/opsagent/backend/storage/sqlitedb	3.006s
-ok  	github.com/jptrs93/opsagent/backend/util/certu	3.167s
+ok  	github.com/jptrs93/opsagent/backend/storage/secondarydb/sq	3.013s
+ok  	github.com/jptrs93/opsagent/backend/storage/secondarydb/state	3.503s
+ok  	github.com/jptrs93/opsagent/backend/storage/sqlitedb	3.228s
+ok  	github.com/jptrs93/opsagent/backend/util/certu	3.282s
 ?   	github.com/jptrs93/opsagent/backend/util/cmd/genhash	[no test files]
 ?   	github.com/jptrs93/opsagent/backend/util/debug/acmedebug	[no test files]
-?   	github.com/jptrs93/opsagent/backend/util/jwtu	[no test files]
 ?   	github.com/jptrs93/opsagent/backend/util/stringu	[no test files]
 ?   	github.com/jptrs93/opsagent/backend/util/version	[no test files]
-exit=0

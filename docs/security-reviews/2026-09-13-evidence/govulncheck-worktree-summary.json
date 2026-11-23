@@ -1,0 +1,25 @@
+{
+ "scanned": "2026-11-23",
+ "tree": "73f163c6671d498cb7038375bcd8a49db93ffe8b",
+ "targets": {
+  "host": {
+   "command": "govulncheck -json ./...",
+   "symbol_findings": [],
+   "module_findings": []
+  },
+  "linux_amd64": {
+   "command": "GOOS=linux GOARCH=amd64 govulncheck -json ./...",
+   "symbol_findings": [],
+   "module_findings": []
+  },
+  "linux_arm64": {
+   "command": "GOOS=linux GOARCH=arm64 govulncheck -json ./...",
+   "symbol_findings": [],
+   "module_findings": []
+  }
+ },
+ "scanner": "govulncheck v1.8.0",
+ "go_version": "go1.27.4",
+ "db_last_modified": "2026-11-11T02:51:11Z",
+ "scan_level": "symbol"
+}

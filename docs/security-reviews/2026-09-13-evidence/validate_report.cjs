@@ -27,7 +27,7 @@ const bySev=s=>data.findings.filter(f=>f.severity.toLowerCase()===s).length;
   if(!await page.locator('#empty').isVisible())throw Error('Empty state failed');
   await page.evaluate(()=>location.hash='OD-09');
   await page.waitForFunction(()=>!document.getElementById('OD-09').hidden);
-  await page.fill('#search','duplicate credentials');
+  await page.fill('#search','epoch timestamp');
   if(await page.locator('.finding:visible').count()!==1)throw Error('Search failed');
   await page.fill('#search','');
   const links=await page.evaluate(()=>Array.from(document.querySelectorAll('a[href]')).map(a=>a.getAttribute('href')));

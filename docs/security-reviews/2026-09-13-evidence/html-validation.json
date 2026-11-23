@@ -2,13 +2,13 @@
   "desktop": {
     "width": 1440,
     "scrollWidth": 1440,
-    "findings": 33
+    "findings": 42
   },
   "mobile": {
     "width": 390,
     "scrollWidth": 390
   },
-  "printVisible": 33,
+  "printVisible": 42,
   "filters": "passed",
   "search": "passed",
   "anchorReset": "passed",
