@@ -14,7 +14,11 @@ and the system deployment group behaviour in
 
 ## Status
 
-Proposed 2026-09-12. Part 1 is not implemented.
+Proposed 2026-09-12. Part 1 was implemented on 2026-11-24; the section below
+records the shipped form and where it departs from the proposal.
+[../engineering/engine.md](../engineering/engine.md) (Host privileges) is the
+reference for the current behaviour, and "Current state" below describes the
+state before the change.
 
 Part 2 is superseded for now by startup reconciliation, shipped 2026-09-13:
 the agent compares the containerd and runc symlinks under
@@ -88,55 +92,63 @@ per-architecture checksums, installed under
 `/var/lib/opendeploy/runtime/versions/<name>-<version>/`, and selected by
 symlinks in `/var/lib/opendeploy/runtime/bin/`. The installer provisions them
 on a fresh install, and every agent start reconciles them against the pin
-(see Status). The agent can do this unprivileged because its ambient
-`CAP_DAC_OVERRIDE` lets it write the root-owned runtime directories and the
-sudoers drop-in allows `systemctl restart opendeploy-containerd.service`.
+(see Status). Before Part 1 the agent did this unprivileged: its ambient
+`CAP_DAC_OVERRIDE` let it write the root-owned runtime directories and the
+sudoers drop-in allowed `systemctl restart opendeploy-containerd.service`.
 Both units use `KillMode=process`, so containers survive a containerd
 restart, and the container runner re-issues its wait when the stream breaks.
 
 ## Part 1: the agent runs as root
 
-The unit sets `User=root` and drops `AmbientCapabilities`. The sudoers
-drop-in, the `sudo` indirection and the socket `gid` go away. Self-restart
-keeps the `systemd-run --no-block systemctl restart` form, because that
-avoids the cgroup teardown killing the restart command; only the `sudo`
-prefix is removed. `NoNewPrivileges` turns on, since nothing needs to gain
-privilege through `execve` any more.
+Implemented 2026-11-24.
 
-The security severity guide states the trust boundary explicitly: the agent
-is the node's root control plane, and agent compromise is node compromise by
-design. The boundaries that count are workload to agent or host, network or
-API to agent, node to cluster, and user to API. A finding of the form "the
-agent could do X on the host" is not a finding. This paragraph, more than the
-uid, is what stops the recurring audit flags.
+The unit sets `User=root`, `Group=root` and `NoNewPrivileges=yes`, and drops
+`AmbientCapabilities`. The sudoers drop-in, the `sudo` indirection, the
+socket `gid` and the `opendeploy` account are gone from fresh installs.
+Self-restart keeps the `systemd-run --no-block systemctl restart` form,
+because that avoids the cgroup teardown killing the restart command.
 
-Host-side children lose privilege instead of inheriting it. The `opendeploy`
-account stays as the unprivileged identity for them: root starts `git` and
-the backup child under that uid through the process credential, with a
-minimal environment. A uid change away from root clears the capability sets,
-so the children run with none. Today they run with all seven.
+The security severity guide states the trust boundary: the agent is the
+node's root control plane, and agent compromise is node compromise by design.
+The boundaries that count are workload to agent or host, network or API to
+agent, node to cluster, and user to API. A finding of the form "the agent
+could do X on the host" is not a finding.
 
-Systemd hardening that suits a root process manager stays or is added:
-`PrivateTmp`, `ProtectHome`, `RestrictSUIDSGID`,
-`SystemCallArchitectures=native`, `ProtectClock`, `ProtectKernelLogs`.
-`ProtectSystem` stays off for the reasons already recorded in the unit.
+The installer has one path. Fresh install and upgrade both require root, the
+`isRoot()` branches and the unprivileged upgrade are removed, and the
+"requires root once" states no longer exist. Every runtime root is
+root-owned; deployment volumes keep their per-workload ownership.
 
-The installer has one path. Fresh install and upgrade both require root,
-the `isRoot()` branches and the unprivileged upgrade go, and the "requires
-root once" states disappear. Data directories are root-owned except those a
-child or a workload must write. Deployment volumes keep their per-workload
-ownership. Existing `opendeploy`-owned files on upgraded nodes need no
-migration; root reads and writes them as they are.
+### Departures from the proposal
 
-Because the agent is root, it also reconciles its own unit, the containerd
-unit and `config.toml` against the templates embedded in its binary at
-startup, rewriting and reloading when they differ. Configuration drift
-between nodes and releases heals on the next agent upgrade, and no root
-login is needed after the transition.
-
-Transition: one root `opendeploy upgrade` per node, because the
-unprivileged self-upgrade cannot change `User=` and cannot reload systemd.
-That is the same manual step as the runtime bump, and it is the last one.
+- **Host-side children run as root.** The proposal dropped `git` and the
+  backup child to the `opendeploy` uid. That uid is weaker than it looks: the
+  containerd socket was group-readable by `opendeploy`, and uid 999 collides
+  with the user of common images (a Postgres container's data files are
+  owned by 999), so a process under it reads and writes workload data.
+  Fixing both needs a dedicated uid and more mechanism. `git` as root holds
+  no more than it did with seven ambient capabilities and the socket. The
+  isolation step for `git` is a container (see Open items).
+- **The `opendeploy` account is removed**, not kept. Nothing runs under it.
+- **Existing nodes are converted by hand.** The proposal left
+  `opendeploy`-owned files in place. Upgraded nodes are instead chowned to
+  root over SSH so they match a fresh install, which is the only layout the
+  e2e suite exercises. The commands are in
+  [../../upgrade_log.md](../../upgrade_log.md).
+- **No startup reconcile of units and `config.toml`.** The agent does not
+  rewrite its own unit or the containerd unit. `opendeploy upgrade` as root
+  does, and restarts containerd when `config.toml` changed.
+- **No mount-namespace hardening.** `PrivateTmp`, `ProtectHome` and
+  `ProtectKernelLogs` give the service a private mount namespace. The agent
+  bind-mounts named network namespaces under `/run/netns` and containerd
+  must see them, so these stay off with `ProtectSystem`. Only
+  `NoNewPrivileges` is set.
+- **A transition fallback.** An agent of this release that starts under the
+  old unprivileged unit keeps working: it logs a warning and prefixes its
+  two `systemctl` restarts with `sudo -n`. The version is rolled out from the
+  Deployments page first and each node is converted afterwards, because a
+  node that runs a build other than its deployment's target restarts into
+  the target. The fallback can be deleted once no node runs the old unit.
 
 The alternative of keeping the uid split and moving the privileged
 operations behind a small root helper is the long-term split recorded under
@@ -236,9 +248,15 @@ deployment started after the swap logs through the new scheme.
 
 ## Open items
 
-- Whether host-side children run under the existing `opendeploy` account or
-  a dedicated one, and whether `git` should move into a container as the
-  Nix build did.
+- `git` in a container, on the pattern of the Nix build: the pinned build
+  image, the Git cache mounted read-write, no host environment, the build
+  network namespace, and one container per operation rather than per
+  command. Checkouts for Nix builds are the first candidate because a build
+  already takes minutes. Branch and commit listings and the commit check on
+  save run on interactive paths and would each gain a container start; that
+  cost is not measured.
+- Removing the transition fallback (`sudo -n` when the agent is not root)
+  once every node runs the root unit.
 - Whether the agent group upgrade should offer to align the runtime group in
   the same overlay, with the default off.
 - The long-term split into a root node helper and an unprivileged process

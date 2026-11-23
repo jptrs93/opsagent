@@ -160,13 +160,14 @@ func atomicSymlink(src, dst string) error {
 }
 
 func systemctlRestart(ctx context.Context, unit string) (string, error) {
-	cmd := exec.CommandContext(ctx, "sudo", "-n",
-		"/usr/bin/systemd-run", "--no-block",
-		"/usr/bin/systemctl", "restart", unit)
-	out, err := cmd.CombinedOutput()
+	args := []string{"/usr/bin/systemd-run", "--no-block", "/usr/bin/systemctl", "restart", unit}
+	if os.Geteuid() != 0 {
+		args = append([]string{"sudo", "-n"}, args...)
+	}
+	out, err := exec.CommandContext(ctx, args[0], args[1:]...).CombinedOutput()
 	if err != nil {
 		return strings.TrimSpace(string(out)),
-			fmt.Errorf("sudo systemd-run restart %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
+			fmt.Errorf("systemd-run restart %s: %w: %s", unit, err, strings.TrimSpace(string(out)))
 	}
 	return strings.TrimSpace(string(out)), nil
 }

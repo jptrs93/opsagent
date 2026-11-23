@@ -116,11 +116,14 @@ func (g *Manager) gitEnv(ctx context.Context) ([]string, error) {
 	for _, entry := range parent {
 		// Drop inherited values so an ambient GIT_CONFIG_COUNT cannot displace
 		// or renumber the settings below.
-		if strings.HasPrefix(entry, "GIT_CONFIG_") || strings.HasPrefix(entry, "GIT_TERMINAL_PROMPT=") {
+		if strings.HasPrefix(entry, "GIT_CONFIG_") || strings.HasPrefix(entry, "GIT_TERMINAL_PROMPT=") || strings.HasPrefix(entry, "HOME=") {
 			continue
 		}
 		env = append(env, entry)
 	}
+	// The agent runs as root, and root's own ~/.gitconfig on the host must not
+	// change how repositories are fetched.
+	env = append(env, "HOME="+g.cacheDir)
 	// A missing or rejected token must fail the command rather than block on an
 	// interactive credential prompt.
 	env = append(env, "GIT_TERMINAL_PROMPT=0")

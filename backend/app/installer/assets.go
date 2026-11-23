@@ -20,18 +20,12 @@ var unitContainerd []byte
 //go:embed assets/env.template
 var envTemplate []byte
 
-//go:embed assets/sudoers
-var sudoersTemplate []byte
-
-// gid scopes containerd's gRPC socket to the opendeploy group so the
-// unprivileged daemon can dial it.
-func renderContainerdConfig(gid int) string {
+func renderContainerdConfig() string {
 	return "version = 3\n" +
 		"root = \"" + containerdRoot + "\"\n" +
 		"state = \"" + containerdState + "\"\n\n" +
 		"[grpc]\n" +
-		"  address = \"" + containerdSocket + "\"\n" +
-		"  gid = " + itoa(gid) + "\n"
+		"  address = \"" + containerdSocket + "\"\n"
 }
 
 func renderEnvTemplate(opts installOptions) []byte {
@@ -46,7 +40,7 @@ func renderOpenDeployUnit(opts installOptions) []byte {
 	return []byte(strings.ReplaceAll(string(unitOpenDeploy), "ExecStart=/var/lib/opendeploy/bin/opendeploy primary", "ExecStart=/var/lib/opendeploy/bin/opendeploy "+role))
 }
 
-func updateEnvFile(opts installOptions, own owner) (bool, error) {
+func updateEnvFile(opts installOptions) (bool, error) {
 	content := envTemplate
 	existing, err := os.ReadFile(envFile)
 	exists := err == nil
@@ -60,7 +54,7 @@ func updateEnvFile(opts installOptions, own owner) (bool, error) {
 		info("kept existing %s", envFile)
 		return false, nil
 	}
-	if _, err := writeFile(envFile, updated, 0o640, own, false); err != nil {
+	if _, err := writeFile(envFile, updated, envFileMode, false); err != nil {
 		return false, err
 	}
 	info("updated %s", envFile)

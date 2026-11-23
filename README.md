@@ -45,8 +45,7 @@ sudo /var/lib/opendeploy/bin/opendeploy upgrade --version latest
 sudo /var/lib/opendeploy/bin/opendeploy upgrade --dry-run
 ```
 
-Root is needed for the unit rewrite; run as the `opendeploy` user to replace
-only the binary and restart. The primary keeps each node's expected agent
+`opendeploy upgrade` must run as root. The primary keeps each node's expected agent
 release in that node's `opendeploy` deployment, and an agent that restarts on
 a different build prepares the expected release and restarts into it, so pick
 the version there first when changing releases by hand.
@@ -151,12 +150,12 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/insta
 
 The installer:
 
-- creates the `opendeploy` system user and ownership-sensitive runtime roots, including `/var/lib/opendeploy/`, `/var/lib/opendeploy-assets/`, releases, volumes, and log directories; agent startup creates the fixed children below the data directory before primary or secondary services run
+- creates the root-owned runtime roots, including `/var/lib/opendeploy/`, `/var/lib/opendeploy-assets/`, releases, volumes, and log directories; agent startup creates the fixed children below the data directory before primary or secondary services run
 - downloads and checksum-verifies the release binary into `/var/lib/opendeploy-releases/jptrs93/opsagent/<version>/opendeploy-linux-<arch>` and symlinks `/var/lib/opendeploy/bin/opendeploy` to it
 - provisions a bundled, pinned containerd + runc runtime and the `opendeploy-containerd.service` unit
 - creates `primary.db`, the secrets machine key, the cluster ULA prefix, and primary cluster mTLS material before the first service start
 - stores the generated master password hash in `primary.db` and prints the password once; bootstrap values are not written to `/etc/opendeploy/env`
-- installs sudoers + the `opendeploy.service` systemd unit
+- installs the `opendeploy.service` systemd unit, which runs the agent as root
 - on upgrade: atomically swaps the binary and restarts the service
 - on first install: starts `opendeploy.service` and prints the Web UI address plus the current service log directory/file
 
@@ -170,7 +169,7 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/unins
 curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/uninstall.sh | bash -s -- --purge
 ```
 
-Uninstall always stops the services, kills and deletes every container (and its shim) in the bundled containerd, removes the virtual network state (container netns entries, veths, the WireGuard link, routes, and nftables tables), unmounts and removes runtime state under `/run`, and removes the units, sudoers drop-in, and binary. Without `--purge` all data directories (`/var/lib/opendeploy` and every `/var/lib/opendeploy-*` sibling: assets, releases, volumes, build logs, run logs, log archive, metrics, containerd images) and `/etc/opendeploy` stay in place so a reinstall resumes. `--purge` deletes them and the `opendeploy` user after listing them for confirmation (`--yes` skips the prompt). Add `--dry-run` to print every action first.
+Uninstall always stops the services, kills and deletes every container (and its shim) in the bundled containerd, removes the virtual network state (container netns entries, veths, the WireGuard link, routes, and nftables tables), unmounts and removes runtime state under `/run`, and removes the units and binary. Without `--purge` all data directories (`/var/lib/opendeploy` and every `/var/lib/opendeploy-*` sibling: assets, releases, volumes, build logs, run logs, log archive, metrics, containerd images) and `/etc/opendeploy` stay in place so a reinstall resumes. `--purge` deletes them after listing them for confirmation (`--yes` skips the prompt). Add `--dry-run` to print every action first.
 
 ## First-run configuration
 

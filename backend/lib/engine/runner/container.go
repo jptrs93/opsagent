@@ -1167,9 +1167,8 @@ func (r *containerRunner) ensureIssuedTLS() error {
 		)
 	}
 	for _, f := range files {
-		// Write to a temp file and rename over the old one: after the first
-		// materialization the files are owned by the container user, and the
-		// agent (no CAP_FOWNER) cannot chmod files it does not own.
+		// Write to a temp file and rename over the old one, so a running
+		// container never reads a partial file.
 		path := filepath.Join(dir, f.name)
 		tmp := path + ".tmp"
 		_ = os.Remove(tmp)
@@ -1545,7 +1544,7 @@ func containerMounts(dep *apigen.DeploymentRecord) ([]ctrd.Mount, string) {
 	return mounts, dataHost
 }
 
-// defaultVolumeHostDir is the opendeploy-owned host directory bind-mounted as the
+// defaultVolumeHostDir is the host directory bind-mounted as the
 // container's default data volume. A sibling of the data dir (world-traversable,
 // 0755), like release artifacts, so the in-container user can reach it.
 func defaultVolumeHostDir(deploymentID uint64) string {

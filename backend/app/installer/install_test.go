@@ -148,6 +148,51 @@ func TestRenderOpenDeployUnitUsesRestartAlways(t *testing.T) {
 	}
 }
 
+func TestRenderOpenDeployUnitRunsAsRoot(t *testing.T) {
+	unit := string(renderOpenDeployUnit(installOptions{role: "secondary"}))
+	for _, want := range []string{"User=root\n", "Group=root\n", "NoNewPrivileges=yes\n"} {
+		if !strings.Contains(unit, want) {
+			t.Fatalf("unit is missing %q:\n%s", want, unit)
+		}
+	}
+	for _, gone := range []string{"AmbientCapabilities", "User=opendeploy", "sudo"} {
+		if strings.Contains(unit, gone) {
+			t.Fatalf("unit still mentions %q:\n%s", gone, unit)
+		}
+	}
+	for _, namespaced := range []string{"PrivateTmp=", "ProtectSystem=", "ProtectHome=", "ProtectKernelLogs="} {
+		if strings.Contains(unit, "\n"+namespaced) {
+			t.Fatalf("unit sets %s, which hides the agent's netns bind mounts from containerd", namespaced)
+		}
+	}
+}
+
+func TestRenderContainerdConfigLeavesSocketToRoot(t *testing.T) {
+	config := renderContainerdConfig()
+	if strings.Contains(config, "gid") {
+		t.Fatalf("containerd config scopes the socket to a group:\n%s", config)
+	}
+	if !strings.Contains(config, "address = \""+containerdSocket+"\"") {
+		t.Fatalf("containerd config lost the socket address:\n%s", config)
+	}
+}
+
+func TestRequireRootOwned(t *testing.T) {
+	if err := requireRootOwned(filepath.Join(t.TempDir(), "missing")); err != nil {
+		t.Fatalf("a missing directory must pass: %v", err)
+	}
+	err := requireRootOwned(t.TempDir())
+	if os.Geteuid() == 0 {
+		if err != nil {
+			t.Fatalf("a root-owned directory must pass: %v", err)
+		}
+		return
+	}
+	if err == nil || !strings.Contains(err.Error(), "upgrade_log.md") {
+		t.Fatalf("requireRootOwned on a directory owned by uid %d = %v, want a pointer to the conversion steps", os.Geteuid(), err)
+	}
+}
+
 func TestRoleFromUnitReadsInstalledRole(t *testing.T) {
 	for _, role := range []string{"primary", "secondary"} {
 		got, err := roleFromUnit(renderOpenDeployUnit(installOptions{role: role}))
@@ -221,7 +266,7 @@ func TestInstallBinaryReplacesExistingFile(t *testing.T) {
 	if fileBytesEqual(src, dst) {
 		t.Fatal("src and dst compared equal before install")
 	}
-	if err := installBinary(src, dst, 0o755, noChown); err != nil {
+	if err := installBinary(src, dst, 0o755); err != nil {
 		t.Fatalf("installBinary: %v", err)
 	}
 	if !fileBytesEqual(src, dst) {

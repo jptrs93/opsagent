@@ -1,10 +1,13 @@
 package ainit
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path"
+	"runtime"
 
 	"github.com/jptrs93/goutil/envu"
 	"github.com/jptrs93/goutil/erru"
@@ -38,6 +41,13 @@ func init() {
 	}
 	logLevel := envu.MustGetOrDefault[slog.Level]("LOG_LEVEL", slog.LevelInfo)
 	slog.SetDefault(slog.New(logu.NewJSONLogHandler(w, logLevel)))
+}
+
+func WarnIfNotRoot(ctx context.Context) {
+	if runtime.GOOS != "linux" || os.Geteuid() == 0 || envu.IsTestBasedOnArgs() {
+		return
+	}
+	slog.WarnContext(ctx, fmt.Sprintf("opendeploy is running as uid %d instead of root; run `sudo %s/bin/opendeploy upgrade` on this node to move its service unit to root", os.Geteuid(), productionDataDir))
 }
 
 func ensureStaticDirs(command Command, cfg *StaticConfiguration, dataDir string) {

@@ -189,14 +189,13 @@
 </table>
 <h3 id="install-effects">What does the installation do?</h3>
 
-<p>The installer makes these changes, in this order. Nothing is installed from the system package manager.</p>
+<p>The installer makes these changes, in this order. Nothing is installed from the system package manager, and no user account is created: the agent runs as root, because it manages containers, network namespaces, and firewall rules on the machine.</p>
 
 <ul>
-  <li><strong>A system user.</strong> Creates the <code class="inl">opendeploy</code> user and group. The agent runs as this user, with the Linux capabilities it needs for privileged ports, container mounts, and networking granted by its service unit.</li>
   <li><strong>Directories.</strong> Creates <code class="inl">/var/lib/opendeploy</code> for the agent's private data (database, secrets key, TLS material), plus sibling roots named <code class="inl">/var/lib/opendeploy-*</code> for assets, releases, volumes, build and run logs, the log archive, metrics, Nix stores, and container images.</li>
   <li><strong>The agent binary.</strong> Downloads the release into the releases root, verifies its SHA-256 checksum, and links it as <code class="inl">/var/lib/opendeploy/bin/opendeploy</code>. Later upgrades swap that link.</li>
   <li><strong>The primary state.</strong> Creates the database, the machine key that encrypts secrets, the cluster's IPv6 address prefix, the cluster certificate authority used for node-to-node TLS, and the master password, whose hash is stored and whose value is printed once.</li>
-  <li><strong>Configuration files.</strong> Writes <code class="inl">/etc/opendeploy/env</code> for process-level settings and a sudoers drop-in at <code class="inl">/etc/sudoers.d/opendeploy</code> that lets the agent restart its own two services and nothing else.</li>
+  <li><strong>Configuration files.</strong> Writes <code class="inl">/etc/opendeploy/env</code> for process-level settings, readable by root only.</li>
   <li><strong>A container runtime.</strong> Installs a pinned containerd and runc under the agent's own paths, with its own socket and image root, as <code class="inl">opendeploy-containerd.service</code>. Any Docker or system containerd already on the machine is left untouched.</li>
   <li><strong>The agent service.</strong> Installs, enables, and starts <code class="inl">opendeploy.service</code>, which starts after the runtime and restarts on failure.</li>
 </ul>
@@ -277,7 +276,7 @@
 <section id="uninstall" class="page">
 <h2>Uninstall</h2>
 
-<p>The uninstall script stops the services, removes every container, the virtual network state, the units, the sudoers drop-in, and the binary. Without <code class="inl">--purge</code> it leaves the data directories and configuration in place so a reinstall picks up where it left off.</p>
+<p>The uninstall script stops the services, removes every container, the virtual network state, the units, and the binary. Without <code class="inl">--purge</code> it leaves the data directories and configuration in place so a reinstall picks up where it left off.</p>
 
 <CodeBlock code={uninstall} language="text" />
 </section>

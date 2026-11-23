@@ -25,6 +25,7 @@ func Run(ctx context.Context) {
 		<-ctx.Done()
 		return
 	}
+	ainit.WarnIfNotRoot(ctx)
 	runtimebin.ReconcileAtStartup(ctx)
 	if cfg.PrimaryClusterAddr == "" || cfg.PrimaryEnrollmentAddr == "" {
 		panic("OPENDEPLOY_PRIMARY_CLUSTER_ADDR and OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR must be set when running secondary")

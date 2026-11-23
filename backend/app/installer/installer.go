@@ -7,8 +7,8 @@
 // app/primarybootstrap; restore reuses storage and secrets services. A guard in
 // ainit.init() skips server directory and logging setup for installer commands.
 //
-// The embedded systemd units, env template, and sudoers drop-in (assets/) make
-// the binary self-installing — nothing is fetched from GitHub except the
+// The embedded systemd units and env template (assets/) make the binary
+// self-installing — nothing is fetched from GitHub except the
 // release binaries themselves.
 package installer
 
@@ -63,7 +63,7 @@ func Run(argv []string) error {
 
 	case "uninstall":
 		fs := flag.NewFlagSet("uninstall", flag.ExitOnError)
-		purge := fs.Bool("purge", false, "also delete all data (data dir and every /var/lib/opendeploy-* sibling, /etc/opendeploy) and the opendeploy user")
+		purge := fs.Bool("purge", false, "also delete all data (data dir and every /var/lib/opendeploy-* sibling, /etc/opendeploy)")
 		yes := fs.Bool("yes", false, "skip the --purge confirmation prompt")
 		fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 		_ = fs.Parse(argv[2:])

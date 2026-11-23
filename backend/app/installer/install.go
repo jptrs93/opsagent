@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/jptrs93/goutil/authu"
@@ -24,8 +25,7 @@ type bootstrapCredentials struct {
 }
 
 // staged holds the verified temp paths produced by phase 1 (download + verify),
-// consumed by phase 2 (apply). runtime is empty when the runtime isn't being
-// provisioned (an unprivileged upgrade).
+// consumed by phase 2 (apply).
 type staged struct {
 	agentBin string
 	runtime  []runtimebin.Staged
@@ -65,6 +65,9 @@ func doInstall(version string, opts installOptions) error {
 	if !isRoot() && !dryRun {
 		return fmt.Errorf("install must be run as root (try: sudo %s install %s)", os.Args[0], opts.role)
 	}
+	if err := requireRootOwned(dataDir); err != nil {
+		return err
+	}
 	arch, err := runtimebin.HostArch()
 	if err != nil {
 		return err
@@ -78,7 +81,7 @@ func doInstall(version string, opts installOptions) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	st, err := stageAll(version, arch, tmp, true, selfInstall)
+	st, err := stageAll(version, arch, tmp, selfInstall)
 	if err != nil {
 		return err
 	}
@@ -86,8 +89,14 @@ func doInstall(version string, opts installOptions) error {
 }
 
 func doUpgrade(version string) error {
+	if !isRoot() && !dryRun {
+		return fmt.Errorf("upgrade must be run as root (try: sudo %s upgrade)", os.Args[0])
+	}
 	role, err := installedRole()
 	if err != nil {
+		return err
+	}
+	if err := requireRootOwned(dataDir); err != nil {
 		return err
 	}
 	if role == "primary" && !pathExists(filepath.Join(dataDir, "primary.db")) && !dryRun {
@@ -97,9 +106,6 @@ func doUpgrade(version string) error {
 	if err != nil {
 		return err
 	}
-	if err := preflightUpgrade(); err != nil {
-		return err
-	}
 	version, selfInstall, err := resolveVersion(version)
 	if err != nil {
 		return err
@@ -109,12 +115,22 @@ func doUpgrade(version string) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	withRuntime := isRoot() || dryRun
-	st, err := stageAll(version, arch, tmp, withRuntime, selfInstall)
+	st, err := stageAll(version, arch, tmp, selfInstall)
 	if err != nil {
 		return err
 	}
 	return runUpgrade(version, arch, st, installOptions{role: role})
+}
+
+func requireRootOwned(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && st.Uid != 0 {
+		return fmt.Errorf("%s is owned by uid %d, not root: this node holds state from a release that ran the agent unprivileged; follow the per-node conversion in upgrade_log.md first", dir, st.Uid)
+	}
+	return nil
 }
 
 func resolveVersion(version string) (string, bool, error) {
@@ -159,9 +175,9 @@ func roleFromUnit(content []byte) (string, error) {
 	return "", fmt.Errorf("cannot determine the installed role from %s: no ExecStart line", serviceUnitPath)
 }
 
-// stageAll (phase 1) downloads + verifies the agent binary and, when requested,
-// every runtime dep, into tmp. Nothing on the host is touched.
-func stageAll(version, arch, tmp string, withRuntime bool, selfInstall bool) (*staged, error) {
+// stageAll (phase 1) downloads + verifies the agent binary and every runtime
+// dep into tmp. Nothing on the host is touched.
+func stageAll(version, arch, tmp string, selfInstall bool) (*staged, error) {
 	if selfInstall {
 		step("Phase 1/2 — staging current binary and verifying runtime deps (linux/%s)", arch)
 	} else {
@@ -179,16 +195,12 @@ func stageAll(version, arch, tmp string, withRuntime bool, selfInstall bool) (*s
 		return nil, err
 	}
 
-	if withRuntime {
-		for _, dep := range runtimebin.Components() {
-			sd, err := stageDep(dep, arch, tmp)
-			if err != nil {
-				return nil, err
-			}
-			st.runtime = append(st.runtime, sd)
+	for _, dep := range runtimebin.Components() {
+		sd, err := stageDep(dep, arch, tmp)
+		if err != nil {
+			return nil, err
 		}
-	} else {
-		info("skipping container runtime (needs root)")
+		st.runtime = append(st.runtime, sd)
 	}
 	return st, nil
 }
@@ -214,20 +226,6 @@ func stageSelfAgent(tmp string) (string, error) {
 	}
 	info("using current executable %s", self)
 	return dst, nil
-}
-
-func preflightUpgrade() error {
-	if isRoot() || dryRun {
-		return nil
-	}
-	binDir := filepath.Dir(binPath)
-	if !isWritableDir(binDir) {
-		return fmt.Errorf("upgrade requires write access to %s — run as root or as the opendeploy user", binDir)
-	}
-	if !probe("sudo", "-ln", "/usr/bin/systemctl", "restart", serviceName) {
-		return fmt.Errorf("user is not permitted to restart %s without a password — run as root or the opendeploy user", serviceName)
-	}
-	return nil
 }
 
 // stageAgent (phase 1) fetches the release binary and verifies it against the
@@ -278,18 +276,13 @@ func releaseBinPath(version, arch string) string {
 
 // runUpgrade (phase 2) installs the staged binary into its versioned dir, flips
 // the symlink, refreshes the env file and unit, restarts the service when any
-// of them changed, then applies the staged runtime (if any).
+// of them changed, then applies the staged runtime.
 func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	step("Phase 2/2 — upgrading opendeploy to %s (linux/%s)", version, arch)
-	own := resolveOpenDeployOwner()
-	rootOpenDeploy := owner{uid: 0, gid: own.gid}
-	if !isRoot() && !dryRun && (!pathExists(buildLogsDir) || !pathExists(runLogsDir) || !pathExists(assetCacheDir)) {
-		return fmt.Errorf("upgrade requires root once to create runtime state directories")
-	}
-	if err := ensureLogDirs(own); err != nil {
+	if err := ensureLogDirs(); err != nil {
 		return err
 	}
-	if err := ensureDir(assetCacheDir, 0o755, own); err != nil {
+	if err := ensureDir(assetCacheDir, 0o755); err != nil {
 		return err
 	}
 	if opts.role == "primary" && !dryRun {
@@ -300,12 +293,12 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 
 	dst := releaseBinPath(version, arch)
 	binaryChanged := !fileBytesEqual(binPath, st.agentBin)
-	if err := ensureReleaseArtifactDir(version, arch, own); err != nil {
+	if err := ensureReleaseArtifactDir(version, arch); err != nil {
 		return err
 	}
 	if fileBytesEqual(dst, st.agentBin) {
 		info("%s already in place", dst)
-	} else if err := installBinary(st.agentBin, dst, 0o755, own); err != nil {
+	} else if err := installBinary(st.agentBin, dst, 0o755); err != nil {
 		return err
 	}
 	if err := atomicSymlink(dst, binPath); err != nil {
@@ -313,10 +306,10 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 	}
 	info("symlinked %s -> %s", binPath, dst)
 	envChanged := false
-	if opts.hasEnvOverrides() || (opts.role == "primary" && isRoot()) {
+	if opts.hasEnvOverrides() || opts.role == "primary" {
 		step("Updating config")
 		var err error
-		if envChanged, err = updateEnvFile(opts, rootOpenDeploy); err != nil {
+		if envChanged, err = updateEnvFile(opts); err != nil {
 			return err
 		}
 	}
@@ -330,21 +323,12 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 		info("binary, config, and unit are unchanged; not restarting %s", serviceName)
 	} else {
 		step("Restarting %s", serviceName)
-		if isRoot() || dryRun {
-			if err := systemctl("restart", serviceName); err != nil {
-				return err
-			}
-		} else {
-			if err := run("sudo", "-n", "systemctl", "restart", serviceName); err != nil {
-				return err
-			}
+		if err := systemctl("restart", serviceName); err != nil {
+			return err
 		}
 	}
 
-	// Root only — an opendeploy-user upgrade staged no runtime, so this is a no-op.
-	if len(st.runtime) == 0 {
-		info("skipping container runtime refresh (needs root)")
-	} else if err := applyRuntime(st.runtime); err != nil {
+	if err := applyRuntime(st.runtime); err != nil {
 		return err
 	}
 
@@ -356,44 +340,37 @@ func runUpgrade(version, arch string, st *staged, opts installOptions) error {
 func runFreshInstall(version, arch string, st *staged, opts installOptions) error {
 	step("Phase 2/2 — installing opendeploy %s (linux/%s)", version, arch)
 
-	// system user (must exist before we can resolve ownership)
-	step("Creating system user and directories")
-	if err := ensureSystemUser(); err != nil {
+	step("Creating directories")
+	if err := ensureDir(dataDir, 0o750); err != nil {
 		return err
 	}
-	own := resolveOpenDeployOwner()
-	rootOpenDeploy := owner{uid: 0, gid: own.gid}
-
-	if err := ensureDir(dataDir, 0o750, own); err != nil {
-		return err
-	}
-	if err := ensureDir(assetCacheDir, 0o755, own); err != nil {
+	if err := ensureDir(assetCacheDir, 0o755); err != nil {
 		return err
 	}
 	if opts.restore != nil {
 		step("Restoring primary database")
-		if err := restorePrimaryBackup(*opts.restore, opts, own); err != nil {
+		if err := restorePrimaryBackup(*opts.restore, opts); err != nil {
 			return err
 		}
 	}
-	// Sibling dirs outside the private data dir. Release artifacts are reachable by
-	// a different runAs user (0755); logs stay private to opendeploy (0750).
-	if err := ensureDir(releasesDir, 0o755, own); err != nil {
+	// Sibling dirs outside the private data dir. Release artifacts are
+	// world-readable (0755); logs stay private to root (0750).
+	if err := ensureDir(releasesDir, 0o755); err != nil {
 		return err
 	}
-	if err := ensureLogDirs(own); err != nil {
+	if err := ensureLogDirs(); err != nil {
 		return err
 	}
-	if err := ensureDir(filepath.Dir(binPath), 0o755, own); err != nil {
+	if err := ensureDir(filepath.Dir(binPath), 0o755); err != nil {
 		return err
 	}
 
 	step("Installing binary")
 	dst := releaseBinPath(version, arch)
-	if err := ensureReleaseArtifactDir(version, arch, own); err != nil {
+	if err := ensureReleaseArtifactDir(version, arch); err != nil {
 		return err
 	}
-	if err := installBinary(st.agentBin, dst, 0o755, own); err != nil {
+	if err := installBinary(st.agentBin, dst, 0o755); err != nil {
 		return err
 	}
 	if err := atomicSymlink(dst, binPath); err != nil {
@@ -401,19 +378,19 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	}
 	info("symlinked %s -> %s", binPath, dst)
 
-	bootstrap, err := initializePrimary(opts, own)
+	bootstrap, err := initializePrimary(opts)
 	if err != nil {
 		return err
 	}
 
 	// env file — never clobber an existing operator-edited file
 	step("Writing config")
-	wrote, err := writeFile(envFile, renderEnvTemplate(opts), 0o640, rootOpenDeploy, true)
+	wrote, err := writeFile(envFile, renderEnvTemplate(opts), envFileMode, true)
 	if err != nil {
 		return err
 	}
 	if !wrote && (opts.hasEnvOverrides() || opts.role == "primary") {
-		if _, err := updateEnvFile(opts, rootOpenDeploy); err != nil {
+		if _, err := updateEnvFile(opts); err != nil {
 			return err
 		}
 	}
@@ -423,13 +400,8 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 		info("kept existing %s", envFile)
 	}
 
-	step("Installing sudoers drop-in")
-	if err := installSudoers(); err != nil {
-		return err
-	}
-
 	step("Installing systemd unit")
-	if _, err := writeFile(serviceUnitPath, renderOpenDeployUnit(opts), 0o644, noChown, false); err != nil {
+	if _, err := writeFile(serviceUnitPath, renderOpenDeployUnit(opts), 0o644, false); err != nil {
 		return err
 	}
 	if err := daemonReload(); err != nil {
@@ -452,7 +424,7 @@ func runFreshInstall(version, arch string, st *staged, opts installOptions) erro
 	return nil
 }
 
-func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, error) {
+func initializePrimary(opts installOptions) (*bootstrapCredentials, error) {
 	if opts.role != "primary" {
 		return nil, nil
 	}
@@ -468,7 +440,7 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 		if err := service.Validate(context.Background()); err != nil {
 			return nil, fmt.Errorf("validating existing primary bootstrap state: %w", err)
 		}
-		if err := securePrimaryBootstrapArtifacts(own); err != nil {
+		if err := securePrimaryBootstrapArtifacts(); err != nil {
 			return nil, err
 		}
 		info("preserved existing primary bootstrap state")
@@ -521,7 +493,7 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 		return nil, fmt.Errorf("initializing primary: %w", err)
 	}
 	printSetupPassword(bootstrap.password)
-	if err := securePrimaryBootstrapArtifacts(own); err != nil {
+	if err := securePrimaryBootstrapArtifacts(); err != nil {
 		return nil, err
 	}
 	info("initialized primary database, secrets, network prefix, and TLS identity")
@@ -533,7 +505,7 @@ func printSetupPassword(password string) {
 	fmt.Print("Use this password under \"Enrol or recover\" on the web UI sign-in page to create the first administrator. It signs nobody in by itself; keep it for recovery, or replace it under Settings.\n")
 }
 
-func securePrimaryBootstrapArtifacts(own owner) error {
+func securePrimaryBootstrapArtifacts() error {
 	dbPath := filepath.Join(dataDir, "primary.db")
 	paths := append(sqliteArtifactPaths(dbPath), filepath.Join(dataDir, "machine.key"))
 	for _, path := range paths {
@@ -543,7 +515,7 @@ func securePrimaryBootstrapArtifacts(own owner) error {
 			}
 			return err
 		}
-		if err := chmodChown(path, 0o600, own); err != nil {
+		if err := os.Chmod(path, 0o600); err != nil {
 			return err
 		}
 	}
@@ -569,18 +541,18 @@ func generateBootstrapCredentials(opts installOptions) (*bootstrapCredentials, e
 	return &bootstrapCredentials{password: password, hash: hash}, nil
 }
 
-func ensureLogDirs(own owner) error {
+func ensureLogDirs() error {
 	for _, dir := range []string{buildLogsDir, runLogsDir} {
-		if err := ensureDir(dir, 0o750, own); err != nil {
+		if err := ensureDir(dir, 0o750); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func ensureReleaseArtifactDir(version, arch string, own owner) error {
+func ensureReleaseArtifactDir(version, arch string) error {
 	dir := filepath.Dir(releaseBinPath(version, arch))
-	if err := ensureDir(releasesDir, 0o755, own); err != nil {
+	if err := ensureDir(releasesDir, 0o755); err != nil {
 		return err
 	}
 	rel, err := filepath.Rel(releasesDir, dir)
@@ -593,54 +565,11 @@ func ensureReleaseArtifactDir(version, arch string, own owner) error {
 			continue
 		}
 		current = filepath.Join(current, part)
-		if err := ensureDir(current, 0o755, own); err != nil {
+		if err := ensureDir(current, 0o755); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// installSudoers writes the drop-in to a .new file, validates it with visudo,
-// and only then renames it into place — never leaving an invalid sudoers file.
-func installSudoers() error {
-	tmpFile := sudoersFile + ".new"
-	if _, err := writeFile(tmpFile, sudoersTemplate, 0o440, noChown, false); err != nil {
-		return err
-	}
-	if err := run("visudo", "-cf", tmpFile); err != nil {
-		_ = removeFile(tmpFile)
-		return fmt.Errorf("sudoers validation failed: %w", err)
-	}
-	return renameFile(tmpFile, sudoersFile)
-}
-
-func renameFile(from, to string) error {
-	if dryRun {
-		planned("rename %s -> %s", from, to)
-		return nil
-	}
-	return os.Rename(from, to)
-}
-
-// resolveOpenDeployOwner resolves the opendeploy uid/gid, tolerating dry-run runs
-// where the user may not exist yet.
-func resolveOpenDeployOwner() owner {
-	o, err := lookupOwner()
-	if err != nil {
-		return noChown
-	}
-	return o
-}
-
-func isWritableDir(dir string) bool {
-	probeFile := filepath.Join(dir, ".opendeploy-write-probe")
-	f, err := os.OpenFile(probeFile, os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return false
-	}
-	f.Close()
-	_ = os.Remove(probeFile)
-	return true
 }
 
 func updateServiceUnitForUpgrade(opts installOptions) (bool, error) {
@@ -653,11 +582,7 @@ func updateServiceUnitForUpgrade(opts installOptions) (bool, error) {
 		info("kept existing %s", serviceUnitPath)
 		return false, nil
 	}
-	if !isRoot() && !dryRun {
-		info("kept existing %s (rewriting it requires root)", serviceUnitPath)
-		return false, nil
-	}
-	if _, err := writeFile(serviceUnitPath, rendered, 0o644, noChown, false); err != nil {
+	if _, err := writeFile(serviceUnitPath, rendered, 0o644, false); err != nil {
 		return false, err
 	}
 	return true, daemonReload()

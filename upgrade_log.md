@@ -4,6 +4,174 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.620 (unreleased)
+
+This release needs commands run as root on every node, over SSH, after the
+version is rolled out. They are listed under "Per-node conversion" below.
+
+### What changed
+
+- **The agent runs as root.** `opendeploy.service` sets `User=root` and
+  `NoNewPrivileges=yes` and grants no ambient capabilities. Earlier
+  releases ran it as the `opendeploy` user with seven capabilities, a
+  sudoers drop-in and group access to the containerd socket, which was
+  root-equivalent without saying so.
+- **Nothing creates the `opendeploy` account or
+  `/etc/sudoers.d/opendeploy`.** A fresh install has neither.
+- **Every runtime root is `root:root`.** `/etc/opendeploy/env` is `0600`.
+  A deployment's default volume directory and issued TLS files still
+  belong to the container's user.
+- **The containerd socket is root-only.** `config.toml` no longer sets
+  `gid`, so `/run/opendeploy/containerd.sock` is `root:root 0660`.
+- **`opendeploy upgrade` requires root.** Running it as the `opendeploy`
+  user to swap only the binary is gone. As root it now also restarts
+  containerd when `config.toml` changed.
+- **`git` runs as root with `HOME` set to the Git cache directory.** It
+  no longer reads a `.gitconfig` from the service user's home, and `ssh`
+  started by it reads root's keys.
+- **The installer changes no ownership on an existing node.** The
+  conversion below is done by hand, once. `opendeploy upgrade` and
+  `opendeploy install` refuse to run while `/var/lib/opendeploy` is not
+  owned by root, so the unit cannot be switched before the files are.
+
+### Before upgrading
+
+Check each node for anything that depends on the `opendeploy` account:
+
+- **`git@` repositories.** `sudo ls -la /var/lib/opendeploy/.ssh`. Keys and
+  `known_hosts` there must move to `/root/.ssh` during the conversion, or
+  builds from those repositories fail to fetch.
+- **Git settings.** `sudo ls -la /var/lib/opendeploy/.gitconfig
+  /var/lib/opendeploy/.config/git`. A proxy, CA or credential helper set
+  there stops applying. Move it to `/etc/gitconfig`.
+- **Operator access through the group.** `getent group opendeploy` lists
+  members. A member who used the group to reach the containerd socket or
+  read the logs needs `sudo` afterwards.
+- **Scripts and cron jobs** that run `sudo -u opendeploy …` or
+  `opendeploy upgrade` as that user: `sudo crontab -u opendeploy -l`.
+- **Host `git`** is still required on every node that builds from a
+  repository, and on the primary.
+
+### Rollout
+
+1. **Roll the version out from the Deployments page first**, secondaries
+   then primary, as usual. An agent on this release still runs under the
+   old unit: it logs `opendeploy is running as uid … instead of root` at
+   start and otherwise behaves as before. Do not start with the SSH steps:
+   a node whose binary differs from its `opendeploy` deployment's target
+   restarts into the target.
+2. **Convert each node**, secondaries then primary, with the commands
+   below.
+
+Do not roll back to a release that ran unprivileged after a node is
+converted. That is not supported.
+
+### Per-node conversion
+
+Run as a user with `sudo` on the node. The agent is stopped for about a
+minute, most of it the runtime download in step 4. Containers keep
+running throughout; on the primary the Web UI and API are down for that
+time.
+
+1. Record the state to compare against afterwards, and stop the agent.
+   The `readlink` output names the release the node runs; it must be this
+   one.
+
+   ```bash
+   CTR="sudo /var/lib/opendeploy/runtime/bin/ctr --address /run/opendeploy/containerd.sock -n opendeploy"
+   readlink -f /var/lib/opendeploy/bin/opendeploy
+   $CTR tasks ls | sort > /tmp/tasks.before
+   sudo systemctl stop opendeploy
+   ```
+
+2. Give the runtime roots to root. The volume and Nix store commands
+   change only the directories the agent created. Do not replace them
+   with a recursive `chown`, and do not select files by owner inside a
+   volume: the `opendeploy` uid is commonly 999, which is also the user
+   of images such as Postgres, so files inside a volume that list
+   `opendeploy` as owner belong to the container.
+
+   ```bash
+   sudo find /var/lib/opendeploy -xdev -path /var/lib/opendeploy/issued-tls -prune -o -exec chown -h root:root {} +
+   [ -d /var/lib/opendeploy/issued-tls ] && sudo chown root:root /var/lib/opendeploy/issued-tls
+   sudo chown -R -h root:root /var/lib/opendeploy-assets /var/lib/opendeploy-build-logs \
+     /var/lib/opendeploy-run-logs /var/lib/opendeploy-log-archive \
+     /var/lib/opendeploy-metrics /var/lib/opendeploy-releases
+   sudo find /var/lib/opendeploy-volumes -maxdepth 1 -exec chown -h root:root {} +
+   sudo find /var/lib/opendeploy-nix -xdev -maxdepth 3 -user opendeploy -exec chown -h root:root {} +
+   sudo chown root:root /etc/opendeploy/env && sudo chmod 600 /etc/opendeploy/env
+   ```
+
+   `issued-tls/<deployment>` is skipped because its files belong to the
+   container's user.
+
+3. Remove what only the unprivileged service needed, and make the
+   containerd socket root-only. Restarting containerd here, while the
+   agent is stopped, leaves the containers running and gives the agent a
+   settled daemon to attach to.
+
+   ```bash
+   sudo rm -f /etc/sudoers.d/opendeploy
+   sudo rm -rf /var/lib/opendeploy/.cache
+   sudo rm -f /var/lib/opendeploy/.bashrc /var/lib/opendeploy/.profile /var/lib/opendeploy/.bash_logout
+   sudo sed -i '/^  gid = /d' /var/lib/opendeploy/runtime/config.toml
+   sudo systemctl restart opendeploy-containerd
+   ```
+
+   `.cache` holds Nix client caches from releases that ran Nix on the
+   host. Keep `.certs` (the Web UI certificate cache) and
+   `.primary.db-litestream` (backup state). Move `.ssh` to `/root/.ssh`
+   here if the check above found one.
+
+4. Rewrite the unit and start the agent as root.
+
+   ```bash
+   sudo /var/lib/opendeploy/bin/opendeploy upgrade
+   sudo systemctl start opendeploy
+   ```
+
+   `upgrade` with no version re-stages the installed binary, writes the
+   new unit, reloads systemd and restarts the service. The explicit
+   `start` covers a rerun, where nothing changed and `upgrade` restarts
+   nothing.
+
+5. Verify.
+
+   ```bash
+   systemctl show -p User -p NoNewPrivileges -p ActiveState opendeploy
+   ps -o user= -p "$(systemctl show -p MainPID --value opendeploy)"
+   sudo stat -c '%U:%G %a' /run/opendeploy/containerd.sock /etc/opendeploy/env
+   $CTR tasks ls | sort | diff /tmp/tasks.before - && echo "containers unchanged"
+   sudo find /var/lib/opendeploy /etc/opendeploy -xdev -user opendeploy -not -path '/var/lib/opendeploy/issued-tls/*'
+   ```
+
+   Expect `User=root`, `NoNewPrivileges=yes`, `ActiveState=active`;
+   `root`; `root:root 660` and `root:root 600`; an empty
+   task diff; and no output from the last command. On the Cluster page
+   the node is connected on this release. The agent log has no
+   `running as uid` warning after the restart.
+
+6. Remove the account, once the node has been checked.
+
+   ```bash
+   sudo userdel opendeploy
+   getent passwd opendeploy; getent group opendeploy
+   ```
+
+   Never pass `-r`: the account's home is `/var/lib/opendeploy`. If
+   `userdel` answers `user opendeploy is currently used by process …`, the
+   process is a container's that shares the uid; `sudo userdel -f
+   opendeploy` removes the account and leaves the process and the
+   directory alone. Both `getent` commands print nothing afterwards.
+   Files inside volumes that listed `opendeploy` as owner show the
+   numeric uid from then on.
+
+### After upgrading
+
+- A node that still shows the `running as uid` warning has not been
+  converted. It works, through a fallback that a later release removes.
+- Later upgrades from the Deployments page need no SSH step.
+
 ## v0.0.619 (released 2026-11-24)
 
 v0.0.618 was tagged and never published: its build stopped at the new

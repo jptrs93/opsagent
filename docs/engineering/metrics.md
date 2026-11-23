@@ -399,9 +399,10 @@ every start.
 
 `open_fds` is read for every run with a pid, host-network runs included,
 since descriptors are per process rather than per network namespace. The
-`/proc/<pid>/fd` listing is ptrace-gated, so the installer's service unit
-grants `CAP_SYS_PTRACE`; without it the field is nil for containers whose
-processes run as a different uid than the agent.
+`/proc/<pid>/fd` listing is ptrace-gated. The agent runs as root, which
+passes the gate; on a node still running the unprivileged unit of an older
+install the field is nil for containers whose processes run as another uid
+unless that unit grants `CAP_SYS_PTRACE`.
 
 ## Non-goals
 
