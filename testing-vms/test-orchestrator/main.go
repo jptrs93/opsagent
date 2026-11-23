@@ -292,8 +292,8 @@ func loadConfig(resolveLatestRelease bool) (*config, error) {
 	}
 	c.NixBuildMemoryMB = env("OPD_NIX_BUILD_MEMORY_MB", "2048")
 	c.RepoMirrorOCI = env("OPD_REPO_MIRROR_OCI_IMAGES", "docker.io/library/postgres:18="+c.PostgresImage+" "+c.DeclarativePostgresSourceImage+"="+c.DeclarativePostgresImage+" docker.io/bitnamilegacy/minio:latest="+c.MinioImage+" "+c.NixBuildSourceImage+"="+c.NixBuildImage)
-	c.ContainerdVersion = env("CONTAINERD_VERSION", "2.3.5")
-	c.RuncVersion = env("RUNC_VERSION", "1.5.1")
+	c.ContainerdVersion = env("CONTAINERD_VERSION", "2.3.7")
+	c.RuncVersion = env("RUNC_VERSION", "1.5.3")
 
 	switch runtime.GOARCH {
 	case "arm64":
@@ -2067,7 +2067,7 @@ func (c *config) installPrimary() error {
 		return err
 	}
 	logf("Installing primary in %s", c.PrimaryName)
-	args := []string{"sudo", "opendeploy", "install", "primary", "--web-listen", ":443", "--acme-hosts", c.WebHost, "--web-tls-self-managed", "true", "--web-tls-cert-pem-file", "/tmp/opendeploy-web.pem", "--passkey-extra-origins", "https://" + c.WebHost + ":8443"}
+	args := []string{"sudo", "opendeploy", "install", "primary", "--web-listen", ":443", "--web-hosts", c.WebHost, "--web-tls-cert-pem-file", "/tmp/opendeploy-web.pem", "--passkey-extra-origins", "https://" + c.WebHost + ":8443"}
 	if !c.usesSelfBootstrap() {
 		args = append(args, "--version", c.InstallVersion)
 	}
@@ -2076,10 +2076,10 @@ func (c *config) installPrimary() error {
 	if err != nil {
 		return err
 	}
-	re := regexp.MustCompile(`Temporary\s+setup\s+password:\s+([^\s]+)`) // installer output contract
+	re := regexp.MustCompile(`Master\s+password:\s+([^\s]+)`) // installer output contract
 	m := re.FindStringSubmatch(installOutput)
 	if len(m) != 2 {
-		return errors.New("installer output did not include a temporary setup password")
+		return errors.New("installer output did not include a master password")
 	}
 	if err := os.MkdirAll(c.StateDir, 0o755); err != nil {
 		return err
@@ -2836,7 +2836,7 @@ func (c *config) backupRestore() error {
 	}); err != nil {
 		return err
 	}
-	cmd := []string{"sudo", "opendeploy", "install", "primary", "--web-listen", ":443", "--acme-hosts", c.WebHost, "--web-tls-self-managed", "true", "--web-tls-cert-pem-file", "/tmp/opendeploy-web.pem", "--passkey-extra-origins", "https://" + c.WebHost + ":8443", "--restore-backup", "true", "--restore-s3-access-key-id", state["OPD_RESTORE_S3_ACCESS_KEY_ID"], "--restore-s3-secret-access-key", state["OPD_RESTORE_S3_SECRET_ACCESS_KEY"], "--restore-s3-bucket", state["OPD_RESTORE_S3_BUCKET"], "--restore-s3-path", state["OPD_RESTORE_S3_PATH"], "--restore-s3-region", state["OPD_RESTORE_S3_REGION"], "--restore-s3-endpoint", state["OPD_RESTORE_S3_ENDPOINT"], "--recovery-code", state["OPD_RESTORE_RECOVERY_CODE"]}
+	cmd := []string{"sudo", "opendeploy", "install", "primary", "--web-listen", ":443", "--web-hosts", c.WebHost, "--web-tls-cert-pem-file", "/tmp/opendeploy-web.pem", "--passkey-extra-origins", "https://" + c.WebHost + ":8443", "--restore-backup", "true", "--restore-s3-access-key-id", state["OPD_RESTORE_S3_ACCESS_KEY_ID"], "--restore-s3-secret-access-key", state["OPD_RESTORE_S3_SECRET_ACCESS_KEY"], "--restore-s3-bucket", state["OPD_RESTORE_S3_BUCKET"], "--restore-s3-path", state["OPD_RESTORE_S3_PATH"], "--restore-s3-region", state["OPD_RESTORE_S3_REGION"], "--restore-s3-endpoint", state["OPD_RESTORE_S3_ENDPOINT"], "--recovery-code", state["OPD_RESTORE_RECOVERY_CODE"]}
 	cmd = append(cmd, "--version", restoreInstallVersion)
 	if err := c.substep("restore primary install", "opendeploy install primary --restore-backup", func() error {
 		return c.vmRun(c.PrimaryName, cmd...)

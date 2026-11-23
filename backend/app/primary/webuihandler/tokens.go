@@ -10,9 +10,12 @@ import (
 // A bearer token is "<kind><session id>.<secret>": the kind picks the table,
 // the id is the indexed lookup, and only sha256(token) is stored, so the row
 // binds to exactly one token and a copy of the database holds no credential.
+// A link token has the same shape but is never accepted as a bearer: it is
+// redeemed once, by its own endpoint, for a user session.
 const (
 	userTokenKind  = "u_"
 	agentTokenKind = "a_"
+	linkTokenKind  = "l_"
 )
 
 // tokenDisplayPrefixLen is how much of a token is kept in the clear so an
@@ -29,7 +32,7 @@ func mintToken(kind, sessionID string) (string, error) {
 }
 
 func splitToken(token string) (kind, sessionID string, ok bool) {
-	for _, k := range []string{userTokenKind, agentTokenKind} {
+	for _, k := range []string{userTokenKind, agentTokenKind, linkTokenKind} {
 		rest, found := strings.CutPrefix(token, k)
 		if !found {
 			continue

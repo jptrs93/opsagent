@@ -1033,6 +1033,9 @@
  * @property {number} id
  * @property {string} name
  * @property {UserAuthentication} authentication
+ * @property {string} email
+ * @property {string} passwordHash
+ * @property {Date} activatedAt
  */
 /**
  * @typedef {Object} UserAuthentication
@@ -1043,11 +1046,13 @@
  * @typedef {Object} WebAuthnCredential
  * @property {Uint8Array} id
  * @property {Uint8Array} data
+ * @property {string} label
+ * @property {Date} createdAt
+ * @property {Date} lastUsedAt
  */
 /**
  * @typedef {Object} MasterPasswordRequest
  * @property {string} password
- * @property {string} username
  */
 /**
  * @typedef {Object} MasterPasswordVerifyRequest
@@ -1065,8 +1070,22 @@
 /**
  * @typedef {Object} AuthMethodsResponse
  * @property {boolean} passkeyLoginEnabled
- * @property {boolean} passwordLoginEnabled
+ * @property {boolean} requirePasskey
  * @property {boolean} localCaAvailable
+ */
+/**
+ * @typedef {Object} LinkRedeemRequest
+ * @property {string} token
+ */
+/**
+ * @typedef {Object} LinkRedeemResponse
+ * @property {LoginResponse} session
+ * @property {boolean} nameSet
+ * @property {boolean} passwordSet
+ */
+/**
+ * @typedef {Object} OpenSessionRequest
+ * @property {number} userId
  */
 /**
  * @typedef {Object} LoginResponse
@@ -1076,6 +1095,35 @@
  * @property {Date} expiry
  * @property {string} sessionId
  * @property {number} kind
+ */
+/**
+ * @typedef {Object} AccountView
+ * @property {number} userId
+ * @property {string} name
+ * @property {string} email
+ * @property {boolean} hasPassword
+ * @property {Date} activatedAt
+ * @property {AccountPasskey[]} passkeys
+ */
+/**
+ * @typedef {Object} AccountPasskey
+ * @property {Uint8Array} id
+ * @property {string} label
+ * @property {Date} createdAt
+ * @property {Date} lastUsedAt
+ */
+/**
+ * @typedef {Object} AccountRenameRequest
+ * @property {string} name
+ */
+/**
+ * @typedef {Object} AccountPasswordRequest
+ * @property {string} current
+ * @property {string} next
+ */
+/**
+ * @typedef {Object} AccountPasskeyDeleteRequest
+ * @property {Uint8Array} id
  */
 /**
  * @typedef {Object} WebAuthNOptionsResponse
@@ -1115,6 +1163,9 @@
  * @property {string} requestingAddress
  * @property {string} userAgent
  * @property {Uint8Array} tokenHash
+ * @property {Date} redeemedAt
+ * @property {number} openedBy
+ * @property {number} issuedBy
  */
 /**
  * @typedef {Object} AgentSessionList
@@ -1418,6 +1469,22 @@
 /**
  * @typedef {Object} AuthzGlobalRuleDeleteRequest
  * @property {number} id
+ */
+/**
+ * @typedef {Object} UserCreateRequest
+ * @property {string} name
+ * @property {string} password
+ * @property {AuthzGrantSource[]} grants
+ */
+/**
+ * @typedef {Object} UserLinkRequest
+ * @property {number} userId
+ */
+/**
+ * @typedef {Object} UserLinkResponse
+ * @property {string} token
+ * @property {string} sessionId
+ * @property {Date} expiresAt
  */
 /**
  * @typedef {Object} Node
@@ -1948,6 +2015,7 @@
 /**
  * @typedef {Object} AuthSettings
  * @property {BoolSetting} passwordLoginEnabled
+ * @property {BoolSetting} requirePasskey
  */
 /**
  * @typedef {Object} NixStoreReset
@@ -13664,13 +13732,22 @@ export function writeUser(message, writer) {
     if (message.id !== undefined && message.id !== null && message.id !== 0) {
         writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
     }
-    if (message.name !== undefined && message.name !== null && message.name !== "") {
+    if (message.name !== undefined && message.name !== null) {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
     }
     if (message.authentication !== undefined && message.authentication !== null) {
         writer.uint32(tag(3, WIRE.LDELIM)).fork();
         writeUserAuthentication(message.authentication, writer);
         writer.ldelim();
+    }
+    if (message.email !== undefined && message.email !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).string(message.email);
+    }
+    if (message.passwordHash !== undefined && message.passwordHash !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.passwordHash);
+    }
+    if (message.activatedAt !== undefined && message.activatedAt !== null) {
+        writer.uint32(tag(6, WIRE.VARINT)).int64(Math.trunc(message.activatedAt.getTime()));
     }
 }
 
@@ -13693,7 +13770,7 @@ export function encodeUser(message) {
  */
 function decodeUserMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, name: "", authentication: undefined };
+    const message = {id: 0, name: undefined, authentication: undefined, email: undefined, passwordHash: undefined, activatedAt: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13707,6 +13784,18 @@ function decodeUserMessage(reader, length) {
             }
             case 3: {
                 message.authentication = decodeUserAuthenticationMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.email = reader.string();
+                break;
+            }
+            case 5: {
+                message.passwordHash = reader.string();
+                break;
+            }
+            case 6: {
+                message.activatedAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             default:
@@ -13806,6 +13895,15 @@ export function writeWebAuthnCredential(message, writer) {
     if (message.data && message.data.length > 0) {
         writer.uint32(tag(2, WIRE.LDELIM)).bytes(message.data);
     }
+    if (message.label !== undefined && message.label !== null && message.label !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.label);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.lastUsedAt !== undefined && message.lastUsedAt !== null) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.lastUsedAt.getTime()));
+    }
 }
 
 
@@ -13827,7 +13925,7 @@ export function encodeWebAuthnCredential(message) {
  */
 function decodeWebAuthnCredentialMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: new Uint8Array(0), data: new Uint8Array(0) };
+    const message = {id: new Uint8Array(0), data: new Uint8Array(0), label: "", createdAt: new Date(0), lastUsedAt: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -13837,6 +13935,18 @@ function decodeWebAuthnCredentialMessage(reader, length) {
             }
             case 2: {
                 message.data = reader.bytes();
+                break;
+            }
+            case 3: {
+                message.label = reader.string();
+                break;
+            }
+            case 4: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 5: {
+                message.lastUsedAt = new Date(readInt64(reader, "int64"));
                 break;
             }
             default:
@@ -13866,9 +13976,6 @@ export function writeMasterPasswordRequest(message, writer) {
     if (message.password !== undefined && message.password !== null && message.password !== "") {
         writer.uint32(tag(1, WIRE.LDELIM)).string(message.password);
     }
-    if (message.username !== undefined && message.username !== null && message.username !== "") {
-        writer.uint32(tag(2, WIRE.LDELIM)).string(message.username);
-    }
 }
 
 
@@ -13890,16 +13997,12 @@ export function encodeMasterPasswordRequest(message) {
  */
 function decodeMasterPasswordRequestMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {password: "", username: "" };
+    const message = {password: "" };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.password = reader.string();
-                break;
-            }
-            case 2: {
-                message.username = reader.string();
                 break;
             }
             default:
@@ -14104,8 +14207,8 @@ export function writeAuthMethodsResponse(message, writer) {
     if (message.passkeyLoginEnabled === true) {
         writer.uint32(tag(1, WIRE.VARINT)).bool(message.passkeyLoginEnabled);
     }
-    if (message.passwordLoginEnabled === true) {
-        writer.uint32(tag(2, WIRE.VARINT)).bool(message.passwordLoginEnabled);
+    if (message.requirePasskey === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.requirePasskey);
     }
     if (message.localCaAvailable === true) {
         writer.uint32(tag(3, WIRE.VARINT)).bool(message.localCaAvailable);
@@ -14131,7 +14234,7 @@ export function encodeAuthMethodsResponse(message) {
  */
 function decodeAuthMethodsResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {passkeyLoginEnabled: false, passwordLoginEnabled: false, localCaAvailable: false };
+    const message = {passkeyLoginEnabled: false, requirePasskey: false, localCaAvailable: false };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -14140,7 +14243,7 @@ function decodeAuthMethodsResponseMessage(reader, length) {
                 break;
             }
             case 2: {
-                message.passwordLoginEnabled = reader.bool();
+                message.requirePasskey = reader.bool();
                 break;
             }
             case 3: {
@@ -14162,6 +14265,190 @@ function decodeAuthMethodsResponseMessage(reader, length) {
 export function decodeAuthMethodsResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAuthMethodsResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {LinkRedeemRequest} message
+ * @param {Writer} writer
+ */
+export function writeLinkRedeemRequest(message, writer) {
+    if (message.token !== undefined && message.token !== null && message.token !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.token);
+    }
+}
+
+
+/**
+ * @param {LinkRedeemRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeLinkRedeemRequest(message) {
+    const writer = Writer.create();
+    writeLinkRedeemRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LinkRedeemRequest}
+ */
+function decodeLinkRedeemRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {token: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.token = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LinkRedeemRequest}
+ */
+export function decodeLinkRedeemRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLinkRedeemRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {LinkRedeemResponse} message
+ * @param {Writer} writer
+ */
+export function writeLinkRedeemResponse(message, writer) {
+    if (message.session !== undefined && message.session !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeLoginResponse(message.session, writer);
+        writer.ldelim();
+    }
+    if (message.nameSet === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.nameSet);
+    }
+    if (message.passwordSet === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.passwordSet);
+    }
+}
+
+
+/**
+ * @param {LinkRedeemResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeLinkRedeemResponse(message) {
+    const writer = Writer.create();
+    writeLinkRedeemResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LinkRedeemResponse}
+ */
+function decodeLinkRedeemResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {session: undefined, nameSet: false, passwordSet: false };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.session = decodeLoginResponseMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.nameSet = reader.bool();
+                break;
+            }
+            case 3: {
+                message.passwordSet = reader.bool();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LinkRedeemResponse}
+ */
+export function decodeLinkRedeemResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLinkRedeemResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {OpenSessionRequest} message
+ * @param {Writer} writer
+ */
+export function writeOpenSessionRequest(message, writer) {
+    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.userId));
+    }
+}
+
+
+/**
+ * @param {OpenSessionRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeOpenSessionRequest(message) {
+    const writer = Writer.create();
+    writeOpenSessionRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {OpenSessionRequest}
+ */
+function decodeOpenSessionRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {userId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.userId = readInt64(reader, "uint64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {OpenSessionRequest}
+ */
+export function decodeOpenSessionRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeOpenSessionRequestMessage(reader);
 }
 
 
@@ -14253,6 +14540,353 @@ function decodeLoginResponseMessage(reader, length) {
 export function decodeLoginResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeLoginResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {AccountView} message
+ * @param {Writer} writer
+ */
+export function writeAccountView(message, writer) {
+    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.userId));
+    }
+    if (message.name !== undefined && message.name !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.email !== undefined && message.email !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.email);
+    }
+    if (message.hasPassword === true) {
+        writer.uint32(tag(4, WIRE.VARINT)).bool(message.hasPassword);
+    }
+    if (message.activatedAt !== undefined && message.activatedAt !== null) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.activatedAt.getTime()));
+    }
+    if (message.passkeys && message.passkeys.length > 0) {
+        for (const item of message.passkeys) {
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writeAccountPasskey(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {AccountView} message
+ * @returns {Uint8Array}
+ */
+export function encodeAccountView(message) {
+    const writer = Writer.create();
+    writeAccountView(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AccountView}
+ */
+function decodeAccountViewMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {userId: 0, name: undefined, email: undefined, hasPassword: false, activatedAt: undefined, passkeys: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.userId = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.email = reader.string();
+                break;
+            }
+            case 4: {
+                message.hasPassword = reader.bool();
+                break;
+            }
+            case 5: {
+                message.activatedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 6: {
+                message.passkeys.push(decodeAccountPasskeyMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AccountView}
+ */
+export function decodeAccountView(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAccountViewMessage(reader);
+}
+
+
+
+/**
+ * @param {AccountPasskey} message
+ * @param {Writer} writer
+ */
+export function writeAccountPasskey(message, writer) {
+    if (message.id && message.id.length > 0) {
+        writer.uint32(tag(1, WIRE.LDELIM)).bytes(message.id);
+    }
+    if (message.label !== undefined && message.label !== null && message.label !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.label);
+    }
+    if (message.createdAt instanceof Date && message.createdAt.getTime() !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.createdAt.getTime()));
+    }
+    if (message.lastUsedAt !== undefined && message.lastUsedAt !== null) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.lastUsedAt.getTime()));
+    }
+}
+
+
+/**
+ * @param {AccountPasskey} message
+ * @returns {Uint8Array}
+ */
+export function encodeAccountPasskey(message) {
+    const writer = Writer.create();
+    writeAccountPasskey(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AccountPasskey}
+ */
+function decodeAccountPasskeyMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: new Uint8Array(0), label: "", createdAt: new Date(0), lastUsedAt: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.bytes();
+                break;
+            }
+            case 2: {
+                message.label = reader.string();
+                break;
+            }
+            case 3: {
+                message.createdAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 4: {
+                message.lastUsedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AccountPasskey}
+ */
+export function decodeAccountPasskey(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAccountPasskeyMessage(reader);
+}
+
+
+
+/**
+ * @param {AccountRenameRequest} message
+ * @param {Writer} writer
+ */
+export function writeAccountRenameRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+}
+
+
+/**
+ * @param {AccountRenameRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAccountRenameRequest(message) {
+    const writer = Writer.create();
+    writeAccountRenameRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AccountRenameRequest}
+ */
+function decodeAccountRenameRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AccountRenameRequest}
+ */
+export function decodeAccountRenameRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAccountRenameRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AccountPasswordRequest} message
+ * @param {Writer} writer
+ */
+export function writeAccountPasswordRequest(message, writer) {
+    if (message.current !== undefined && message.current !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.current);
+    }
+    if (message.next !== undefined && message.next !== null && message.next !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.next);
+    }
+}
+
+
+/**
+ * @param {AccountPasswordRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAccountPasswordRequest(message) {
+    const writer = Writer.create();
+    writeAccountPasswordRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AccountPasswordRequest}
+ */
+function decodeAccountPasswordRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {current: undefined, next: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.current = reader.string();
+                break;
+            }
+            case 2: {
+                message.next = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AccountPasswordRequest}
+ */
+export function decodeAccountPasswordRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAccountPasswordRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {AccountPasskeyDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeAccountPasskeyDeleteRequest(message, writer) {
+    if (message.id && message.id.length > 0) {
+        writer.uint32(tag(1, WIRE.LDELIM)).bytes(message.id);
+    }
+}
+
+
+/**
+ * @param {AccountPasskeyDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeAccountPasskeyDeleteRequest(message) {
+    const writer = Writer.create();
+    writeAccountPasskeyDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {AccountPasskeyDeleteRequest}
+ */
+function decodeAccountPasskeyDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: new Uint8Array(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = reader.bytes();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {AccountPasskeyDeleteRequest}
+ */
+export function decodeAccountPasskeyDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeAccountPasskeyDeleteRequestMessage(reader);
 }
 
 
@@ -14571,7 +15205,7 @@ export function writeUserSession(message, writer) {
     if (message.sessionId !== undefined && message.sessionId !== null && message.sessionId !== "") {
         writer.uint32(tag(2, WIRE.LDELIM)).string(message.sessionId);
     }
-    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+    if (message.userId !== undefined && message.userId !== null) {
         writer.uint32(tag(3, WIRE.VARINT)).uint64(Math.trunc(message.userId));
     }
     if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
@@ -14591,6 +15225,15 @@ export function writeUserSession(message, writer) {
     }
     if (message.tokenHash !== undefined && message.tokenHash !== null) {
         writer.uint32(tag(9, WIRE.LDELIM)).bytes(message.tokenHash);
+    }
+    if (message.redeemedAt !== undefined && message.redeemedAt !== null) {
+        writer.uint32(tag(10, WIRE.VARINT)).int64(Math.trunc(message.redeemedAt.getTime()));
+    }
+    if (message.openedBy !== undefined && message.openedBy !== null) {
+        writer.uint32(tag(11, WIRE.VARINT)).uint64(Math.trunc(message.openedBy));
+    }
+    if (message.issuedBy !== undefined && message.issuedBy !== null) {
+        writer.uint32(tag(12, WIRE.VARINT)).uint64(Math.trunc(message.issuedBy));
     }
 }
 
@@ -14613,7 +15256,7 @@ export function encodeUserSession(message) {
  */
 function decodeUserSessionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {id: 0, sessionId: "", userId: 0, kind: 0, expiresAt: new Date(0), revokedAt: undefined, requestingAddress: "", userAgent: "", tokenHash: undefined };
+    const message = {id: 0, sessionId: "", userId: undefined, kind: 0, expiresAt: new Date(0), revokedAt: undefined, requestingAddress: "", userAgent: "", tokenHash: undefined, redeemedAt: undefined, openedBy: undefined, issuedBy: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -14651,6 +15294,18 @@ function decodeUserSessionMessage(reader, length) {
             }
             case 9: {
                 message.tokenHash = reader.bytes();
+                break;
+            }
+            case 10: {
+                message.redeemedAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 11: {
+                message.openedBy = readInt64(reader, "uint64");
+                break;
+            }
+            case 12: {
+                message.issuedBy = readInt64(reader, "uint64");
                 break;
             }
             default:
@@ -18323,6 +18978,206 @@ function decodeAuthzGlobalRuleDeleteRequestMessage(reader, length) {
 export function decodeAuthzGlobalRuleDeleteRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeAuthzGlobalRuleDeleteRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {UserCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeUserCreateRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.password !== undefined && message.password !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.password);
+    }
+    if (message.grants && message.grants.length > 0) {
+        for (const item of message.grants) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeAuthzGrantSource(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {UserCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserCreateRequest(message) {
+    const writer = Writer.create();
+    writeUserCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserCreateRequest}
+ */
+function decodeUserCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: undefined, password: undefined, grants: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.password = reader.string();
+                break;
+            }
+            case 3: {
+                message.grants.push(decodeAuthzGrantSourceMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserCreateRequest}
+ */
+export function decodeUserCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {UserLinkRequest} message
+ * @param {Writer} writer
+ */
+export function writeUserLinkRequest(message, writer) {
+    if (message.userId !== undefined && message.userId !== null && message.userId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.userId));
+    }
+}
+
+
+/**
+ * @param {UserLinkRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserLinkRequest(message) {
+    const writer = Writer.create();
+    writeUserLinkRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserLinkRequest}
+ */
+function decodeUserLinkRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {userId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.userId = readInt64(reader, "uint64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserLinkRequest}
+ */
+export function decodeUserLinkRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserLinkRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {UserLinkResponse} message
+ * @param {Writer} writer
+ */
+export function writeUserLinkResponse(message, writer) {
+    if (message.token !== undefined && message.token !== null && message.token !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.token);
+    }
+    if (message.sessionId !== undefined && message.sessionId !== null && message.sessionId !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.sessionId);
+    }
+    if (message.expiresAt instanceof Date && message.expiresAt.getTime() !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.expiresAt.getTime()));
+    }
+}
+
+
+/**
+ * @param {UserLinkResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeUserLinkResponse(message) {
+    const writer = Writer.create();
+    writeUserLinkResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {UserLinkResponse}
+ */
+function decodeUserLinkResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {token: "", sessionId: "", expiresAt: new Date(0) };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.token = reader.string();
+                break;
+            }
+            case 2: {
+                message.sessionId = reader.string();
+                break;
+            }
+            case 3: {
+                message.expiresAt = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {UserLinkResponse}
+ */
+export function decodeUserLinkResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeUserLinkResponseMessage(reader);
 }
 
 
@@ -24614,6 +25469,11 @@ export function writeAuthSettings(message, writer) {
         writeBoolSetting(message.passwordLoginEnabled, writer);
         writer.ldelim();
     }
+    if (message.requirePasskey !== undefined && message.requirePasskey !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeBoolSetting(message.requirePasskey, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -24635,12 +25495,16 @@ export function encodeAuthSettings(message) {
  */
 function decodeAuthSettingsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {passwordLoginEnabled: undefined };
+    const message = {passwordLoginEnabled: undefined, requirePasskey: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
             case 1: {
                 message.passwordLoginEnabled = decodeBoolSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.requirePasskey = decodeBoolSettingMessage(reader, reader.uint32());
                 break;
             }
             default:

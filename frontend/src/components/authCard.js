@@ -98,7 +98,7 @@ export const transportRow = (methods, caOpen, testid) => {
 // The page: backdrop, centred card with header line (mark, "OpenDeploy",
 // the page title), body children, and a footer band (a `footerBand` node or a
 // binding that returns one), plus any overlays.
-export const authCard = ({title, body, footer, overlays = []}) => div(
+export const authCard = ({title, body, footer, overlays = [], width = "max-w-[420px]"}) => div(
     {class: "app-scroll relative h-dvh w-dvw overflow-y-auto bg-gray-950"},
     // Backdrop: a faint dot grid fading out from the top, under a soft brand
     // glow. Both sit at the top of the page and scroll with it.
@@ -108,7 +108,7 @@ export const authCard = ({title, body, footer, overlays = []}) => div(
     main(
         {class: "relative flex min-h-full items-center justify-center p-4 sm:p-10"},
         div(
-            {class: "w-full max-w-[420px] overflow-hidden rounded-xl border border-gray-700/80 bg-surface shadow-2xl shadow-black/60"},
+            {class: () => `w-full ${typeof width === "function" ? width() : width} overflow-hidden rounded-xl border border-gray-700/80 bg-surface shadow-2xl shadow-black/60`},
             div(
                 {class: "border-b border-gray-700/80 px-5 py-3.5"},
                 h1({class: "flex items-center gap-2.5 text-lg font-semibold tracking-tight text-white"},

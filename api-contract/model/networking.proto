@@ -27,8 +27,8 @@ message AcmeCertBinding {
 // scope. ula_prefix is the cluster-wide /48 every address is a pure function
 // of, so the map is the only distributed IPAM state. derived_from_seq is the
 // primary's write seq of the last change to this node's content; the first
-// map accepted in a session replaces the node's cache, later ones must carry
-// a higher stamp.
+// map accepted in a session replaces the node's cache; a later one with a
+// lower stamp is refused and one with an equal stamp is a no-op.
 message ClusterNetMap {
   uint64 target_node_id = 1 [(cp.js_type) = "number"];
   bytes ula_prefix = 2 [(buf.validate.field).bytes.len = 6];

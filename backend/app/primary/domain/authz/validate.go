@@ -30,7 +30,7 @@ func validateTemplateName(name string) error {
 }
 
 func validVerb(v apigen.AuthzVerb) bool {
-	return v >= apigen.AuthzVerb_AUTHZ_VERB_CREATE && v <= apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK
+	return v >= apigen.AuthzVerb_AUTHZ_VERB_CREATE && v <= apigen.AuthzVerb_AUTHZ_VERB_USE_PRIVILEGED_PORTS
 }
 
 func validEntityKind(v apigen.AuthzEntityKind) bool {

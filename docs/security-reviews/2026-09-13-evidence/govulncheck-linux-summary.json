@@ -1,6 +1,28 @@
 {
  "symbol_findings": [
   {
+   "id": "GO-2026-6617",
+   "summary": "HTTP/2 server crash due to HPACK encoder race in net/http",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "net/http/internal/http2",
+      "function": "Read",
+      "receiver": "transportResponseBody",
+      "position": {
+       "filename": "src/net/http/internal/http2/transport.go",
+       "offset": 70166,
+       "line": 2348,
+       "column": 32
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
    "id": "GO-2026-5764",
    "summary": "DoS due to Panic in AWS SDK for Go v2 SDK EventStream Decoder in github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream",
    "example_trace": {
@@ -9,17 +31,301 @@
       "module": "github.com/aws/aws-sdk-go-v2/service/s3",
       "version": "v1.95.0",
       "package": "github.com/aws/aws-sdk-go-v2/service/s3",
-      "function": "DeleteObjects",
-      "receiver": "*Client",
+      "function": "HandleDeserialize",
+      "receiver": "*awsRestxml_deserializeOpCreateMultipartUpload",
       "position": {
-       "filename": "api_op_DeleteObjects.go",
-       "offset": 6757,
-       "line": 126,
-       "column": 18
+       "filename": "deserializers.go",
+       "offset": 28067,
+       "line": 932,
+       "column": 57
       }
      }
     ],
     "fixed_version": "v1.97.3"
+   }
+  },
+  {
+   "id": "GO-2026-6597",
+   "summary": "Containerd has image-pull DoS via crafted OCI index graph amplification in github.com/containerd/containerd",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "github.com/containerd/containerd/v2",
+      "version": "v2.3.5",
+      "package": "github.com/containerd/containerd/v2/core/content",
+      "function": "OpenWriter",
+      "position": {
+       "filename": "core/content/helpers.go",
+       "offset": 3863,
+       "line": 149,
+       "column": 6
+      }
+     }
+    ],
+    "fixed_version": "v2.3.6"
+   }
+  },
+  {
+   "id": "GO-2026-6613",
+   "summary": "HTTP/1 server connection desynchronization after 2xx CONNECT response in net/http",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "net/http",
+      "function": "Del",
+      "receiver": "Header",
+      "position": {
+       "filename": "src/net/http/header.go",
+       "offset": 2417,
+       "line": 80,
+       "column": 17
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6611",
+   "summary": "Excessive CPU consumption from repeated initial window changes in net/http",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "net/http/internal/http2",
+      "function": "RoundTrip",
+      "receiver": "NetHTTPClientConn",
+      "position": {
+       "filename": "src/net/http/internal/http2/transport.go",
+       "offset": 89526,
+       "line": 3072,
+       "column": 29
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6859",
+   "summary": "HTTP/1 server crash due to MaxBytesReader header race in net/http",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "net/http",
+      "function": "Write",
+      "receiver": "*loggingConn",
+      "position": {
+       "filename": "src/net/http/server.go",
+       "offset": 137677,
+       "line": 4227,
+       "column": 23
+      }
+     }
+    ],
+    "fixed_version": "v1.27.4"
+   }
+  },
+  {
+   "id": "GO-2026-6608",
+   "summary": "Memory limit bypass when parsing MIME headers in net/textproto, mime/multipart",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "net/textproto",
+      "function": "ReadMIMEHeader",
+      "receiver": "*Reader",
+      "position": {
+       "filename": "src/net/textproto/reader.go",
+       "offset": 13747,
+       "line": 507,
+       "column": 18
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6603",
+   "summary": "HTTP/2 server memory exhaustion due to Trailer headers in net/http",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "net/http/internal/http2",
+      "function": "Write",
+      "receiver": "*responseWriter",
+      "position": {
+       "filename": "src/net/http/internal/http2/server.go",
+       "offset": 92723,
+       "line": 2896,
+       "column": 26
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6612",
+   "summary": "Double flow control refund on HTTP/2 server streams in net/http",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "golang.org/x/net",
+      "version": "v0.55.0",
+      "package": "golang.org/x/net/http2",
+      "function": "RoundTrip",
+      "receiver": "*Transport",
+      "position": {
+       "filename": "http2/transport_common.go",
+       "offset": 8706,
+       "line": 225,
+       "column": 21
+      }
+     }
+    ],
+    "fixed_version": "v0.60.0"
+   }
+  },
+  {
+   "id": "GO-2026-6605",
+   "summary": "HTTP/1 client connection desynchronization after CONNECT rejection in net/http",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "net/http/httputil",
+      "function": "ServeHTTP",
+      "receiver": "*ReverseProxy",
+      "position": {
+       "filename": "src/net/http/httputil/reverseproxy.go",
+       "offset": 13786,
+       "line": 402,
+       "column": 24
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6865",
+   "summary": "Panic on two-block frames in github.com/klauspost/compress",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "github.com/klauspost/compress",
+      "version": "v1.18.5",
+      "package": "github.com/klauspost/compress/huff0",
+      "function": "Compress4X",
+      "position": {
+       "filename": "huff0/compress.go",
+       "offset": 830,
+       "line": 27,
+       "column": 6
+      }
+     }
+    ],
+    "fixed_version": "v1.20.2"
+   }
+  },
+  {
+   "id": "GO-2026-6061",
+   "summary": "Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "google.golang.org/grpc",
+      "version": "v1.80.0",
+      "package": "google.golang.org/grpc/internal/transport",
+      "function": "RecvCompress",
+      "receiver": "*ClientStream",
+      "position": {
+       "filename": "internal/transport/client_stream.go",
+       "offset": 3754,
+       "line": 110,
+       "column": 24
+      }
+     }
+    ],
+    "fixed_version": "v1.82.1"
+   }
+  },
+  {
+   "id": "GO-2026-6348",
+   "summary": "Heap Memory Exhaustion (OOM) via HTTP/2 DATA Frame Fragmentation in google.golang.org/grpc",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "google.golang.org/grpc",
+      "version": "v1.80.0",
+      "package": "google.golang.org/grpc/internal/transport",
+      "function": "NewStream",
+      "receiver": "*http2Client",
+      "position": {
+       "filename": "internal/transport/http2_client.go",
+       "offset": 26668,
+       "line": 748,
+       "column": 23
+      }
+     }
+    ],
+    "fixed_version": "v1.83.1"
+   }
+  },
+  {
+   "id": "GO-2026-6610",
+   "summary": "HTTP/2 transport accepts malformed framing-related headers in net/http",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "net/http/internal/http2",
+      "function": "RoundTrip",
+      "receiver": "*Transport",
+      "position": {
+       "filename": "src/net/http/internal/http2/transport.go",
+       "offset": 12789,
+       "line": 379,
+       "column": 21
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6599",
+   "summary": "Reset context tracking on consecutive template expressions in html/template",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "html/template",
+      "function": "ExecuteTemplate",
+      "receiver": "*Template",
+      "position": {
+       "filename": "src/html/template/template.go",
+       "offset": 4130,
+       "line": 135,
+       "column": 20
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
    }
   },
   {
@@ -45,48 +351,163 @@
    }
   },
   {
-   "id": "GO-2026-6061",
-   "summary": "Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc",
+   "id": "GO-2026-6604",
+   "summary": "Root.Mkdir(All) can follow junctions out of the root on Windows in os",
    "example_trace": {
     "trace": [
      {
-      "module": "google.golang.org/grpc",
-      "version": "v1.80.0",
-      "package": "google.golang.org/grpc/internal/transport",
-      "function": "GracefulClose",
-      "receiver": "*http2Client",
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "os",
+      "function": "doInRoot[string]",
       "position": {
-       "filename": "internal/transport/http2_client.go",
-       "offset": 37518,
-       "line": 1079,
+       "filename": "src/os/root_openat.go",
+       "offset": 11200,
+       "line": 340,
+       "column": 6
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6607",
+   "summary": "Reject malformed ECH outer extension references in crypto/tls",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "crypto/tls",
+      "function": "Read",
+      "receiver": "*Conn",
+      "position": {
+       "filename": "src/crypto/tls/conn.go",
+       "offset": 43702,
+       "line": 1378,
+       "column": 16
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6600",
+   "summary": "Recognize yield as regexp preceder keyword in html/template",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "html/template",
+      "function": "ExecuteTemplate",
+      "receiver": "*Template",
+      "position": {
+       "filename": "src/html/template/template.go",
+       "offset": 4130,
+       "line": 135,
+       "column": 20
+      }
+     }
+    ],
+    "fixed_version": "v1.27.2"
+   }
+  },
+  {
+   "id": "GO-2026-6888",
+   "summary": "Excessive memory allocation when decompressing crafted streams in github.com/andybalholm/brotli",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "github.com/andybalholm/brotli",
+      "version": "v1.1.1",
+      "package": "github.com/andybalholm/brotli",
+      "function": "Read",
+      "receiver": "*Reader",
+      "position": {
+       "filename": "reader.go",
+       "offset": 1256,
+       "line": 48,
+       "column": 18
+      }
+     }
+    ],
+    "fixed_version": "v1.2.7"
+   }
+  },
+  {
+   "id": "GO-2026-6686",
+   "summary": "Possible DoS via unbounded parsing of user and group database files in github.com/moby/sys/user",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "github.com/moby/sys/user",
+      "version": "v0.4.0",
+      "package": "github.com/moby/sys/user",
+      "function": "ParseGroupFilter",
+      "position": {
+       "filename": "user.go",
+       "offset": 3884,
+       "line": 179,
+       "column": 6
+      }
+     }
+    ],
+    "fixed_version": "v0.4.1"
+   }
+  },
+  {
+   "id": "GO-2026-6809",
+   "summary": "Distrust compromised intermediate certificates in crypto/x509",
+   "example_trace": {
+    "trace": [
+     {
+      "module": "stdlib",
+      "version": "v1.27.0",
+      "package": "crypto/x509",
+      "function": "Verify",
+      "receiver": "*Certificate",
+      "position": {
+       "filename": "src/crypto/x509/verify.go",
+       "offset": 18467,
+       "line": 548,
        "column": 23
       }
      }
     ],
-    "fixed_version": "v1.82.1"
+    "fixed_version": "v1.27.3"
    }
   }
  ],
  "module_findings": [
   {
-   "id": "GO-2026-5970",
-   "module": "golang.org/x/text",
-   "version": "v0.38.0",
-   "fixed_version": "v0.39.0",
-   "summary": "Infinite loop on invalid input in golang.org/x/text"
+   "id": "GO-2026-5764",
+   "module": "github.com/aws/aws-sdk-go-v2/service/s3",
+   "version": "v1.95.0",
+   "fixed_version": "v1.97.3",
+   "summary": "DoS due to Panic in AWS SDK for Go v2 SDK EventStream Decoder in github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
   },
   {
-   "id": "GO-2026-6061",
-   "module": "google.golang.org/grpc",
-   "version": "v1.80.0",
-   "fixed_version": "v1.82.1",
-   "summary": "Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc"
+   "id": "GO-2026-6597",
+   "module": "github.com/containerd/containerd/v2",
+   "version": "v2.3.5",
+   "fixed_version": "v2.3.6",
+   "summary": "Containerd has image-pull DoS via crafted OCI index graph amplification in github.com/containerd/containerd"
+  },
+  {
+   "id": "GO-2026-6888",
+   "module": "github.com/andybalholm/brotli",
+   "version": "v1.1.1",
+   "fixed_version": "v1.2.7",
+   "summary": "Excessive memory allocation when decompressing crafted streams in github.com/andybalholm/brotli"
   },
   {
    "id": "GO-2026-5932",
    "module": "golang.org/x/crypto",
    "version": "v0.53.0",
-   "fixed_version": null,
+   "fixed_version": "v0.58.1-0.20261009181718-2f1f834330b2",
    "summary": "The golang.org/x/crypto/openpgp package is unmaintained, unsafe by design, and has known security issues"
   },
   {
@@ -111,18 +532,151 @@
    "summary": "Prevent DoS on deadlocked established channel in golang.org/x/crypto/ssh"
   },
   {
-   "id": "GO-2026-5764",
-   "module": "github.com/aws/aws-sdk-go-v2/service/s3",
-   "version": "v1.95.0",
-   "fixed_version": "v1.97.3",
-   "summary": "DoS due to Panic in AWS SDK for Go v2 SDK EventStream Decoder in github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream"
+   "id": "GO-2026-5158",
+   "module": "go.opentelemetry.io/otel",
+   "version": "v1.43.0",
+   "fixed_version": "v1.44.0",
+   "summary": "Opentelemetry-go's baggage parsing no longer caps raw header length in go.opentelemetry.io/otel"
   },
   {
-   "id": "GO-2026-5942",
-   "module": "golang.org/x/net",
-   "version": "v0.55.0",
-   "fixed_version": "v0.56.0",
-   "summary": "Parsing an invalid SVCB or HTTPS RR can panic in golang.org/x/net/dns/dnsmessage"
+   "id": "GO-2026-6599",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "Reset context tracking on consecutive template expressions in html/template"
+  },
+  {
+   "id": "GO-2026-6600",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "Recognize yield as regexp preceder keyword in html/template"
+  },
+  {
+   "id": "GO-2026-6603",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "HTTP/2 server memory exhaustion due to Trailer headers in net/http"
+  },
+  {
+   "id": "GO-2026-6604",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "Root.Mkdir(All) can follow junctions out of the root on Windows in os"
+  },
+  {
+   "id": "GO-2026-6605",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "HTTP/1 client connection desynchronization after CONNECT rejection in net/http"
+  },
+  {
+   "id": "GO-2026-6607",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "Reject malformed ECH outer extension references in crypto/tls"
+  },
+  {
+   "id": "GO-2026-6608",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "Memory limit bypass when parsing MIME headers in net/textproto, mime/multipart"
+  },
+  {
+   "id": "GO-2026-6609",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "Lack of limit on size of parsed Range headers in net/http"
+  },
+  {
+   "id": "GO-2026-6610",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "HTTP/2 transport accepts malformed framing-related headers in net/http"
+  },
+  {
+   "id": "GO-2026-6611",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "Excessive CPU consumption from repeated initial window changes in net/http"
+  },
+  {
+   "id": "GO-2026-6612",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "Double flow control refund on HTTP/2 server streams in net/http"
+  },
+  {
+   "id": "GO-2026-6613",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "HTTP/1 server connection desynchronization after 2xx CONNECT response in net/http"
+  },
+  {
+   "id": "GO-2026-6617",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.2",
+   "summary": "HTTP/2 server crash due to HPACK encoder race in net/http"
+  },
+  {
+   "id": "GO-2026-6809",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.3",
+   "summary": "Distrust compromised intermediate certificates in crypto/x509"
+  },
+  {
+   "id": "GO-2026-6859",
+   "module": "stdlib",
+   "version": "v1.27.0",
+   "fixed_version": "v1.27.4",
+   "summary": "HTTP/1 server crash due to MaxBytesReader header race in net/http"
+  },
+  {
+   "id": "GO-2026-6686",
+   "module": "github.com/moby/sys/user",
+   "version": "v0.4.0",
+   "fixed_version": "v0.4.1",
+   "summary": "Possible DoS via unbounded parsing of user and group database files in github.com/moby/sys/user"
+  },
+  {
+   "id": "GO-2026-6061",
+   "module": "google.golang.org/grpc",
+   "version": "v1.80.0",
+   "fixed_version": "v1.82.1",
+   "summary": "Vulnerabilities in the xDS RBAC authorization engine and the HTTP/2 transport server implementation in google.golang.org/grpc"
+  },
+  {
+   "id": "GO-2026-6348",
+   "module": "google.golang.org/grpc",
+   "version": "v1.80.0",
+   "fixed_version": "v1.83.1",
+   "summary": "Heap Memory Exhaustion (OOM) via HTTP/2 DATA Frame Fragmentation in google.golang.org/grpc"
+  },
+  {
+   "id": "GO-2026-6441",
+   "module": "google.golang.org/grpc",
+   "version": "v1.80.0",
+   "fixed_version": "v1.83.1",
+   "summary": "Bypass of xDS RBAC HTTP filter header matching in google.golang.org/grpc"
+  },
+  {
+   "id": "GO-2026-6443",
+   "module": "google.golang.org/grpc",
+   "version": "v1.80.0",
+   "fixed_version": "v1.82.2",
+   "summary": "Server panic via missing authority or Host headers in google.golang.org/grpc"
   },
   {
    "id": "GO-2026-5841",
@@ -132,11 +686,46 @@
    "summary": "OOB read in github.com/klauspost/compress/s2"
   },
   {
-   "id": "GO-2026-5158",
-   "module": "go.opentelemetry.io/otel",
-   "version": "v1.43.0",
-   "fixed_version": "v1.44.0",
-   "summary": "Opentelemetry-go's baggage parsing no longer caps raw header length in go.opentelemetry.io/otel"
+   "id": "GO-2026-6865",
+   "module": "github.com/klauspost/compress",
+   "version": "v1.18.5",
+   "fixed_version": "v1.20.2",
+   "summary": "Panic on two-block frames in github.com/klauspost/compress"
+  },
+  {
+   "id": "GO-2026-5942",
+   "module": "golang.org/x/net",
+   "version": "v0.55.0",
+   "fixed_version": "v0.56.0",
+   "summary": "Parsing an invalid SVCB or HTTPS RR can panic in golang.org/x/net/dns/dnsmessage"
+  },
+  {
+   "id": "GO-2026-6860",
+   "module": "golang.org/x/net",
+   "version": "v0.55.0",
+   "fixed_version": "v0.62.0",
+   "summary": "Avoid quadratic complexity when coalescing text nodes in html in golang.org/x/net"
+  },
+  {
+   "id": "GO-2026-6866",
+   "module": "golang.org/x/net",
+   "version": "v0.55.0",
+   "fixed_version": "v0.62.0",
+   "summary": "Check all ancestor namespace transitions when rendering raw text in html in golang.org/x/net"
+  },
+  {
+   "id": "GO-2026-5970",
+   "module": "golang.org/x/text",
+   "version": "v0.38.0",
+   "fixed_version": "v0.39.0",
+   "summary": "Infinite loop on invalid input in golang.org/x/text"
+  },
+  {
+   "id": "GO-2026-6629",
+   "module": "golang.org/x/text",
+   "version": "v0.38.0",
+   "fixed_version": "v0.41.0",
+   "summary": "Panic parsing crafted input in x/text/secure/precis in golang.org/x/text"
   }
  ]
 }

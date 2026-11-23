@@ -258,8 +258,10 @@ func (k UserSessionKind) String() string {
 	switch k {
 	case UserSessionKind_USER_SESSION_KIND_FULL:
 		return "FULL"
-	case UserSessionKind_USER_SESSION_KIND_BOOTSTRAP:
-		return "BOOTSTRAP"
+	case UserSessionKind_USER_SESSION_KIND_ROOT:
+		return "ROOT"
+	case UserSessionKind_USER_SESSION_KIND_LINK:
+		return "LINK"
 	default:
 		return fmt.Sprintf("UserSessionKind(%d)", int32(k))
 	}
@@ -415,4 +417,19 @@ func TimeOf(t time.Time) Maybe[time.Time] {
 		return Maybe[time.Time]{}
 	}
 	return Maybe[time.Time]{Value: t, Present: true}
+}
+
+// FillClusterSettingDefaults selects the literal default for every setting
+// a stored document predates, so a document written before the setting
+// existed still encodes. Every decode of a stored SystemConfig goes
+// through it.
+func FillClusterSettingDefaults(s *ClusterSettings) {
+	fillBool := func(v *BoolSetting, def bool) {
+		if v.Value.Value.Literal == nil && v.Value.Value.ConfigRef == nil {
+			d := def
+			v.Value.Value.Literal = &d
+		}
+	}
+	fillBool(&s.Auth.PasswordLoginEnabled, false)
+	fillBool(&s.Auth.RequirePasskey, false)
 }

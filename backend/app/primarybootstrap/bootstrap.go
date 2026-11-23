@@ -26,7 +26,6 @@ type Service struct {
 
 type Options struct {
 	Initial       systemconfig.Initial
-	PrimaryName   string
 	WebTLSCertPEM []byte
 	// UnderlayAddress is the node address used for cross-node tunnels; empty
 	// derives it from the cluster listen address or the host's interfaces.
@@ -79,7 +78,7 @@ func (s Service) Initialize(_ context.Context, opts Options) (*Result, error) {
 		cfg.Settings.HttpsWeb.TlsSelfManaged = systemconfig.BoolLiteral(true)
 		cfg.Settings.HttpsWeb.TlsCertPem = apigen.Some(meta.Ref().Secret())
 	}
-	clusterMaterial, err := pki.BootstrapPrimary(secretsMgr, primaryIdentifier, opts.PrimaryName)
+	clusterMaterial, err := pki.BootstrapPrimary(secretsMgr, primaryIdentifier, certu.PrimaryServerName)
 	if err != nil {
 		return nil, fmt.Errorf("initializing cluster TLS material: %w", err)
 	}
@@ -149,9 +148,6 @@ func (s Service) Validate(_ context.Context) error {
 }
 
 func validateOptions(opts Options) error {
-	if strings.TrimSpace(opts.PrimaryName) == "" {
-		return fmt.Errorf("primary name is required")
-	}
 	if strings.TrimSpace(opts.Initial.MasterPasswordHash) == "" {
 		return fmt.Errorf("initial master password hash is required")
 	}

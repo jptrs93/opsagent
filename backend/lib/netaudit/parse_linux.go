@@ -19,14 +19,15 @@ import (
 
 // parsedRule classifies one rule from the opendeploy tables.
 type parsedRule struct {
-	Masquerade bool
-	DNAT       bool
-	Proto      uint8
-	HostPort   uint16
-	Source     netip.Prefix
-	Dest       netip.Prefix
-	Target     netip.Addr
-	TargetPort uint16
+	Masquerade   bool
+	DNAT         bool
+	Proto        uint8
+	HostPort     uint16
+	Source       netip.Prefix
+	Dest         netip.Prefix
+	SkipLoopback bool
+	Target       netip.Addr
+	TargetPort   uint16
 }
 
 // parseRuleExprs recognizes the rule shapes the manager writes (see
@@ -82,6 +83,13 @@ func parseRuleExprs(exprs []expr.Any) (parsedRule, bool) {
 						out.Source = netip.PrefixFrom(addr, addrOnes)
 					} else {
 						out.Dest = netip.PrefixFrom(addr, addrOnes)
+					}
+				}
+			}
+			if pendingDaddr && v.Op == expr.CmpOpNeq && len(v.Data) == int(addrLen) {
+				if addr, ok := netip.AddrFromSlice(v.Data); ok {
+					if negated := netip.PrefixFrom(addr, addrOnes); negated == network.LoopbackV4 || negated == network.LoopbackV6 {
+						out.SkipLoopback = true
 					}
 				}
 			}

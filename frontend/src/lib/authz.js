@@ -14,6 +14,7 @@ export const VERBS = [
     {id: 6, name: "reveal"},
     {id: 7, name: "use_host_mounts"},
     {id: 8, name: "use_host_network"},
+    {id: 9, name: "use_privileged_ports"},
 ];
 
 export const ENTITY_TYPES = [

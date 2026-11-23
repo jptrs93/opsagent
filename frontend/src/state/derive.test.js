@@ -89,7 +89,10 @@ test('node views render reported addresses in their text form', () => {
     const node = nodeViewModel(tree.nodes.get(1));
     assert.deepEqual(node.addresses, ['fd12::1']);
     assert.deepEqual(node.hostAddresses, ['10.7.20.100', 'fd12::1']);
+    assert.equal(node.hostAddressesUnknown, false);
     assert.equal(node.enrolledAt.getTime(), 50);
+    applyMessage(tree, {seq: 2, events: [{seq: 2, time: 200, mutations: [create(NODE, 2, {status: 4, operator: {}, reported: {identifier: 'm', hostAddresses: [], hostAddressesUnknown: true}})]}]});
+    assert.equal(nodeViewModel(tree.nodes.get(2)).hostAddressesUnknown, true);
 });
 
 test('rename and move history preserve the value versions that can be pinned', () => {

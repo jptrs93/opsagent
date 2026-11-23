@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
@@ -48,7 +47,7 @@ func TestUserSessionLoginListRevoke(t *testing.T) {
 		t.Fatalf("len(items) = %d, want 1", len(list.Items))
 	}
 	session := list.Items[0]
-	if session.SessionID != current.SessionID || session.UserID != user.ID {
+	if session.SessionID != current.SessionID || session.UserID.Value != user.ID {
 		t.Fatalf("listed session %+v does not match the calling session %s", session, current.SessionID)
 	}
 	if session.ExpiresAt.IsZero() {
@@ -70,7 +69,7 @@ func TestUserSessionRevokeForeignID(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	mine := h.operatorCtx(t, user)
 
-	other := &apigen.User{ID: 2, Name: "other"}
+	other := &apigen.User{ID: 2, Name: apigen.Some("other")}
 	users.Write(h.Store, other)
 	otherCtx := h.operatorCtx(t, other)
 
@@ -82,35 +81,5 @@ func TestUserSessionRevokeForeignID(t *testing.T) {
 	}
 	if _, err := h.verifyToken(mine.Token); err != nil {
 		t.Fatalf("session was revoked by a different user: %v", err)
-	}
-}
-
-// The master password opens a bootstrap session: a real row of the BOOTSTRAP
-// kind with a short life, so it is listed and revocable like any other session
-// but cannot reach an ordinary route.
-func TestMasterPasswordOpensBootstrapSession(t *testing.T) {
-	h, user := newAuthTestHandler(t)
-	enablePasswordLogin(t, h)
-
-	res, err := h.PostV1AuthMaster(bg(), &apigen.MasterPasswordRequest{Username: user.Name, Password: testMasterPassword})
-	if err != nil {
-		t.Fatalf("PostV1AuthMaster: %v", err)
-	}
-	if res.Kind != bootstrapSession {
-		t.Fatalf("kind = %v, want BOOTSTRAP", res.Kind)
-	}
-	if until := time.Until(res.Expiry); until > bootstrapSessionTTL || until < bootstrapSessionTTL-time.Minute {
-		t.Fatalf("expiry in %v, want about %v", until, bootstrapSessionTTL)
-	}
-	ctx, err := h.verifyToken(res.Token)
-	if err != nil {
-		t.Fatalf("bootstrap token does not verify: %v", err)
-	}
-	if err := fullSessionPolicy.CanAccess(ctx.SessionKind); err == nil {
-		t.Fatal("bootstrap session passed a full-session policy")
-	}
-	sessions, err := users.ListUserSessions(h.Store.Queries(), user.ID)
-	if err != nil || len(sessions) != 1 || sessions[0].Kind != bootstrapSession {
-		t.Fatalf("stored sessions = %+v, %v", sessions, err)
 	}
 }

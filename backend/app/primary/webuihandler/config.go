@@ -130,6 +130,9 @@ func validateSettings(req *apigen.ClusterSettings, resolveRef func(*apigen.Confi
 	if err := resolveBoolInPlace(&stored.Auth.PasswordLoginEnabled, &resolved.Auth.PasswordLoginEnabled, "auth.password_login_enabled", resolveRef); err != nil {
 		return nil, nil, err
 	}
+	if err := resolveBoolInPlace(&stored.Auth.RequirePasskey, &resolved.Auth.RequirePasskey, "auth.require_passkey", resolveRef); err != nil {
+		return nil, nil, err
+	}
 	if err := resolveBoolInPlace(&stored.Backup.Enabled, &resolved.Backup.Enabled, "backup.enabled", resolveRef); err != nil {
 		return nil, nil, err
 	}

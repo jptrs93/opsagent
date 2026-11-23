@@ -35,27 +35,27 @@ type installOptions struct {
 	role                  string
 	httpOnly              *bool
 	passwordLogin         *bool
+	requirePasskey        *bool
 	webListen             *string
-	webTLSSelfManaged     *bool
+	webTLSSelfSigned      *bool
 	webTLSCertPEM         *string
 	passkeyExtraOrigins   *string
 	clusterListen         *string
 	enrollmentListen      *string
-	acmeHosts             *string
+	webHosts              *string
 	clusterAddr           *string
 	enrollmentAddr        *string
 	enrollmentFingerprint *string
-	primaryName           *string
 	underlayAddress       *string
 	restore               *restoreOptions
 }
 
 func (o installOptions) hasEnvOverrides() bool {
-	return o.passkeyExtraOrigins != nil || o.clusterAddr != nil || o.enrollmentAddr != nil || o.enrollmentFingerprint != nil || o.primaryName != nil || o.underlayAddress != nil
+	return o.passkeyExtraOrigins != nil || o.clusterAddr != nil || o.enrollmentAddr != nil || o.enrollmentFingerprint != nil || o.underlayAddress != nil
 }
 
 func (o installOptions) hasSystemConfigOverrides() bool {
-	return o.httpOnly != nil || o.passwordLogin != nil || o.webListen != nil || o.webTLSSelfManaged != nil || o.webTLSCertPEM != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.acmeHosts != nil
+	return o.httpOnly != nil || o.requirePasskey != nil || o.webListen != nil || o.webTLSSelfSigned != nil || o.webTLSCertPEM != nil || o.clusterListen != nil || o.enrollmentListen != nil || o.webHosts != nil
 }
 
 func doInstall(version string, opts installOptions) error {
@@ -462,8 +462,8 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 			planned("validate existing primary bootstrap state")
 			return nil, nil
 		}
-		if opts.restore == nil && (opts.hasSystemConfigOverrides() || opts.primaryName != nil) {
-			return nil, fmt.Errorf("initial primary config and primary name flags cannot be applied when preserving an existing database")
+		if opts.restore == nil && opts.hasSystemConfigOverrides() {
+			return nil, fmt.Errorf("initial primary config flags cannot be applied when preserving an existing database")
 		}
 		if err := service.Validate(context.Background()); err != nil {
 			return nil, fmt.Errorf("validating existing primary bootstrap state: %w", err)
@@ -488,15 +488,15 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 		initial.WebHTTPEnabled = *opts.httpOnly
 		initial.WebHTTPSEnabled = !*opts.httpOnly
 	}
-	if opts.passwordLogin != nil {
-		initial.PasswordLoginEnabled = *opts.passwordLogin
+	if opts.requirePasskey != nil {
+		initial.RequirePasskey = *opts.requirePasskey
 	}
 	if opts.webListen != nil {
 		initial.WebHTTPListen = *opts.webListen
 		initial.WebHTTPSListen = *opts.webListen
 	}
-	if opts.webTLSSelfManaged != nil {
-		initial.WebTLSSelfManaged = *opts.webTLSSelfManaged
+	if opts.selfManagedTLS() {
+		initial.WebTLSSelfManaged = true
 	}
 	if opts.clusterListen != nil {
 		initial.ClusterListen = *opts.clusterListen
@@ -505,10 +505,6 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 		initial.EnrollmentListen = *opts.enrollmentListen
 	}
 	initial.AcmeHosts = webHosts(opts)
-	primaryName := "primary"
-	if opts.primaryName != nil {
-		primaryName = *opts.primaryName
-	}
 	var webTLSCertPEM []byte
 	if opts.webTLSCertPEM != nil {
 		webTLSCertPEM = []byte(*opts.webTLSCertPEM)
@@ -519,7 +515,6 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 	}
 	if _, err := service.Initialize(context.Background(), primarybootstrap.Options{
 		Initial:         initial,
-		PrimaryName:     primaryName,
 		WebTLSCertPEM:   webTLSCertPEM,
 		UnderlayAddress: underlayAddress,
 	}); err != nil {
@@ -534,8 +529,8 @@ func initializePrimary(opts installOptions, own owner) (*bootstrapCredentials, e
 }
 
 func printSetupPassword(password string) {
-	fmt.Printf("\nTemporary setup password: %s\n", password)
-	fmt.Print("Use this password under \"First time setup\" in the web UI to create the first operator account. Replace the master password after bootstrap if needed.\n")
+	fmt.Printf("\nMaster password: %s\n", password)
+	fmt.Print("Use this password under \"Enrol or recover\" on the web UI sign-in page to create the first administrator. It signs nobody in by itself; keep it for recovery, or replace it under Settings.\n")
 }
 
 func securePrimaryBootstrapArtifacts(own owner) error {
@@ -681,15 +676,15 @@ func printInstallComplete(opts installOptions, bootstrap *bootstrapCredentials) 
 		fmt.Printf("  %s\n", addr)
 	}
 	if bootstrap != nil {
-		fmt.Print("\nThe temporary setup password was printed after primary initialization.\n")
+		fmt.Print("\nThe master password was printed above. Use it under \"Enrol or recover\" on the sign-in page to create the first administrator.\n")
 	} else {
 		fmt.Print("\nPreserved the existing primary setup credentials.\n")
 	}
-	if opts.passwordLogin != nil && *opts.passwordLogin {
-		fmt.Print("\nPassword login is enabled: sign in with a username and the master password instead of a passkey.\n")
-		if opts.httpOnly != nil && *opts.httpOnly {
-			fmt.Print("The web UI is plain HTTP, so the master password crosses the network unencrypted. Use this only on a trusted network or over an SSH tunnel.\n")
-		}
+	if opts.passwordLogin != nil {
+		fmt.Print("\n--password-login is ignored: every user signs in with their own password now. The flag will be removed in a later release.\n")
+	}
+	if opts.httpOnly != nil && *opts.httpOnly {
+		fmt.Print("\nThe web UI is plain HTTP, so passwords cross the network unencrypted. Use this only on a trusted network or over an SSH tunnel.\n")
 	}
 	if localCAInUse(opts) {
 		addrs := webUIAddrs(opts)
@@ -756,14 +751,14 @@ func webUIAddrs(opts installOptions) []string {
 // assumed to be reached as localhost; an ACME install keeps the placeholder
 // the operator is expected to replace.
 func webHosts(opts installOptions) []string {
-	if opts.acmeHosts == nil {
+	if opts.webHosts == nil {
 		if localStyleInstall(opts) {
 			return []string{"localhost"}
 		}
 		return []string{"opendeploy.example.com"}
 	}
 	var hosts []string
-	for _, host := range strings.Split(*opts.acmeHosts, ",") {
+	for _, host := range strings.Split(*opts.webHosts, ",") {
 		if host = strings.TrimSpace(host); host != "" {
 			hosts = append(hosts, host)
 		}
@@ -771,12 +766,33 @@ func webHosts(opts installOptions) []string {
 	return hosts
 }
 
+// selfManagedTLS reports whether the install supplies its own Web UI
+// certificate, either a bundle from the operator or one issued by the local
+// CA, rather than requesting one from Let's Encrypt.
+func (o installOptions) selfManagedTLS() bool {
+	return o.webTLSCertPEM != nil || (o.webTLSSelfSigned != nil && *o.webTLSSelfSigned)
+}
+
+// validateWebTLS rejects flag combinations that ask for two ways of serving
+// the Web UI at once.
+func (o installOptions) validateWebTLS() error {
+	selfSigned := o.webTLSSelfSigned != nil && *o.webTLSSelfSigned
+	httpOnly := o.httpOnly != nil && *o.httpOnly
+	if selfSigned && o.webTLSCertPEM != nil {
+		return fmt.Errorf("--web-tls-self-signed true and --web-tls-cert-pem-file cannot be combined: choose one")
+	}
+	if httpOnly && (selfSigned || o.webTLSCertPEM != nil) {
+		return fmt.Errorf("--http-only true cannot be combined with a Web UI certificate option")
+	}
+	return nil
+}
+
 func localStyleInstall(opts installOptions) bool {
-	return (opts.httpOnly != nil && *opts.httpOnly) || (opts.webTLSSelfManaged != nil && *opts.webTLSSelfManaged)
+	return (opts.httpOnly != nil && *opts.httpOnly) || opts.selfManagedTLS()
 }
 
 func localCAInUse(opts installOptions) bool {
-	return opts.webTLSSelfManaged != nil && *opts.webTLSSelfManaged && opts.webTLSCertPEM == nil && !(opts.httpOnly != nil && *opts.httpOnly)
+	return opts.webTLSSelfSigned != nil && *opts.webTLSSelfSigned && opts.webTLSCertPEM == nil && !(opts.httpOnly != nil && *opts.httpOnly)
 }
 
 // caTrustInstructions is printed after a self-managed TLS install and mirrors

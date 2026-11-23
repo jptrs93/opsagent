@@ -41,7 +41,7 @@
       {/each}
     </div>
     <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-tab-${activeIndex}`} tabindex="0">
-      <CodeBlock code={active.code} language={active.language} {title} />
+      <CodeBlock code={active.code} language={active.language} {title} copy />
     </div>
   </div>
 {/if}
@@ -64,5 +64,5 @@
   button[aria-selected='true'] { color: var(--accent, #2563eb); border-bottom-color: var(--accent, #2563eb); }
   button:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: -2px; }
   [role='tabpanel']:focus { outline: none; }
-  [role='tabpanel'] { min-width: 0; border-radius: 10px; }
+  [role='tabpanel'] { min-width: 0; border-radius: 6px; }
 </style>

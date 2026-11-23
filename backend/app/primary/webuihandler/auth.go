@@ -14,14 +14,13 @@ import (
 	"github.com/jptrs93/goutil/logu"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 )
 
-// bootstrapSessionTTL bounds a master-password exchange: long enough to
-// register a passkey, short enough that a leaked bootstrap token is useless by
-// the time anyone reads the log it landed in.
-const bootstrapSessionTTL = 10 * time.Minute
+// rootSessionTTL bounds a master-password exchange: long enough to enrol or
+// recover a user, short enough that a leaked root token is useless by the
+// time anyone reads the log it landed in.
+const rootSessionTTL = 10 * time.Minute
 
 var InvalidAuthTokenErr = apigen.NewApiErr("Unauthorized", "auth_invalid_token", http.StatusUnauthorized)
 var InvalidMasterPasswordErr = apigen.NewApiErr("", "invalid_master_password", http.StatusUnauthorized)
@@ -29,57 +28,24 @@ var MasterPasswordNotConfiguredErr = apigen.NewApiErr("", "master_password_not_c
 var MasterPasswordRequiredErr = apigen.NewApiErr("Master password is required", "master_password_required", http.StatusBadRequest)
 var UsernameRequiredErr = apigen.NewApiErr("Username is required", "username_required", http.StatusBadRequest)
 
+// newLoginResponse describes a session to its holder; user is nil for a
+// root session.
 func newLoginResponse(user *apigen.User, token string, kind apigen.UserSessionKind, expiry time.Time, sessionID string) *apigen.LoginResponse {
-	return &apigen.LoginResponse{
-		Token:     token,
-		UserID:    user.ID,
-		Kind:      kind,
-		Name:      user.Name,
-		Expiry:    expiry,
-		SessionID: sessionID,
+	res := &apigen.LoginResponse{Token: token, Kind: kind, Expiry: expiry, SessionID: sessionID}
+	if user != nil {
+		res.UserID = user.ID
+		res.Name = user.DisplayName()
 	}
+	return res
 }
 
+// PostV1AuthMaster exchanges the master password for a root session: no
+// user, a short life, and only the enrol-and-recover routes open to it.
 func (h *Handler) PostV1AuthMaster(ctx apigen.Context, req *apigen.MasterPasswordRequest) (*apigen.LoginResponse, error) {
 	if err := h.verifyMasterPassword(req.Password); err != nil {
 		return nil, err
 	}
-	username := strings.TrimSpace(req.Username)
-	if username == "" {
-		return nil, UsernameRequiredErr
-	}
-	user, err := h.resolveOrCreateUser(username)
-	if err != nil {
-		return nil, err
-	}
-	return h.startUserSession(ctx, user, apigen.UserSessionKind_USER_SESSION_KIND_BOOTSTRAP, bootstrapSessionTTL)
-}
-
-// resolveOrCreateUser finds the user with this (trimmed) name or creates one
-// holding cluster_admin, the same way first-time setup always has. Names are
-// compared trimmed on both sides so accounts created before trimming with
-// surrounding whitespace still resolve.
-func (h *Handler) resolveOrCreateUser(username string) (*apigen.User, error) {
-	user, err := users.Matching(h.Store.Queries(), func(u *apigen.User) bool {
-		return strings.TrimSpace(u.Name) == username
-	})
-	if err == nil {
-		return user, nil
-	}
-	if !errors.Is(err, users.ErrNotFound) {
-		return nil, err
-	}
-	webAuthNID, err := authu.GenerateWebAuthnID(32)
-	if err != nil {
-		return nil, err
-	}
-	user = &apigen.User{Authentication: apigen.UserAuthentication{WebAuthnID: webAuthNID}, Name: username}
-	users.Write(h.Store, user)
-	grant := &apigen.AuthzGrant{UserID: user.ID, Grant: apigen.AuthzGrantSource{Value: apigen.AuthzGrantSourceValueOneof{Template: &apigen.AuthzTemplateGrant{TemplateID: authz.ClusterAdminTemplateID}}}}
-	if _, err := h.Authz.CreateGrant(grant, 0); err != nil {
-		return nil, err
-	}
-	return user, nil
+	return h.startUserSession(ctx, nil, apigen.UserSessionKind_USER_SESSION_KIND_ROOT, rootSessionTTL)
 }
 
 func (h *Handler) verifyMasterPassword(password string) error {
@@ -137,7 +103,7 @@ func (h *Handler) PostV1AuthMasterPasswordVerify(ctx apigen.Context, req *apigen
 // that must not expose its credential (agents in particular) should not echo
 // the response.
 func (h *Handler) GetV1AuthCurrentSession(ctx apigen.Context) (*apigen.LoginResponse, error) {
-	if ctx.User == nil {
+	if ctx.User == nil && ctx.SessionKind != apigen.UserSessionKind_USER_SESSION_KIND_ROOT {
 		return nil, InvalidAuthTokenErr
 	}
 	return newLoginResponse(ctx.User, ctx.Token, ctx.SessionKind, ctx.SessionExpiresAt, ctx.SessionID), nil
@@ -174,9 +140,10 @@ func (h *Handler) resolveAgentSession(sessionID, token string, now time.Time) (*
 // VerifyAuth is the package-level function expected by the generated mux. A
 // bearer token is looked up by its session id, checked against the stored
 // hash, and rejected if the session is revoked or expired; there is no
-// signature to verify and nothing to trust in the token itself. The route
-// policy then only asks whether a bootstrap session may use the route; what
-// the caller may do is the authz layer's decision.
+// signature to verify and nothing to trust in the token itself. A link token
+// is never a bearer and fails before any lookup. The route policy then only
+// asks whether a root session may use the route; what a full session may do
+// is the authz layer's decision.
 func (h *Handler) VerifyAuth(ctx context.Context, _ http.ResponseWriter, r *http.Request, policy apigen.AccessPolicy) (apigen.Context, error) {
 	res := apigen.Context{Ctx: ctx}
 	if policy.PolicyType == apigen.AccessPolicyType_NO_AUTH {
@@ -212,7 +179,11 @@ func (h *Handler) VerifyAuth(ctx context.Context, _ http.ResponseWriter, r *http
 	}
 	res.SessionID = sessionID
 	res.Token = tokenString
-	res.Ctx = logu.AddKV(res.Ctx, "user", strconv.FormatUint(res.User.ID, 10))
+	if res.User != nil {
+		res.Ctx = logu.AddKV(res.Ctx, "user", strconv.FormatUint(res.User.ID, 10))
+	} else {
+		res.Ctx = logu.AddKV(res.Ctx, "user", "root")
+	}
 	if err := policy.CanAccess(res.SessionKind); err != nil {
 		return res, err
 	}

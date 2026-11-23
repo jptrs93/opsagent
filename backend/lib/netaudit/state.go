@@ -251,19 +251,20 @@ func addExpectedDNATKeys(keys map[string]struct{}, family string, rule network.H
 	if !restricted {
 		dests = []netip.Prefix{{}}
 	}
+	skipLoopback := rule.SkipLoopback && !restricted
 	for _, dest := range dests {
 		if rule.Filtered {
 			for _, src := range allow {
-				keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, src, dest, target, rule.TargetPort)] = struct{}{}
+				keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, src, dest, skipLoopback, target, rule.TargetPort)] = struct{}{}
 			}
 		} else {
-			keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, netip.Prefix{}, dest, target, rule.TargetPort)] = struct{}{}
+			keys[dnatKey(family, "prerouting", rule.Protocol, rule.HostPort, netip.Prefix{}, dest, skipLoopback, target, rule.TargetPort)] = struct{}{}
 		}
-		keys[dnatKey(family, "output", rule.Protocol, rule.HostPort, netip.Prefix{}, dest, target, rule.TargetPort)] = struct{}{}
+		keys[dnatKey(family, "output", rule.Protocol, rule.HostPort, netip.Prefix{}, dest, skipLoopback, target, rule.TargetPort)] = struct{}{}
 	}
 }
 
-func dnatKey(family, chain string, proto uint8, hostPort uint16, source, dest netip.Prefix, target netip.Addr, targetPort uint16) string {
+func dnatKey(family, chain string, proto uint8, hostPort uint16, source, dest netip.Prefix, skipLoopback bool, target netip.Addr, targetPort uint16) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s %s", family, chain, protoName(proto))
 	if source.IsValid() {
@@ -271,6 +272,9 @@ func dnatKey(family, chain string, proto uint8, hostPort uint16, source, dest ne
 	}
 	if dest.IsValid() {
 		fmt.Fprintf(&b, " daddr %s", dest)
+	}
+	if skipLoopback {
+		b.WriteString(" daddr != loopback")
 	}
 	fmt.Fprintf(&b, " dport %d -> %s", hostPort, netip.AddrPortFrom(target, targetPort))
 	return b.String()

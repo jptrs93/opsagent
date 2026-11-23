@@ -190,7 +190,7 @@ func TestSessionUpdatesReachOnlyTheirOwner(t *testing.T) {
 		}
 		user := recvMsg(t, ch)
 		sessions := mutationsOf(user, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION)
-		if len(user.Events) != 1 || len(sessions) != 1 || sessions[0].Entity().Value.UserSession.UserID != owner || len(mutationsOf(user, apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION)) != 0 {
+		if len(user.Events) != 1 || len(sessions) != 1 || sessions[0].Entity().Value.UserSession.UserID.Value != owner || len(mutationsOf(user, apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION)) != 0 {
 			t.Fatalf("user session update reached wrong owner: %+v", user)
 		}
 		if agent.Seq <= before || user.Seq <= agent.Seq || agent.Events[0].Seq != agent.Seq || user.Events[0].Seq != user.Seq {
@@ -214,7 +214,7 @@ func TestSessionUpdatesReachOnlyTheirOwner(t *testing.T) {
 		}
 	}
 	for _, e := range sessions {
-		if e.Value.UserSession.UserID != 1 {
+		if e.Value.UserSession.UserID.Value != 1 {
 			t.Fatalf("bootstrap leaked user session %+v", e.Value.UserSession)
 		}
 	}

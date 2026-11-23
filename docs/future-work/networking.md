@@ -1,6 +1,6 @@
 # Networking
 
-Design for the built-in networking layer: per-workload addressing, cross-machine routing, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking, worker-to-worker and primary fixed-tunnel routing, node-local DNS, node-local ingress (TLS passthrough and HTTPS termination with central ACME issuance), and the network policy boundary (anti-spoofing, default same-space/global/system rules, and global override policies) are implemented — see `docs/engineering/networking.md`. Cluster-wide DNS from the map's catalog is implemented; remaining work covers multi-node ingress, load balancing, and multi-instance deployments; see `docs/future-work/cross-node-routing-implementation-plan.md` for the ordered cross-node implementation plan.
+Design for the built-in networking layer: per-workload addressing, cross-machine routing, service discovery, ingress, network policy, and load balancing. Machine-local virtual networking, worker-to-worker and primary fixed-tunnel routing, node-local DNS, node-local ingress (TLS passthrough and HTTPS termination with central ACME issuance), and the network policy boundary (anti-spoofing, default same-space/global/system rules, and global override policies) are implemented — see `docs/engineering/networking.md`. Cluster-wide DNS from the map's catalog is implemented; remaining work covers multi-node ingress, load balancing, multi-instance deployments, and the transport and topology items under Remaining implementation phases.
 
 ## Goals and principles
 
@@ -36,12 +36,30 @@ Still open here:
 - Sender-side peer liveness probes feeding the balancing rungs' selection
   set; see Endpoint selection and health. Cadence and recovery window are
   undecided.
-- Per-node maps scoped by reachability. Shipped 2026-10-06 (phase one of
-  `per-node-netmap-implementation-plan.md`): the closure, the per-node render
-  and stamps, the persisted `node_netmap` stamps, the per-node barrier rule,
-  and the map as the only carrier of the cluster prefix. Still open from the
-  design below: the per-commit dirty set (phase one re-renders every node
-  from shared indexes and compares bytes), the hello-time hash, and deltas.
+- Per-node maps scoped by reachability. Shipped in v0.0.617: the closure,
+  the per-node render and stamps, the persisted `node_netmap` stamps, the
+  per-node barrier rule, the map as the only carrier of the cluster prefix,
+  and the node publisher (`app/primary/nodepublisher`) that folds the map
+  inputs from the mutation stream and re-renders only the nodes a commit's
+  dirty set names (see `docs/engineering/networking.md`). Still open from
+  the design below:
+  - The hello-time hash, so an unchanged map is not resent at the session
+    head, and deltas keyed by route prefix and node id.
+  - The shared index build still runs over the whole fold cache on every
+    commit that touched a map input; an incremental build would make a
+    commit cost the dirty nodes alone. The publisher works inside the write
+    lock; a move outside it would bring a serial queue and a seq-bounded
+    read layer.
+  - Policy adjacency is per space: a deployment-scoped policy widens the
+    closure to the whole space. Deployment-scoped peers could narrow it and
+    the dirty set; measure before adding.
+  - `ingress_publish` for nodes outside a node's closure travels on the peer
+    entry, so pruning peers prunes it; whether to omit it explicitly is
+    undecided.
+  - Deployment records are sent on every instance row rather than once per
+    snapshot; whether Nix store resets join the projection; and an e2e
+    observation point for a node's accepted projection (no case covers the
+    per-node scope today).
   Identity addressing cannot aggregate
   routes by node, so without pruning a node's route table is the cluster's
   placement count. The only sound basis for pruning is policy-derived
@@ -330,6 +348,14 @@ Usable outcome: `ingress: {hostname}` gives a deployment a public HTTPS endpoint
 - eBPF flow metrics (first eBPF adoption; read-only) — remaining.
 
 Usable outcome: cross-space access control from the Network page (shipped); traffic visibility in the UI (remaining).
+
+### Transport and topology
+
+- Pairwise IPv4/IPv6 underlay family selection; a cluster uses one family today.
+- NAT traversal, UDP encapsulation, and relay nodes; node underlay addresses must be directly reachable today.
+- Flow-based single-tunnel dataplanes and a bounded-degree gateway topology in place of the full mesh.
+- Full workload egress policy and exfiltration controls.
+- Cross-node scheduling and movement automation.
 
 ### Multi-instance and load balancing
 

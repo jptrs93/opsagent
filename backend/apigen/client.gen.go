@@ -310,6 +310,168 @@ func (c *ApiServerCapi) GetV1AuthCurrentSession(ctx context.Context) (*LoginResp
 	return DecodeLoginResponse(body)
 }
 
+func (c *ApiServerCapi) PostV1AuthLinkRedeem(ctx context.Context, req *LinkRedeemRequest) (*LinkRedeemResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AuthLinkRedeem request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/auth/link/redeem", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeLinkRedeemResponse(body)
+}
+
+func (c *ApiServerCapi) PostV1AuthOpenSession(ctx context.Context, req *OpenSessionRequest) (*LoginResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AuthOpenSession request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/auth/open-session", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeLoginResponse(body)
+}
+
+func (c *ApiServerCapi) PostV1UsersCreate(ctx context.Context, req *UserCreateRequest) (*CoreWriteUpdate, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1UsersCreate request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/users/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeCoreWriteUpdate(body)
+}
+
+func (c *ApiServerCapi) PostV1UsersLink(ctx context.Context, req *UserLinkRequest) (*UserLinkResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1UsersLink request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/users/link", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeUserLinkResponse(body)
+}
+
+func (c *ApiServerCapi) GetV1Account(ctx context.Context) (*AccountView, error) {
+	resp, err := c.do(ctx, "GET", "/v1/account", nil, "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeAccountView(body)
+}
+
+func (c *ApiServerCapi) PostV1AccountRename(ctx context.Context, req *AccountRenameRequest) (*CoreWriteUpdate, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1AccountRename request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/account/rename", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeCoreWriteUpdate(body)
+}
+
+func (c *ApiServerCapi) PostV1AccountPassword(ctx context.Context, req *AccountPasswordRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AccountPassword request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/account/password", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *ApiServerCapi) PostV1AccountPasskeysDelete(ctx context.Context, req *AccountPasskeyDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1AccountPasskeysDelete request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/account/passkeys/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *ApiServerCapi) PostV1AuthPasskeyRegisterStart(ctx context.Context) (*WebAuthNOptionsResponse, error) {
 	resp, err := c.do(ctx, "POST", "/v1/auth/passkey/register/start", nil, "application/protobuf", "application/protobuf")
 	if err != nil {

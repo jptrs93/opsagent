@@ -41,27 +41,33 @@ func newAuthTestHandler(t *testing.T) (*Handler, *apigen.User) {
 	if err != nil {
 		t.Fatalf("GenerateWebAuthnID: %v", err)
 	}
-	user := &apigen.User{ID: 1, Authentication: apigen.UserAuthentication{WebAuthnID: webAuthNID}, Name: "operator"}
+	user := &apigen.User{ID: 1, Authentication: apigen.UserAuthentication{WebAuthnID: webAuthNID}, Name: apigen.Some("operator")}
 	users.Write(store, user)
 	return h, user
 }
 
 // fullSessionPolicy is what every ordinary route declares: a full session,
-// never a bootstrap one.
+// never a root one.
 var fullSessionPolicy = apigen.AccessPolicy{PolicyType: apigen.AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 
 const (
-	fullSession      = apigen.UserSessionKind_USER_SESSION_KIND_FULL
-	bootstrapSession = apigen.UserSessionKind_USER_SESSION_KIND_BOOTSTRAP
+	fullSession = apigen.UserSessionKind_USER_SESSION_KIND_FULL
+	rootSession = apigen.UserSessionKind_USER_SESSION_KIND_ROOT
+	linkSession = apigen.UserSessionKind_USER_SESSION_KIND_LINK
 )
 
 // mustToken opens a user session of the given kind and lifetime and returns
-// its bearer token. A negative ttl yields an already-expired session.
+// its bearer token. A negative ttl yields an already-expired session; user
+// id 0 opens a root session.
 func (h *Handler) mustToken(t *testing.T, userID uint64, kind apigen.UserSessionKind, ttl time.Duration) string {
 	t.Helper()
-	user, err := users.ByID(h.Store.Queries(), userID)
-	if err != nil {
-		t.Fatalf("users.ByID(%d): %v", userID, err)
+	var user *apigen.User
+	if userID != 0 {
+		var err error
+		user, err = users.ByID(h.Store.Queries(), userID)
+		if err != nil {
+			t.Fatalf("users.ByID(%d): %v", userID, err)
+		}
 	}
 	res, err := h.startUserSession(bg(), user, kind, ttl)
 	if err != nil {
@@ -164,7 +170,7 @@ func TestRevokedUserSessionTokenFailsVerifyAuth(t *testing.T) {
 
 // Exercises the real generated route, so routing and policy enforcement are
 // covered rather than just the handler method.
-func TestAgentSessionsCreateRouteRejectsBootstrapSession(t *testing.T) {
+func TestAgentSessionsCreateRouteRejectsRootSession(t *testing.T) {
 	h, user := newAuthTestHandler(t)
 	mux := apigen.CreateApiServerMux(h, &apigen.MuxConfig{VerifyAuth: h.VerifyAuth})
 
@@ -198,12 +204,27 @@ func TestAgentSessionsCreateRouteRejectsBootstrapSession(t *testing.T) {
 		}
 	})
 
-	// A bootstrap token exists only to register a passkey. It must not be able
-	// to mint a general-access agent token.
-	t.Run("bootstrap session is rejected", func(t *testing.T) {
-		w := call("Bearer " + h.mustToken(t, user.ID, bootstrapSession, time.Hour))
+	// A root token exists only to enrol and recover users. It must not be
+	// able to mint a general-access agent token.
+	t.Run("root session is rejected", func(t *testing.T) {
+		w := call("Bearer " + h.mustToken(t, 0, rootSession, time.Hour))
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want 403 (body %s)", w.Code, w.Body.String())
+		}
+	})
+
+	// A link token is never a bearer, whichever route it is presented to.
+	t.Run("link token is rejected", func(t *testing.T) {
+		rec, token, err := newSessionRecord(bg(), linkTokenKind, linkSession, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec.UserID, rec.Author = user.ID, int64(user.ID)
+		if err := users.InsertUserSession(h.Store, rec); err != nil {
+			t.Fatal(err)
+		}
+		if w := call("Bearer " + token); w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d, want 401 (body %s)", w.Code, w.Body.String())
 		}
 	})
 }
@@ -277,7 +298,7 @@ func TestAgentSessionStoresOnlyTokenHash(t *testing.T) {
 
 func TestAgentSessionsListReturnsOnlyTheCallersSessions(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: "other"}
+	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: apigen.Some("other")}
 	users.Write(h.Store, other)
 
 	mine, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, user))
@@ -342,7 +363,7 @@ func TestRevokedAgentSessionTokenFailsVerifyAuth(t *testing.T) {
 // One operator must not be able to revoke another's session by guessing its id.
 func TestAgentSessionRevokeIsScopedToTheOwner(t *testing.T) {
 	h, user := newAuthTestHandler(t)
-	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: "other"}
+	other := &apigen.User{ID: 2, Authentication: apigen.UserAuthentication{WebAuthnID: user.Authentication.WebAuthnID}, Name: apigen.Some("other")}
 	users.Write(h.Store, other)
 
 	res, err := h.PostV1AgentSessionsCreate(h.operatorCtx(t, user))

@@ -6,9 +6,9 @@ import (
 	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 )
 
-// webUIReservations resolves the platform's own listeners on the primary from
+// platformReservations resolves the platform's own listeners from
 // the current cluster settings.
-func (h *Handler) webUIReservations() []ingressplan.Reservation {
+func (h *Handler) platformReservations() []ingressplan.Reservation {
 	settings := h.SystemConfig.Snapshot().Settings
 	return deployments.ReservationsFromSettings(h.NodeID, &settings, func(v apigen.StringSetting) string {
 		return h.SystemConfig.MustLoadStringSetting(v)

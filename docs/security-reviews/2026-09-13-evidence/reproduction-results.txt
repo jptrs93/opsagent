@@ -1,28 +1,4 @@
-# 11 September audit reproductions rerun unchanged against 60d73bc (PASS = behaviour still present)
-=== RUN   TestAuditAgentCanBindDeniedSecret
-    security_audit_20260911_test.go:20: access_denied
---- FAIL: TestAuditAgentCanBindDeniedSecret (0.01s)
-=== RUN   TestAuditSpaceOperatorCanMountProtectedParent
-    security_audit_20260911_test.go:29: access_denied
---- FAIL: TestAuditSpaceOperatorCanMountProtectedParent (0.01s)
-=== RUN   TestAuditPasskeyUpdatesAppendDuplicateIDs
-    security_audit_20260911_test.go:46: REPRODUCED: saving one credential twice creates two rows in the user record, retaining the first stale counter. Callback tested; no authenticator used.
---- PASS: TestAuditPasskeyUpdatesAppendDuplicateIDs (0.01s)
-FAIL
-FAIL	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	0.773s
-=== RUN   TestAuditMountParentAndSymlinkValidation
-    security_audit_20260911_test.go:12: /var: container1Spec.runtime.mounts: host path "/var" is not allowed
---- FAIL: TestAuditMountParentAndSymlinkValidation (0.00s)
-=== RUN   TestAuditUnownedCertificateNameAccepted
-    security_audit_20260911_test.go:23: REPRODUCED: a different space's DNS name passes workload certificate validation.
---- PASS: TestAuditUnownedCertificateNameAccepted (0.00s)
-FAIL
-FAIL	github.com/jptrs93/opsagent/backend/app/primary/domain/deployments	0.242s
-=== RUN   TestAuditWorkloadCertificateVerifiesForUnownedName
-    security_audit_20260911_test.go:12: deployment 42 issued TLS extra name: "payments.space-999.internal" is outside this deployment's space zone space-2.internal
---- FAIL: TestAuditWorkloadCertificateVerifiesForUnownedName (0.02s)
-FAIL
-FAIL	github.com/jptrs93/opsagent/backend/app/primary/domain/pki	0.979s
+# 11 September registry reproductions rerun unchanged against 73f163c6 (PASS = behaviour still present)
 === RUN   TestAuditRegistryRealmCallsLoopback
     security_audit_20260911_test.go:17: REPRODUCED: registry bearer realm triggers a GET to a loopback HTTP URL.
 --- PASS: TestAuditRegistryRealmCallsLoopback (0.00s)
@@ -30,15 +6,41 @@ FAIL	github.com/jptrs93/opsagent/backend/app/primary/domain/pki	0.979s
     security_audit_20260911_test.go:31: REPRODUCED: non-GHCR registry pagination sends bearer token to another origin over HTTP. All traffic stayed on loopback.
 --- PASS: TestAuditRegistryPaginationForwardsBearerToAnotherOrigin (0.00s)
 PASS
-ok  	github.com/jptrs93/opsagent/backend/lib/engine/versionprovider	0.459s
-FAIL
+ok  	github.com/jptrs93/opsagent/backend/lib/engine/versionprovider	0.280s
 
-# Corrected reproductions (virtual networking, so the host-network gate does not mask the result)
-=== RUN   TestReviewAgentCanBindDeniedSecretWithVirtualNetworking
-    security_rereview_20260913_test.go:23: REPRODUCED: delegated secret reveal denied; same agent's virtual-network workload with the secret bound into env accepted. Workload was not run.
---- PASS: TestReviewAgentCanBindDeniedSecretWithVirtualNetworking (0.01s)
-=== RUN   TestReviewSpaceAdminHostMountDeniedWithVirtualNetworking
-    security_rereview_20260913_test.go:32: FIXED: built-in space_admin can no longer submit a custom host mount even for an unprotected path; the gate is the use_host_mounts verb, not the denylist.
---- PASS: TestReviewSpaceAdminHostMountDeniedWithVirtualNetworking (0.01s)
+# Re-check tests against 73f163c6, ported to the current API (see each log line: REPRODUCED, CLOSED or HOLDS)
+=== RUN   TestRecheckAgentCanBindDeniedSecret
+    security_recheck_20261122_test.go:37: REPRODUCED: delegated secret reveal denied; the same agent's virtual-network workload with the secret bound into env is accepted. Workload was not run. Accepted by design (AP-1).
+--- PASS: TestRecheckAgentCanBindDeniedSecret (0.02s)
+=== RUN   TestRecheckSpaceAdminHostMountDenied
+    security_recheck_20261122_test.go:49: HOLDS: built-in space_admin cannot submit a custom host mount even for an unprotected path; the gate is the use_host_mounts verb.
+--- PASS: TestRecheckSpaceAdminHostMountDenied (0.01s)
+=== RUN   TestRecheckOtherSpaceCertificateNameRejectedAtCreate
+    security_recheck_20261122_test.go:61: HOLDS: a cluster admin creating in the global space cannot claim another space's .internal name (OD-04 stays closed).
+--- PASS: TestRecheckOtherSpaceCertificateNameRejectedAtCreate (0.01s)
+=== RUN   TestRecheckPasskeySaveReplacesByCredentialID
+    security_recheck_20261122_test.go:92: CLOSED: saving one credential twice through the service callback leaves one row carrying the latest sign counter (OD-12).
+--- PASS: TestRecheckPasskeySaveReplacesByCredentialID (0.01s)
+=== RUN   TestRecheckSpaceIDNotReusedAndDeleteRefusedWhileReferenced
+    security_recheck_20261122_test.go:140: CLOSED: deleting the highest space (5) and creating another yields 6; spaces holding a secret or named by a grant cannot be deleted (RR-13).
+--- PASS: TestRecheckSpaceIDNotReusedAndDeleteRefusedWhileReferenced (0.01s)
+=== RUN   TestRecheckUserUpdateMintsSignInLinkForAnAdmin
+    security_recheck_20261122_test.go:164: link for the admin was refused: access_denied
+--- FAIL: TestRecheckUserUpdateMintsSignInLinkForAnAdmin (0.30s)
+=== RUN   TestRecheckSignInLinkRefusedWithoutAccessCreate
+    security_recheck_20261122_test.go:215: CLOSED: a user holding every verb on the user type and no access:create is refused a sign-in link for a cluster admin; a cluster admin can still issue and the link redeems (RR-27).
+--- PASS: TestRecheckSignInLinkRefusedWithoutAccessCreate (0.29s)
+=== RUN   TestRecheckPortForwardClaimsRejectedAtWriteTime
+    security_recheck_20261122_test.go:260: CLOSED: a second forward on a taken TCP or UDP port and a forward on the WireGuard port are rejected at write time, and a space admin is denied a forward on port 22 (RR-05).
+--- PASS: TestRecheckPortForwardClaimsRejectedAtWriteTime (0.01s)
+=== RUN   TestRecheckEpochStatusClockBreaksTheOpeningSnapshot
+    security_recheck_20261122_test.go:297: REPRODUCED: one status report with an epoch updated_at for the node's own instance passes validation and commits; the admin's opening snapshot then fails to encode: snapshot.entities[3].entity.scheduled_instance_status.updated_at: is required (RR-29).
+--- PASS: TestRecheckEpochStatusClockBreaksTheOpeningSnapshot (0.01s)
+FAIL
+FAIL	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	1.513s
+=== RUN   TestRecheckMountParentRejectedSymlinkAccepted
+    security_recheck_20261122_test.go:25: REPRODUCED: /, /var, /var/lib and /var/lib/opendeploy are rejected, but a symlink that resolves to /var/lib/opendeploy passes the lexical validator (OD-02 residual). Nothing was mounted.
+--- PASS: TestRecheckMountParentRejectedSymlinkAccepted (0.00s)
 PASS
-ok  	github.com/jptrs93/opsagent/backend/app/primary/webuihandler	0.330s
+ok  	github.com/jptrs93/opsagent/backend/app/primary/domain/deployments	0.260s
+FAIL

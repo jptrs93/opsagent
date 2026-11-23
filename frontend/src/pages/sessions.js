@@ -13,7 +13,8 @@ import {
     sessionStatus,
     sessionStoppable,
 } from "../lib/agentSessions.js";
-import {userSessionLive, userSessionStatus, summarizeUserAgent, isBootstrapSession} from "../lib/userSessions.js";
+import {userSessionLive, userSessionStatus, summarizeUserAgent, isLinkSession} from "../lib/userSessions.js";
+import {usersMapS} from "../state/deployments.js";
 
 const {button, div, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
@@ -149,21 +150,30 @@ function userSessionsTab() {
         }
     };
 
+    const userName = (id) => usersMapS.val.get(Number(id))?.name || `user ${id}`;
+    const isMine = (session) => Number(session.userId || 0) === Number(loginS.val?.userId || 0);
+
+    // A link row is a sign-in link this user issued for someone, or one
+    // issued for this user: the device column says which, and the control
+    // cancels it while it is unused.
     const row = (session) => {
         const status = userSessionStatus(session);
         const live = userSessionLive(session);
         const current = isCurrent(session);
+        const link = isLinkSession(session);
+        const device = link
+            ? span({class: "text-gray-300"},
+                span({class: "mr-2 rounded bg-amber-500/15 px-1.5 py-px text-[10px] font-medium text-amber-300", title: "A one-time sign-in link"}, "Link"),
+                isMine(session) ? `for you, issued by ${session.issuedBy ? userName(session.issuedBy) : "the master password"}` : `for ${userName(session.userId)}`)
+            : summarizeUserAgent(session.userAgent);
         return tr(
-            {class: "hover:bg-gray-800/40"},
+            {class: "hover:bg-gray-800/40", ...(link ? {"data-testid": `user-session-link-${session.sessionId}`} : {})},
             tdCell("whitespace-nowrap text-gray-300 tabular-nums", formatHistoryTime(session.createdAt)),
             tdCell(`whitespace-nowrap ${status.tone}`, status.label),
             tdCell("whitespace-nowrap text-gray-300",
-                summarizeUserAgent(session.userAgent),
+                device,
                 current
                     ? span({class: "ml-2 rounded bg-brand/15 px-1.5 py-px text-[10px] font-medium text-blue-300"}, "This browser")
-                    : "",
-                isBootstrapSession(session)
-                    ? span({class: "ml-2 rounded bg-gray-700/60 px-1.5 py-px text-[10px] font-medium text-gray-300", title: "Opened with the master password; can only register a passkey"}, "Bootstrap")
                     : ""),
             tdCell("whitespace-nowrap font-mono text-gray-500", session.requestingAddress || "unknown"),
             tdCell("whitespace-nowrap text-gray-400 tabular-nums", formatHistoryTime(session.expiresAt)),
@@ -174,9 +184,9 @@ function userSessionsTab() {
                         class: `${iconButtonClass} hover:text-red-400`,
                         disabled: () => !live || busyID.val === session.id,
                         title: !live
-                            ? `Session is already ${status.label.toLowerCase()}`
-                            : (current ? "Sign out this browser" : "Revoke this session"),
-                        "aria-label": current ? "Sign out this browser" : "Revoke this session",
+                            ? `${link ? "Link" : "Session"} is already ${status.label.toLowerCase()}`
+                            : link ? "Cancel this link" : (current ? "Sign out this browser" : "Revoke this session"),
+                        "aria-label": link ? "Cancel this link" : (current ? "Sign out this browser" : "Revoke this session"),
                         onclick: () => { void revoke(session); },
                     }, xIcon({size: 13})),
                 )),

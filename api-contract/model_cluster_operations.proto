@@ -16,9 +16,10 @@ message GithubCredentials {
 // Primary and secondary communicate over an HTTP/2 mTLS protobuf stream.
 // Each frame carries one field. cluster_protocol_version keeps tag 9 so a
 // node on the previous contract still reads the refusal. The session head is
-// the protocol version, then the node's complete NodeProjection as
-// node_snapshot, then the outstanding Nix store resets; afterwards one
-// NodeProjection as node_update per write event that touched the node.
+// the protocol version, then the outstanding Nix store resets when there
+// are any, then the node's complete NodeProjection as node_snapshot;
+// afterwards one NodeProjection as node_update per write event that touched
+// the node.
 message MsgToSecondary {
   reserved 1, 2, 5, 6, 7;
   DeploymentLogRequest deployment_log_request = 3;

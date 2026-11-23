@@ -139,22 +139,24 @@ const (
 type UserSessionKind int32
 
 const (
-	UserSessionKind_USER_SESSION_KIND_FULL      UserSessionKind = 0
-	UserSessionKind_USER_SESSION_KIND_BOOTSTRAP UserSessionKind = 1
+	UserSessionKind_USER_SESSION_KIND_FULL UserSessionKind = 0
+	UserSessionKind_USER_SESSION_KIND_ROOT UserSessionKind = 1
+	UserSessionKind_USER_SESSION_KIND_LINK UserSessionKind = 2
 )
 
 type AuthzVerb int32
 
 const (
-	AuthzVerb_AUTHZ_VERB_UNSPECIFIED      AuthzVerb = 0
-	AuthzVerb_AUTHZ_VERB_CREATE           AuthzVerb = 1
-	AuthzVerb_AUTHZ_VERB_UPDATE           AuthzVerb = 2
-	AuthzVerb_AUTHZ_VERB_DELETE           AuthzVerb = 3
-	AuthzVerb_AUTHZ_VERB_VIEW             AuthzVerb = 4
-	AuthzVerb_AUTHZ_VERB_VIEW_LOGS        AuthzVerb = 5
-	AuthzVerb_AUTHZ_VERB_REVEAL           AuthzVerb = 6
-	AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS  AuthzVerb = 7
-	AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK AuthzVerb = 8
+	AuthzVerb_AUTHZ_VERB_UNSPECIFIED          AuthzVerb = 0
+	AuthzVerb_AUTHZ_VERB_CREATE               AuthzVerb = 1
+	AuthzVerb_AUTHZ_VERB_UPDATE               AuthzVerb = 2
+	AuthzVerb_AUTHZ_VERB_DELETE               AuthzVerb = 3
+	AuthzVerb_AUTHZ_VERB_VIEW                 AuthzVerb = 4
+	AuthzVerb_AUTHZ_VERB_VIEW_LOGS            AuthzVerb = 5
+	AuthzVerb_AUTHZ_VERB_REVEAL               AuthzVerb = 6
+	AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS      AuthzVerb = 7
+	AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK     AuthzVerb = 8
+	AuthzVerb_AUTHZ_VERB_USE_PRIVILEGED_PORTS AuthzVerb = 9
 )
 
 type AuthzEntityKind int32
@@ -1444,8 +1446,11 @@ type SpaceDeleteRequest struct {
 type User struct {
 	unknownFields  []byte
 	ID             uint64             `json:"id"`
-	Name           string             `json:"name,omitempty"`
+	Name           Maybe[string]      `json:"name,omitzero"`
 	Authentication UserAuthentication `json:"authentication"`
+	Email          Maybe[string]      `json:"email,omitzero"`
+	PasswordHash   Maybe[string]      `json:"password_hash,omitzero"`
+	ActivatedAt    Maybe[time.Time]   `json:"activated_at,omitzero"`
 }
 
 type UserAuthentication struct {
@@ -1456,14 +1461,16 @@ type UserAuthentication struct {
 
 type WebAuthnCredential struct {
 	unknownFields []byte
-	ID            []byte `json:"id"`
-	Data          []byte `json:"data"`
+	ID            []byte           `json:"id"`
+	Data          []byte           `json:"data"`
+	Label         string           `json:"label,omitempty"`
+	CreatedAt     time.Time        `json:"created_at"`
+	LastUsedAt    Maybe[time.Time] `json:"last_used_at,omitzero"`
 }
 
 type MasterPasswordRequest struct {
 	unknownFields []byte
 	Password      string `json:"password,omitempty"`
-	Username      string `json:"username,omitempty"`
 }
 
 type MasterPasswordVerifyRequest struct {
@@ -1476,8 +1483,7 @@ type MasterPasswordSaveRequest struct {
 	Password      string `json:"password,omitempty"`
 }
 
-// PasswordLoginRequest signs in with the cluster master password. The named
-// user is created on first use.
+// PasswordLoginRequest signs in with the user's own password.
 type PasswordLoginRequest struct {
 	unknownFields []byte
 	Username      string `json:"username,omitempty"`
@@ -1487,10 +1493,32 @@ type PasswordLoginRequest struct {
 // AuthMethodsResponse tells the login page which methods the server accepts
 // and whether a locally generated Web UI CA is served at /v1/tls/ca.crt.
 type AuthMethodsResponse struct {
-	unknownFields        []byte
-	PasskeyLoginEnabled  bool `json:"passkey_login_enabled"`
-	PasswordLoginEnabled bool `json:"password_login_enabled"`
-	LocalCaAvailable     bool `json:"local_ca_available"`
+	unknownFields       []byte
+	PasskeyLoginEnabled bool `json:"passkey_login_enabled"`
+	RequirePasskey      bool `json:"require_passkey"`
+	LocalCaAvailable    bool `json:"local_ca_available"`
+}
+
+// LinkRedeemRequest carries an enrolment or recovery link token exactly once.
+type LinkRedeemRequest struct {
+	unknownFields []byte
+	Token         string `json:"token,omitempty"`
+}
+
+// LinkRedeemResponse is the FULL session the link opened, with what the
+// landing page still has to ask the user for.
+type LinkRedeemResponse struct {
+	unknownFields []byte
+	Session       LoginResponse `json:"session"`
+	NameSet       bool          `json:"name_set"`
+	PasswordSet   bool          `json:"password_set"`
+}
+
+// OpenSessionRequest is a root session opening a FULL session for a user
+// without that user's credential.
+type OpenSessionRequest struct {
+	unknownFields []byte
+	UserID        uint64 `json:"user_id"`
 }
 
 type LoginResponse struct {
@@ -1501,6 +1529,44 @@ type LoginResponse struct {
 	Expiry        time.Time       `json:"expiry"`
 	SessionID     string          `json:"session_id,omitempty"`
 	Kind          UserSessionKind `json:"kind"`
+}
+
+// AccountView is the caller's own account, the only place credential
+// details and the password's presence leave the server.
+type AccountView struct {
+	unknownFields []byte
+	UserID        uint64           `json:"user_id"`
+	Name          Maybe[string]    `json:"name,omitzero"`
+	Email         Maybe[string]    `json:"email,omitzero"`
+	HasPassword   bool             `json:"has_password"`
+	ActivatedAt   Maybe[time.Time] `json:"activated_at,omitzero"`
+	Passkeys      []AccountPasskey `json:"passkeys,omitempty"`
+}
+
+type AccountPasskey struct {
+	unknownFields []byte
+	ID            []byte           `json:"id"`
+	Label         string           `json:"label,omitempty"`
+	CreatedAt     time.Time        `json:"created_at"`
+	LastUsedAt    Maybe[time.Time] `json:"last_used_at,omitzero"`
+}
+
+type AccountRenameRequest struct {
+	unknownFields []byte
+	Name          string `json:"name,omitempty"`
+}
+
+// AccountPasswordRequest sets, changes, or clears (empty next) the caller's
+// password. current is required while a password exists.
+type AccountPasswordRequest struct {
+	unknownFields []byte
+	Current       Maybe[string] `json:"current,omitzero"`
+	Next          string        `json:"next,omitempty"`
+}
+
+type AccountPasskeyDeleteRequest struct {
+	unknownFields []byte
+	ID            []byte `json:"id"`
 }
 
 type WebAuthNOptionsResponse struct {
@@ -1540,13 +1606,16 @@ type UserSession struct {
 	unknownFields     []byte
 	ID                uint64           `json:"id"`
 	SessionID         string           `json:"session_id,omitempty"`
-	UserID            uint64           `json:"user_id"`
+	UserID            Maybe[uint64]    `json:"user_id,omitzero"`
 	Kind              UserSessionKind  `json:"kind"`
 	ExpiresAt         time.Time        `json:"expires_at"`
 	RevokedAt         Maybe[time.Time] `json:"revoked_at,omitzero"`
 	RequestingAddress string           `json:"requesting_address,omitempty"`
 	UserAgent         string           `json:"user_agent,omitempty"`
 	TokenHash         Maybe[[]byte]    `json:"token_hash,omitzero"`
+	RedeemedAt        Maybe[time.Time] `json:"redeemed_at,omitzero"`
+	OpenedBy          Maybe[uint64]    `json:"opened_by,omitzero"`
+	IssuedBy          Maybe[uint64]    `json:"issued_by,omitzero"`
 }
 
 type AgentSessionList struct {
@@ -1866,6 +1935,29 @@ type AuthzGlobalRuleDeleteRequest struct {
 	ID            uint64 `json:"id"`
 }
 
+// UserCreateRequest creates a pending user with its grants in one commit.
+// name and password are optional: an invitee picks either from the link.
+type UserCreateRequest struct {
+	unknownFields []byte
+	Name          Maybe[string]      `json:"name,omitzero"`
+	Password      Maybe[string]      `json:"password,omitzero"`
+	Grants        []AuthzGrantSource `json:"grants,omitempty"`
+}
+
+// UserLinkRequest issues a single-use enrolment or recovery link for a user.
+type UserLinkRequest struct {
+	unknownFields []byte
+	UserID        uint64 `json:"user_id"`
+}
+
+// UserLinkResponse is the only delivery of the link token.
+type UserLinkResponse struct {
+	unknownFields []byte
+	Token         string    `json:"token,omitempty"`
+	SessionID     string    `json:"session_id,omitempty"`
+	ExpiresAt     time.Time `json:"expires_at"`
+}
+
 type Node struct {
 	unknownFields         []byte
 	ID                    uint64              `json:"id"`
@@ -1976,7 +2068,7 @@ type NixStoreResetRequest struct {
 
 // AcmeState is the ACME manager's output on the primary and, scoped to the
 // hostnames a node publishes or hosts, the acme section of that node's
-// NodeSnapshot and NodeUpdate.
+// NodeProjection.
 type AcmeState struct {
 	unknownFields []byte
 	Seq           int64               `json:"seq"`
@@ -1995,8 +2087,8 @@ type AcmeCertBinding struct {
 // scope. ula_prefix is the cluster-wide /48 every address is a pure function
 // of, so the map is the only distributed IPAM state. derived_from_seq is the
 // primary's write seq of the last change to this node's content; the first
-// map accepted in a session replaces the node's cache, later ones must carry
-// a higher stamp.
+// map accepted in a session replaces the node's cache; a later one with a
+// lower stamp is refused and one with an equal stamp is a no-op.
 type ClusterNetMap struct {
 	unknownFields  []byte
 	TargetNodeID   uint64                 `json:"target_node_id"`
@@ -2241,9 +2333,10 @@ type GithubCredentials struct {
 // Primary and secondary communicate over an HTTP/2 mTLS protobuf stream.
 // Each frame carries one field. cluster_protocol_version keeps tag 9 so a
 // node on the previous contract still reads the refusal. The session head is
-// the protocol version, then the node's complete NodeProjection as
-// node_snapshot, then the outstanding Nix store resets; afterwards one
-// NodeProjection as node_update per write event that touched the node.
+// the protocol version, then the outstanding Nix store resets when there
+// are any, then the node's complete NodeProjection as node_snapshot;
+// afterwards one NodeProjection as node_update per write event that touched
+// the node.
 type MsgToSecondary struct {
 	unknownFields          []byte
 	DeploymentLogRequest   Maybe[DeploymentLogRequest] `json:"deployment_log_request,omitzero"`
@@ -2511,6 +2604,7 @@ type LargeAssetsSettings struct {
 type AuthSettings struct {
 	unknownFields        []byte
 	PasswordLoginEnabled BoolSetting `json:"password_login_enabled"`
+	RequirePasskey       BoolSetting `json:"require_passkey"`
 }
 
 // NixStoreReset asks every node to reseed its Nix build store for one

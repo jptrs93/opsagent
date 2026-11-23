@@ -258,6 +258,9 @@ func (v *streamVisibility) entityVisible(t apigen.CoreEntityType, id uint64, e *
 	if e == nil {
 		e = &apigen.CoreEntity{}
 	}
+	if isRoot(ctx) {
+		return rootVisible(t)
+	}
 	p := &e.Value
 	switch t {
 	case apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT:
@@ -294,11 +297,13 @@ func (v *streamVisibility) entityVisible(t apigen.CoreEntityType, id uint64, e *
 		return v.instanceVisible(id)
 	case apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS:
 		return h.nodeVisible(ctx, id, v.nodes[id])
-	// Sessions are owner-only: they reach the browser that holds them and no one else.
+	// Sessions are owner-only: they reach the browser that holds them and no
+	// one else, except a link, which its issuer also sees.
 	case apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION:
 		return p.AgentSession != nil && p.AgentSession.UserID == v.userID()
 	case apigen.CoreEntityType_CORE_ENTITY_USER_SESSION:
-		return p.UserSession != nil && p.UserSession.UserID == v.userID()
+		return p.UserSession != nil && v.userID() != 0 && (p.UserSession.UserID.Value == v.userID() ||
+			(p.UserSession.Kind == apigen.UserSessionKind_USER_SESSION_KIND_LINK && p.UserSession.IssuedBy.Value == v.userID()))
 	}
 	return false
 }
@@ -383,6 +388,18 @@ func (h *Handler) visibleUpdate(ctx apigen.Context, u *state.WriteUpdate) *state
 	return newStreamVisibility(h, ctx).visibleUpdate(u)
 }
 
+// rootVisible is what a root session sees on the stream: exactly what the
+// enrol-or-recover widget needs to pick privileges and users, nothing of the
+// cluster itself.
+func rootVisible(t apigen.CoreEntityType) bool {
+	switch t {
+	case apigen.CoreEntityType_CORE_ENTITY_USER, apigen.CoreEntityType_CORE_ENTITY_SPACE,
+		apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT:
+		return true
+	}
+	return false
+}
+
 // browserMutation copies a mutation with the fields a browser never receives
 // cleared: sealed secret bytes, credential blobs, token hashes, and the
 // master password hash. Keyslots never reach a browser at all, but the
@@ -412,6 +429,7 @@ func browserEntity(e apigen.CoreEntity) apigen.CoreEntity {
 	if p.User != nil {
 		u := *p.User
 		u.Authentication = apigen.UserAuthentication{}
+		u.PasswordHash = apigen.Maybe[string]{}
 		p.User = &u
 	}
 	if p.AgentSession != nil {
@@ -432,6 +450,21 @@ func browserEntity(e apigen.CoreEntity) apigen.CoreEntity {
 		p.SystemConfig = &c
 	}
 	return out
+}
+
+// writtenToWriter builds the receipt of a write the writer always gets to
+// see, whatever its grants: the entity it just created or changed, stamped
+// and stripped for a browser but not filtered. A root session, which has no
+// grants at all, reads the id of the user it created from it.
+func (h *Handler) writtenToWriter(ctx apigen.Context, m pq.Mutation) *apigen.CoreWriteUpdate {
+	u := pq.Written(m)
+	if err := h.Queries.StampMeta(ctx, u); err != nil {
+		panic(fmt.Sprintf("stamp receipt meta: %v", err))
+	}
+	for i := range u.Mutations {
+		u.Mutations[i] = browserMutation(&u.Mutations[i])
+	}
+	return u
 }
 
 // written builds the receipt of a committed write: the update stamped with

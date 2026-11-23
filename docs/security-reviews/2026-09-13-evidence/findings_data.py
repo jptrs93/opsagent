@@ -1,11 +1,27 @@
-"""Finding data for the 13 September 2026 re-review.
+"""Finding data for the 13 September 2026 re-review, as updated on 22 and 23 November 2026.
 
 origin: "audit" keeps the 11 September identifier (OD-nn); "review" items were
-raised in the 12 September assessment; "new" items were found during this
-re-review. RR-nn identifiers are assigned here for the latter two.
-Source ranges refer to commit 2ea3af1. OD-07 closed on 15 September in
-v0.0.609 (60d73bc) and moved to CLOSED on 16 September; its closure sources
-refer to that commit.
+raised in the 12 September assessment; "new" items were found during the
+13 September re-review; "recheck" items were raised on 22 November. RR-nn
+identifiers are assigned here for the latter three.
+
+History of this file:
+- 13 September: written against commit 2ea3af1.
+- 16 September: OD-07 moved to CLOSED after v0.0.609 (60d73bc).
+- 22 November: every open finding re-verified at ef1f3508 (v0.0.617 plus the
+  unreleased per-user-password work on bckup-1). The FINDINGS list below keeps
+  the 13 September wording; RECHECK_UPDATES at the end of the file overrides
+  the fields that are no longer accurate, re-pins every source range to
+  ef1f3508 and adds a `recheck` note per finding. RR-13 and the duplicate-row
+  half of OD-12 moved to CLOSED, and RR-27 to RR-37 were added.
+- 23 November: RR-27, RR-28 and most of RR-05 fixed in commits ca3ff94,
+  12f2d8c and fa23e93. RR-27 moved to CLOSED; RR-28 stays open until a release carries
+  the fix; RR-05 narrowed from High to Medium with the fixed part in CLOSED.
+  See FIX_UPDATES and FIX_CLOSED near the end of the file.
+
+After the 22 November update, source ranges of open findings refer to ef1f3508,
+except sources marked FIX_COMMIT, which refer to that commit of 23 November.
+Closed and accepted rows keep the commit they were recorded against.
 """
 
 def f(**kw):
@@ -421,3 +437,423 @@ ACCEPTED = [
        why="The behaviour is present and reproduced (corrected test): a delegated session denied reveal still binds a secret into a workload it controls. The project records this as documented authority: secret : reveal bounds the direct path only, and deployment create or update in a space is a second, intended path to every secret bindable from that space. The builtin agent defaults withhold reveal and view_logs as a guard rail against accidental disclosure, not as an isolation boundary. Operators who need a value kept from an agent must scope its deployment permissions away from the secret's space. Under security-severity.md this is Informational. The positions were written into docs/engineering/auth.md on 13 September, after the reviewed commit, so the pinned source links below show the code paths only.",
        sources=[["backend/app/primary/domain/deployments/validate_refs.go", 34], ["backend/app/primary/domain/authz/builtin.go", 37]]),
 ]
+
+
+# ================================================================ 22 November 2026 re-check
+# Applied on top of the lists above by _apply_recheck() at the end of the file.
+RECHECK_COMMIT = "ef1f3508acdb7478f13fa695e7f02a3de8e4046f"
+RECHECK_CLOSED_IDS = {"RR-13"}
+
+RECHECK_UPDATES = {
+"OD-02": dict(
+  recheck="Still open. The gate and the denylist hold: a ported check shows /, /var, /var/lib and /var/lib/opendeploy rejected and a space_admin denied a custom mount. The same check shows a symlink that resolves to /var/lib/opendeploy passing the validator.",
+  evidence="containerHostMountDenied cleans the path and compares it with the denylist in both directions; its comment states the check is lexical and that administrators own symlinks. The runner copies HostPath into the mount unchanged and the containerd client only stats it to choose bind or rbind; no EvalSymlinks, openat2 or RESOLVE_BENEATH touches a mount source. The per-repository Nix store root, /var/lib/opendeploy-nix, is not on the denylist, and the list is hard-coded to /var/lib/opendeploy* whatever data directory is configured.",
+  validation="Reproduced at the validator on 22 November (TestRecheckMountParentRejectedSymlinkAccepted, TestRecheckSpaceAdminHostMountDenied). No mount was executed.",
+  close="A symlink from an allowed host path into /var/lib/opendeploy must fail the run with a clear error; ordinary host mounts must keep working; the Nix store root must be on the denylist.",
+  sources=[["backend/app/primary/domain/deployments/validate.go", 883, 897], ["backend/lib/engine/runner/container.go", 1507, 1513], ["backend/lib/engine/ctrd/client.go", 254, 271]]),
+
+"OD-06": dict(
+  recheck="Still open. The handler was ported to the new contract with the same body: one coarse usesGithub check, then the whole token.",
+  evidence="GetV1ClusterGithubCredentials returns the raw token after a coarse usesGithub check, which any scheduled Nix image build or ghcr.io remote image satisfies. The worker caches it in memory. The git manager injects it as a github.com-scoped extraHeader so it never reaches .git/config or argv, and the build container's env is TMPDIR, HOME and the CA bundle only.",
+  validation="Read at ef1f3508. The containerized build and its egress rules are unchanged since 16 September.",
+  sources=[["backend/app/primary/clusterhandler/handler.go", 154, 167], ["backend/app/primary/clusterhandler/handler.go", 269, 281], ["backend/lib/engine/prepare/nixstore/build.go", 89, 93]]),
+
+"OD-09": dict(
+  recheck="Still open, and the default exposure is wider on the unreleased branch: per-user password login is the default sign-in there, so two unauthenticated routes hash on demand instead of one.",
+  impact="Each master-password or password-login attempt costs a 64 MiB Argon2id hash. Per-address rate limits exist and key on the socket address, but nothing bounds aggregate concurrency, and the limiter keys on the exact address, so an IPv6 /64 supplies unlimited independent buckets. Each of the two routes allows a burst of ten per address. require_passkey turns password login off before hashing; the master exchange always hashes.",
+  evidence="The middleware chain applies PerIP and PerIPAndPrefix limits; ratelimit.Global exists but is unused, and no semaphore wraps VerifyPassword. The limiter allocates one bucket per distinct address string. PostV1AuthMaster is NO_AUTH and hashes before any other check; PostV1AuthPasswordLogin hashes a decoy for unknown users.",
+  validation="Read at ef1f3508. Load impact was not measured. RR-31 covers the authenticated hashing route that sits outside these limits.",
+  sources=[["backend/app/primary/run.go", 129, 145], ["backend/lib/middleware/ratelimit/ratelimit.go", 67, 83], ["backend/app/primary/webuihandler/auth.go", 44, 67]]),
+
+"OD-10": dict(
+  recheck="Still open on all four listeners. The Web UI server was rewritten into a manager with swappable listeners and still sets no timeout; the cluster and enrollment servers are byte-identical to 16 September. RR-28 raises the stakes: the release toolchain carries unauthenticated HTTP/2 and TLS denial-of-service advisories on the same listeners.",
+  evidence="The cluster server literal carries Handler, TLSConfig and BaseContext plus HTTP/2 ping timeouts, which act after the handshake; the enrollment literal has no timeouts; the Web UI literal carries Handler and BaseContext with TLSConfig attached afterwards, and also serves the plain-HTTP listener. The stdlib derives the handshake deadline from the minimum positive server timeout, so three zeros yield none. Netproxy's HTTPS listener has a 10-second header timeout, but its ClientHello deadline is cleared before hand-off onto an unbuffered channel, leaving an unbounded queueing window.",
+  validation="Read at ef1f3508; no runtime probe was run.",
+  sources=[["backend/app/primary/clusterserver/server.go", 42, 52], ["backend/app/primary/clusterserver/server.go", 84, 89], ["backend/app/primary/webui/server.go", 266, 286]]),
+
+"OD-11": dict(
+  recheck="Still open. Both loopback reproductions were rerun unchanged on 22 November and pass; the three packages have an empty diff since 16 September.",
+  validation="Both audit reproductions pass against ef1f3508 on loopback. The repo-validate route returns a generic message for images, so that entry point is a blind request; the deployment versions route returns the error text.",
+  sources=[["backend/lib/engine/versionprovider/containerimage.go", 196, 220], ["backend/lib/engine/versionprovider/containerimage.go", 155, 164], ["backend/lib/engine/versionprovider/containerimage.go", 166, 181]]),
+
+"OD-12": dict(
+  severity="Low", prior="Medium", status="Source verified; residual",
+  title="Passkey clone warnings are recorded but never acted on",
+  recheck="Narrowed. The duplicate-row defect closed in v0.0.614 (80b8fbd): credentials are replaced in place by id, and a ported check through the service callback leaves one row carrying the latest counter. What remains is the second half of the original fix.",
+  impact="When an authenticator's signature counter fails to advance, the WebAuthn library sets CloneWarning on the credential and still accepts the login. Nothing in the backend reads the flag, so a cloned counter-based authenticator signs in without a refusal, a log line or an alert. Synced passkeys report a zero counter and are unaffected either way.",
+  trigger="A cloned authenticator that maintains a signature counter.",
+  evidence="The shared save callback now calls users.SetCredential, which replaces the entry with the same credential id and stamps it as used. The stored JSON therefore carries the latest counter and the library's cloneWarning field, but CloneWarning is not referenced anywhere under backend/.",
+  validation="Closure of the duplicate-row half executed on 22 November (TestRecheckPasskeySaveReplacesByCredentialID); the clone-warning half was traced in source and in go-webauthn v0.16.3.",
+  fix="After FinishLogin, read CloneWarning on the returned credential and refuse the login or raise an operator-visible alert.",
+  close="A login whose signature counter does not advance must be refused or must raise an alert an administrator sees.",
+  sources=[["backend/app/primary/webuihandler/passkey.go", 60, 70], ["backend/app/primary/domain/users/users.go", 174, 188]]),
+
+"OD-13": dict(
+  recheck="Still open and larger: 20 advisories on 22 November against 14 in September, with a byte-identical lockfile. The new entries are fresh advisories against the same pinned packages.",
+  impact="Twenty advisories (9 high, 10 moderate, 1 low) are reported, all reached through vite, postcss, nanoid, source-map-js and yaml. None ships in the bundle served to browsers; the exposure is a developer running the dev server. pnpm audit --prod reports the same set because the tailwind vite plugin sits in dependencies.",
+  evidence="pnpm-lock.yaml is unchanged since 13 August. vite is pinned at 7.1.7 in devDependencies; tailwindcss and @tailwindcss/vite are in dependencies. The runtime dependency set is codemirror, lezer, bip39, vanjs and vanjs-feather, none of which carries an advisory.",
+  validation="pnpm audit and pnpm audit --prod were rerun read-only on 22 November; the inventory is preserved in the evidence directory.",
+  fix="Bump vite to the current 7.x, which pulls fixed postcss and nanoid, and move tailwindcss and @tailwindcss/vite to devDependencies so the production audit is meaningful.",
+  sources=[["frontend/package.json", 17, 37]]),
+
+"RR-01": dict(
+  title="Workload containers have no CPU, memory or pids limits, and the /dev/shm override has no upper bound",
+  recheck="Still open. The runner was reworked for the new data model and the workload spec still never sets Resources; the deployment contract has no resource fields.",
+  evidence="The workload ContainerSpec sets ID, image, user, env, args, cwd, dev-shm size, file-descriptor limit, mounts, log fields and netns, and never populates Resources, so the OCI memory, CPU and pids options are skipped. dev_shm_size_kb is an optional value with a lower bound of 1 and no upper bound; unset, the runtime default of 64 MiB applies. OOM detection is wired to builds only.",
+  validation="Read at ef1f3508. The resource wiring added for builds applies only when Resources is non-nil.",
+  sources=[["backend/lib/engine/runner/container.go", 550, 568], ["backend/lib/engine/ctrd/client.go", 323, 334], ["backend/app/primary/domain/deployments/validate.go", 769, 777]]),
+
+"RR-02": dict(
+  recheck="Still open; the containerd client code is unchanged since 16 September.",
+  validation="Read at ef1f3508. CAP_NET_RAW was confirmed in the default capability list of the pinned containerd v2.3.5 module, not on a running container.",
+  sources=[["backend/lib/engine/ctrd/client.go", 335, 337], ["backend/lib/engine/runner/container.go", 550, 568], ["backend/lib/engine/ctrd/client.go", 302, 304]]),
+
+"RR-03": dict(
+  recheck="Still open. An existing test (TestDeploymentHostAccessDefaultsAndManagedVolumes) asserts the behaviour: a read-write cross mount succeeds without any host permission.",
+  validation="Read at ef1f3508. The exempted space is the global space (1); the system space is 0. The other refusals in the same function act as existence, node and volume oracles by deployment id.",
+  sources=[["backend/app/primary/domain/deployments/validate.go", 899, 923], ["backend/app/primary/webuihandler/deployments.go", 99, 111], ["backend/lib/engine/runner/container.go", 1500, 1506]]),
+
+"RR-04": dict(
+  recheck="Still open. The permission gate was ported and holds; the isolation gap is identical.",
+  evidence="The gate is enforced on create, on update against both the saved and the proposed spec, and on space moves, and agent rules exclude the verb. The input chain matches only the build interface set and its policy is accept; host-mode containers have no veth to match on. The containerd client sets no capability option, so containerd's default set applies.",
+  validation="Gate tests pass at ef1f3508. Policy behaviour was traced in source; no Linux enforcement test was run.",
+  sources=[["backend/app/primary/webuihandler/deployments.go", 99, 121], ["backend/lib/network/filter.go", 141, 155]]),
+
+"RR-05": dict(
+  recheck="Still open. The ingress plan was rewritten around per-node, per-port selector sets and forward handling is equivalent: only a forward against an ingress claim is rejected.",
+  evidence="validatePortForwarding checks protocol, range and duplicates within one spec. Reservations and the TCP port map are consulted only inside the ingress-claim loop; the map records the first TCP owner without a diagnostic and UDP forwards are dropped from the plan input. HostPortRule for a forward carries no Dest, so the DNAT rule falls back to fib daddr type local in both prerouting and output.",
+  validation="Read at ef1f3508; no VM test was run. The only test, TestTCPPortForwardConflictsWithIngress, covers forward against ingress.",
+  sources=[["backend/app/primary/domain/deployments/validate.go", 171, 196], ["backend/lib/ingressplan/ingressplan.go", 255, 270], ["backend/lib/engine/runner/container.go", 1366, 1388]]),
+
+"RR-06": dict(
+  recheck="Still open; the netproxy diff since 16 September is type-level only.",
+  validation="Read at ef1f3508. No fuzzing of encoded or dot-segment paths was run.",
+  sources=[["backend/app/netproxy/https.go", 73, 80], ["backend/app/netproxy/https.go", 172, 188], ["backend/app/netproxy/https.go", 230, 246]]),
+
+"RR-07": dict(
+  recheck="Still open, with a narrower prerequisite. The publisher that distributed every key to every node was replaced on 8 October; maps are now scoped per node. The render-time checks that the old publisher had were removed and no write-time uniqueness check replaced them.",
+  impact="Nothing compares a node's reported WireGuard public key or underlay address with other nodes'. An enrolled node can report another node's key; both are published as distinct peers to every node whose map holds both, and the kernel keys peers by public key, so the later configuration overwrites the earlier one and the victim's routes collapse onto the impostor.",
+  trigger="A member node, via its own report. It needs the victim's public key, which it receives only when the victim hosts a placement in one of the spaces its own map covers.",
+  evidence="NormalizeNodeUnderlay checks parse, zone and address family only. ReportNode writes the reported underlay and key onto the node row with no comparison to other nodes, and the node table has no uniqueness constraint on either column. The node publisher copies the reported key into each projection unchecked.",
+  validation="Source traced end to end at ef1f3508; the peer-collapse step rests on WireGuard's documented per-key peer identity and was not executed in the VM harness.",
+  sources=[["backend/app/primary/domain/nodes/nodes.go", 186, 203], ["backend/app/primary/domain/nodes/nodes.go", 204, 225], ["backend/app/primary/nodepublisher/render.go", 72, 79]]),
+
+"RR-08": dict(
+  recheck="Still open. The handlers and contract were rewritten with the same behaviour; existing tests pin the single pending slot.",
+  impact="Anyone who can reach the web listener can open the single pending agent-session slot for any user by sequential id, and the request it plants looks identical to a legitimate one except for a code the API never verifies. Approving it hands the attacker a delegated token that acts as the approver within the delegable rules. The slot can also be kept occupied to block the real agent.",
+  trigger="Network reachability and a guessable user id (ids are dense from 1, and an unknown id answers with a distinct 404). For token theft, an operator approving without comparing the code.",
+  evidence="AgentSessionApproveRequest carries only session_id and the handler never reads ApprovalCode; the frontend renders the code read-only. request-start is NO_AUTH, keyed by user_id, and returns 409 while a pending request younger than ten minutes exists. The limiter allows a burst of three and then one request per twenty seconds per address; one request per ten minutes is enough to hold a user's slot.",
+  validation="Read at ef1f3508. The earlier wording of the rate limit (3 per 10 minutes) was wrong and is corrected here; auth.md repeats the error.",
+  sources=[["backend/app/primary/webuihandler/agent_sessions.go", 241, 262], ["backend/app/primary/webuihandler/agent_sessions.go", 116, 137], ["api-contract/model_sessions_operations.proto", 59, 61]]),
+
+"RR-09": dict(
+  recheck="Still open; nothing reissues the leaf. A fix should keep the key, because the enrollment pin is derived from this certificate.",
+  validation="Traced in source at ef1f3508. No test advances the clock.",
+  sources=[["backend/util/certu/sign.go", 126, 136], ["backend/app/primary/domain/pki/material.go", 138, 154]]),
+
+"RR-10": dict(
+  recheck="Still open; both closure conditions fail. One new control exists on the unreleased branch: changing or clearing an existing account password requires the current one. Setting a first password and deleting a passkey do not.",
+  impact="Any live human session token can add a passkey to the account and overwrite the master password without a fresh assertion or the old password. The master password no longer signs anyone in, but it opens a root session that can create users with any grants and open a session for any user, so the consequence is unchanged. The token is stored in localStorage and echoed back by the current-session endpoint.",
+  evidence="Passkey register endpoints require only requireHuman. PostV1AuthMasterPasswordSave requires human plus cluster update and never calls verifyMasterPassword; the separate verify endpoint is not bound to the save. login.js persists the token under authSession. Sessions are now server-side rows the owner can list and revoke, but revoking a session does not remove a passkey added through it, and signing out clears local storage without revoking the session.",
+  validation="Read at ef1f3508. RR-31 covers the password-change route, which also acts as an unthrottled oracle for the current password.",
+  sources=[["backend/app/primary/webuihandler/auth.go", 69, 98], ["backend/app/primary/webuihandler/passkey.go", 180, 204], ["frontend/src/state/login.js", 104, 115]]),
+
+"RR-11": dict(
+  recheck="Still open. Claim resolution was rewritten and still has no notion of space. One addition: the bundle is an ordinary global-space secret whose name is not reserved.",
+  evidence="acmeHostnames sweeps every deployment's HTTPS routes with no space filter. The bundle is stored as the global-space secret acme.cert.<hostname>; that name is not reserved, so a deployment in any space can also bind it as an ordinary secret. addIngressCertRefs grants the secret to a node by hostname match on its scheduled routes. resolveClaim compares hostname, kind and prefix on the same node and port with intersecting listen sets and has no space field, so another node or another prefix never conflicts.",
+  validation="Read at ef1f3508; the key-delivery path was traced across the functions and not exercised end to end.",
+  sources=[["backend/app/primary/domain/acmeissue/acmeissue.go", 105, 126], ["backend/app/primary/clusterhandler/handler.go", 232, 250], ["backend/lib/ingressplan/ingressplan.go", 344, 361]]),
+
+"RR-12": dict(
+  recheck="Still open; backend/lib/repo has an empty diff since 16 September.",
+  validation="Read at ef1f3508.",
+  sources=[["backend/lib/repo/git/gitmanager.go", 67, 90], ["backend/app/primary/webuihandler/repo_validate.go", 60, 70]]),
+
+"RR-14": dict(
+  recheck="Still open. The data-model rewrite widened what is plaintext, and a change to how secrets are sealed removed one thing that used to be authenticated.",
+  impact="Restore validates that the secrets store unlocks with the recovery code, that cluster TLS material decrypts and that the Web TLS bundle parses. Encrypted rows are authenticated individually, but users with their password hashes, grants, rule templates, the system config holding the master-password hash, every deployment spec, and the write log and tables themselves are plaintext. Anyone with bucket write access can add an admin or a hostile deployment to a genuine backup and it restores cleanly with the real CA.",
+  evidence="Restore is stock litestream followed by unlockRestoredSecrets and primarybootstrap.Validate; no checksum, signature or manifest is checked, and nothing reconciles the tables against the write log at restore or start. Secret seals now bind the secret id only: the associated data no longer carries the system class or name, so relabelling a row's space or name is not detected. A system secret relabelled into the global space becomes revealable, and a known plaintext relabelled as the cluster CA would be loaded at the next start.",
+  validation="No verification code exists in backup/ or installer/restore.go; the tamper paths are inferred from that absence, the schema and the seal's associated data, not executed.",
+  fix="Sign or HMAC the backup manifest with a key derived from the recovery code, verify it before unlock, print the restored admin list and deployment count for operator confirmation, and put the secret's class and system name back into the seal's associated data.",
+  sources=[["backend/app/installer/restore.go", 99, 116], ["backend/app/primary/backup/process.go", 161, 182], ["backend/app/primary/domain/secrets/secrets.go", 673, 678]]),
+
+"RR-15": dict(
+  recheck="Still open in both halves. Rotation now appends deployment mutations to the same commit instead of inserting events, with the same reach; existing tests assert the cluster-wide rewrite.",
+  evidence="Rotation lists every active deployment with no space or visibility filter and appends a deployment mutation per match in the same commit, authored as the caller and bypassing the deployment handlers and their host-access gate. RefDetails renders every referencing deployment's space, node and name into the client-visible message, and panics on a query error inside the write transaction.",
+  validation="Read at ef1f3508. Count mismatches surface only as a fixed 409, and an expected_seq of 0 skips the staleness check.",
+  sources=[["backend/app/primary/domain/values/references.go", 92, 105], ["backend/app/primary/domain/values/references.go", 60, 69], ["backend/app/primary/domain/deployments/refs.go", 131, 161]]),
+
+"RR-16": dict(
+  recheck="Still open. The installer repeats the same modes.",
+  validation="Read at ef1f3508; the unconditional chmod is in the goutil helper the roots are created with.",
+  sources=[["backend/ainit/ainit.go", 68, 85], ["backend/lib/engine/runner/container.go", 1124, 1135]]),
+
+"RR-17": dict(
+  recheck="Still open.",
+  validation="Read at ef1f3508.",
+  sources=[["backend/app/installer/installer.go", 107, 113]]),
+
+"RR-18": dict(
+  recheck="Still open for reveals. One statement from September no longer holds: settings changes and user creation now carry an author in the write log.",
+  impact="Reveal authorises, decrypts and returns with no log line and no row. Writes are recorded in the write log with an author, but reads leave no trace, so a compromised session can drain a space's secrets undetected. The mux exposes an Audit callback that nothing wires up or calls.",
+  evidence="PostV1SecretsReveal and RevealByRef contain no logging. MuxConfig.Audit is declared, never set in run.go and never invoked by the generated mux, and the mux writes no access log. Writes made from a root session are recorded as author 0, so they cannot be attributed to a particular root session.",
+  validation="Read at ef1f3508.",
+  sources=[["backend/app/primary/webuihandler/secrets.go", 274, 290], ["backend/apigen/mux.gen.go", 20, 24]]),
+
+"RR-19": dict(
+  recheck="Still open; the maintenance, free-space and writer code the finding rests on is untouched.",
+  validation="Read at ef1f3508. Whether the agent stays up on a full volume was not traced through the collector and commit paths.",
+  sources=[["backend/lib/log/logmanager/maintenance.go", 17, 24], ["backend/lib/log/logmanager/maintenance.go", 109, 112], ["backend/lib/log/v2/writer.go", 38, 54]]),
+
+"RR-20": dict(
+  recheck="Still open. The DNS catalog now comes only from the published map, which emits one entry per deployment under the lossy label.",
+  validation="Traced in source at ef1f3508; not exercised.",
+  sources=[["backend/lib/network/names.go", 10, 31], ["backend/app/primary/domain/deployments/validate_layers.go", 154, 164], ["backend/app/netproxy/netstate.go", 189, 215]]),
+
+"RR-21": dict(
+  title="Operator-authored wildcard rules silently gained the host verbs",
+  recheck="Still open and still conditional. auth.md states that no custom-rule migration accompanies the host permissions. RR-27 is the same shape for a newer verb.",
+  impact="An all-verbs-excluding selector matches any verb not on its list, and start-up rewrites only the two built-in templates. Any template, direct-rule grant or allow-mode global rule an operator wrote before the change with such a selector now grants use_host_mounts and use_host_network to its holders without anyone having decided that.",
+  evidence="verbMatches returns true for an all_verbs_excluding selector unless the verb is listed; authz.Open upserts only the built-in templates (ids 1 and 2). No migration at any point added the host verbs to stored exclusion lists.",
+  validation="Inference from the evaluator and the start-up code at ef1f3508; no live cluster was inspected.",
+  fix="Add the two verbs to the exclusion list of every persisted all-verbs-excluding selector, and require new dangerous verbs to be opted into explicitly rather than matched by wildcard.",
+  sources=[["backend/app/primary/domain/authz/evaluate.go", 50, 58], ["backend/app/primary/domain/authz/authz.go", 69, 81]]),
+
+"RR-22": dict(
+  recheck="Still open; the filter rules are unchanged. Non-cluster ULA space is likewise not denied on IPv6.",
+  validation="Read at ef1f3508; not checked on a Linux node.",
+  sources=[["backend/lib/network/filter.go", 37, 42], ["backend/lib/network/filter.go", 157, 194]]),
+
+"RR-23": dict(
+  title="Unauthenticated enrollment creates permanent node rows, throttled only per source address",
+  recheck="Still open, with a correction: the September text said there was no rate limit. A per-address limiter (one hello per five seconds, burst five) has been on the enrollment listener since July. Rows are still permanent, and each hello now also appends commits to a write log that is never compacted.",
+  impact="A first hello inserts a node row and ending the request only flips its status; nothing deletes it. The enrollment listener has no client authentication, no cap on pending requests and no global limit, so anyone reaching :9444 from many addresses can mint keys and grow the node table and the write log without bound. The CSR requirement adds one keygen per row.",
+  evidence="UpsertEnrollmentRequest creates a node on first sight; EndEnrollmentRequest sets ENROLLMENT_CANCELLED or EXPIRED and keeps the row. The only limit is PerIP at 0.2 requests per second with a burst of 5, keyed on the exact source address.",
+  validation="Traced in source at ef1f3508.",
+  fix="Cap the number of pending enrollments, add a global hello budget, key the limiter on a /64 for IPv6, and garbage-collect cancelled and expired rows after a grace period.",
+  sources=[["backend/app/primary/domain/nodes/enrollment.go", 49, 63], ["backend/app/primary/domain/nodes/enrollment.go", 171, 193], ["backend/app/primary/run.go", 120, 122]]),
+
+"RR-24": dict(
+  recheck="Still open; lifetimes and the absence of any revocation list are unchanged.",
+  validation="Traced in source at ef1f3508.",
+  sources=[["backend/util/certu/sign.go", 55, 58], ["backend/lib/issuedtls/issuedtls.go", 10, 10]]),
+
+"RR-25": dict(
+  recheck="Still open. Delete and move protection were moved onto the shared collectors, with a comment noting the env-only scan missed ingress certificate secrets; rotation was not moved over. The rotation dialog's reference count has the same blind spot.",
+  validation="Traced in source at ef1f3508.",
+  sources=[["backend/app/primary/domain/values/references.go", 130, 156], ["backend/lib/engine/prepare/runtimeinputs/secrets.go", 252, 260]]),
+
+"RR-26": dict(
+  recheck="Still open; the package is unchanged and has no tests.",
+  evidence="tarPath applies the flake-supplied regex rewrite to the destination and splitPath cleans the result and splits on slashes. Cleaning collapses dot segments inside an absolute path, but a rewrite that yields a relative path with leading .. survives and is emitted as entry names. Validation requires only that the source is a store path and that the regexes compile.",
+  validation="Inference from reading tar.go at ef1f3508; no malicious layer was built.",
+  sources=[["backend/lib/engine/prepare/nix2container/tar.go", 75, 104]]),
+}
+
+RECHECK_NEW = [
+f(id="RR-27", origin="recheck", severity="High", area="Authorization / enrolment", status="Reproduced against HEAD; conditional",
+  title="user:update alone issues a sign-in link for any account, including a cluster admin",
+  cwe="CWE-269 / CWE-863",
+  impact="The route that issues enrol and recovery links checks only update on the user type in the system space, and never the target. A holder of that one verb can issue a link for a cluster administrator, redeem it on the unauthenticated redeem route and hold a full session as that administrator. auth.md documents the requirement as create on both user and access, and the rule explainer in the Users page shows the user type as view-only, so an administrator granting the verb is told it conveys nothing.",
+  trigger="A human session whose grants cover update on user in space 0 without access management, for example a custom rule of all verbs on everything except access. Among the built-in roles only cluster_admin holds it, so an install that uses only the built-ins is not exposed. Applies to the unreleased bckup-1 branch; the route does not exist in v0.0.617.",
+  evidence="PostV1UsersLink calls requireEnrolAccess with update on user only, while the sibling create route requires create on user and on access. The check runs with entity id 0, so a selector that excludes a specific user still matches. Redemption opens a full session for the link's target.",
+  validation="Reproduced on 22 November (TestRecheckUserUpdateMintsSignInLinkForAnAdmin): a user holding only user:update is refused access:create, issues a link for the admin, redeems it, and the resulting session passes the access:create check. Whether any live cluster holds such a grant was not inspected.",
+  fix="Gate link issuance as documented (create on user and on access), or check the verb against the target user and refuse targets that hold access-managing grants. Bring the explainer tables and auth.md into line with what the handlers check, and treat user:create and user:update as verbs that existing wildcard rules must opt into (see RR-21).",
+  close="A caller without access:create must be refused a link for any user, and the handler, auth.md and the explainer must agree on the verbs the user type carries.",
+  sources=[["backend/app/primary/webuihandler/enrol.go", 118, 143], ["backend/app/primary/webuihandler/enrol.go", 39, 57], ["backend/app/primary/domain/authz/evaluate.go", 80, 88]]),
+
+f(id="RR-28", origin="recheck", severity="High", area="Dependencies / availability", status="Scanner and release binary verified",
+  title="The release toolchain and HTTP modules carry denial-of-service advisories reachable on the public listeners",
+  cwe="CWE-1395 / CWE-400",
+  impact="The published v0.0.617 binary is built with Go 1.27.1 and golang.org/x/net v0.55.0. Advisories fixed in Go 1.27.2 to 1.27.4 and x/net v0.60.0 let an unauthenticated client exhaust memory through HTTP/2 Trailer headers, crash an HTTP/2 server through an HPACK encoder race, and burn CPU with repeated window updates. The affected servers are the Web UI, the cluster listener and the netproxy ingress that fronts every tenant's HTTPS traffic. The bundled containerd daemon and client library are 2.3.5, one advisory behind (image-pull amplification through a crafted OCI index, fixed in 2.3.6), which a deployer can trigger by pointing a deployment at a registry they control.",
+  trigger="Network reachability of :443 on the primary or of any ingress listener. For the containerd advisory, create or update permission on a deployment.",
+  evidence="go.mod declares go 1.27.0 with no toolchain line and the release workflow asks setup-go for 1.27, so the patch level is whatever was current on the build day; go version on the downloaded v0.0.617 linux/amd64 asset reports go1.27.1. govulncheck reports 22 advisories with symbol-level traces on both targets, up from 3 in September, with traces into the netproxy HTTPS server, the generated mux and the cluster server. OD-10 compounds this: none of the listeners sets a header or handshake deadline.",
+  validation="govulncheck v1.8.0 run on 22 November against the 11 November database for host and Linux/amd64 with Go 1.27.0; the release asset's embedded toolchain and module versions read with go version -m. No exploit was run; the ECH, CONNECT and MaxBytesReader advisories have preconditions that were not established for OpenDeploy's handlers.",
+  fix="Pin the release toolchain to the latest 1.27 patch with a toolchain line in go.mod, bump golang.org/x/net, containerd/v2 with the bundled daemon and runc, grpc, x/text, klauspost/compress, brotli and moby/sys/user, and add govulncheck to the release workflow so a reachable advisory fails the build.",
+  close="govulncheck must report no symbol-level advisory for either target, and the release binary's go version must be the current patch release.",
+  sources=[["backend/go.mod", 1, 4], [".github/workflows/build.yml", 50, 53], ["backend/lib/runtimebin/runtimebin.go", 44, 64]],
+  refs=[["GO-2026-6603", "https://pkg.go.dev/vuln/GO-2026-6603"], ["GO-2026-6617", "https://pkg.go.dev/vuln/GO-2026-6617"], ["GO-2026-6611", "https://pkg.go.dev/vuln/GO-2026-6611"], ["GO-2026-6597", "https://pkg.go.dev/vuln/GO-2026-6597"]]),
+
+f(id="RR-29", origin="recheck", severity="Medium", area="Cluster protocol / availability", status="Reproduced against HEAD",
+  title="One status report with an epoch timestamp from a worker makes the opening snapshot unencodable",
+  cwe="CWE-20 / CWE-754",
+  impact="A worker's status report is validated only for the presence of updated_at. A report whose timestamp is the Unix epoch is stored as clock 0, and 0 reads back as absent, so every later opening snapshot contains a status without its required field and fails to encode. Every user who can see that instance, which includes every administrator, loses the event stream and with it the Web UI, until the row is repaired outside the UI. Workloads keep running.",
+  trigger="Root on one enrolled worker, and a scheduled instance on that node that has no status yet, which every new deployment version placed there provides. Present in v0.0.617.",
+  evidence="DecodeTimestamp of an empty submessage yields a present time at the epoch. handleStatusWrite checks only that the instance belongs to the calling node. The clock is stored as UnixNano and nanosToClock maps 0 to not present, so the row read back for the snapshot fails the generated required-field check and EncodeChecked ends the stream; the non-stream route answers 500 the same way. An instance that already has a positive clock cannot be poisoned, and evicting the node writes a newer row.",
+  validation="Reproduced on 22 November (TestRecheckEpochStatusClockBreaksTheOpeningSnapshot): the snapshot encodes before the report, the report passes request validation and commits, and the next opening snapshot fails with \"scheduled_instance_status.updated_at: is required\". The effect on the frontend was not run in a browser.",
+  fix="Reject node-reported clocks that are zero, negative or far in the future in handleStatusWrite, store presence separately from the clock value, and make the snapshot drop and log an entity that fails validation instead of failing as a whole.",
+  close="A status write with an epoch updated_at must be refused, and a test must show the opening snapshot still encodes afterwards.",
+  sources=[["backend/app/primary/clusterhandler/session.go", 284, 293], ["backend/storage/primarydb/pq/clock.go", 9, 21], ["backend/app/primary/domain/scheduledinstances/status.go", 83, 96]]),
+
+f(id="RR-30", origin="recheck", severity="Medium", area="Cluster protocol / availability", status="Source verified",
+  title="A worker can grow the primary's write log without bound, and worker-driven writes panic the primary on a commit error",
+  cwe="CWE-770 / CWE-248",
+  impact="Every status report with a clock no older than the last one, and every hello, is one commit appended to a write log that is never compacted, fanned out to the publisher and every open browser stream. The status and hello strings have no length rules, so a single message can be close to the 16 MB frame limit. A worker that loops them fills the primary's disk, and its backups. The helpers on this path panic on any commit error from a goroutine with no recover, so the first failed commit takes the whole primary down, and it cannot restart cleanly while the disk is full.",
+  trigger="Root on one enrolled worker. Present in v0.0.617.",
+  evidence="handleStatusWrite and handleClusterHello commit on every frame with no deduplication, rate limit or size limit beyond MaxRequestBodySize. WriteReplicatedStatus, ReportNode and UpdateNodeObservedMeta panic on a commit error, and the session reads frames on a bare goroutine. No statement deletes from write_event_mutations.",
+  validation="Traced in source at ef1f3508. No input was found that makes a commit fail deterministically, so the crash is tied to disk-full or busy conditions; nothing was executed.",
+  fix="Add length rules to the status and hello strings in the contract, drop a status that equals the stored row apart from its clock, rate-limit frames per session, and return or recover commit errors on worker-driven paths so only that session closes. Longer term, compact observed-status history.",
+  close="Oversized or high-rate status and hello frames from one session must be rejected or coalesced, and a commit error while handling a worker frame must close only that session.",
+  sources=[["backend/app/primary/clusterhandler/session.go", 222, 254], ["backend/app/primary/domain/scheduledinstances/status.go", 70, 80], ["backend/app/primary/clusterhandler/session.go", 124, 133]]),
+
+f(id="RR-31", origin="recheck", severity="Medium", area="Authentication / availability", status="Source verified",
+  title="Password change verifies Argon2 inside the global write lock, outside the credential rate limits",
+  cwe="CWE-667 / CWE-307",
+  impact="The self-service password route verifies the current password inside the commit callback, so each attempt holds the store's write mutex and an open transaction for one 64 MiB Argon2 computation. The route is not under the credential limiter, only the general 40 requests per second per address. Any signed-in user, with no grants at all, can queue attempts faster than they are served and stall every other write: sign-ins, deployment changes, node status reports and stream openings. The same route answers a wrong current password with a distinct error, so a stolen session token can test passwords for the account far faster than the login route allows.",
+  trigger="Any human session on an account that has a password; a user can set one first. Applies to the unreleased bckup-1 branch; the route does not exist in v0.0.617.",
+  evidence="PostV1AccountPassword calls authu.VerifyPassword inside the function passed to users.Update, which runs as the mutate step of state.Commit with the mutex held. Opening a stream snapshot takes the same mutex. The prefix limiters in run.go cover /v1/auth routes only.",
+  validation="Lock scope, limiter coverage and the distinct error were read at ef1f3508. Hash duration and the resulting queue growth were not measured, so the availability effect is unquantified.",
+  fix="Verify the current password before Commit, then re-read the stored hash inside the commit and abort if it changed. Put /v1/account/password under the same limiter as password login, and under the semaphore OD-09 recommends.",
+  close="A burst of wrong-current requests must not delay an unrelated commit, and must be throttled like login attempts.",
+  sources=[["backend/app/primary/webuihandler/account.go", 79, 96], ["backend/storage/primarydb/state/commit.go", 20, 34], ["backend/app/primary/run.go", 129, 139]]),
+
+f(id="RR-32", origin="recheck", severity="Medium", area="Sessions", status="Source verified",
+  title="An open event stream outlives its session's revocation and expiry, including the ten-minute root session",
+  cwe="CWE-613",
+  impact="A session is validated once, when the stream request arrives. Revoking the session, or letting it expire, stops new requests with that token, but a stream that is already open keeps delivering every commit the user's grants allow: deployment specs, config values, secret metadata, nodes and grants. For a root session the stream keeps delivering the user roster and every grant past the ten minutes that are meant to bound it. The stream ends only when the client disconnects or the primary restarts, and the listeners set no write or idle timeout (OD-10).",
+  trigger="A token that was valid when the stream was opened: a stolen user or agent token, or a root session someone left open.",
+  evidence="VerifyAuth resolves the session at request start and records its expiry on the context, but the stream loop selects only on client disconnect, updates, side channels and a five-second heartbeat. Grant changes do reset the stream; the session row is never re-checked and no timer is armed at the expiry.",
+  validation="Read at ef1f3508; the same loop is in v0.0.617 for agent sessions. Not executed.",
+  fix="Arm a timer at the session's expiry, and close the stream when a mutation revokes the connection's own user or agent session.",
+  close="Revoking a session must close its open streams within one commit, and no stream may outlive its session's expiry.",
+  sources=[["backend/app/primary/webuihandler/state_stream.go", 149, 172], ["backend/app/primary/webuihandler/auth.go", 161, 177]]),
+
+f(id="RR-33", origin="recheck", severity="Medium", area="Assets / integrity", status="Source verified",
+  title="Asset content is served and installed without checking it against the recorded sha256",
+  cwe="CWE-345 / CWE-494",
+  impact="Since asset content moved out of the database, the primary streams an asset from the large-asset root or from S3 by storage key and the worker writes whatever arrives into its cache. The sha256 recorded in the write log is not checked on either side, and the worker has nothing to check against because the reference carries no digest. Anyone who can overwrite the object in the bucket, or the file on the primary, substitutes the content of files and executables mounted into every deployment that uses the asset, and the substituted copy stays in each worker's cache for that version.",
+  trigger="Write access to the asset bucket (by default the backup bucket) or to the large-asset root on the primary. No database change or restore is needed, which distinguishes this from RR-14.",
+  evidence="OpenAsset opens the local file or the S3 object and returns the database size. GetV1ClusterAsset copies the body to the worker. EnsureAssetsReady trusts an existing cache file by name and otherwise copies the stream to a temporary file and renames it. The reconciler's S3-to-local copy does verify size and sha256, so the check exists but is not on the serving path.",
+  validation="Traced in source at ef1f3508; no tampered object was served. S3 credentials stay on the primary.",
+  fix="Hash while streaming in OpenAsset and fail the transfer on a mismatch, send the sha256 to the worker in the projection or a header and verify before the rename, and verify cached files at least once per agent start.",
+  close="A worker must refuse to install an asset whose bytes do not match the sha256 recorded for that version.",
+  sources=[["backend/app/primary/domain/assets/store.go", 267, 295], ["backend/app/primary/clusterhandler/handler.go", 186, 197], ["backend/lib/engine/prepare/runtimeinputs/assets.go", 36, 52]]),
+
+f(id="RR-34", origin="recheck", severity="Low", area="Cross-space disclosure", status="Source verified",
+  title="Write-time validation discloses other spaces' names and probes their certificate secrets",
+  cwe="CWE-200 / CWE-209",
+  impact="A caller who may create or update a deployment in one space can submit references to value ids in any other space and read the refusal: it names the secret, config or asset and its space. For an ingress certificate reference the validator decrypts the referenced secret before any space check and reports whether it holds a PEM pair, whether it covers a hostname the caller chose, and when it expires. Separately, creating a network policy answers \"redundant\" before either access check, which maps deployment ids to spaces for a caller with no grants at all. The same class as the name leaks in RR-03 and RR-15, through different sinks.",
+  trigger="Create or update on a deployment in any one space, agent sessions included; for the network-policy case, any signed-in session.",
+  evidence="validateCertSecret reveals the secret by reference in the pre-lock validation and returns distinct messages for an unreadable value, a non-PEM value, a hostname mismatch and an expired certificate; system-space secrets are excluded from that path. validateRefSpaces formats the referenced entity's key and space into DisplayErr. validateNetworkPolicyContent compares the two peers' spaces and returns RedundantErr before calling requireEntityAccess.",
+  validation="Messages and call order read at ef1f3508; not executed. The network-policy ordering predates the rewrite.",
+  fix="Check the reference's space before touching the value, return the same message for an entity the caller cannot view as for an unknown id, and run the access checks before the same-space comparison.",
+  close="A reference to an entity the caller cannot view must read the same as an unknown id on every write route.",
+  sources=[["backend/app/primary/domain/deployments/validate.go", 383, 402], ["backend/app/primary/domain/deployments/validate_refs.go", 18, 35], ["backend/app/primary/webuihandler/network_policies.go", 57, 77]]),
+
+f(id="RR-35", origin="recheck", severity="Low", area="Agent sessions", status="Source verified",
+  title="An agent's event stream carries its owner's other agent-session rows, including the pickup secret",
+  cwe="CWE-200",
+  impact="Agent-session rows are filtered by owner only, so a delegated connection receives every agent-session row of the user it acts for. The row carries the session id, which is the secret the unauthenticated pickup route is keyed on. An agent watching the stream can collect the token of the next request its owner approves before the intended agent does, and so hold a fresh six-hour token that survives the revocation of its own session. The authority gained is the same delegated authority it already had, for longer.",
+  trigger="An approved agent token, and the owner approving another agent request while it is connected.",
+  evidence="The visibility rule for agent sessions compares the row's user id with the connection's and has no exclusion for delegated connections. The stream entity includes SessionID, which the handler describes as the pickup secret. Listing agent sessions is human-only and a delegated revoke is limited to its own session, so the stream is the only place an agent sees its siblings.",
+  validation="Read at ef1f3508; the filter predates the rewrite. Not executed.",
+  fix="Hide agent-session and user-session rows from delegated connections, or strip the session id from rows that have not been collected.",
+  close="A delegated stream must carry no session row other than, at most, its own.",
+  sources=[["backend/app/primary/webuihandler/visibility.go", 300, 306], ["backend/storage/primarydb/pq/agent_sessions.go", 44, 50], ["backend/app/primary/webuihandler/agent_sessions.go", 138, 140]]),
+
+f(id="RR-36", origin="recheck", severity="Low", area="Cluster protocol", status="Source verified",
+  title="A node keeps a retired instance's entitlements for as long as it withholds the final status",
+  cwe="CWE-672",
+  impact="A node may fetch secrets, configs, assets, GitHub credentials and issued TLS for every instance of its own that is not finalized, and an instance is finalized only when the node itself reports it stopped. A compromised node that never reports the final status after a deployment is stopped or moved away keeps minting certificates for that deployment's identity and keeps fetching the current GitHub token and renewed ACME bundles for its hostnames, until an administrator evicts the node.",
+  trigger="Root on one enrolled worker that has hosted the deployment.",
+  evidence="finalizeStopped moves an instance from TERMINATE to FINALIZED only when the runner status the node reported is STOPPED or NO_DEPLOYMENT; there is no deadline. The entitlement set is every instance whose state is not FINALIZED. Eviction finalizes the node's instances.",
+  validation="Traced in the scheduler and the cluster handler at ef1f3508. Whether the UI makes a stuck terminating instance obvious was not checked.",
+  fix="Finalize a terminating instance after a deadline whatever the node reports, or key entitlement on the instance being wanted plus a short grace period.",
+  close="An instance in TERMINATE must stop granting cluster-route access within a bounded time.",
+  sources=[["backend/app/primary/scheduler/scheduler.go", 322, 335], ["backend/storage/primarydb/pq/scheduled_instances.go", 199, 201]]),
+
+f(id="RR-37", origin="recheck", severity="Low", area="Authentication / upgrade", status="Source verified",
+  title="An install that had password login off accepts passwords after the upgrade",
+  cwe="CWE-1188",
+  impact="The old setting auth.password_login_enabled is accepted and ignored, and the new auth.require_passkey defaults to off when it is absent from stored settings. An install that ran passkey-only therefore starts accepting per-user password sign-in on the public listener as soon as any account has a password, and any session on a passwordless account can set one without re-authentication (RR-10).",
+  trigger="An upgrade of an install that ran with password login off, followed by a user, or a holder of that user's token, setting a password. Applies to the unreleased bckup-1 branch.",
+  evidence="FillClusterSettingDefaults fills require_passkey with false; nothing maps the old field to the new one. Password login is refused only when require_passkey is on. upgrade_log.md has no entry for the change.",
+  validation="Read at ef1f3508; no upgrade was run.",
+  fix="At the first start after the upgrade, set require_passkey when the stored password_login_enabled was false and at least one passkey exists, or call the change out in the upgrade log.",
+  close="An install that had password login off must still refuse password sign-in after the upgrade until an administrator opts in.",
+  sources=[["backend/apigen/model_ext.go", 426, 435], ["backend/app/primary/webuihandler/password.go", 72, 75]]),
+]
+
+RECHECK_CLOSED = [
+  dict(id="RR-13", prior="Medium", title="Space ids are reused after delete and nothing is cleaned up",
+       how="Closed in v0.0.617 by f22f158 and 87ae82c, confirmed on 22 November. Ids for every entity type now come from a per-type counter that only moves forward and is rebuilt from the never-compacted write log, so deleting the highest space no longer frees its id. DeleteSpace refuses, under the write lock, while the space still has a deployment, secret, config, asset, folder or network policy, or is named by an access grant, a grant template or a global rule, and the refusal says what stands in the way. A closure check deletes the highest space and gets a new id for the next one, and is refused the delete of a space holding a secret or named by a grant (TestRecheckSpaceIDNotReusedAndDeleteRefusedWhileReferenced); the project's own TestSpaceDeleteIsRefusedWhileInUse covers each kind. Not verified: an install that deleted a space before the v0.0.616 conversion, whose conversion code is no longer in the tree.",
+       commit=RECHECK_COMMIT,
+       sources=[["backend/storage/primarydb/pq/materialise.go", 62], ["backend/app/primary/domain/nodes/spaces.go", 162], ["backend/app/primary/domain/nodes/spaces.go", 102], ["backend/app/primary/domain/authz/space_refs.go", 21]]),
+  dict(id="OD-12 (part)", prior="Medium", title="Passkey login updates append duplicate credentials and retain stale state",
+       how="Closed in v0.0.614 by 80b8fbd, confirmed on 22 November. The shared save callback replaces the credential with the same id in place and stamps it as used, so the record no longer grows and the verifier compares against the latest counter. A closure check saves one credential twice through the service callback and finds one row with the second counter (TestRecheckPasskeySaveReplacesByCredentialID). The clone warning is still never acted on; that half stays open as OD-12 at Low.",
+       commit=RECHECK_COMMIT,
+       sources=[["backend/app/primary/domain/users/users.go", 174], ["backend/app/primary/webuihandler/passkey.go", 60]]),
+]
+
+
+def _apply_recheck():
+    by_id = {x["id"]: x for x in FINDINGS}
+    unknown = set(RECHECK_UPDATES) - set(by_id)
+    assert not unknown, unknown
+    for fid, changes in RECHECK_UPDATES.items():
+        by_id[fid].update(changes)
+    FINDINGS[:] = [x for x in FINDINGS if x["id"] not in RECHECK_CLOSED_IDS] + RECHECK_NEW
+    missing = [x["id"] for x in FINDINGS if x["origin"] != "recheck" and not x.get("recheck")]
+    assert not missing, missing
+    CLOSED[:0] = RECHECK_CLOSED
+
+
+# ================================================================ 23 November 2026 fixes
+# RR-27, RR-28 and most of RR-05 were fixed on bckup-1 on 23 November, in
+# commits ca3ff94, 12f2d8c and fa23e93; 73f163c adds the upgrade notes.
+# The commits are not pushed: a source whose commit or fourth element is
+# FIX_COMMIT is read from that commit and linked to the local file. Applied by _apply_fixes() after _apply_recheck().
+FIX_COMMIT = "73f163c6671d498cb7038375bcd8a49db93ffe8b"
+FIX_DATE = "23 November 2026"
+FIX_CLOSED_IDS = {"RR-27"}
+
+FIX_UPDATES = {
+"RR-21": dict(
+  update="RR-27, cited in the note above, was closed on 23 November. The fix for RR-05 adds a third host permission, use_privileged_ports, and a custom rule written as all verbs except a list picks it up the same way. This finding is otherwise unchanged."),
+
+"RR-05": dict(
+  severity="Medium", prior="High", status="Narrowed; fix committed, not released",
+  title="A port forward can still take a port above 1023 that a host service uses",
+  update="Most of this finding was fixed in commit fa23e93, not released; that part is in the closed table as RR-05 (part). What remains is narrower and is described here.",
+  impact="A forward claims its port on every address of the node. The platform now refuses a port another deployment forwards and its own listeners, and requires a cluster-admin permission below 1024, but it cannot know about other services the host runs. A deployer can still forward a port of 1024 or above that such a service uses, for example an sshd moved to 2222, a database or a monitoring agent, and traffic arriving for that port on the node's addresses then goes to the deployer's container. Connections to the service over loopback are no longer affected.",
+  trigger="Create or update permission on a deployment in any space, and a host service listening on a port of 1024 or above on a node the deployment can be placed on.",
+  evidence="The reservation list is built from the cluster settings and the WireGuard port only, and the permission check looks at the port number. A forward's prerouting rule matches fib daddr type local, so it takes precedence over a socket the host has bound on the same port. Nothing lets an administrator name further ports to protect.",
+  validation="Read at commit 73f163c on 23 November. The closed part is covered by unit tests, a closure check, a kernel test run in a Linux container and a passing run of the VM harness; the residual was not executed.",
+  fix="Let an administrator reserve further host ports per cluster or per node, or allow non-admin forwards only inside a configured port range.",
+  close="A deployer without a host permission must not be able to forward a port the administrator has reserved for a host service.",
+  sources=[["backend/app/primary/domain/deployments/ingress_plan.go", 15, 21, FIX_COMMIT], ["backend/app/primary/webuihandler/deployments.go", 132, 153, FIX_COMMIT]]),
+
+"RR-28": dict(
+  status="Fixed in 12f2d8c; not released",
+  update="Fixed in commit 12f2d8c, not released. go.mod now requires Go 1.27.4, so a build uses that patch release or a newer one. golang.org/x/net, x/text, grpc, containerd/v2, klauspost/compress, brotli, moby/sys/user and the S3 client are bumped. The bundled runtime pins move to containerd 2.3.7 and runc 1.5.3, with checksums that match the ones published with each release. The release workflow asks setup-go for the latest patch and runs govulncheck for the target architecture before the build. govulncheck now reports no advisory at symbol or module level for host, Linux/amd64 and Linux/arm64. The finding stays open because v0.0.617 is still the published release, and the second closure criterion needs a release binary. The VM harness passed on 23 November with the nodes running containerd 2.3.7 and runc 1.5.3.",
+  impact="The published v0.0.617 binary is built with Go 1.27.1 and golang.org/x/net v0.55.0. Advisories fixed in Go 1.27.2 to 1.27.4 and x/net v0.60.0 let an unauthenticated client exhaust memory through HTTP/2 Trailer headers, crash an HTTP/2 server through an HPACK encoder race, and burn CPU with repeated window updates. The affected servers are the Web UI, the cluster listener and the netproxy ingress that fronts every tenant's HTTPS traffic. The containerd daemon that release bundles, and its client library, are 2.3.5, one advisory behind (image-pull amplification through a crafted OCI index, fixed in 2.3.6), which a deployer can trigger by pointing a deployment at a registry they control.",
+  evidence="At ef1f3508 go.mod declared go 1.27.0 with no toolchain line and the release workflow asked setup-go for 1.27, so the patch level was whatever was current on the build day; go version on the downloaded v0.0.617 linux/amd64 asset reports go1.27.1. govulncheck reported 22 advisories with symbol-level traces on both targets at that commit, up from 3 in September, with traces into the netproxy HTTPS server, the generated mux and the cluster server. OD-10 compounds this: none of the listeners sets a header or handshake deadline. The excerpts below are commit 73f163c, which carries the fix.",
+  validation="govulncheck v1.8.0 run on 22 November against the 11 November database for host and Linux/amd64 with Go 1.27.0; the release asset's embedded toolchain and module versions read with go version -m. No exploit was run; the ECH, CONNECT and MaxBytesReader advisories have preconditions that were not established for OpenDeploy's handlers. On 23 November the same scanner and database were run on the fix with Go 1.27.4 for host, Linux/amd64 and Linux/arm64 and found nothing, the 58 backend packages passed, and the four runtime checksums were compared with the upstream checksum files. The VM harness passed against the new runtime. The workflow change has not run in CI.",
+  fix="Cut a release from 12f2d8c or later. Tell operators that every node restarts containerd once when it takes that release.",
+  sources=[["backend/go.mod", 1, 3, FIX_COMMIT], [".github/workflows/build.yml", 50, 54, FIX_COMMIT], [".github/workflows/build.yml", 62, 68, FIX_COMMIT], ["backend/lib/runtimebin/runtimebin.go", 44, 69, FIX_COMMIT]]),
+}
+
+FIX_CLOSED = [
+  dict(id="RR-05 (part)", prior="High", title="Port forwards can claim reserved and co-tenant host ports",
+       how="Fixed in commit fa23e93 on 23 November; not released. A save is now refused when another deployment on the node forwards the same protocol and port, with UDP checked for the first time, and when the port belongs to the platform: the Web UI, cluster and enrollment listeners on the primary and the WireGuard port on every node. A forward on a port below 1024, or a TLS passthrough route on one other than 443, needs the new use_privileged_ports permission, which cluster admins hold and space admins and agent sessions do not; it is checked on every update like the other host permissions. A forward's DNAT rules now exclude loopback. A closure check shows a second TCP or UDP forward and a forward on the WireGuard port rejected at write time and a space admin denied port 22 (TestRecheckPortForwardClaimsRejectedAtWriteTime); unit tests cover the evaluator, the handler on every update kind and the settings change. One statement of the finding was wrong: a kernel test on Linux 6.12 shows a forward did not capture loopback traffic, it made the host's own service on that port time out on 127.0.0.1 and ::1; with the exclusion the service answers (TestForwardLeavesHostLoopbackAlone, run in a container). The VM harness passed with the new rules on the forwards it creates. Two forwards that already share a port keep running and neither can be saved until one moves. Still open as RR-05 at Medium: a port of 1024 or above that a host service uses.",
+       commit=FIX_COMMIT,
+       sources=[["backend/lib/ingressplan/ingressplan.go", 239], ["backend/app/primary/domain/deployments/ingress_plan.go", 15], ["backend/app/primary/webuihandler/deployments.go", 122], ["backend/lib/network/nft_linux.go", 578], ["backend/app/primary/webuihandler/port_forward_claims_test.go", 22], ["backend/lib/netaudit/kernel_linux_test.go", 137]]),
+  dict(id="RR-27", prior="High", title="user:update alone issues a sign-in link for any account, including a cluster admin",
+       how="Fixed in commit ca3ff94 on 23 November. The route exists only on the unreleased branch, so no release carried the defect. PostV1UsersLink now requires create on user and on access, the gate user creation already had and the one auth.md documents. The 22 November reproduction no longer passes: the user holding only user:update is refused. A closure check gives a user every verb on the user type and no access management and finds it refused a link for a cluster admin, while an admin can still issue a link that redeems (TestRecheckSignInLinkRefusedWithoutAccessCreate). The project's own TestLinkIssueNeedsAccessCreate covers an admin target and a plain one. The rule explainer now lists create for the user type and says it also needs create on access, and the plan document's endpoint table matches. Two things were left as they are: the check is not target-aware, so issuing links cannot be delegated without access management, and user:update is now checked by no handler.",
+       commit=FIX_COMMIT,
+       sources=[["backend/app/primary/webuihandler/enrol.go", 121], ["backend/app/primary/webuihandler/enrol_test.go", 132], ["frontend/src/lib/authzExplain.js", 186], ["docs/future-work/user-enrolment-and-passwords.md", 157]]),
+]
+
+
+def _apply_fixes():
+    by_id = {x["id"]: x for x in FINDINGS}
+    unknown = (set(FIX_UPDATES) | FIX_CLOSED_IDS) - set(by_id)
+    assert not unknown, unknown
+    for fid, changes in FIX_UPDATES.items():
+        by_id[fid].update(changes)
+    FINDINGS[:] = [x for x in FINDINGS if x["id"] not in FIX_CLOSED_IDS]
+    CLOSED[:0] = FIX_CLOSED
+
+
+_apply_recheck()
+_apply_fixes()

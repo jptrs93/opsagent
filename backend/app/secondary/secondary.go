@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/jptrs93/opsagent/backend/util/certu"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -39,7 +40,6 @@ type runtimeConfig struct {
 	ClusterCertPath    string
 	ClusterKeyPath     string
 	PrimaryClusterAddr string
-	PrimaryName        string // primary certificate DNS/IP SAN for TLS server name verification
 	UnderlayAddress    string // explicit tunnel endpoint; otherwise resolved for every reconnect
 	NodeIdentifier     string
 	NodeID             uint64
@@ -74,7 +74,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	} else {
 		cfg.TLS.GetClientCertificate = certManager.getClientCertificate
 	}
-	primaryHTTPClient := newPrimaryHTTPClient(cfg.TLS, cfg.PrimaryName)
+	primaryHTTPClient := newPrimaryHTTPClient(cfg.TLS, certu.PrimaryServerName)
 	primaryURL := "https://" + cfg.PrimaryClusterAddr
 	if certManager != nil {
 		go runClusterCertRenewal(ctx, certManager, primaryURL, primaryHTTPClient)

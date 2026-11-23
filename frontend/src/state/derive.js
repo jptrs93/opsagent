@@ -82,7 +82,8 @@ export const nodeViewModel = event => ({
     status: event.value.status, enrollmentRequestedAt: event.value.enrollmentRequestedAt,
     draining: event.value.status === 6, evicted: event.value.status === 8, eventTime: event.eventTime || 0,
     addresses: event.value.reported?.underlayAddress ? [formatIpAddress(event.value.reported.underlayAddress)] : [],
-    hostAddresses: (event.value.reported?.hostAddresses || []).map(formatIpAddress), wgPublicKey: event.value.reported?.wgPublicKey || '',
+    hostAddresses: (event.value.reported?.hostAddresses || []).map(formatIpAddress), hostAddressesUnknown: event.value.reported?.hostAddressesUnknown === true,
+    wgPublicKey: event.value.reported?.wgPublicKey || '',
 });
 
 export const authzGrantViewModel = event => ({
@@ -117,7 +118,8 @@ export function publishDerived(tree, changed) {
         enrollmentsS.val = deriveEnrollments(tree);
         machinesS.val = [...nodesS.val, ...sortByName(events.filter(e => e.value.status === 8).map(nodeViewModel))].map(node => {
             const status = node.evicted ? {} : tree.nodeStatuses.get(node.id) || {};
-            return {...node, isPrimary: node.roles.includes(0), connected: status.isConnected === true, connectedAt: status.lastConnectedAt, runtimeVersions: status.runtimeVersions || ''};
+            return {...node, isPrimary: node.roles.includes(0), connected: status.isConnected === true, connectedAt: status.lastConnectedAt,
+                runtimeVersions: status.runtimeVersions || '', opendeployVersion: status.opendeployVersion || ''};
         });
     }
     if (any('users')) usersMapS.val = new Map([...tree.users].map(([id, user]) => [id, {...user, createdAt: Number(user.createdAt || 0)}]));

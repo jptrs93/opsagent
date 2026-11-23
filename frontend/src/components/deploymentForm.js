@@ -781,7 +781,7 @@ function portForwardingSection(form) {
             {class: "flex items-center justify-between gap-3"},
             div(
                 span({class: "text-xs text-gray-300"}, "Port forwarding"),
-                p({class: "text-[11px] leading-tight text-gray-500 mt-0.5"}, "Publish a host TCP or UDP port to a port inside this virtual container."),
+                p({class: "text-[11px] leading-tight text-gray-500 mt-0.5"}, "Publish a host TCP or UDP port to a port inside this virtual container. A host port below 1024 requires use_privileged_ports, including on version changes and start/stop. A port another deployment on the node forwards, or one the platform listens on, is refused."),
             ),
             button({
                 type: "button",

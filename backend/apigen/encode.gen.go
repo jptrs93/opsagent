@@ -13523,12 +13523,41 @@ func (m *User) EncodeChecked() ([]byte, error) {
 func (m *User) encodeUnchecked() []byte {
 	var b []byte
 	b = AppendUint64Field(b, m.ID, 1)
-	b = AppendStringField(b, m.Name, 2)
+	{
+		if m.Name.Present {
+			v := m.Name.Value
+			value := &v
+			b = AppendStringFieldOpt(b, value, 2)
+		}
+	}
 	{
 		value := &m.Authentication
 		if value != nil {
 			b = AppendTag(b, 3, BytesType)
 			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		if m.Email.Present {
+			v := m.Email.Value
+			value := &v
+			b = AppendStringFieldOpt(b, value, 4)
+		}
+	}
+	{
+		if m.PasswordHash.Present {
+			v := m.PasswordHash.Value
+			value := &v
+			b = AppendStringFieldOpt(b, value, 5)
+		}
+	}
+	{
+		if m.ActivatedAt.Present {
+			v := m.ActivatedAt.Value
+			value := &v
+			if value != nil {
+				b = AppendInt64FromTimeElem(b, *value, 6)
+			}
 		}
 	}
 	return append(b, m.unknownFields...)
@@ -13558,7 +13587,15 @@ func mergeUser(b []byte, m *User) (*User, error) {
 		case 1:
 			b, m.ID, err = ConsumeVarUint64(b, typ)
 		case 2:
-			b, m.Name, err = ConsumeString(b, typ)
+			var value *string
+			if m.Name.Present {
+				v := m.Name.Value
+				value = &v
+			}
+			b, value, err = ConsumeStringOpt(b, typ)
+			if err == nil {
+				m.Name = Maybe[string]{Value: *value, Present: true}
+			}
 		case 3:
 			var value *UserAuthentication
 			value = &m.Authentication
@@ -13572,6 +13609,36 @@ func mergeUser(b []byte, m *User) (*User, error) {
 			}
 			if err == nil {
 				m.Authentication = *value
+			}
+		case 4:
+			var value *string
+			if m.Email.Present {
+				v := m.Email.Value
+				value = &v
+			}
+			b, value, err = ConsumeStringOpt(b, typ)
+			if err == nil {
+				m.Email = Maybe[string]{Value: *value, Present: true}
+			}
+		case 5:
+			var value *string
+			if m.PasswordHash.Present {
+				v := m.PasswordHash.Value
+				value = &v
+			}
+			b, value, err = ConsumeStringOpt(b, typ)
+			if err == nil {
+				m.PasswordHash = Maybe[string]{Value: *value, Present: true}
+			}
+		case 6:
+			var value *time.Time
+			if m.ActivatedAt.Present {
+				v := m.ActivatedAt.Value
+				value = &v
+			}
+			b, value, err = ConsumeTimeFromInt64Opt(b, typ)
+			if err == nil {
+				m.ActivatedAt = Maybe[time.Time]{Value: *value, Present: true}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -13683,6 +13750,17 @@ func (m *WebAuthnCredential) encodeUnchecked() []byte {
 	var b []byte
 	b = AppendBytesField(b, m.ID, 1)
 	b = AppendBytesField(b, m.Data, 2)
+	b = AppendStringField(b, m.Label, 3)
+	b = AppendInt64FromTime(b, m.CreatedAt, 4)
+	{
+		if m.LastUsedAt.Present {
+			v := m.LastUsedAt.Value
+			value := &v
+			if value != nil {
+				b = AppendInt64FromTimeElem(b, *value, 5)
+			}
+		}
+	}
 	return append(b, m.unknownFields...)
 }
 
@@ -13710,6 +13788,20 @@ func mergeWebAuthnCredential(b []byte, m *WebAuthnCredential) (*WebAuthnCredenti
 			b, m.ID, err = ConsumeBytesCopy(b, typ)
 		case 2:
 			b, m.Data, err = ConsumeBytesCopy(b, typ)
+		case 3:
+			b, m.Label, err = ConsumeString(b, typ)
+		case 4:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 5:
+			var value *time.Time
+			if m.LastUsedAt.Present {
+				v := m.LastUsedAt.Value
+				value = &v
+			}
+			b, value, err = ConsumeTimeFromInt64Opt(b, typ)
+			if err == nil {
+				m.LastUsedAt = Maybe[time.Time]{Value: *value, Present: true}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {
@@ -13742,7 +13834,6 @@ func (m *MasterPasswordRequest) EncodeChecked() ([]byte, error) {
 func (m *MasterPasswordRequest) encodeUnchecked() []byte {
 	var b []byte
 	b = AppendStringField(b, m.Password, 1)
-	b = AppendStringField(b, m.Username, 2)
 	return append(b, m.unknownFields...)
 }
 
@@ -13770,8 +13861,6 @@ func mergeMasterPasswordRequest(b []byte, m *MasterPasswordRequest) (*MasterPass
 		switch num {
 		case 1:
 			b, m.Password, err = ConsumeString(b, typ)
-		case 2:
-			b, m.Username, err = ConsumeString(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {
@@ -13982,7 +14071,7 @@ func (m *AuthMethodsResponse) EncodeChecked() ([]byte, error) {
 func (m *AuthMethodsResponse) encodeUnchecked() []byte {
 	var b []byte
 	b = AppendBoolField(b, m.PasskeyLoginEnabled, 1)
-	b = AppendBoolField(b, m.PasswordLoginEnabled, 2)
+	b = AppendBoolField(b, m.RequirePasskey, 2)
 	b = AppendBoolField(b, m.LocalCaAvailable, 3)
 	return append(b, m.unknownFields...)
 }
@@ -14010,7 +14099,7 @@ func mergeAuthMethodsResponse(b []byte, m *AuthMethodsResponse) (*AuthMethodsRes
 		case 1:
 			b, m.PasskeyLoginEnabled, err = ConsumeBool(b, typ)
 		case 2:
-			b, m.PasswordLoginEnabled, err = ConsumeBool(b, typ)
+			b, m.RequirePasskey, err = ConsumeBool(b, typ)
 		case 3:
 			b, m.LocalCaAvailable, err = ConsumeBool(b, typ)
 		default:
@@ -14024,6 +14113,212 @@ func mergeAuthMethodsResponse(b []byte, m *AuthMethodsResponse) (*AuthMethodsRes
 		}
 	}
 	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *LinkRedeemRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *LinkRedeemRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *LinkRedeemRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Token, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *LinkRedeemRequest) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeLinkRedeemRequest(b []byte) (*LinkRedeemRequest, error) {
+	return mergeLinkRedeemRequest(b, nil)
+}
+
+func mergeLinkRedeemRequest(b []byte, m *LinkRedeemRequest) (*LinkRedeemRequest, error) {
+	if m == nil {
+		m = new(LinkRedeemRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Token, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *LinkRedeemResponse) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *LinkRedeemResponse) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *LinkRedeemResponse) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Session
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	b = AppendBoolField(b, m.NameSet, 2)
+	b = AppendBoolField(b, m.PasswordSet, 3)
+	return append(b, m.unknownFields...)
+}
+
+func (m *LinkRedeemResponse) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeLinkRedeemResponse(b []byte) (*LinkRedeemResponse, error) {
+	return mergeLinkRedeemResponse(b, nil)
+}
+
+func mergeLinkRedeemResponse(b []byte, m *LinkRedeemResponse) (*LinkRedeemResponse, error) {
+	if m == nil {
+		m = new(LinkRedeemResponse)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *LoginResponse
+			value = &m.Session
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LoginResponse
+				item, err = mergeLoginResponse(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Session = *value
+			}
+		case 2:
+			b, m.NameSet, err = ConsumeBool(b, typ)
+		case 3:
+			b, m.PasswordSet, err = ConsumeBool(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *OpenSessionRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *OpenSessionRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *OpenSessionRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.UserID, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *OpenSessionRequest) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeOpenSessionRequest(b []byte) (*OpenSessionRequest, error) {
+	return mergeOpenSessionRequest(b, nil)
+}
+
+func mergeOpenSessionRequest(b []byte, m *OpenSessionRequest) (*OpenSessionRequest, error) {
+	if m == nil {
+		m = new(OpenSessionRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UserID, err = ConsumeVarUint64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m LoginResponse) IsZero() bool {
+	return m.Token == "" &&
+		m.UserID == 0 &&
+		m.Name == "" &&
+		m.Expiry.IsZero() &&
+		m.SessionID == "" &&
+		m.Kind == 0 &&
+		len(m.unknownFields) == 0
 }
 
 // Encode panics if validation fails. Use EncodeChecked for untrusted values.
@@ -14089,6 +14384,407 @@ func mergeLoginResponse(b []byte, m *LoginResponse) (*LoginResponse, error) {
 			if err == nil {
 				m.Kind = UserSessionKind(raw)
 			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *AccountView) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *AccountView) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *AccountView) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.UserID, 1)
+	{
+		if m.Name.Present {
+			v := m.Name.Value
+			value := &v
+			b = AppendStringFieldOpt(b, value, 2)
+		}
+	}
+	{
+		if m.Email.Present {
+			v := m.Email.Value
+			value := &v
+			b = AppendStringFieldOpt(b, value, 3)
+		}
+	}
+	b = AppendBoolField(b, m.HasPassword, 4)
+	{
+		if m.ActivatedAt.Present {
+			v := m.ActivatedAt.Value
+			value := &v
+			if value != nil {
+				b = AppendInt64FromTimeElem(b, *value, 5)
+			}
+		}
+	}
+	for _, item := range m.Passkeys {
+		b = AppendTag(b, 6, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *AccountView) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeAccountView(b []byte) (*AccountView, error) {
+	return mergeAccountView(b, nil)
+}
+
+func mergeAccountView(b []byte, m *AccountView) (*AccountView, error) {
+	if m == nil {
+		m = new(AccountView)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UserID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			var value *string
+			if m.Name.Present {
+				v := m.Name.Value
+				value = &v
+			}
+			b, value, err = ConsumeStringOpt(b, typ)
+			if err == nil {
+				m.Name = Maybe[string]{Value: *value, Present: true}
+			}
+		case 3:
+			var value *string
+			if m.Email.Present {
+				v := m.Email.Value
+				value = &v
+			}
+			b, value, err = ConsumeStringOpt(b, typ)
+			if err == nil {
+				m.Email = Maybe[string]{Value: *value, Present: true}
+			}
+		case 4:
+			b, m.HasPassword, err = ConsumeBool(b, typ)
+		case 5:
+			var value *time.Time
+			if m.ActivatedAt.Present {
+				v := m.ActivatedAt.Value
+				value = &v
+			}
+			b, value, err = ConsumeTimeFromInt64Opt(b, typ)
+			if err == nil {
+				m.ActivatedAt = Maybe[time.Time]{Value: *value, Present: true}
+			}
+		case 6:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AccountPasskey
+				item, err = DecodeAccountPasskey(msgBytes)
+				if err == nil {
+					m.Passkeys = append(m.Passkeys, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *AccountPasskey) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *AccountPasskey) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *AccountPasskey) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.ID, 1)
+	b = AppendStringField(b, m.Label, 2)
+	b = AppendInt64FromTime(b, m.CreatedAt, 3)
+	{
+		if m.LastUsedAt.Present {
+			v := m.LastUsedAt.Value
+			value := &v
+			if value != nil {
+				b = AppendInt64FromTimeElem(b, *value, 4)
+			}
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *AccountPasskey) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeAccountPasskey(b []byte) (*AccountPasskey, error) {
+	return mergeAccountPasskey(b, nil)
+}
+
+func mergeAccountPasskey(b []byte, m *AccountPasskey) (*AccountPasskey, error) {
+	if m == nil {
+		m = new(AccountPasskey)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeBytesCopy(b, typ)
+		case 2:
+			b, m.Label, err = ConsumeString(b, typ)
+		case 3:
+			b, m.CreatedAt, err = ConsumeTimeFromInt64(b, typ)
+		case 4:
+			var value *time.Time
+			if m.LastUsedAt.Present {
+				v := m.LastUsedAt.Value
+				value = &v
+			}
+			b, value, err = ConsumeTimeFromInt64Opt(b, typ)
+			if err == nil {
+				m.LastUsedAt = Maybe[time.Time]{Value: *value, Present: true}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *AccountRenameRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *AccountRenameRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *AccountRenameRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *AccountRenameRequest) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeAccountRenameRequest(b []byte) (*AccountRenameRequest, error) {
+	return mergeAccountRenameRequest(b, nil)
+}
+
+func mergeAccountRenameRequest(b []byte, m *AccountRenameRequest) (*AccountRenameRequest, error) {
+	if m == nil {
+		m = new(AccountRenameRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *AccountPasswordRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *AccountPasswordRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *AccountPasswordRequest) encodeUnchecked() []byte {
+	var b []byte
+	{
+		if m.Current.Present {
+			v := m.Current.Value
+			value := &v
+			b = AppendStringFieldOpt(b, value, 1)
+		}
+	}
+	b = AppendStringField(b, m.Next, 2)
+	return append(b, m.unknownFields...)
+}
+
+func (m *AccountPasswordRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeAccountPasswordRequest(b []byte) (*AccountPasswordRequest, error) {
+	return mergeAccountPasswordRequest(b, nil)
+}
+
+func mergeAccountPasswordRequest(b []byte, m *AccountPasswordRequest) (*AccountPasswordRequest, error) {
+	if m == nil {
+		m = new(AccountPasswordRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *string
+			if m.Current.Present {
+				v := m.Current.Value
+				value = &v
+			}
+			b, value, err = ConsumeStringOpt(b, typ)
+			if err == nil {
+				m.Current = Maybe[string]{Value: *value, Present: true}
+			}
+		case 2:
+			b, m.Next, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *AccountPasskeyDeleteRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *AccountPasskeyDeleteRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *AccountPasskeyDeleteRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendBytesField(b, m.ID, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *AccountPasskeyDeleteRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeAccountPasskeyDeleteRequest(b []byte) (*AccountPasskeyDeleteRequest, error) {
+	return mergeAccountPasskeyDeleteRequest(b, nil)
+}
+
+func mergeAccountPasskeyDeleteRequest(b []byte, m *AccountPasskeyDeleteRequest) (*AccountPasskeyDeleteRequest, error) {
+	if m == nil {
+		m = new(AccountPasskeyDeleteRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeBytesCopy(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {
@@ -14474,7 +15170,13 @@ func (m *UserSession) encodeUnchecked() []byte {
 	var b []byte
 	b = AppendUint64Field(b, m.ID, 1)
 	b = AppendStringField(b, m.SessionID, 2)
-	b = AppendUint64Field(b, m.UserID, 3)
+	{
+		if m.UserID.Present {
+			v := m.UserID.Value
+			value := &v
+			b = AppendUint64FieldOpt(b, value, 3)
+		}
+	}
 	b = AppendInt32Field(b, int32(m.Kind), 4)
 	b = AppendInt64FromTime(b, m.ExpiresAt, 5)
 	{
@@ -14495,6 +15197,29 @@ func (m *UserSession) encodeUnchecked() []byte {
 			if value != nil {
 				b = AppendBytesElem(b, *value, 9)
 			}
+		}
+	}
+	{
+		if m.RedeemedAt.Present {
+			v := m.RedeemedAt.Value
+			value := &v
+			if value != nil {
+				b = AppendInt64FromTimeElem(b, *value, 10)
+			}
+		}
+	}
+	{
+		if m.OpenedBy.Present {
+			v := m.OpenedBy.Value
+			value := &v
+			b = AppendUint64FieldOpt(b, value, 11)
+		}
+	}
+	{
+		if m.IssuedBy.Present {
+			v := m.IssuedBy.Value
+			value := &v
+			b = AppendUint64FieldOpt(b, value, 12)
 		}
 	}
 	return append(b, m.unknownFields...)
@@ -14525,7 +15250,15 @@ func mergeUserSession(b []byte, m *UserSession) (*UserSession, error) {
 		case 2:
 			b, m.SessionID, err = ConsumeString(b, typ)
 		case 3:
-			b, m.UserID, err = ConsumeVarUint64(b, typ)
+			var value *uint64
+			if m.UserID.Present {
+				v := m.UserID.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarUint64Opt(b, typ)
+			if err == nil {
+				m.UserID = Maybe[uint64]{Value: *value, Present: true}
+			}
 		case 4:
 			var raw int32
 			b, raw, err = ConsumeVarInt32(b, typ)
@@ -14557,6 +15290,36 @@ func mergeUserSession(b []byte, m *UserSession) (*UserSession, error) {
 			b, value, err = ConsumeBytesOpt(b, typ)
 			if err == nil {
 				m.TokenHash = Maybe[[]byte]{Value: *value, Present: true}
+			}
+		case 10:
+			var value *time.Time
+			if m.RedeemedAt.Present {
+				v := m.RedeemedAt.Value
+				value = &v
+			}
+			b, value, err = ConsumeTimeFromInt64Opt(b, typ)
+			if err == nil {
+				m.RedeemedAt = Maybe[time.Time]{Value: *value, Present: true}
+			}
+		case 11:
+			var value *uint64
+			if m.OpenedBy.Present {
+				v := m.OpenedBy.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarUint64Opt(b, typ)
+			if err == nil {
+				m.OpenedBy = Maybe[uint64]{Value: *value, Present: true}
+			}
+		case 12:
+			var value *uint64
+			if m.IssuedBy.Present {
+				v := m.IssuedBy.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarUint64Opt(b, typ)
+			if err == nil {
+				m.IssuedBy = Maybe[uint64]{Value: *value, Present: true}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -19116,6 +19879,228 @@ func mergeAuthzGlobalRuleDeleteRequest(b []byte, m *AuthzGlobalRuleDeleteRequest
 		switch num {
 		case 1:
 			b, m.ID, err = ConsumeVarUint64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *UserCreateRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *UserCreateRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *UserCreateRequest) encodeUnchecked() []byte {
+	var b []byte
+	{
+		if m.Name.Present {
+			v := m.Name.Value
+			value := &v
+			b = AppendStringFieldOpt(b, value, 1)
+		}
+	}
+	{
+		if m.Password.Present {
+			v := m.Password.Value
+			value := &v
+			b = AppendStringFieldOpt(b, value, 2)
+		}
+	}
+	for _, item := range m.Grants {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *UserCreateRequest) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeUserCreateRequest(b []byte) (*UserCreateRequest, error) {
+	return mergeUserCreateRequest(b, nil)
+}
+
+func mergeUserCreateRequest(b []byte, m *UserCreateRequest) (*UserCreateRequest, error) {
+	if m == nil {
+		m = new(UserCreateRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *string
+			if m.Name.Present {
+				v := m.Name.Value
+				value = &v
+			}
+			b, value, err = ConsumeStringOpt(b, typ)
+			if err == nil {
+				m.Name = Maybe[string]{Value: *value, Present: true}
+			}
+		case 2:
+			var value *string
+			if m.Password.Present {
+				v := m.Password.Value
+				value = &v
+			}
+			b, value, err = ConsumeStringOpt(b, typ)
+			if err == nil {
+				m.Password = Maybe[string]{Value: *value, Present: true}
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzGrantSource
+				item, err = DecodeAuthzGrantSource(msgBytes)
+				if err == nil {
+					m.Grants = append(m.Grants, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *UserLinkRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *UserLinkRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *UserLinkRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.UserID, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *UserLinkRequest) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeUserLinkRequest(b []byte) (*UserLinkRequest, error) {
+	return mergeUserLinkRequest(b, nil)
+}
+
+func mergeUserLinkRequest(b []byte, m *UserLinkRequest) (*UserLinkRequest, error) {
+	if m == nil {
+		m = new(UserLinkRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.UserID, err = ConsumeVarUint64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *UserLinkResponse) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *UserLinkResponse) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *UserLinkResponse) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Token, 1)
+	b = AppendStringField(b, m.SessionID, 2)
+	b = AppendInt64FromTime(b, m.ExpiresAt, 3)
+	return append(b, m.unknownFields...)
+}
+
+func (m *UserLinkResponse) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeUserLinkResponse(b []byte) (*UserLinkResponse, error) {
+	return mergeUserLinkResponse(b, nil)
+}
+
+func mergeUserLinkResponse(b []byte, m *UserLinkResponse) (*UserLinkResponse, error) {
+	if m == nil {
+		m = new(UserLinkResponse)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Token, err = ConsumeString(b, typ)
+		case 2:
+			b, m.SessionID, err = ConsumeString(b, typ)
+		case 3:
+			b, m.ExpiresAt, err = ConsumeTimeFromInt64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {
@@ -26894,6 +27879,7 @@ func mergeLargeAssetsSettings(b []byte, m *LargeAssetsSettings) (*LargeAssetsSet
 
 func (m AuthSettings) IsZero() bool {
 	return m.PasswordLoginEnabled.IsZero() &&
+		m.RequirePasskey.IsZero() &&
 		len(m.unknownFields) == 0
 }
 
@@ -26919,6 +27905,13 @@ func (m *AuthSettings) encodeUnchecked() []byte {
 		value := &m.PasswordLoginEnabled
 		if value != nil {
 			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.RequirePasskey
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
 			b = AppendBytes(b, value.encodeUnchecked())
 		}
 	}
@@ -26959,6 +27952,20 @@ func mergeAuthSettings(b []byte, m *AuthSettings) (*AuthSettings, error) {
 			}
 			if err == nil {
 				m.PasswordLoginEnabled = *value
+			}
+		case 2:
+			var value *BoolSetting
+			value = &m.RequirePasskey
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = mergeBoolSetting(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.RequirePasskey = *value
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

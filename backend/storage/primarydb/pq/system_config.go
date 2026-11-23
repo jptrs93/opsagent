@@ -29,6 +29,7 @@ func (q *Queries) reduceSystemConfig(ctx context.Context, env rowEnvelope, meta 
 	}
 	value := *cfg
 	value.ID = uint32(SystemConfigEntityID)
+	apigen.FillClusterSettingDefaults(&value.Settings)
 	return q.upsert(ctx, meta, `INSERT INTO system_config (id, config_blob, seq, event_time, author, created_time) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET config_blob = excluded.config_blob, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,

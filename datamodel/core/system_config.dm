@@ -41,6 +41,7 @@ type SystemConfig@15 root {
         }
         auth@7: type AuthSettings {
             password_login_enabled@1: BoolSetting
+            require_passkey@2: BoolSetting
         }
     }
     master_password_hash@3: ?string [min_length = 1]

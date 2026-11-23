@@ -1,32 +1,114 @@
+// The Nodes page: a tab strip in the Users & roles style with Nodes (a dense
+// table and a right-hand inspector for the selected node), Enrollments
+// (pending requests and the secondary install command) and Replication (the
+// backup status). The fixture in fixtures/nodes-redesign mounts this page over
+// an in-memory node API.
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
-import {sectionBand} from "../components/sectionBand.js";
 import {evictNodeOverlay, pinnedUserDeployments} from "../components/evictNodeOverlay.js";
+import {explorerBand} from "../components/sectionBand.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
 import {deploymentWorkload, isSelfDeployment, placementNodeId} from "../lib/deployment.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
+import {formatDateTime} from "../lib/date.js";
+import {checkIcon, closeIcon, copyIcon, searchIcon} from "../lib/icons.js";
 
-const { button, code, div, input, label, p, span, table, tbody, td, th, thead, tr } = van.tags;
+const {button, code, col, colgroup, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
+const NODES = "nodes";
+const ENROLLMENTS = "enrollments";
+const REPLICATION = "replication";
 const NODE_ENROLLMENT_REQUESTED = 1;
+const INSPECTOR_MIN = 260;
+const INSPECTOR_MAX = 560;
 
-const formatTime = (t) => {
-    if (!t) return '-';
+// --- formatting ---------------------------------------------------------------
+
+const asDate = (t) => {
+    if (!t) return null;
     const d = t instanceof Date ? t : new Date(t);
-    if (isNaN(d.getTime())) return '-';
-    return d.toLocaleString();
+    return isNaN(d.getTime()) || d.getTime() <= 0 ? null : d;
 };
 
-const headerCell = (text, cls = "pr-3") => th(
-    {class: `py-1.5 ${cls} text-[10px] font-semibold uppercase tracking-wider`}, text);
+const relativeTime = (t) => {
+    const d = asDate(t);
+    if (!d) return "-";
+    const s = Math.max(0, (Date.now() - d.getTime()) / 1000);
+    if (s < 60) return "just now";
+    if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+    return `${Math.floor(s / 86400)}d ago`;
+};
+
+const absoluteTime = (t) => {
+    const d = asDate(t);
+    return d ? `${formatDateTime(d)} (${d.toLocaleString()})` : "";
+};
+
+// One item shows as itself; more collapse to a count so the row stays one
+// line. The full list rides on the cell's title.
+const listSummary = (items, noun) => {
+    const list = items || [];
+    if (list.length === 0) return "-";
+    if (list.length === 1) return list[0];
+    return `${list.length} ${noun}`;
+};
+
+const spacesSummary = (machine) => {
+    const names = allowedSpaceNames(machine, spacesS.val);
+    const total = (spacesS.val || []).length;
+    if (total && names.length >= total) return "all";
+    if (names.length === 1) return names[0];
+    return names.length === 0 ? "-" : `${names.length} spaces`;
+};
+
+const runtimeSummary = (versions) => (versions || "").replace(", ", " · ") || "-";
+
+const HOST_ADDRESSES_UNKNOWN = "The node could not enumerate its host addresses";
+
+const hostAddressesSummary = (machine) => machine.hostAddressesUnknown && !(machine.hostAddresses || []).length
+    ? span({class: "text-amber-300/80", title: HOST_ADDRESSES_UNKNOWN}, "unknown")
+    : span({title: (machine.hostAddresses || []).join("\n") || "No host addresses reported"}, listSummary(machine.hostAddresses, "addresses"));
+
+const nodeState = (machine) => machine.evicted ? "evicted" : machine.connected ? "connected" : "disconnected";
+
+const statusDot = (machine) => span({
+    class: `inline-block h-1.5 w-1.5 flex-none rounded-full ${
+        machine.evicted ? "bg-gray-600" : machine.connected ? "bg-green-400" : "bg-red-400"}`,
+});
+
+const statusText = (machine) => span(
+    {class: `truncate ${machine.evicted ? "text-gray-500" : machine.connected ? "text-green-300" : "text-red-300"}`},
+    nodeState(machine));
+
+// In the table the draining word replaces the connection word rather than
+// sitting beside it, so the cell stays one line when the inspector narrows
+// the table; the dot still carries the connection state.
+const compactStatus = (machine) => machine.draining
+    ? span({class: "truncate text-amber-300", title: `${nodeState(machine)}, draining`, "data-testid": "node-draining-badge"}, "draining")
+    : statusText(machine);
+
+const drainingTag = () => span(
+    {class: "flex-none rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-amber-300", "data-testid": "node-draining-badge"},
+    "draining");
+
+const roleTag = (machine) => machine.isPrimary
+    ? span({class: "flex-none rounded bg-blue-500/15 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-blue-300"}, "primary")
+    : "";
+
+// --- page ---------------------------------------------------------------------
 
 export function clusterPage() {
-    const config = systemConfigS;
+    const activeTab = van.state(NODES);
+    const search = van.state("");
+    const showEvicted = van.state(false);
+    const selectedId = van.state(null);
+    const inspectorWidth = van.state(340);
     const enrollmentInfo = van.state(null);
     const configError = van.state(null);
-    const copied = van.state(false);
-    const open = {nodes: van.state(true), backup: van.state(true), enrollments: van.state(true), install: van.state(true), evicted: van.state(true)};
+    const overlay = van.state(null);
+    const open = {pending: van.state(true), install: van.state(true)};
 
     const loadEnrollmentInfo = async () => {
         try {
@@ -38,356 +120,578 @@ export function clusterPage() {
     };
     loadEnrollmentInfo();
 
-    const installCommand = () => secondaryInstallCommand(config.val?.settings, enrollmentInfo.val, primaryOpenDeployVersion());
+    const liveNodes = () => machinesS.val.filter((m) => !m.evicted);
+    const evictedNodes = () => machinesS.val.filter((m) => m.evicted);
+    const pendingEnrollments = () => enrollmentsS.val.filter((e) => e.status === NODE_ENROLLMENT_REQUESTED && e.isConnected);
 
-    const copyInstallCommand = async () => {
-        const command = installCommand();
-        if (!command) return;
-        await navigator.clipboard.writeText(command);
-        copied.val = true;
-        setTimeout(() => copied.val = false, 2000);
+    const sortedNodes = () => {
+        const q = search.val.trim().toLowerCase();
+        const matches = (m) => !q || [m.name, m.identifier, ...(m.addresses || []), ...(m.hostAddresses || []), nodeState(m)]
+            .some((v) => String(v || "").toLowerCase().includes(q));
+        const live = liveNodes().filter(matches).sort((a, b) => {
+            if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+            return a.name.localeCompare(b.name);
+        });
+        const evicted = showEvicted.val ? evictedNodes().filter(matches).sort((a, b) => b.eventTime - a.eventTime) : [];
+        return [...live, ...evicted];
     };
 
-    const copyButton = button({
+    const selectedMachine = () => machinesS.val.find((m) => m.id === selectedId.val) || null;
+
+    // --- shared pieces ----------------------------------------------------------
+
+    const headerRow = (...labels) => thead(tr(
+        {class: "text-left text-gray-500"},
+        ...labels.map(([text, cls]) => th({
+            class: `sticky top-0 z-[1] whitespace-nowrap bg-surface py-1.5 pr-3 text-[10px] font-semibold uppercase tracking-wider ${cls || ""}`,
+        }, text)),
+    ));
+
+    const emptyLine = (text) => p({class: "px-3 py-3 text-sm text-gray-400"}, text);
+
+    const searchBox = (state, placeholder) => div({class: "relative"},
+        searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"}),
+        input({
+            class: "text-input search-input search-input-iconed toolbar-input",
+            type: "search",
+            placeholder,
+            "aria-label": placeholder,
+            value: state,
+            oninput: (e) => { state.val = e.target.value; },
+        }));
+
+    const toolbar = (...children) => div(
+        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        ...children,
+    );
+
+    const toggleButton = (text, state, attrs = {}) => button({
         type: "button",
-        class: "inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-gray-600 text-gray-300 " +
-            "hover:bg-surface-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
-        disabled: () => !installCommand(),
-        onclick: copyInstallCommand,
-    }, () => copied.val ? "Copied" : "Copy");
+        class: () => `toolbar-button ${state.val ? "border-gray-400 bg-white/5 text-gray-100" : ""}`,
+        "aria-pressed": () => String(state.val),
+        onclick: () => { state.val = !state.val; },
+        ...attrs,
+    }, text);
 
-    const nodesSection = (sorted) => sorted.length === 0
-        ? p({class: "px-4 py-2 text-gray-400 text-sm"}, "No nodes found.")
-        : div({class: "pl-4 pr-2"}, table(
-            {class: "w-full text-sm"},
-            thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
-                headerCell("Node", "pr-3 w-[24rem]"),
-                headerCell("Role"),
-                headerCell("Address"),
-                headerCell("Host addresses"),
-                headerCell("Transport key"),
-                headerCell("Spaces"),
-                headerCell("Runtime"),
-                headerCell("Status"),
-                headerCell("Connected since"),
-                headerCell("Actions", ""))),
-            tbody(...sorted.map(machineRow))));
-
-    const evictedSection = (evicted) => evicted.length === 0
-        ? p({class: "px-4 py-2 text-gray-400 text-sm"}, "No evicted nodes.")
-        : div({class: "pl-4 pr-2"}, table(
-            {class: "w-full text-sm"},
-            thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
-                headerCell("Node", "pr-3 w-[24rem]"),
-                headerCell("Identifier"),
-                headerCell("Evicted", ""))),
-            tbody(...evicted.map(evictedRow))));
-
-    const backupSection = () => div(
-        {class: "px-4 py-2.5 flex flex-col gap-3", "data-testid": "backup-replication-card"},
-        () => backupStatusDetails(backupStatusS.val));
-
-    const enrollmentsSection = (pending) => div(
-        {class: "pl-4 pr-2 flex flex-col gap-1"},
-        p({class: "pt-1.5 text-sm text-gray-400"}, "Accept a waiting secondary to issue its cluster client certificate."),
-        pending.length === 0
-            ? p({class: "pb-2 text-gray-400 text-sm"}, "No pending enrollment requests.")
-            : table(
-                {class: "w-full text-sm"},
-                thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
-                    headerCell("Request", "pr-6"),
-                    headerCell("Remote IP", "pr-6"),
-                    headerCell("Requested", "pr-6"),
-                    headerCell("Accept as", ""))),
-                tbody(...pending.map(req => enrollmentRow(req)))));
-
-    const installSection = () => div(
-        {class: "px-4 py-2.5"},
-        () => configError.val
-            ? p({class: "text-xs text-red-400"}, configError.val)
-            : installCommandBlock(installCommand()));
-
-    return div(
-        // bg-surface: like the assets and secrets explorers, the page is one
-        // flush surface running to the window and sidebar edges.
-        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
-        div(
-            // No app-scroll: its stable scrollbar gutter would hold the
-            // section bands 8px off the right edge (the IAM page scrolls the
-            // same way).
-            {class: "flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto"},
-            () => {
-                if (deploymentsStreamS.val.status !== "connected" && machinesS.val.length === 0) {
-                    return p({class: "px-4 py-3 text-gray-400"}, "Loading...");
-                }
-
-                const evicted = machinesS.val.filter(machine => machine.evicted);
-                const sorted = machinesS.val.filter(machine => !machine.evicted).sort((a, b) => {
-                    if (a.isPrimary && !b.isPrimary) return -1;
-                    if (!a.isPrimary && b.isPrimary) return 1;
-                    return a.name.localeCompare(b.name);
-                });
-                const pending = enrollmentsS.val.filter(e => e.status === NODE_ENROLLMENT_REQUESTED && e.isConnected);
-
-                return div(
-                    {class: "flex flex-col"},
-                    sectionBand(open.nodes, "Connected nodes", String(sorted.length)),
-                    !open.nodes.val ? "" : nodesSection(sorted),
-                    sectionBand(open.backup, "Backup replication", null,
-                        () => backupStatusBadge(backupStatusS.val)),
-                    !open.backup.val ? "" : backupSection(),
-                    sectionBand(open.enrollments, "Enrollment requests", String(pending.length)),
-                    !open.enrollments.val ? "" : enrollmentsSection(pending),
-                    sectionBand(open.install, "Install secondary command", null, copyButton),
-                    !open.install.val ? "" : installSection(),
-                    sectionBand(open.evicted, "Evicted nodes", String(evicted.length)),
-                    !open.evicted.val ? "" : evictedSection(evicted),
-                );
+    const copyButton = (text, {label = "Copy", small = false} = {}) => {
+        const copied = van.state(false);
+        return button({
+            type: "button",
+            title: label,
+            "aria-label": label,
+            class: small
+                ? "inline-flex h-5 w-5 flex-none items-center justify-center rounded text-gray-500 hover:bg-white/10 hover:text-gray-100 cursor-pointer"
+                : "inline-flex items-center gap-1 rounded border border-gray-600 px-2 py-0.5 text-xs text-gray-300 hover:bg-surface-hover cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
+            disabled: () => !text(),
+            onclick: async () => {
+                const value = text();
+                if (!value) return;
+                await navigator.clipboard.writeText(value);
+                copied.val = true;
+                setTimeout(() => { copied.val = false; }, 1600);
             },
-        ),
-    );
-}
-
-// The allow list, shown as names and edited as a set of checkboxes. A node
-// starts out allowing every space, so in the common case this reads as "all"
-// and the operator never opens it.
-function allowedSpacesCell(machine) {
-    const open = van.state(false);
-    const saving = van.state(false);
-    const error = van.state("");
-    // Populated when the popover opens rather than kept in sync with the
-    // stream, so an update arriving mid-edit does not silently rewrite the
-    // boxes under the operator.
-    const draft = van.state(new Set());
-
-    const summary = () => {
-        const names = allowedSpaceNames(machine, spacesS.val);
-        const total = (spacesS.val || []).length;
-        if (total && names.length >= total) return "all";
-        return names.join(", ") || "-";
+        }, () => small
+            ? (copied.val ? checkIcon({class: "h-3 w-3 text-green-400"}) : copyIcon({class: "h-3 w-3"}))
+            : span(copied.val ? "Copied" : label));
     };
 
-    const toggle = (spaceID, checked) => {
-        const next = new Set(draft.val);
-        if (checked) next.add(Number(spaceID));
-        else next.delete(Number(spaceID));
-        draft.val = next;
-    };
+    // --- nodes tab ------------------------------------------------------------
 
-    const save = async () => {
-        if (saving.val) return;
-        saving.val = true;
-        error.val = "";
-        try {
-            await capi.postV1NodesAllowedSpaces({
-                identifier: machine.identifier,
-                spaceIds: Array.from(draft.val),
-            });
-            open.val = false;
-        } catch (e) {
-            error.val = e.message || "Failed to update spaces";
-        } finally {
-            saving.val = false;
-        }
-    };
-
-    return div({class: "flex flex-col gap-1"},
-        div({class: "flex items-center gap-2"},
-            span({class: "text-gray-300"}, summary),
-            button({
-                type: "button",
-                class: "text-xs text-brand hover:text-blue-300 hover:underline cursor-pointer",
-                "aria-label": `Edit allowed spaces for ${machine.identifier}`,
-                onclick: () => {
-                    if (open.val) { open.val = false; return; }
-                    draft.val = new Set(editableSpaceIDs(machine));
-                    error.val = "";
-                    open.val = true;
+    const nodeRow = (machine) => {
+        const selected = () => selectedId.val === machine.id;
+        const muted = machine.evicted;
+        const cell = (cls, ...children) => td({class: `truncate py-1 pr-3 ${cls}`}, ...children);
+        return tr(
+            {
+                class: () => `cursor-pointer border-b border-gray-800/80 last:border-0 align-middle transition-colors ${
+                    selected() ? "bg-white/5" : "hover:bg-white/3"} ${muted ? "text-gray-500" : ""}`,
+                tabindex: 0,
+                "aria-selected": () => String(selected()),
+                "data-testid": `machine-row-${machine.identifier}`,
+                onclick: () => { selectedId.val = selected() ? null : machine.id; },
+                onkeydown: (e) => {
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectedId.val = machine.id; }
                 },
-            }, () => open.val ? "Cancel" : "Edit"),
-        ),
-        () => !open.val ? "" : div(
-            {class: "flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-900 p-2"},
-            ...[...(spacesS.val || [])].sort((a, b) => Number(a.id) - Number(b.id)).map((space) => {
-                const fixed = isFixedSpace(space.id);
-                return label({class: "flex items-center gap-2 text-xs text-gray-300"},
-                    input({
-                        type: "checkbox",
-                        class: "accent-blue-500",
-                        // Always allowed, and the server would add it back
-                        // regardless, so it is shown ticked and locked rather
-                        // than as a choice that silently does not take.
-                        checked: () => fixed || draft.val.has(Number(space.id)),
-                        disabled: () => fixed || saving.val,
-                        onchange: (e) => toggle(space.id, e.target.checked),
-                    }),
-                    space.name || `space ${space.id}`,
-                    fixed ? span({class: "text-gray-600"}, "(always)") : "",
-                );
-            }),
-            div({class: "flex items-center gap-2 pt-1"},
-                button({
-                    type: "button",
-                    disabled: saving,
-                    class: () => `text-xs px-2.5 py-1 rounded-md font-medium bg-brand text-white hover:bg-blue-600 ${
-                        saving.val ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`,
-                    onclick: save,
-                }, () => saving.val ? "Saving..." : "Save"),
-            ),
-            () => error.val ? p({class: "text-xs text-red-400"}, error.val) : "",
-        ),
-    );
-}
-
-function machineRow(machine) {
-    const originalName = van.state(machine.name || '');
-    const name = van.state(machine.name || '');
-    const saving = van.state(false);
-    const error = van.state('');
-
-    const rename = async () => {
-        const nextName = name.val.trim();
-        if (!nextName || saving.val) return;
-        if (nextName === originalName.val) {
-            name.val = originalName.val;
-            return;
-        }
-        saving.val = true;
-        error.val = '';
-        try {
-            await capi.postV1NodesRename({identifier: machine.identifier, name: nextName});
-            originalName.val = nextName;
-            name.val = nextName;
-        } catch (e) {
-            error.val = e.message || 'Failed to rename node';
-        } finally {
-            saving.val = false;
-        }
+            },
+            td({class: () => `truncate py-1 pl-3 pr-3 ${selected() ? "shadow-[inset_2px_0_0_#3b82f6]" : ""}`},
+                div({class: "flex min-w-0 items-center gap-1.5"},
+                    span({class: `truncate font-mono ${muted ? "text-gray-500" : "text-gray-100"}`, title: machine.identifier, "data-testid": "node-name"}, machine.name || machine.identifier),
+                    roleTag(machine))),
+            cell("", div({class: "flex min-w-0 items-center gap-1.5"}, statusDot(machine), compactStatus(machine))),
+            cell("font-mono text-gray-300", span({title: (machine.addresses || []).join("\n")}, listSummary(machine.addresses, "addresses"))),
+            cell("font-mono text-gray-300", div({"data-testid": "node-host-addresses"}, hostAddressesSummary(machine))),
+            cell("text-gray-300", span({title: allowedSpaceNames(machine, spacesS.val).join(", ")}, machine.evicted ? "-" : spacesSummary(machine))),
+            cell("font-mono text-gray-400", span({title: machine.opendeployVersion ? `Agent ${machine.opendeployVersion}` : "", "data-testid": "node-version"}, machine.opendeployVersion || "-")),
+            cell("font-mono text-gray-400", span({title: machine.runtimeVersions || "", "data-testid": "node-runtime-versions"}, runtimeSummary(machine.runtimeVersions))),
+            cell("text-gray-400 tabular-nums", span({title: machine.evicted ? absoluteTime(machine.eventTime) : absoluteTime(machine.connectedAt)},
+                machine.isPrimary ? "-" : machine.evicted ? `evicted ${relativeTime(machine.eventTime)}` : machine.connected ? relativeTime(machine.connectedAt) : "-")),
+        );
     };
 
-    return tr(
-        {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `machine-row-${machine.identifier}`},
-        td({class: "py-1 pr-3 text-white font-medium w-[24rem]"},
+    const nodesTable = () => {
+        const rows = sortedNodes();
+        if (!rows.length) return emptyLine(search.val.trim() ? "No nodes match your search." : "No nodes found.");
+        return table({class: "w-full table-fixed text-[13px]"},
+            colgroup(
+                col({style: "width:17%"}), col({style: "width:12%"}), col({style: "width:15%"}), col({style: "width:12%"}),
+                col({style: "width:7%"}), col({style: "width:8%"}), col({style: "width:18%"}), col({style: "width:11%"})),
+            headerRow(["Node", "pl-3"], ["Status"], ["Address"], ["Host addresses"], ["Spaces"], ["Version"], ["Runtime"], ["Connected"]),
+            tbody(...rows.map(nodeRow)));
+    };
+
+    // --- inspector --------------------------------------------------------------
+
+    const kvRow = (key, ...value) => div({class: "flex flex-col gap-0.5 px-3 py-1.5"},
+        span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, key),
+        div({class: "min-w-0 text-xs text-gray-200"}, ...value));
+
+    const monoValue = (value, {copy = true} = {}) => div({class: "flex items-start gap-1"},
+        span({class: "min-w-0 break-all font-mono text-gray-200"}, value || "-"),
+        copy && value ? copyButton(() => value, {label: "Copy", small: true}) : "");
+
+    const monoList = (items, empty) => (items || []).length
+        ? div({class: "flex flex-col gap-0.5"}, ...items.map((item) => monoValue(item)))
+        : span({class: "text-gray-500"}, empty);
+
+    const nameEditor = (machine) => {
+        const originalName = van.state(machine.name || "");
+        const name = van.state(machine.name || "");
+        const saving = van.state(false);
+        const error = van.state("");
+        const rename = async () => {
+            const next = name.val.trim();
+            if (!next || saving.val) return;
+            if (next === originalName.val) { name.val = originalName.val; return; }
+            saving.val = true;
+            error.val = "";
+            try {
+                await capi.postV1NodesRename({identifier: machine.identifier, name: next});
+                originalName.val = next;
+            } catch (e) {
+                error.val = e.message || "Failed to rename node";
+            } finally {
+                saving.val = false;
+            }
+        };
+        return div({class: "flex min-w-0 flex-col gap-0.5"},
             inlineEditableInput({
                 value: name,
                 dirty: () => name.val !== originalName.val,
                 valid: () => Boolean(name.val.trim()),
                 disabled: saving,
-                oninput: event => { name.val = event.target.value; },
+                oninput: (e) => { name.val = e.target.value; },
                 onSave: rename,
                 onDiscard: () => { name.val = originalName.val; },
-                inputClass: "w-full min-w-36 bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono",
+                inputClass: "w-full min-w-0 bg-transparent px-1.5 py-0.5 -mx-1.5 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none font-mono text-sm font-medium text-white",
                 ariaLabel: `Node name for ${machine.identifier}`,
                 saveAriaLabel: `Save node name ${machine.identifier}`,
                 discardAriaLabel: `Discard node name change for ${machine.identifier}`,
             }),
-            () => error.val ? p({class: "mt-1 text-xs text-red-400"}, error.val) : '',
-        ),
-        td({class: "py-1 pr-3"},
-            machine.isPrimary
-                ? span({class: "text-blue-400"}, "primary")
-                : span({class: "text-gray-300"}, "secondary")
-        ),
-        td({class: "py-1 pr-3 font-mono text-gray-300"}, (machine.addresses || []).join(", ") || "-"),
-        td({class: "py-1 pr-3 font-mono text-gray-300", "data-testid": "node-host-addresses", title: "Addresses an ingress listen selector can publish on"},
-            (machine.hostAddresses || []).join(", ") || "-"),
-        td({class: "py-1 pr-3 font-mono text-gray-300", title: machine.wgPublicKey || "No WireGuard key registered"},
-            machine.wgPublicKey ? machine.wgPublicKey.slice(0, 8) + "…" : "-"),
-        td({class: "py-1 pr-3"}, allowedSpacesCell(machine)),
-        td({class: "py-1 pr-3 font-mono text-gray-300 whitespace-nowrap", "data-testid": "node-runtime-versions", title: "containerd and runc versions reported by the node"},
-            machine.runtimeVersions || "-"),
-        td({class: "py-1 pr-3"},
-            machine.connected
-                ? span({class: "text-green-400"}, "connected")
-                : span({class: "text-red-400"}, "disconnected"),
-            machine.draining ? span({class: "ml-2 text-amber-300", "data-testid": "node-draining-badge"}, "draining") : '',
-        ),
-        td({class: "py-1 pr-3 text-gray-400"},
-            machine.isPrimary ? '-' : formatTime(machine.connectedAt)
-        ),
-        td({class: "py-1"}, machine.isPrimary ? '' : nodeActions(machine)),
-    );
-}
+            () => error.val ? p({class: "text-xs text-red-400"}, error.val) : "");
+    };
 
-function nodeActions(machine) {
-    const busy = van.state(false);
-    const error = van.state('');
-    const overlay = van.state(null);
+    const spacesEditing = van.state(false);
+    const spacesDraft = van.state(new Set());
+    const spacesSaving = van.state(false);
+    const spacesError = van.state("");
 
-    const toggleDrain = async () => {
-        if (busy.val) return;
-        busy.val = true;
-        error.val = '';
-        try {
-            await capi.postV1NodesDrain({identifier: machine.identifier, draining: !machine.draining});
-        } catch (e) {
-            error.val = e?.message || 'Updating node failed.';
-        } finally {
-            busy.val = false;
+    const spacesEditor = (machine) => {
+        const save = async () => {
+            if (spacesSaving.val) return;
+            spacesSaving.val = true;
+            spacesError.val = "";
+            try {
+                await capi.postV1NodesAllowedSpaces({identifier: machine.identifier, spaceIds: Array.from(spacesDraft.val)});
+                spacesEditing.val = false;
+            } catch (e) {
+                spacesError.val = e.message || "Failed to update spaces";
+            } finally {
+                spacesSaving.val = false;
+            }
+        };
+        const toggle = (id, checked) => {
+            const next = new Set(spacesDraft.val);
+            if (checked) next.add(Number(id)); else next.delete(Number(id));
+            spacesDraft.val = next;
+        };
+        return div({class: "flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-900/60 p-2"},
+            ...[...(spacesS.val || [])].sort((a, b) => Number(a.id) - Number(b.id)).map((space) => {
+                const fixed = isFixedSpace(space.id);
+                return label({class: "flex items-center gap-2 text-xs text-gray-300"},
+                    input({
+                        type: "checkbox", class: "accent-blue-500",
+                        checked: () => fixed || spacesDraft.val.has(Number(space.id)),
+                        disabled: () => fixed || spacesSaving.val,
+                        onchange: (e) => toggle(space.id, e.target.checked),
+                    }),
+                    space.name || `space ${space.id}`,
+                    fixed ? span({class: "text-gray-600"}, "(always)") : "");
+            }),
+            div({class: "flex items-center gap-2 pt-1"},
+                button({
+                    type: "button", disabled: spacesSaving,
+                    class: () => `rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-600 ${spacesSaving.val ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
+                    onclick: save,
+                }, () => spacesSaving.val ? "Saving..." : "Save"),
+                button({
+                    type: "button",
+                    class: "rounded-md px-2 py-1 text-xs text-gray-400 hover:text-gray-100 cursor-pointer",
+                    onclick: () => { spacesEditing.val = false; },
+                }, "Cancel")),
+            () => spacesError.val ? p({class: "text-xs text-red-400"}, spacesError.val) : "");
+    };
+
+    const spacesField = (machine) => {
+        const names = allowedSpaceNames(machine, spacesS.val);
+        const total = (spacesS.val || []).length;
+        const all = total && names.length >= total;
+        return div({class: "flex flex-col gap-1.5"},
+            div({class: "flex flex-wrap items-center gap-1"},
+                ...(all ? [span({class: "text-gray-300"}, "all spaces")] : names.map((n) => span({class: "rounded bg-gray-800 px-1.5 py-0.5 font-mono text-[11px] text-gray-200"}, n))),
+                button({
+                    type: "button",
+                    class: "ml-1 text-[11px] text-brand hover:text-blue-300 hover:underline cursor-pointer",
+                    "aria-label": `Edit allowed spaces for ${machine.identifier}`,
+                    onclick: () => {
+                        spacesDraft.val = new Set(editableSpaceIDs(machine));
+                        spacesError.val = "";
+                        spacesEditing.val = true;
+                    },
+                }, "Edit")),
+            () => spacesEditing.val ? spacesEditor(machine) : "");
+    };
+
+    const actionsRow = (machine) => {
+        const busy = van.state(false);
+        const error = van.state("");
+        const toggleDrain = async () => {
+            if (busy.val) return;
+            busy.val = true;
+            error.val = "";
+            try {
+                await capi.postV1NodesDrain({identifier: machine.identifier, draining: !machine.draining});
+            } catch (e) {
+                error.val = e?.message || "Updating node failed.";
+            } finally {
+                busy.val = false;
+            }
+        };
+        const openEvict = () => {
+            overlay.val = evictNodeOverlay({
+                machine,
+                pinned: pinnedUserDeployments(deploymentsS.val, machine.id),
+                evict: (force) => capi.postV1NodesEvict({identifier: machine.identifier, expectedSeq: Number(machine.seq || 0), force}),
+                close: () => { overlay.val = null; },
+            });
+        };
+        const actionClass = "rounded border px-2.5 py-1 text-xs cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ";
+        return div({class: "flex flex-col gap-1.5 border-t border-gray-800 px-3 py-2.5"},
+            div({class: "flex items-center gap-2"},
+                button({
+                    type: "button", disabled: busy,
+                    class: actionClass + "border-gray-600 text-gray-300 hover:bg-surface-hover",
+                    "data-testid": `node-drain-${machine.identifier}`,
+                    title: machine.draining ? "Allow new deployments on this node again" : "Stop placing new deployments on this node",
+                    onclick: toggleDrain,
+                }, machine.draining ? "Undrain" : "Drain"),
+                div({class: "flex-1"}),
+                button({
+                    type: "button", disabled: busy,
+                    class: actionClass + "border-red-800 text-red-300 hover:bg-red-900/40",
+                    "data-testid": `node-evict-${machine.identifier}`,
+                    title: "Permanently remove this node from the cluster",
+                    onclick: openEvict,
+                }, "Evict")),
+            () => error.val ? p({class: "text-xs text-red-400"}, error.val) : "");
+    };
+
+    const inspectorBody = (machine) => {
+        const header = div({class: "flex flex-col gap-1 border-b border-gray-800 px-3 pb-2.5 pt-3 pr-8"},
+            machine.evicted
+                ? span({class: "font-mono text-sm font-medium text-gray-400"}, machine.name || machine.identifier)
+                : nameEditor(machine),
+            div({class: "flex items-center gap-1.5 text-xs"},
+                statusDot(machine), statusText(machine),
+                machine.draining ? drainingTag() : "",
+                roleTag(machine),
+                machine.isPrimary ? "" : span({class: "text-gray-500"}, "secondary")));
+
+        if (machine.evicted) {
+            return [header,
+                div({class: "app-scroll flex-1 min-h-0 overflow-y-auto py-1"},
+                    kvRow("Identifier", monoValue(machine.identifier)),
+                    kvRow("Evicted", span({title: absoluteTime(machine.eventTime)}, formatDateTime(asDate(machine.eventTime), "-"))),
+                    p({class: "px-3 py-2 text-xs text-gray-500"}, "This node has been removed from the cluster and wiped. Its identifier stays listed so it cannot be re-enrolled by mistake."))];
         }
+
+        return [header,
+            div({class: "app-scroll flex-1 min-h-0 overflow-y-auto py-1"},
+                kvRow("Identifier", monoValue(machine.identifier)),
+                kvRow("Connected since", machine.isPrimary
+                    ? span({class: "text-gray-500"}, "always (primary)")
+                    : machine.connected
+                        ? span({title: absoluteTime(machine.connectedAt)}, `${formatDateTime(asDate(machine.connectedAt), "-")} · ${relativeTime(machine.connectedAt)}`)
+                        : span({class: "text-red-300"}, machine.connectedAt ? `last seen ${relativeTime(machine.connectedAt)}` : "never connected")),
+                kvRow("Enrolled", span({title: absoluteTime(machine.enrolledAt)}, formatDateTime(asDate(machine.enrolledAt), "-"))),
+                kvRow("Cluster address", monoList(machine.addresses, "No underlay address reported")),
+                kvRow("Host addresses", div({"data-testid": "node-inspector-host-addresses"},
+                    machine.hostAddressesUnknown && !(machine.hostAddresses || []).length
+                        ? span({class: "text-amber-300/80"}, HOST_ADDRESSES_UNKNOWN)
+                        : monoList(machine.hostAddresses, "No host addresses reported")),
+                    p({class: "pt-1 text-[11px] text-gray-500"}, "Addresses an ingress listen selector can publish on.")),
+                kvRow("Transport key", machine.wgPublicKey ? monoValue(machine.wgPublicKey) : span({class: "text-gray-500"}, "No WireGuard key registered")),
+                kvRow("Agent version", machine.opendeployVersion
+                    ? span({class: "font-mono"}, machine.opendeployVersion)
+                    : span({class: "text-gray-500"}, "Not reported")),
+                kvRow("Runtime", machine.runtimeVersions
+                    ? span({class: "font-mono"}, machine.runtimeVersions)
+                    : span({class: "text-gray-500"}, "Not reported")),
+                kvRow("Allowed spaces", spacesField(machine))),
+            machine.isPrimary ? "" : actionsRow(machine)];
     };
 
-    const openEvict = () => {
-        overlay.val = evictNodeOverlay({
-            machine,
-            pinned: pinnedUserDeployments(deploymentsS.val, machine.id),
-            evict: force => capi.postV1NodesEvict({identifier: machine.identifier, expectedSeq: Number(machine.seq || 0), force}),
-            close: () => { overlay.val = null; },
-        });
+    const startInspectorResize = (e) => {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startW = inspectorWidth.val;
+        document.body.classList.add("resizing");
+        const move = (ev) => {
+            inspectorWidth.val = Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN, startW + (startX - ev.clientX)));
+        };
+        const up = () => {
+            document.body.classList.remove("resizing");
+            window.removeEventListener("mousemove", move);
+            window.removeEventListener("mouseup", up);
+        };
+        window.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
     };
 
-    const actionClass = "text-xs px-2 py-0.5 rounded border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ";
-    return div({class: "flex items-center gap-2 whitespace-nowrap"},
+    const inspector = () => div(
+        {class: "relative flex flex-none flex-col border-l border-gray-700 bg-gray-950/35", style: () => `width:${inspectorWidth.val}px`, "data-testid": "node-inspector"},
+        span({
+            class: "vgrip", tabindex: "0", role: "separator", "aria-orientation": "vertical", "aria-label": "Resize details pane",
+            onmousedown: startInspectorResize,
+            onkeydown: (e) => {
+                if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+                e.preventDefault();
+                const step = e.shiftKey ? 48 : 16;
+                inspectorWidth.val = Math.min(INSPECTOR_MAX, Math.max(INSPECTOR_MIN, inspectorWidth.val + (e.key === "ArrowLeft" ? step : -step)));
+            },
+        }),
         button({
-            type: "button",
-            class: actionClass + "border-gray-600 text-gray-300 hover:bg-surface-hover",
-            disabled: () => busy.val,
-            "data-testid": `node-drain-${machine.identifier}`,
-            title: machine.draining ? "Allow new deployments on this node again" : "Stop placing new deployments on this node",
-            onclick: toggleDrain,
-        }, machine.draining ? "Undrain" : "Drain"),
-        button({
-            type: "button",
-            class: actionClass + "border-red-800 text-red-300 hover:bg-red-900/40",
-            disabled: () => busy.val,
-            "data-testid": `node-evict-${machine.identifier}`,
-            title: "Permanently remove this node from the cluster",
-            onclick: openEvict,
-        }, "Evict"),
-        () => error.val ? span({class: "text-xs text-red-400"}, error.val) : '',
-        () => overlay.val || '',
+            type: "button", "aria-label": "Close details",
+            class: "absolute right-1.5 top-1.5 z-[6] inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-white/10 hover:text-gray-100 cursor-pointer",
+            onclick: () => { selectedId.val = null; },
+        }, closeIcon({class: "h-3.5 w-3.5"})),
+        () => {
+            const machine = selectedMachine();
+            return machine
+                ? div({class: "contents"}, ...inspectorBody(machine))
+                : div({class: "px-3 py-6 text-xs text-gray-500"}, "Select a node to see its details.");
+        },
+    );
+
+    van.derive(() => { if (selectedId.val === null) spacesEditing.val = false; });
+
+    const nodesPanel = div(
+        {class: "flex h-full min-h-0 flex-col", "data-testid": "nodes-tab-panel"},
+        toolbar(
+            searchBox(search, "Search nodes"),
+            div({class: "flex-1"}),
+            () => evictedNodes().length
+                ? toggleButton(`Evicted (${evictedNodes().length})`, showEvicted, {title: "Show nodes removed from the cluster"})
+                : ""),
+        div({class: "flex flex-1 min-h-0 min-w-0"},
+            div({class: "app-scroll relative flex-1 min-h-0 min-w-0 overflow-y-auto"},
+                () => deploymentsStreamS.val.status !== "connected" && machinesS.val.length === 0
+                    ? p({class: "px-3 py-3 text-gray-400"}, "Loading...")
+                    : nodesTable()),
+            () => selectedId.val !== null ? inspector() : ""),
+    );
+
+    // --- enrollments tab ------------------------------------------------------
+
+    const installCommand = () => secondaryInstallCommand(systemConfigS.val?.settings, enrollmentInfo.val, primaryOpenDeployVersion());
+
+    const enrollmentNameDrafts = new Map();
+
+    const enrollmentRow = (req) => {
+        const nodeName = van.state(enrollmentNameDrafts.get(req.id) ?? `node-${req.id}`);
+        const accepting = van.state(false);
+        const rowError = van.state(null);
+        const accept = async () => {
+            const name = nodeName.val.trim();
+            if (!name) { rowError.val = "Node name is required"; return; }
+            accepting.val = true;
+            rowError.val = null;
+            try {
+                await capi.postV1NodesEnrollmentsAccept({id: req.id, nodeName: name, expectedSeq: Number(req.seq || 0)});
+                enrollmentNameDrafts.delete(req.id);
+            } catch (e) {
+                rowError.val = e.message;
+            } finally {
+                accepting.val = false;
+            }
+        };
+        return tr(
+            {class: "border-b border-gray-800/80 last:border-0 align-middle", "data-testid": `enrollment-request-${req.id}`},
+            td({class: "truncate py-1.5 pl-3 pr-3"},
+                div({class: "flex min-w-0 items-center gap-2"},
+                    span({class: "flex-none text-gray-200"}, `#${req.id}`),
+                    span({class: "truncate font-mono text-gray-400", title: req.requestingMachineId}, req.requestingMachineId))),
+            td({class: "truncate py-1.5 pr-3 font-mono text-gray-300"}, req.requestingIpAddress || "-"),
+            td({class: "truncate py-1.5 pr-3 font-mono text-gray-400"}, req.opendeployVersion || "-"),
+            td({class: "truncate py-1.5 pr-3 text-gray-400 tabular-nums", title: absoluteTime(req.createdAt)}, relativeTime(req.createdAt)),
+            td({class: "py-1 pr-3"},
+                div({class: "flex items-center gap-2"},
+                    input({
+                        "data-testid": "enrollment-node-name-input",
+                        class: "text-input toolbar-input w-44 text-xs",
+                        value: nodeName,
+                        "aria-label": `Name for enrollment request ${req.id}`,
+                        oninput: (e) => { nodeName.val = e.target.value; enrollmentNameDrafts.set(req.id, e.target.value); },
+                        onkeydown: (e) => { if (e.key === "Enter") accept(); },
+                    }),
+                    button({
+                        type: "button", "data-testid": "enrollment-accept-button",
+                        class: "toolbar-button border-brand/60 bg-brand/15 text-blue-100 hover:bg-brand/30",
+                        disabled: () => accepting.val,
+                        onclick: accept,
+                    }, () => accepting.val ? "Accepting..." : "Accept"),
+                    () => rowError.val ? span({class: "text-xs text-red-400"}, rowError.val) : "")),
+        );
+    };
+
+    const pendingTable = () => {
+        const pending = pendingEnrollments();
+        if (!pending.length) return emptyLine("No pending enrollment requests.");
+        return table({class: "w-full table-fixed text-[13px]"},
+            colgroup(col({style: "width:30%"}), col({style: "width:14%"}), col({style: "width:10%"}), col({style: "width:12%"}), col({style: "width:34%"})),
+            headerRow(["Request", "pl-3"], ["Remote IP"], ["Version"], ["Requested"], ["Accept as"]),
+            tbody(...pending.map(enrollmentRow)));
+    };
+
+    const installBlock = () => {
+        const command = installCommand();
+        if (configError.val) return p({class: "px-3 py-2 text-xs text-red-400"}, configError.val);
+        return div({class: "flex flex-col gap-2 px-3 py-2.5"},
+            p({class: "text-xs text-gray-400"},
+                "Run this on the machine you want to add. It installs the agent, connects to the enrollment listener and waits here under Pending requests until it is accepted."),
+            div({class: "relative"},
+                command
+                    ? code({class: "app-scroll-x block overflow-x-auto whitespace-pre rounded bg-code p-3 pr-20 text-xs text-gray-200"}, command)
+                    : p({class: "rounded bg-code p-3 text-xs text-gray-500"}, "Loading primary version, cluster addresses, and enrollment fingerprint..."),
+                div({class: "absolute right-2 top-2"}, copyButton(installCommand, {label: "Copy"}))));
+    };
+
+    const enrollmentsPanel = div(
+        {class: "flex h-full min-h-0 flex-col", "data-testid": "enrollments-tab-panel"},
+        div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"},
+            explorerBand(open.pending, "Pending requests", () => String(pendingEnrollments().length)),
+            () => open.pending.val ? div({class: "flex flex-col"},
+                p({class: "px-3 pt-2 pb-1 text-xs text-gray-500"}, "Accepting a request names the node and issues its cluster client certificate."),
+                pendingTable) : "",
+            explorerBand(open.install, "Install a secondary", ""),
+            () => open.install.val ? installBlock() : ""),
+    );
+
+    // --- replication tab ----------------------------------------------------------
+
+    const tile = (labelText, value, {tone = "text-gray-200", testId = "", hint = ""} = {}) => div(
+        {class: "flex min-w-0 flex-col gap-1 rounded border border-gray-800 bg-black/20 px-3 py-2.5"},
+        span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, labelText),
+        span({class: `truncate font-mono text-sm ${tone}`, "data-testid": testId, title: hint}, value));
+
+    const replicationBody = () => {
+        const status = backupStatusS.val;
+        const configured = Boolean(status?.configured);
+        if (!configured && !assetsSyncing(status) && !status?.assetError) {
+            return div({class: "flex flex-col gap-2 px-3 py-4"},
+                p({class: "text-sm text-gray-300"}, "Backups are not configured."),
+                p({class: "text-xs text-gray-500"}, "Set a backup target under Settings to replicate the primary database and assets off this node."));
+        }
+        const lag = Math.max(0, Number(status.localTxid || 0) - Number(status.remoteTxid || 0));
+        const lastSync = asDate(status.lastSuccessfulSyncAt);
+        return div({class: "flex flex-col gap-3 px-3 py-3", "data-testid": "backup-replication-card"},
+            div({class: "flex flex-wrap items-center gap-2"},
+                backupStatusBadge(status),
+                span({class: "text-xs text-gray-400"}, backupStatusSentence(status))),
+            div({class: "grid grid-cols-2 gap-2 md:grid-cols-4"},
+                tile("Local TXID", String(status.localTxid || 0), {testId: "backup-replication-local-txid"}),
+                tile("Remote TXID", String(status.remoteTxid || 0), {testId: "backup-replication-remote-txid"}),
+                tile("Lag", lag === 0 ? "0" : `${lag} tx`, {tone: lag === 0 ? "text-green-300" : "text-amber-300", hint: "Transactions the remote copy is behind the primary"}),
+                tile("Last successful sync", lastSync ? `${formatDateTime(lastSync)} · ${relativeTime(lastSync)}` : "never",
+                    {tone: lastSync ? "text-gray-200" : "text-gray-500", testId: "backup-replication-last-sync", hint: absoluteTime(lastSync)})),
+            assetsSyncing(status)
+                ? div({class: "rounded border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200"},
+                    `${status.assetPending || 0} asset(s) ${assetPendingDescription(status)}.`)
+                : "",
+            status.assetError
+                ? div({class: "rounded border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200 break-words"},
+                    span({class: "font-semibold"}, "Asset sync: "), status.assetError)
+                : "",
+            status.error
+                ? div({class: "rounded border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200 break-words", "data-testid": "backup-replication-error"},
+                    span({class: "font-semibold"}, "Database replication: "), status.error)
+                : "");
+    };
+
+    const replicationPanel = div(
+        {class: "flex h-full min-h-0 flex-col", "data-testid": "replication-tab-panel"},
+        div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"}, replicationBody),
+    );
+
+    // --- tab strip ------------------------------------------------------------
+
+    const tabButton = ({id, title, count, badge, first = false}) => {
+        const active = () => activeTab.val === id;
+        return div(
+            {
+                role: "tab",
+                "aria-selected": () => String(active()),
+                "data-testid": `nodes-tab-${id}`,
+                tabindex: 0,
+                class: () => `relative -mb-px flex h-8 shrink-0 cursor-pointer select-none items-center gap-1.5 border border-b-0 px-3 text-xs transition-colors ${first ? "rounded-tr-md border-l-0" : "rounded-t-md"} ` + (active()
+                    ? "border-gray-700 bg-surface text-white"
+                    : "border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200"),
+                onclick: () => { activeTab.val = id; },
+                onkeydown: (event) => {
+                    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activeTab.val = id; }
+                },
+            },
+            span({class: "font-medium"}, title),
+            count ? span({class: () => `rounded px-1 text-[10px] tabular-nums ${active() ? "bg-white/10 text-gray-300" : "bg-white/5 text-gray-500"}`}, count) : "",
+            badge ? badge : "",
+        );
+    };
+
+    const replicationDot = () => span({
+        class: () => `inline-block h-1.5 w-1.5 rounded-full ${backupToneDot(backupStatusS.val)}`,
+        title: () => backupStatusLabel(backupStatusS.val),
+    });
+
+    const tabStrip = div(
+        {class: "flex h-[34px] flex-none flex-nowrap items-end gap-0.5 border-b border-gray-700 bg-gray-900/80 pr-2 pt-0.5", role: "tablist", "aria-label": "Nodes"},
+        tabButton({id: NODES, title: "Nodes", count: () => String(liveNodes().length), first: true}),
+        tabButton({id: ENROLLMENTS, title: "Enrollments", count: () => String(pendingEnrollments().length)}),
+        tabButton({id: REPLICATION, title: "Replication", badge: replicationDot()}),
+    );
+
+    const panel = (id, content) => div({class: () => `h-full min-h-0 min-w-0 ${activeTab.val === id ? "" : "hidden"}`}, content);
+
+    return div(
+        {class: "flex h-full min-h-0 min-w-0 flex-col bg-surface", "data-testid": "nodes-page"},
+        tabStrip,
+        div({class: "relative flex-1 min-h-0 min-w-0"},
+            panel(NODES, nodesPanel),
+            panel(ENROLLMENTS, enrollmentsPanel),
+            panel(REPLICATION, replicationPanel)),
+        () => overlay.val || "",
     );
 }
 
-function evictedRow(machine) {
-    return tr(
-        {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `evicted-row-${machine.identifier}`},
-        td({class: "py-1 pr-3 text-gray-300 font-mono w-[24rem]"}, machine.name || '-'),
-        td({class: "py-1 pr-3 font-mono text-gray-400"}, machine.identifier || '-'),
-        td({class: "py-1 text-gray-400"}, machine.eventTime ? formatTime(machine.eventTime) : '-'),
-    );
-}
-
-function backupStatusBadge(status) {
-    const label = backupStatusLabel(status);
-    const klass = status?.error || status?.assetError
-        ? "bg-red-950 text-red-300 border-red-800"
-        : status?.inSync && !assetsSyncing(status)
-            ? "bg-green-950 text-green-300 border-green-800"
-            : status?.configured || assetsSyncing(status)
-                ? "bg-yellow-950 text-yellow-300 border-yellow-800"
-                : "bg-gray-800 text-gray-300 border-gray-700";
-    return span({class: klass + " px-2 py-0.5 rounded border text-xs font-medium", "data-testid": "backup-replication-status"}, label);
-}
-
-function backupStatusLabel(status) {
-    if (status?.error || status?.assetError) return "error";
-    if (assetsSyncing(status)) return assetSyncLabel(status);
-    if (!status || !status.configured) return "not configured";
-    if (!status.running) return "not running";
-    if (status.inSync) return "in sync";
-    return "syncing";
-}
+// --- backup status ------------------------------------------------------------
 
 function assetsSyncing(status) {
     return (status?.assetPending || 0) > 0;
@@ -403,43 +707,47 @@ function assetPendingDescription(status) {
     return status.assetTargetS3 ? "waiting to move to S3" : "waiting to move to local storage";
 }
 
-function backupStatusDetails(status) {
-    if ((!status || !status.configured) && !assetsSyncing(status) && !status?.assetError) {
-        return p({class: "text-sm text-gray-400"}, "Backups are not configured.");
-    }
-    return div(
-        {class: "grid grid-cols-1 md:grid-cols-3 gap-3 text-sm"},
-        detailCell("Local TXID", String(status.localTxid || 0), "backup-replication-local-txid"),
-        detailCell("Remote TXID", String(status.remoteTxid || 0), "backup-replication-remote-txid"),
-        detailCell("Last successful sync", formatTime(status.lastSuccessfulSyncAt), "backup-replication-last-sync"),
-        assetsSyncing(status)
-            ? div({class: "md:col-span-3 text-amber-300 text-xs"},
-                `${status.assetPending || 0} asset(s) ${assetPendingDescription(status)}.`)
-            : "",
-        status.assetError ? div({class: "md:col-span-3 text-red-300 text-xs break-words"}, status.assetError) : "",
-        status.error ? div({class: "md:col-span-3 text-red-300 text-xs break-words", "data-testid": "backup-replication-error"}, status.error) : "",
-    );
+function backupStatusLabel(status) {
+    if (status?.error || status?.assetError) return "error";
+    if (assetsSyncing(status)) return assetSyncLabel(status);
+    if (!status || !status.configured) return "not configured";
+    if (!status.running) return "not running";
+    if (status.inSync) return "in sync";
+    return "syncing";
 }
 
-function detailCell(label, value, testId) {
-    return div(
-        {class: "rounded border border-gray-800 bg-black/20 p-3"},
-        div({class: "text-xs text-gray-500 mb-1"}, label),
-        div({class: "text-gray-200 font-mono break-all", "data-testid": testId}, value),
-    );
+function backupStatusSentence(status) {
+    if (status?.error || status?.assetError) return "Replication is reporting an error; the details are below.";
+    if (assetsSyncing(status)) return "Assets are still being moved to their configured target.";
+    if (!status?.running) return "Backups are configured but the replication worker is not running.";
+    if (status.inSync) return "The remote copy matches the primary database.";
+    return "The remote copy is catching up with the primary database.";
 }
 
-function installCommandBlock(command) {
-    if (!command) {
-        return p({class: "text-xs text-gray-500"}, "Loading primary version, cluster addresses, and enrollment fingerprint...");
-    }
-    return code({class: "app-scroll-x block overflow-x-auto whitespace-pre rounded bg-gray-950 p-3 text-xs text-gray-200"}, command);
+function backupToneDot(status) {
+    if (status?.error || status?.assetError) return "bg-red-400";
+    if (status?.inSync && !assetsSyncing(status)) return "bg-green-400";
+    if (status?.configured || assetsSyncing(status)) return "bg-yellow-400";
+    return "bg-gray-600";
 }
+
+function backupStatusBadge(status) {
+    const klass = status?.error || status?.assetError
+        ? "bg-red-950 text-red-300 border-red-800"
+        : status?.inSync && !assetsSyncing(status)
+            ? "bg-green-950 text-green-300 border-green-800"
+            : status?.configured || assetsSyncing(status)
+                ? "bg-yellow-950 text-yellow-300 border-yellow-800"
+                : "bg-gray-800 text-gray-300 border-gray-700";
+    return span({class: klass + " rounded border px-2 py-0.5 text-xs font-medium", "data-testid": "backup-replication-status"}, backupStatusLabel(status));
+}
+
+// --- install command (as src/pages/cluster.js builds it) -------------------------
 
 function primaryOpenDeployVersion() {
-    const primaryID = Number(machinesS.val.find(machine => machine.isPrimary)?.id || 0);
+    const primaryID = Number(machinesS.val.find((machine) => machine.isPrimary)?.id || 0);
     if (!primaryID) return "";
-    const deployment = deploymentsS.val.find(item => placementNodeId(item.config) === primaryID && isSelfDeployment(item.config));
+    const deployment = deploymentsS.val.find((item) => placementNodeId(item.config) === primaryID && isSelfDeployment(item.config));
     return (deployment?.status?.runner?.runningVersion || deploymentWorkload(deployment?.config)?.version || "").trim();
 }
 
@@ -464,17 +772,16 @@ function resolveStringSetting(setting) {
     const refID = Number(value.configRef?.configId || 0);
     const refVersion = Number(value.configRef?.version || 0);
     if (!refID || !refVersion) return (value.literal || "").trim();
-    const item = (userConfigRefsS.val || []).find(ref => Number(ref.stableId || 0) === refID && Number(ref.version || 0) === refVersion);
+    const item = (userConfigRefsS.val || []).find((ref) => Number(ref.stableId || 0) === refID && Number(ref.version || 0) === refVersion);
     return (item?.value || "").trim();
 }
 
 function dialAddress(listen) {
     const value = (listen || "").trim();
     if (!value) return "";
-
     const port = listenPort(value);
     if (value.startsWith(":") || value.startsWith("0.0.0.0:") || value.startsWith("[::]:")) {
-        return hostPort(browserHost(), port);
+        return hostPort(window.location.hostname, port);
     }
     return value;
 }
@@ -486,76 +793,8 @@ function listenPort(value) {
     return hostPortMatch ? hostPortMatch[1] : "";
 }
 
-function browserHost() {
-    if (typeof window === "undefined") return "";
-    return window.location.hostname;
-}
-
 function hostPort(host, port) {
     if (!host || !port) return "";
     const formattedHost = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
     return `${formattedHost}:${port}`;
-}
-
-// Rows are recreated on every enrollment stream update, so a name the user is
-// typing must survive the re-render or a late update silently reverts the
-// accept to the default name.
-const enrollmentNameDrafts = new Map();
-
-function enrollmentRow(req) {
-    const nodeName = van.state(enrollmentNameDrafts.get(req.id) ?? `node-${req.id}`);
-    const accepting = van.state(false);
-    const rowError = van.state(null);
-
-    const accept = async () => {
-        const name = nodeName.val.trim();
-        if (!name) {
-            rowError.val = "Node name is required";
-            return;
-        }
-        accepting.val = true;
-        rowError.val = null;
-        try {
-            await capi.postV1NodesEnrollmentsAccept({id: req.id, nodeName: name, expectedSeq: Number(req.seq || 0)});
-            enrollmentNameDrafts.delete(req.id);
-        } catch (e) {
-            rowError.val = e.message;
-        } finally {
-            accepting.val = false;
-        }
-    };
-
-    return tr(
-        {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `enrollment-request-${req.id}`},
-		td({class: "py-3 pr-6"},
-			div({class: "text-white font-medium"}, `#${req.id}`),
-			div({class: "text-xs text-gray-500 font-mono break-all"}, req.requestingMachineId),
-			req.opendeployVersion ? div({class: "text-xs text-gray-400 font-mono"}, req.opendeployVersion) : '',
-		),
-        td({class: "py-3 pr-6 text-gray-300"}, req.requestingIpAddress || "-"),
-        td({class: "py-3 pr-6 text-gray-400"}, formatTime(req.createdAt)),
-        td({class: "py-3"},
-            div({class: "flex flex-col gap-2"},
-                div({class: "flex gap-2"},
-                    input({
-                        "data-testid": "enrollment-node-name-input",
-                        class: "text-input w-44",
-                        value: nodeName,
-                        oninput: e => {
-                            nodeName.val = e.target.value;
-                            enrollmentNameDrafts.set(req.id, e.target.value);
-                        },
-                    }),
-                    button({
-                        type: "button",
-                        "data-testid": "enrollment-accept-button",
-                        class: "btn-primary",
-                        disabled: () => accepting.val,
-                        onclick: accept,
-                    }, () => accepting.val ? "Accepting..." : "Accept"),
-                ),
-				() => rowError.val ? p({class: "text-xs text-red-400"}, rowError.val) : '',
-			)
-		),
-    );
 }

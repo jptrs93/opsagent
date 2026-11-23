@@ -43,9 +43,9 @@ type Initial struct {
 	ClusterListen      string
 	EnrollmentListen   string
 	MasterPasswordHash string
-	// PasswordLoginEnabled opts the Web UI into username/password login next
-	// to passkeys. Off by default; local and evaluation installs turn it on.
-	PasswordLoginEnabled bool
+	// RequirePasskey turns password sign-in off so only passkeys open a
+	// session. Off by default.
+	RequirePasskey bool
 }
 
 func DefaultInitial() Initial {
@@ -112,12 +112,14 @@ func DefaultSettings(initial Initial) *apigen.ClusterSettings {
 			KeepLocalCopy: BoolLiteral(false),
 		},
 		Auth: apigen.AuthSettings{
-			PasswordLoginEnabled: BoolLiteral(initial.PasswordLoginEnabled),
+			PasswordLoginEnabled: BoolLiteral(false),
+			RequirePasskey:       BoolLiteral(initial.RequirePasskey),
 		},
 	}
 }
 
 func NormalizeSettings(settings apigen.ClusterSettings) apigen.ClusterSettings {
+	apigen.FillClusterSettingDefaults(&settings)
 	return settings
 }
 

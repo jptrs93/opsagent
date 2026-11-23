@@ -15,6 +15,7 @@ export const VERB_GLOSS = {
     reveal: "read secret values in plain text",
     use_host_mounts: "mount host paths into a deployment",
     use_host_network: "run a deployment on the host network",
+    use_privileged_ports: "give a deployment a host port below 1024",
 };
 
 export const ENTITY_GLOSS = {
@@ -25,7 +26,7 @@ export const ENTITY_GLOSS = {
     asset: "assets",
     node: "nodes",
     cluster: "cluster settings, backup and export",
-    user: "the user roster",
+    user: "the user roster: adding users and issuing their sign-in links",
     access: "roles, grants and global rules",
 };
 
@@ -44,6 +45,7 @@ export const PAIR_GLOSS = {
     "deployment:view_logs": "read a deployment's logs, build output, metrics and run reports",
     "deployment:use_host_mounts": "save a deployment spec that mounts host paths",
     "deployment:use_host_network": "save a deployment spec that runs on the host network",
+    "deployment:use_privileged_ports": "save a deployment spec that forwards a host port below 1024, or takes one other than 443 for TLS passthrough",
     "secret:create": "make new secrets, typed in or generated",
     "secret:update": "set a new value for a secret, rename or move it",
     "secret:delete": "delete a secret",
@@ -63,6 +65,7 @@ export const PAIR_GLOSS = {
     "node:view": "see nodes and pending enrolments",
     "cluster:update": "change cluster settings and the master password, unlock secrets, reset Nix stores",
     "cluster:view": "read cluster settings and the exported config",
+    "user:create": "add users and issue their enrol and recovery links; both also need create on access",
     "user:view": "see the user roster",
     "access:create": "make roles, grants and global rules",
     "access:update": "edit roles",
@@ -176,13 +179,13 @@ export function grantSubject(record, {templatesById, spaceNames, spaces}) {
 // matrix greys it out instead of showing a cross.
 export const APPLICABLE = {
     space: ["create", "update", "delete", "view"],
-    deployment: ["create", "update", "delete", "view", "view_logs", "use_host_mounts", "use_host_network"],
+    deployment: ["create", "update", "delete", "view", "view_logs", "use_host_mounts", "use_host_network", "use_privileged_ports"],
     secret: ["create", "update", "delete", "view", "reveal"],
     config: ["create", "update", "delete", "view"],
     asset: ["create", "update", "delete", "view"],
     node: ["create", "update", "delete", "view"],
     cluster: ["update", "view"],
-    user: ["view"],
+    user: ["create", "view"],
     access: ["create", "update", "delete", "view"],
 };
 
@@ -193,7 +196,8 @@ export const APPLICABLE = {
 // workload updated and a stale one deleted, but a user never creates them.
 // Updating a deployment re-checks the host permissions its saved spec uses,
 // and the system deployments use host networking and host mounts, so those
-// two apply there as well. Secrets, configs and assets never live in space 0
+// two apply there as well; they claim no host port, so use_privileged_ports
+// does not. Secrets, configs and assets never live in space 0
 // (the API folds it into the default space) and _system itself cannot be
 // renamed or deleted.
 export const SYSTEM_APPLICABLE = {
@@ -201,7 +205,7 @@ export const SYSTEM_APPLICABLE = {
     deployment: ["update", "delete", "view", "view_logs", "use_host_mounts", "use_host_network"],
     node: ["create", "update", "delete", "view"],
     cluster: ["update", "view"],
-    user: ["view"],
+    user: ["create", "view"],
     access: ["create", "update", "delete", "view"],
 };
 
@@ -219,6 +223,7 @@ export const SPACE_APPLICABLE = {
 export const VERB_SHORT = {
     create: "create", update: "update", delete: "delete", view: "view",
     view_logs: "logs", reveal: "reveal", use_host_mounts: "host mounts", use_host_network: "host net",
+    use_privileged_ports: "low ports",
 };
 export const ENTITY_SHORT = {
     space: "space", deployment: "deploy", secret: "secret", config: "config", asset: "asset",
@@ -226,7 +231,7 @@ export const ENTITY_SHORT = {
 };
 
 const NA_BY_TYPE = {
-    user: "users come into existence at sign-in; the roster can only be viewed",
+    user: "users can only be created or viewed; each user changes their own account",
     cluster: "cluster settings can only be viewed or updated",
 };
 
@@ -236,10 +241,11 @@ export const notApplicableReason = (verb, type, system = null) => {
     if (!APPLICABLE[type].includes(verb)) {
         if (verb === "reveal") return "reveal applies to secrets only";
         if (verb === "view_logs") return "view_logs applies to deployments only";
-        if (verb.startsWith("use_host")) return `${verb} applies to deployments only`;
+        if (verb.startsWith("use_")) return `${verb} applies to deployments only`;
         return NA_BY_TYPE[type] || `${verb} does not apply to ${typePlural(type)}`;
     }
     if (system) {
+        if (type === "deployment" && verb === "use_privileged_ports") return "the system deployments claim no host ports";
         if (type === "deployment") return "deployments in _system are the per-node system deployments, created by opendeploy itself";
         if (type === "space") return "the _system space cannot be renamed or deleted";
         return `${typePlural(type)} live in real spaces, never in _system`;

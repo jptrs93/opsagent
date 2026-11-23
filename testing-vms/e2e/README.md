@@ -28,11 +28,18 @@ FLOWS=bootstrap-enroll-nixdocker bash testing-vms/run.sh
 names and run serially after the baseline suite in the same authenticated browser
 context.
 
+`cases/enrol-links.js` runs right after the password round trip: the admin
+enrols a user from the Users page and takes the one-time link, a fresh browser
+context redeems it (password set on the landing page, passkey offer skipped),
+the same link is refused a second time, the invitee signs in with the chosen
+password, and a recovery link is cancelled from the Sessions page before use.
+
 `cases/access-enforcement.js` runs mid-flow, after the asset-backed baseline
 content exists. It opens a second browser context with its own virtual
-authenticator, creates a second user through the setup-password bootstrap flow,
-revokes its automatic cluster_admin grant, and verifies the live state stream
-empties that session. The admin then creates the `e2e-restricted` space and
+authenticator, creates a second user through the master-password enrol flow
+(enrolled as cluster_admin with a password and signed in directly), revokes
+that cluster_admin grant, and verifies the live state stream empties that
+session. The admin then creates the `e2e-restricted` space and
 grants space_admin bound to it, and the restricted session verifies scoped
 visibility (its space, the node/user directory, no default-space content), the
 cluster settings withheld on a fresh stream (the settings check reloads first,
@@ -101,7 +108,7 @@ Cross-node cases target literal addresses read out of the server's own output
 (`netprobe address … inbound=…`), because `.internal` names resolve only on the
 node holding the deployment and an `address()` env ref cannot cross a space
 boundary. Coverage and the reasoning behind each case are documented in
-`docs/future-work/network-policy-e2e-coverage.md`.
+`docs/engineering/network-policy-e2e-coverage.md`.
 
 Kernel-level policy assertions — anti-spoofing, the machine-local IPv4 close,
 drop-counter attribution, netaudit divergence, and re-derivation after an agent

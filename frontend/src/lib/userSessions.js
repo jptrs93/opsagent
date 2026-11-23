@@ -1,24 +1,30 @@
 // Pure helpers for the user sessions list. Kept free of van and capi
 // imports so they can be unit tested outside a browser.
 
-// UserSessionKind on the wire: 0 is a full session, 1 a bootstrap session
-// opened by master-password exchange that may only register a passkey.
-export const USER_SESSION_KIND_BOOTSTRAP = 1;
+// UserSessionKind on the wire: 0 is a full session; 1 a root session opened
+// with the master password, which has no user and may only enrol or recover
+// users; 2 an enrolment or recovery link, never a bearer, redeemed once.
+export const USER_SESSION_KIND_FULL = 0;
+export const USER_SESSION_KIND_ROOT = 1;
+export const USER_SESSION_KIND_LINK = 2;
 
-export const isBootstrapSession = (session) => Number(session?.kind || 0) === USER_SESSION_KIND_BOOTSTRAP;
+export const isRootSession = (session) => Number(session?.kind || 0) === USER_SESSION_KIND_ROOT;
+export const isLinkSession = (session) => Number(session?.kind || 0) === USER_SESSION_KIND_LINK;
 
 const validTime = (value) => value instanceof Date && value.getTime() > 0;
 
 export function userSessionStatus(session, now = Date.now()) {
-    if (validTime(session?.revokedAt)) return {label: "Revoked", tone: "text-gray-500"};
+    if (validTime(session?.revokedAt)) return {label: isLinkSession(session) ? "Cancelled" : "Revoked", tone: "text-gray-500"};
+    if (isLinkSession(session) && validTime(session?.redeemedAt)) return {label: "Redeemed", tone: "text-gray-400"};
     if (validTime(session?.expiresAt) && session.expiresAt.getTime() <= now) {
         return {label: "Expired", tone: "text-gray-500"};
     }
-    return {label: "Active", tone: "text-green-400"};
+    return isLinkSession(session) ? {label: "Unused", tone: "text-amber-300"} : {label: "Active", tone: "text-green-400"};
 }
 
 export function userSessionLive(session, now = Date.now()) {
-    return userSessionStatus(session, now).label === "Active";
+    const label = userSessionStatus(session, now).label;
+    return label === "Active" || label === "Unused";
 }
 
 export function summarizeUserAgent(ua) {

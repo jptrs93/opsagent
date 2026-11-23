@@ -2,6 +2,7 @@ package netaudit
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 
 	"github.com/jptrs93/opsagent/backend/lib/network"
@@ -80,6 +81,40 @@ func TestExpectedDNATKeysFiltered(t *testing.T) {
 	for key := range want {
 		if _, ok := keys[key]; !ok {
 			t.Fatalf("missing key %q in %v", key, keys)
+		}
+	}
+}
+
+func TestExpectedDNATKeysSkipLoopback(t *testing.T) {
+	rule := hostPortRule(8080)
+	rule.SkipLoopback = true
+	keys := expectedDNATKeys([]network.HostPortRule{rule})
+	want := []string{
+		"ip prerouting tcp daddr != loopback dport 8080 -> 10.100.0.2:8080",
+		"ip output tcp daddr != loopback dport 8080 -> 10.100.0.2:8080",
+		"ip6 prerouting tcp daddr != loopback dport 8080 -> [fd5a:1::2]:8080",
+		"ip6 output tcp daddr != loopback dport 8080 -> [fd5a:1::2]:8080",
+	}
+	if len(keys) != len(want) {
+		t.Fatalf("keys = %v, want %v", keys, want)
+	}
+	for _, key := range want {
+		if _, ok := keys[key]; !ok {
+			t.Fatalf("missing key %q in %v", key, keys)
+		}
+	}
+	desired := network.AuditState{HostPortRules: []network.HostPortRule{rule}}
+	if diff := Compare(desired, kernelWithRules(rule)); !diff.InSync() {
+		t.Fatalf("expected in sync, got %+v", diff)
+	}
+	diff := Compare(desired, kernelWithRules(hostPortRule(8080)))
+	if len(diff.MissingNft) != 4 || len(diff.UnexpectedNft) != 4 {
+		t.Fatalf("rules written before the loopback exclusion must diverge, got %+v", diff)
+	}
+	rule.Dest = []netip.Prefix{netip.MustParsePrefix("203.0.113.10/32")}
+	for key := range expectedDNATKeys([]network.HostPortRule{rule}) {
+		if strings.Contains(key, "loopback") {
+			t.Fatalf("a destination-restricted rule needs no loopback exclusion: %q", key)
 		}
 	}
 }

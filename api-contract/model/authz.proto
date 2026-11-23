@@ -18,6 +18,7 @@ enum AuthzVerb {
   AUTHZ_VERB_REVEAL = 6;
   AUTHZ_VERB_USE_HOST_MOUNTS = 7;   // required when a deployment spec uses host mounts
   AUTHZ_VERB_USE_HOST_NETWORK = 8;  // required when a deployment spec uses host networking
+  AUTHZ_VERB_USE_PRIVILEGED_PORTS = 9;  // required when a deployment spec claims a host port below 1024
 }
 
 enum AuthzEntityKind {

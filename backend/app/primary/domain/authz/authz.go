@@ -300,29 +300,36 @@ func (s *Service) templateNameTakenLocked(name string, excludeID uint64) bool {
 	return false
 }
 
+func (s *Service) validateGrantSourceLocked(src *apigen.AuthzGrantSource) error {
+	if src.Value.Validate() != nil {
+		return invalidf("authz: grant must set exactly one of template and rule")
+	}
+	switch {
+	case src.Value.Rule != nil:
+		if err := validateRule(src.Value.Rule); err != nil {
+			return fmt.Errorf("authz: grant rule: %w", err)
+		}
+	case src.Value.Template != nil:
+		tg := src.Value.Template
+		t := s.templates[tg.TemplateID]
+		if t == nil {
+			return fmt.Errorf("authz: grant template %d: %w", tg.TemplateID, ErrNotFound)
+		}
+		if err := validateArgs(t, tg.Args); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *Service) CreateGrant(g *apigen.AuthzGrant, author int64) (*apigen.AuthzGrant, error) {
 	if g == nil || g.UserID == 0 {
 		return nil, invalidf("authz: grant requires a user id")
 	}
-	if g.Grant.Value.Validate() != nil {
-		return nil, invalidf("authz: grant must set exactly one of template and rule")
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	switch {
-	case g.Grant.Value.Rule != nil:
-		if err := validateRule(g.Grant.Value.Rule); err != nil {
-			return nil, fmt.Errorf("authz: grant rule: %w", err)
-		}
-	case g.Grant.Value.Template != nil:
-		tg := g.Grant.Value.Template
-		t := s.templates[tg.TemplateID]
-		if t == nil {
-			return nil, fmt.Errorf("authz: grant template %d: %w", tg.TemplateID, ErrNotFound)
-		}
-		if err := validateArgs(t, tg.Args); err != nil {
-			return nil, err
-		}
+	if err := s.validateGrantSourceLocked(&g.Grant); err != nil {
+		return nil, err
 	}
 	rec := cloneGrant(g)
 	id, err := insertGrant(s.store, GrantRow{
@@ -337,6 +344,52 @@ func (s *Service) CreateGrant(g *apigen.AuthzGrant, author int64) (*apigen.Authz
 	rec.ID = id
 	s.grantsByUser[rec.UserID] = append(s.grantsByUser[rec.UserID], rec)
 	return cloneGrant(rec), nil
+}
+
+// GrantMutations is what a caller writing grants inside its own commit
+// gets from CreateGrantsWithin: given the queries, the commit's seq and the
+// user id the caller allocated, it builds the grant creates.
+type GrantMutations func(q *pq.Queries, seq int64, userID uint64) ([]pq.Mutation, error)
+
+// CreateGrantsWithin validates the sources, then runs commit with a builder
+// for their mutations, so a user and its grants land in one commit. The
+// cache takes the grants once commit returns without error. The service
+// lock is held throughout, as it is for CreateGrant.
+func (s *Service) CreateGrantsWithin(sources []apigen.AuthzGrantSource, author int64, commit func(build GrantMutations) error) ([]*apigen.AuthzGrant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range sources {
+		if err := s.validateGrantSourceLocked(&sources[i]); err != nil {
+			return nil, err
+		}
+	}
+	var recs []*apigen.AuthzGrant
+	build := func(q *pq.Queries, seq int64, userID uint64) ([]pq.Mutation, error) {
+		recs = recs[:0]
+		now := s.now().UnixMilli()
+		ms := make([]pq.Mutation, 0, len(sources))
+		for _, src := range sources {
+			id, err := q.NextEntityID(context.Background(), apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT)
+			if err != nil {
+				return nil, err
+			}
+			rec := cloneGrant(&apigen.AuthzGrant{ID: id, UserID: userID, Grant: src})
+			recs = append(recs, rec)
+			ms = append(ms, pq.AuthzGrantMutation(meta(seq, now, author, apigen.AuthzVerb_AUTHZ_VERB_CREATE), id, *rec))
+		}
+		return ms, nil
+	}
+	if err := commit(build); err != nil {
+		return nil, err
+	}
+	for _, rec := range recs {
+		s.grantsByUser[rec.UserID] = append(s.grantsByUser[rec.UserID], rec)
+	}
+	out := make([]*apigen.AuthzGrant, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, cloneGrant(rec))
+	}
+	return out, nil
 }
 
 func (s *Service) DeleteGrant(userID, id uint64, author int64) error {

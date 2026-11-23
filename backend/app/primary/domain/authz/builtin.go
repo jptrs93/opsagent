@@ -85,6 +85,7 @@ func builtinTemplates() []*apigen.AuthzGrantTemplate {
 		return allVerbsExcluding(
 			apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS,
 			apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK,
+			apigen.AuthzVerb_AUTHZ_VERB_USE_PRIVILEGED_PORTS,
 		)
 	}
 	// delegableRules is what an agent session inherits from the grant. Secrets
@@ -100,6 +101,7 @@ func builtinTemplates() []*apigen.AuthzGrantTemplate {
 		return allVerbsExcluding(
 			apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_MOUNTS,
 			apigen.AuthzVerb_AUTHZ_VERB_USE_HOST_NETWORK,
+			apigen.AuthzVerb_AUTHZ_VERB_USE_PRIVILEGED_PORTS,
 			apigen.AuthzVerb_AUTHZ_VERB_VIEW_LOGS,
 		)
 	}

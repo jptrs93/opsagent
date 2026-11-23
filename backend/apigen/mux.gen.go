@@ -81,6 +81,14 @@ type ApiServerHandler interface {
 	PostV1AuthPasswordLogin(Context, *PasswordLoginRequest) (*LoginResponse, error)
 	GetV1TlsCaCert(Context, *http.Request, http.ResponseWriter) error
 	GetV1AuthCurrentSession(Context) (*LoginResponse, error)
+	PostV1AuthLinkRedeem(Context, *LinkRedeemRequest) (*LinkRedeemResponse, error)
+	PostV1AuthOpenSession(Context, *OpenSessionRequest) (*LoginResponse, error)
+	PostV1UsersCreate(Context, *UserCreateRequest) (*CoreWriteUpdate, error)
+	PostV1UsersLink(Context, *UserLinkRequest) (*UserLinkResponse, error)
+	GetV1Account(Context) (*AccountView, error)
+	PostV1AccountRename(Context, *AccountRenameRequest) (*CoreWriteUpdate, error)
+	PostV1AccountPassword(Context, *AccountPasswordRequest) error
+	PostV1AccountPasskeysDelete(Context, *AccountPasskeyDeleteRequest) error
 	PostV1AuthPasskeyRegisterStart(Context) (*WebAuthNOptionsResponse, error)
 	PostV1AuthPasskeyRegisterFinish(Context, *WebAuthNFinishRequest) (*LoginResponse, error)
 	PostV1AuthPasskeyLoginStart(Context) (*WebAuthNOptionsResponse, error)
@@ -318,19 +326,138 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		}
 	}
 	m.HandleFunc("GET /v1/tls/ca.crt", buildHandlerFunc(config, verifyAuth, getV1TlsCaCertAccessPolicy, postAuthHandlerGetV1TlsCaCert, compressionModeNever, false))
-	getV1AuthCurrentSessionAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full", "bootstrap"}}
+	getV1AuthCurrentSessionAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full", "root"}}
 	postAuthHandlerGetV1AuthCurrentSession := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.GetV1AuthCurrentSession(authCtx)
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/auth/current/session", buildHandlerFunc(config, verifyAuth, getV1AuthCurrentSessionAccessPolicy, postAuthHandlerGetV1AuthCurrentSession, compressionModeAuto, false))
-	postV1AuthPasskeyRegisterStartAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full", "bootstrap"}}
+	postV1AuthLinkRedeemAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1AuthLinkRedeem := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeLinkRedeemRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AuthLinkRedeem(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/auth/link/redeem", buildHandlerFunc(config, verifyAuth, postV1AuthLinkRedeemAccessPolicy, postAuthHandlerPostV1AuthLinkRedeem, compressionModeAuto, false))
+	postV1AuthOpenSessionAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"root"}}
+	postAuthHandlerPostV1AuthOpenSession := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeOpenSessionRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AuthOpenSession(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/auth/open-session", buildHandlerFunc(config, verifyAuth, postV1AuthOpenSessionAccessPolicy, postAuthHandlerPostV1AuthOpenSession, compressionModeAuto, false))
+	postV1UsersCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full", "root"}}
+	postAuthHandlerPostV1UsersCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeUserCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1UsersCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/users/create", buildHandlerFunc(config, verifyAuth, postV1UsersCreateAccessPolicy, postAuthHandlerPostV1UsersCreate, compressionModeAuto, false))
+	postV1UsersLinkAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full", "root"}}
+	postAuthHandlerPostV1UsersLink := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeUserLinkRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1UsersLink(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/users/link", buildHandlerFunc(config, verifyAuth, postV1UsersLinkAccessPolicy, postAuthHandlerPostV1UsersLink, compressionModeAuto, false))
+	getV1AccountAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerGetV1Account := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		res, err := h.GetV1Account(authCtx)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("GET /v1/account", buildHandlerFunc(config, verifyAuth, getV1AccountAccessPolicy, postAuthHandlerGetV1Account, compressionModeAuto, false))
+	postV1AccountRenameAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1AccountRename := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAccountRenameRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1AccountRename(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/account/rename", buildHandlerFunc(config, verifyAuth, postV1AccountRenameAccessPolicy, postAuthHandlerPostV1AccountRename, compressionModeAuto, false))
+	postV1AccountPasswordAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1AccountPassword := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAccountPasswordRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AccountPassword(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/account/password", buildHandlerFunc(config, verifyAuth, postV1AccountPasswordAccessPolicy, postAuthHandlerPostV1AccountPassword, compressionModeAuto, false))
+	postV1AccountPasskeysDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1AccountPasskeysDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeAccountPasskeyDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1AccountPasskeysDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/account/passkeys/delete", buildHandlerFunc(config, verifyAuth, postV1AccountPasskeysDeleteAccessPolicy, postAuthHandlerPostV1AccountPasskeysDelete, compressionModeAuto, false))
+	postV1AuthPasskeyRegisterStartAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1AuthPasskeyRegisterStart := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		res, err := h.PostV1AuthPasskeyRegisterStart(authCtx)
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/auth/passkey/register/start", buildHandlerFunc(config, verifyAuth, postV1AuthPasskeyRegisterStartAccessPolicy, postAuthHandlerPostV1AuthPasskeyRegisterStart, compressionModeAuto, false))
-	postV1AuthPasskeyRegisterFinishAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full", "bootstrap"}}
+	postV1AuthPasskeyRegisterFinishAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1AuthPasskeyRegisterFinish := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeWebAuthNFinishRequest)
 		if err != nil {
@@ -605,7 +732,7 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/access/global-rules/delete", buildHandlerFunc(config, verifyAuth, postV1AccessGlobalRulesDeleteAccessPolicy, postAuthHandlerPostV1AccessGlobalRulesDelete, compressionModeAuto, false))
-	postV1GlobalEventsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postV1GlobalEventsAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full", "root"}}
 	postAuthHandlerPostV1GlobalEvents := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEventStreamRequest)
 		if err != nil {
@@ -620,7 +747,7 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/global/events", buildHandlerFunc(config, verifyAuth, postV1GlobalEventsAccessPolicy, postAuthHandlerPostV1GlobalEvents, compressionModeAuto, false))
-	postV1GlobalEventStreamAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postV1GlobalEventStreamAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full", "root"}}
 	postAuthHandlerPostV1GlobalEventStream := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeEventStreamRequest)
 		if err != nil {

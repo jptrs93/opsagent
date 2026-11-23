@@ -1,4 +1,4 @@
-import core "opendeploy"
+import "core"
 
 type NodeProjection mat {
     seq@1: i64

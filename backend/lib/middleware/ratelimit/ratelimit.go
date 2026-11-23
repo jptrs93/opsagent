@@ -40,6 +40,20 @@ func PerIPAndPrefix(prefix string, r rate.Limit, burst int, ttl time.Duration) a
 	}, "per-ip prefix rate limit exceeded")
 }
 
+func PerIPAndPrefixExcept(prefix string, except []string, r rate.Limit, burst int, ttl time.Duration) apigen.MiddlewareFunc {
+	return perIPWithMatcher(r, burst, ttl, func(req *http.Request) bool {
+		if !strings.HasPrefix(req.URL.Path, prefix) {
+			return false
+		}
+		for _, path := range except {
+			if req.URL.Path == path {
+				return false
+			}
+		}
+		return true
+	}, "per-ip prefix rate limit exceeded")
+}
+
 func perIPWithMatcher(r rate.Limit, burst int, ttl time.Duration, match func(*http.Request) bool, internalErr string) apigen.MiddlewareFunc {
 	var mu sync.Mutex
 	clients := map[string]*clientLimiter{}

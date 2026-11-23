@@ -1,6 +1,7 @@
 import {Buffer} from 'node:buffer';
 import crypto from 'node:crypto';
 import {accessEnforcementCases} from './access-enforcement.js';
+import {enrolLinkCases} from './enrol-links.js';
 import {caseDef as nixDockerBaselineCase} from './nix-docker-baseline.js';
 import {caseDef as nixDockerVirtualNetworkCase} from './nix-docker-virtual-network.js';
 import {nixBuildContainerCases} from './nix-build-container.js';
@@ -118,8 +119,8 @@ export const orderedCases = [
   },
   {
     id: 'bootstrap',
-    title: 'bootstrap first user',
-    description: 'Bootstraps the first operator account and registers its passkey.',
+    title: 'enrol first administrator',
+    description: 'Opens a root session with the master password, enrols the first administrator with a password, signs in, and registers a passkey from the You tab.',
     requires: ['virtual-authenticator-installed'],
     async run(ctx) {
       await bootstrapFirstUser(ctx.page);
@@ -162,18 +163,20 @@ export const orderedCases = [
     },
   },
   // Runs a few cases after bootstrap on purpose: the primary's /v1/auth
-  // limiter allows a burst of 10 then one request per second per client, and
-  // bootstrap plus the passkey round trip already spend seven of those. This
-  // round trip needs another six, so it waits for the bucket to refill.
+  // limiter allows a burst of 10 then one request per second per client
+  // (discovery excepted), and bootstrap plus the passkey round trip already
+  // spend seven of those. This round trip needs another four, so it waits
+  // for the bucket to refill.
   {
     id: 'password-login',
-    title: 'enable master-password login and sign in with it',
-    description: 'Turns on master-password login in Settings, signs in as a new operator with a name and the setup password, then returns to the passkey operator.',
+    title: 'sign in with the operator password',
+    description: 'Signs out, rejects a wrong password, signs in with the operator password set at enrolment, then returns to the passkey operator.',
     requires: ['passkey-login'],
     async run(ctx) {
       await passwordLoginRoundTrip(ctx.page);
     },
   },
+  ...enrolLinkCases,
   {
     id: 'worker-enrolled',
     title: 'enroll worker',

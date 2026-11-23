@@ -31,7 +31,7 @@ const list = (...ids) => (kind) => exactSelector(kind, ids);
 const arg = (id) => () => argumentSelector(id);
 
 // Verb and entity ids mirror AuthzVerb / AuthzEntityKind in api-contract/model/authz.proto.
-const V = {create: 1, update: 2, delete: 3, view: 4, view_logs: 5, reveal: 6, use_host_mounts: 7, use_host_network: 8};
+const V = {create: 1, update: 2, delete: 3, view: 4, view_logs: 5, reveal: 6, use_host_mounts: 7, use_host_network: 8, use_privileged_ports: 9};
 const E = {space: 1, deployment: 2, secret: 3, config: 4, asset: 5, node: 6, cluster: 7, user: 8, access: 9};
 const SPACES_ARG_KIND = 2;
 const REFS_ARG_KIND = 4;
@@ -61,7 +61,7 @@ const SPACE_ADMIN_SPACES_ARG = 1; // the builtin's own argument id
 // The editor assigns one fixed argument id per position kind (accessEditors.js).
 const UI_ARG = {permissions: 1, spaces: 2, entityTypes: 3, entityRefs: 4};
 
-const agentPerms = () => allExcept(V.use_host_mounts, V.use_host_network, V.view_logs);
+const agentPerms = () => allExcept(V.use_host_mounts, V.use_host_network, V.use_privileged_ports, V.view_logs);
 const delegableRules = (spaces) => [
     templateRule(agentPerms(), spaces(), allExcept(E.secret), all(), true),
     templateRule(list(V.view, V.create), spaces(), list(E.secret), all(), true),
@@ -77,7 +77,7 @@ const builtinTemplates = () => [
         spec: {
             arguments: [{id: SPACE_ADMIN_SPACES_ARG, name: "spaces", kind: SPACES_ARG_KIND}],
             rules: [
-                templateRule(allExcept(V.use_host_mounts, V.use_host_network), arg(SPACE_ADMIN_SPACES_ARG), all(), all(), false),
+                templateRule(allExcept(V.use_host_mounts, V.use_host_network, V.use_privileged_ports), arg(SPACE_ADMIN_SPACES_ARG), all(), all(), false),
                 ...delegableRules(() => arg(SPACE_ADMIN_SPACES_ARG)),
             ],
         },
@@ -128,12 +128,12 @@ const typical = () => ({
         {id: 0, name: "_system"}, {id: 1, name: "global"}, {id: 2, name: "prod"}, {id: 3, name: "staging"}, {id: 4, name: "dev"},
     ],
     users: [
-        {id: 1, name: "joss", createdAt: day("2026-03-02T09:04:00Z")},
-        {id: 2, name: "alice", createdAt: day("2026-04-11T13:30:00Z")},
-        {id: 3, name: "bob", createdAt: day("2026-05-20T10:15:00Z")},
-        {id: 4, name: "priya", createdAt: day("2026-06-02T08:00:00Z")},
-        {id: 5, name: "deploy-bot", createdAt: day("2026-07-15T12:00:00Z")},
-        {id: 6, name: "sam", createdAt: day("2026-08-30T16:20:00Z")},
+        {id: 1, name: "joss", createdAt: day("2026-03-02T09:04:00Z"), activatedAt: day("2026-03-02T09:04:00Z")},
+        {id: 2, name: "alice", createdAt: day("2026-04-11T13:30:00Z"), activatedAt: day("2026-04-11T13:30:00Z")},
+        {id: 3, name: "bob", createdAt: day("2026-05-20T10:15:00Z"), activatedAt: day("2026-05-20T10:15:00Z")},
+        {id: 4, name: "priya", createdAt: day("2026-06-02T08:00:00Z"), activatedAt: day("2026-06-02T08:00:00Z")},
+        {id: 5, name: "deploy-bot", createdAt: day("2026-07-15T12:00:00Z"), activatedAt: day("2026-07-15T12:00:00Z")},
+        {id: 6, name: "sam", createdAt: day("2026-08-30T16:20:00Z"), activatedAt: day("2026-08-30T16:20:00Z")},
     ],
     templates: [...builtinTemplates(), ...customTemplates()],
     grants: [
@@ -217,7 +217,7 @@ const busy = () => {
 // empty: a fresh install a minute after bootstrap.
 const empty = () => ({
     spaces: [{id: 0, name: "_system"}, {id: 1, name: "global"}],
-    users: [{id: 1, name: "joss", createdAt: day("2026-09-14T08:00:00Z")}],
+    users: [{id: 1, name: "joss", createdAt: day("2026-09-14T08:00:00Z"), activatedAt: day("2026-09-14T08:00:00Z")}],
     templates: builtinTemplates(),
     grants: [templateGrant(1, 1, 1, [], 0, day("2026-09-14T08:00:00Z"))],
     globalRules: [
@@ -234,7 +234,7 @@ export const DATASETS = {typical, busy, empty};
 export function populate(datasetKey) {
     const data = (DATASETS[datasetKey] || typical)();
     spacesS.val = data.spaces;
-    usersMapS.val = new Map(data.users.map((u) => [u.id, {id: u.id, name: u.name, createdAt: u.createdAt}]));
+    usersMapS.val = new Map(data.users.map((u) => [u.id, {id: u.id, name: u.name, createdAt: u.createdAt, activatedAt: u.activatedAt}]));
     authzTemplatesS.val = data.templates;
     authzGrantsS.val = data.grants;
     authzGlobalRulesS.val = data.globalRules;

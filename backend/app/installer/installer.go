@@ -93,16 +93,15 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	fs := flag.NewFlagSet("install primary", flag.ExitOnError)
 	version := fs.String("version", "", "release tag to install (omit to install this executable)")
 	httpOnlyRaw := fs.String("http-only", "", "enable HTTP web UI and disable HTTPS web UI (true or false)")
-	passwordLoginRaw := fs.String("password-login", "", "enable username/password login in the web UI alongside passkeys (true or false)")
+	passwordLoginRaw := fs.String("password-login", "", "ignored; users sign in with their own passwords (kept for one release)")
+	requirePasskeyRaw := fs.String("require-passkey", "", "turn password sign-in off so only passkeys open a session (true or false)")
 	webListenRaw := fs.String("web-listen", "", "set initial web UI listen address (for example :8080)")
-	webTLSSelfManagedRaw := fs.String("web-tls-self-managed", "", "enable self-managed HTTPS certificate mode (true or false)")
+	webTLSSelfSignedRaw := fs.String("web-tls-self-signed", "", "serve a certificate issued by a local CA that the installer generates, instead of Let's Encrypt (true or false)")
 	webTLSCertPEMFileRaw := fs.String("web-tls-cert-pem-file", "", "read initial HTTPS certificate/key PEM bundle from a file")
 	passkeyExtraOriginsRaw := fs.String("passkey-extra-origins", "", "set OPENDEPLOY_PASSKEY_EXTRA_ORIGINS (comma-separated WebAuthn origins)")
 	clusterListenRaw := fs.String("cluster-listen", "", "set the initial cluster listen address (for example :9443)")
 	enrollmentListenRaw := fs.String("enrollment-listen", "", "set the initial enrollment listen address (for example :9444)")
-	acmeHostsRaw := fs.String("acme-hosts", "", "set the initial web UI hostnames, also used for ACME (comma-separated)")
-	webHostsRaw := fs.String("web-hosts", "", "alias for --acme-hosts: hostnames the web UI is reached by (comma-separated)")
-	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for the primary certificate DNS name")
+	webHostsRaw := fs.String("web-hosts", "", "hostnames the web UI is reached by; they name the certificate and the passkey origin (comma-separated)")
 	underlayAddressRaw := fs.String("underlay-address", "", "set the node address used for cross-node tunnels")
 	restoreBackupRaw := fs.String("restore-backup", "", "restore primary.db from S3 before first boot (true or false)")
 	restoreS3AccessKeyIDRaw := fs.String("restore-s3-access-key-id", "", "S3 access key id for backup restore")
@@ -136,6 +135,13 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.passwordLogin = &v
+		case "require-passkey":
+			v, err := strconv.ParseBool(*requirePasskeyRaw)
+			if err != nil && parseErr == nil {
+				parseErr = fmt.Errorf("invalid --require-passkey value %q: use true or false", *requirePasskeyRaw)
+				return
+			}
+			opts.requirePasskey = &v
 		case "web-listen":
 			v := strings.TrimSpace(*webListenRaw)
 			if err := validateEnvValue("--web-listen", v); err != nil && parseErr == nil {
@@ -143,13 +149,13 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.webListen = &v
-		case "web-tls-self-managed":
-			v, err := strconv.ParseBool(*webTLSSelfManagedRaw)
+		case "web-tls-self-signed":
+			v, err := strconv.ParseBool(*webTLSSelfSignedRaw)
 			if err != nil && parseErr == nil {
-				parseErr = fmt.Errorf("invalid --web-tls-self-managed value %q: use true or false", *webTLSSelfManagedRaw)
+				parseErr = fmt.Errorf("invalid --web-tls-self-signed value %q: use true or false", *webTLSSelfSignedRaw)
 				return
 			}
-			opts.webTLSSelfManaged = &v
+			opts.webTLSSelfSigned = &v
 		case "web-tls-cert-pem-file":
 			path := strings.TrimSpace(*webTLSCertPEMFileRaw)
 			if path == "" {
@@ -192,24 +198,13 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.enrollmentListen = &v
-		case "acme-hosts", "web-hosts":
-			raw := *acmeHostsRaw
-			if f.Name == "web-hosts" {
-				raw = *webHostsRaw
-			}
-			v := strings.TrimSpace(raw)
-			if err := validateEnvValue("--"+f.Name, v); err != nil && parseErr == nil {
+		case "web-hosts":
+			v := strings.TrimSpace(*webHostsRaw)
+			if err := validateEnvValue("--web-hosts", v); err != nil && parseErr == nil {
 				parseErr = err
 				return
 			}
-			opts.acmeHosts = &v
-		case "primary-name":
-			v := strings.TrimSpace(*primaryNameRaw)
-			if err := validateInstallStringFlag("--primary-name", v); err != nil && parseErr == nil {
-				parseErr = err
-				return
-			}
-			opts.primaryName = &v
+			opts.webHosts = &v
 		case "underlay-address":
 			v := strings.TrimSpace(*underlayAddressRaw)
 			if err := validateInstallStringFlag("--underlay-address", v); err != nil && parseErr == nil {
@@ -231,6 +226,9 @@ func parseInstallPrimary(args []string) (string, installOptions, error) {
 	})
 	if parseErr != nil {
 		return "", installOptions{}, parseErr
+	}
+	if err := opts.validateWebTLS(); err != nil {
+		return "", installOptions{}, err
 	}
 	if restoreBackup || len(restoreValuesSet) > 0 {
 		if !restoreBackupSet || !restoreBackup {
@@ -259,7 +257,6 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 	clusterAddrRaw := fs.String("cluster-addr", "", "set OPENDEPLOY_PRIMARY_CLUSTER_ADDR for the primary mTLS cluster address")
 	enrollmentAddrRaw := fs.String("enrollment-addr", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_ADDR for the primary enrollment address")
 	enrollmentFingerprintRaw := fs.String("enrollment-fingerprint", "", "set OPENDEPLOY_PRIMARY_ENROLLMENT_FINGERPRINT for enrollment TLS pinning")
-	primaryNameRaw := fs.String("primary-name", "", "set OPENDEPLOY_PRIMARY_NAME for primary TLS verification (default runtime value: primary)")
 	underlayAddressRaw := fs.String("underlay-address", "", "set the node address used for cross-node tunnels")
 	fs.BoolVar(&dryRun, "dry-run", false, "print the actions that would be taken without performing them")
 	_ = fs.Parse(args)
@@ -289,13 +286,6 @@ func parseInstallSecondary(args []string) (string, installOptions, error) {
 				return
 			}
 			opts.enrollmentFingerprint = &v
-		case "primary-name":
-			v := strings.TrimSpace(*primaryNameRaw)
-			if err := validateInstallStringFlag("--primary-name", v); err != nil && parseErr == nil {
-				parseErr = err
-				return
-			}
-			opts.primaryName = &v
 		case "underlay-address":
 			v := strings.TrimSpace(*underlayAddressRaw)
 			if err := validateInstallStringFlag("--underlay-address", v); err != nil && parseErr == nil {
@@ -342,8 +332,8 @@ func usage(prog string) {
 	fmt.Fprintf(os.Stderr, `%[1]s install / upgrade / uninstall — provision, upgrade, and remove opendeploy
 
 Usage:
-  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--password-login true] [--web-listen :8080] [--web-tls-self-managed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--underlay-address 10.0.0.1] [--web-hosts host1,host2] [--acme-hosts host1,host2] [--primary-name primary] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
-  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--underlay-address 10.0.0.2] [--version vX.Y.Z|latest] [--primary-name primary] [--dry-run]
+  %[1]s install primary [--version vX.Y.Z|latest] [--http-only true] [--require-passkey true] [--web-listen :8080] [--web-tls-self-signed true] [--web-tls-cert-pem-file cert.pem] [--passkey-extra-origins https://host:8443] [--cluster-listen :9443] [--enrollment-listen :9444] [--underlay-address 10.0.0.1] [--web-hosts host1,host2] [--restore-backup true --restore-s3-access-key-id ... --restore-s3-secret-access-key ... --restore-s3-bucket ... --restore-s3-path ... --restore-s3-region ... --recovery-code ...] [--dry-run]
+  %[1]s install secondary --cluster-addr host:9443 --enrollment-addr host:9444 --enrollment-fingerprint sha256:<hex> [--underlay-address 10.0.0.2] [--version vX.Y.Z|latest] [--dry-run]
   %[1]s upgrade [--version vX.Y.Z|latest] [--dry-run]
   %[1]s uninstall [--purge] [--yes] [--dry-run]
 

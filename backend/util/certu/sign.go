@@ -95,6 +95,11 @@ func GenerateNodeCertificate(caCertPEM, caKeyPEM []byte, nodeName string) (certP
 	return GenerateNodeCertificateWithServerName(caCertPEM, caKeyPEM, nodeName, nodeName)
 }
 
+// PrimaryServerName is the DNS name in the primary's cluster certificate
+// and the server name every secondary verifies it against. It is a fixed
+// label, not a hostname, so the two sides always agree.
+const PrimaryServerName = "primary"
+
 func GenerateNodeCertificateWithServerName(caCertPEM, caKeyPEM []byte, commonName, serverName string) (certPEM, keyPEM []byte, err error) {
 	if commonName == "" {
 		return nil, nil, fmt.Errorf("node name is empty")

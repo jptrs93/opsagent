@@ -28,11 +28,11 @@ func TestUserWritersPublishSequencedPersistedState(t *testing.T) {
 			t.Fatal("user publication differs from persisted public state")
 		}
 	}
-	users.Write(s, &apigen.User{ID: 1, Name: "user"})
+	users.Write(s, &apigen.User{ID: 1, Name: apigen.Some("user")})
 	check()
-	users.UpdateMatching(s, func(u *apigen.User) bool { return u.ID == 1 }, func(u *apigen.User) { u.Name = "renamed" })
+	users.UpdateMatching(s, func(u *apigen.User) bool { return u.ID == 1 }, func(u *apigen.User) { u.Name = apigen.Some("renamed") })
 	check()
-	if user, err := users.ByID(s.Queries(), 1); err != nil || user.Name != "renamed" {
+	if user, err := users.ByID(s.Queries(), 1); err != nil || user.Name.Value != "renamed" {
 		t.Fatalf("user after update = %+v, %v", user, err)
 	}
 }

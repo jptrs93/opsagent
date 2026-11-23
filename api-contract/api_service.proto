@@ -62,15 +62,48 @@ service ApiServer {
   }
 
   rpc GetV1AuthCurrentSession(cp.Empty) returns (LoginResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "bootstrap" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "root" };
+  }
+
+  rpc PostV1AuthLinkRedeem(LinkRedeemRequest) returns (LinkRedeemResponse) {
+    option (cp.policy) = { policy_type: NO_AUTH };
+  }
+
+  rpc PostV1AuthOpenSession(OpenSessionRequest) returns (LoginResponse) {
+    option (cp.url) = "/v1/auth/open-session";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "root" };
+  }
+
+  rpc PostV1UsersCreate(UserCreateRequest) returns (CoreWriteUpdate) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "root" };
+  }
+
+  rpc PostV1UsersLink(UserLinkRequest) returns (UserLinkResponse) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "root" };
+  }
+
+  rpc GetV1Account(cp.Empty) returns (AccountView) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1AccountRename(AccountRenameRequest) returns (CoreWriteUpdate) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1AccountPassword(AccountPasswordRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1AccountPasskeysDelete(AccountPasskeyDeleteRequest) returns (cp.Empty) {
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AuthPasskeyRegisterStart(cp.Empty) returns (WebAuthNOptionsResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "bootstrap" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AuthPasskeyRegisterFinish(WebAuthNFinishRequest) returns (LoginResponse) {
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "bootstrap" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
   rpc PostV1AuthPasskeyLoginStart(cp.Empty) returns (WebAuthNOptionsResponse) {
@@ -174,12 +207,12 @@ service ApiServer {
 
   rpc PostV1GlobalEvents(EventStreamRequest) returns (EventStreamMsg) {
     option (cp.url) = "/v1/global/events";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "root" };
   }
 
   rpc PostV1GlobalEventStream(EventStreamRequest) returns (stream EventStreamMsg) {
     option (cp.url) = "/v1/global/event-stream";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" scopes: "root" };
   }
 
   rpc PostV1GlobalExportedConfig(cp.Empty) returns (ExportedConfigBlob) {

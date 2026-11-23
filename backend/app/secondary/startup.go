@@ -57,7 +57,7 @@ func Run(ctx context.Context) {
 		}
 	}
 	runtimeCfg := MustLoadRuntimeConfig(ctx, cfg, caPath, certPath, keyPath)
-	slog.InfoContext(ctx, fmt.Sprintf("opendeploy starting secondary version=%v nodeIdentifier=%v clusterAddr=%v primaryName=%v", version.Version, runtimeCfg.NodeIdentifier, runtimeCfg.PrimaryClusterAddr, runtimeCfg.PrimaryName))
+	slog.InfoContext(ctx, fmt.Sprintf("opendeploy starting secondary version=%v nodeIdentifier=%v clusterAddr=%v", version.Version, runtimeCfg.NodeIdentifier, runtimeCfg.PrimaryClusterAddr))
 	run(ctx, runtimeCfg)
 }
 
@@ -96,7 +96,6 @@ func MustLoadRuntimeConfig(ctx context.Context, cfg ainit.StaticConfiguration, c
 		ClusterCertPath:    certPath,
 		ClusterKeyPath:     keyPath,
 		PrimaryClusterAddr: cfg.PrimaryClusterAddr,
-		PrimaryName:        cfg.PrimaryName,
 		UnderlayAddress:    cfg.UnderlayAddress,
 		NodeIdentifier:     nodeIdentifier,
 		NodeID:             nodeID,

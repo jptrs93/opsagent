@@ -312,3 +312,123 @@ func TestDeploymentHostAccessDefaultsAndManagedVolumes(t *testing.T) {
 		t.Fatalf("ordinary update without host permissions: %v", err)
 	}
 }
+
+const privilegedPortsPermission = apigen.AuthzVerb_AUTHZ_VERB_USE_PRIVILEGED_PORTS
+
+func forwardSpec(protocol apigen.PortForwardProtocol, hostPort uint32) apigen.DeploymentSpec {
+	spec := hostAccessSpec(false, false)
+	spec.Networking.PortForwarding = []apigen.PortForward{{Protocol: protocol, HostPort: hostPort, ContainerPort: 8080}}
+	return spec
+}
+
+func passthroughHostPortSpec(hostPort apigen.Maybe[uint32]) apigen.DeploymentSpec {
+	spec := hostAccessSpec(false, false)
+	spec.Networking.Ingress = []apigen.Ingress{{
+		Hostname: "tls.example.com",
+		Config:   apigen.IngressConfig{Value: apigen.IngressConfigValueOneof{TlsPassthrough: &apigen.TlsPassthroughConfig{HostPort: hostPort, ContainerPort: 8443}}},
+	}}
+	return spec
+}
+
+func TestPrivilegedPortClaims(t *testing.T) {
+	tcp, udp := apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP, apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_UDP
+	for _, tc := range []struct {
+		name string
+		spec apigen.DeploymentSpec
+		want bool
+	}{
+		{"no host ports", hostAccessSpec(false, false), false},
+		{"tcp forward on 22", forwardSpec(tcp, 22), true},
+		{"udp forward on 53", forwardSpec(udp, 53), true},
+		{"tcp forward on 443", forwardSpec(tcp, 443), true},
+		{"tcp forward on 1023", forwardSpec(tcp, 1023), true},
+		{"tcp forward on 1024", forwardSpec(tcp, 1024), false},
+		{"passthrough on the default port", passthroughHostPortSpec(apigen.Maybe[uint32]{}), false},
+		{"passthrough on 443", passthroughHostPortSpec(apigen.Some(uint32(443))), false},
+		{"passthrough on 22", passthroughHostPortSpec(apigen.Some(uint32(22))), true},
+		{"passthrough on 8443", passthroughHostPortSpec(apigen.Some(uint32(8443))), false},
+		{"host mode", hostAccessSpec(false, true), false},
+	} {
+		if got := claimsPrivilegedPort(&tc.spec); got != tc.want {
+			t.Errorf("%s: claimsPrivilegedPort = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestPrivilegedPortsDefaultsAndGrant(t *testing.T) {
+	tcp := apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP
+	h, _ := newEnforcementTestHandler(t)
+	node := ensureTestNode(h.Store, "worker", "worker")
+	create := func(ctx apigen.Context, name string, spec apigen.DeploymentSpec) (*apigen.DeploymentRecord, error) {
+		return h.deploymentsCreate(ctx, &apigen.DeploymentCreateRequest{Name: name, SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(false, node.ID), Spec: spec})
+	}
+	for i, ctx := range []apigen.Context{enforceCtx(2, false), enforceCtx(1, true), enforceCtx(2, true)} {
+		_, err := create(ctx, fmt.Sprintf("low_%d", i), forwardSpec(tcp, 22))
+		requireHostAccessDenied(t, err, "use_privileged_ports")
+		_, err = create(ctx, fmt.Sprintf("passthrough_%d", i), passthroughHostPortSpec(apigen.Some(uint32(22))))
+		requireHostAccessDenied(t, err, "use_privileged_ports")
+		if _, err := create(ctx, fmt.Sprintf("high_%d", i), forwardSpec(tcp, uint32(18080+i))); err != nil {
+			t.Fatalf("forward on a high port: %v", err)
+		}
+	}
+	if _, err := create(enforceCtx(1, false), "admin_low", forwardSpec(tcp, 22)); err != nil {
+		t.Fatalf("cluster admin forward on 22: %v", err)
+	}
+	grantDeploymentAccess(t, h, 2, nodes.DefaultSpaceID, 0, false, hostMountPermission, hostNetworkPermission)
+	_, err := create(enforceCtx(2, false), "other_host_permissions", forwardSpec(tcp, 25))
+	requireHostAccessDenied(t, err, "use_privileged_ports")
+	grantDeploymentAccess(t, h, 2, nodes.DefaultSpaceID, 0, false, privilegedPortsPermission)
+	if _, err := create(enforceCtx(2, false), "granted", forwardSpec(tcp, 25)); err != nil {
+		t.Fatalf("forward on 25 with use_privileged_ports: %v", err)
+	}
+}
+
+func TestPrivilegedPortsCheckedOnEveryUpdateKind(t *testing.T) {
+	tcp := apigen.PortForwardProtocol_PORT_FORWARD_PROTOCOL_TCP
+	for _, kind := range []string{"version", "start", "stop", "spec", "remove_port", "add_port", "space"} {
+		t.Run(kind, func(t *testing.T) {
+			h, staging := newEnforcementTestHandler(t)
+			node := ensureTestNode(h.Store, "worker", "worker")
+			spec := forwardSpec(tcp, 53)
+			if kind == "add_port" {
+				spec = hostAccessSpec(false, false)
+			}
+			created, err := h.deploymentsCreate(enforceCtx(1, false), &apigen.DeploymentCreateRequest{
+				Name: "web", SpaceID: nodes.DefaultSpaceID, Scheduling: apigen.DedicatedScheduling(kind == "stop", node.ID), Spec: spec,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			req := &apigen.DeploymentUpdateRequest{DeploymentID: created.Deployment.ID, ExpectedSeq: created.Meta.UpdatedSeq}
+			switch kind {
+			case "version":
+				req.Update = apigen.DeploymentUpdateRequestUpdateOneof{VersionOnly: &apigen.VersionOnlyUpdate{TargetVersion: "1.30"}}
+			case "start":
+				req.Update = apigen.DeploymentUpdateRequestUpdateOneof{RunningOnly: &apigen.RunningOnlyUpdate{DesiredRunning: true}}
+			case "stop":
+				req.Update = apigen.DeploymentUpdateRequestUpdateOneof{RunningOnly: &apigen.RunningOnlyUpdate{DesiredRunning: false}}
+			case "spec":
+				next := forwardSpec(tcp, 53)
+				next.Workload.Value.Container.Runtime.OverrideCommand = []string{"/bin/true"}
+				req.Update = apigen.DeploymentUpdateRequestUpdateOneof{Spec: &apigen.SpecUpdate{Spec: next}}
+			case "remove_port":
+				req.Update = apigen.DeploymentUpdateRequestUpdateOneof{Spec: &apigen.SpecUpdate{Spec: hostAccessSpec(false, false)}}
+			case "add_port":
+				req.Update = apigen.DeploymentUpdateRequestUpdateOneof{Spec: &apigen.SpecUpdate{Spec: forwardSpec(tcp, 53)}}
+			case "space":
+				grantDeploymentAccess(t, h, 2, staging.ID, 0, false, vCreate)
+				req.Update = apigen.DeploymentUpdateRequestUpdateOneof{AssignedSpace: &apigen.AssignedSpaceUpdate{SpaceID: staging.ID}}
+			}
+			for _, ctx := range []apigen.Context{enforceCtx(2, false), enforceCtx(1, true), enforceCtx(2, true)} {
+				_, err := h.deploymentsUpdate(ctx, req)
+				requireHostAccessDenied(t, err, "use_privileged_ports")
+			}
+			if got := h.deploymentByID(created.Deployment.ID); got.Meta.Version != created.Meta.Version {
+				t.Fatal("denied updates changed the deployment")
+			}
+			if _, err := h.deploymentsUpdate(enforceCtx(1, false), req); err != nil {
+				t.Fatalf("cluster admin update: %v", err)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package webuihandler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/agentsessions"
 	"io/fs"
 	"log/slog"
@@ -22,6 +23,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nixstores"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler"
 	"github.com/jptrs93/opsagent/backend/app/primary/webui"
 	"github.com/jptrs93/opsagent/backend/lib/engine/versionprovider"
@@ -165,6 +167,9 @@ func New(staticFS fs.FS, nodeID uint64, deps Dependencies) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := users.ActivateExisting(deps.Store); err != nil {
+		return nil, fmt.Errorf("activating existing users: %w", err)
+	}
 	h := &Handler{
 		BackupStatus:  deps.BackupStatus,
 		staticFS:      staticFS,
@@ -188,10 +193,10 @@ func New(staticFS fs.FS, nodeID uint64, deps Dependencies) (*Handler, error) {
 	}
 	h.secretsUpdates.Notify(h.secretsStatus())
 	if err := h.initPasskeyService(); err != nil {
-		// With password login on, a relying-party configuration the WebAuthn
-		// library rejects must not take the whole UI down: passkeys become
-		// unavailable and the login page says so.
-		if !h.passwordLoginEnabled() {
+		// A relying-party configuration the WebAuthn library rejects must not
+		// take the whole UI down while passwords still sign in: passkeys
+		// become unavailable and the login page says so.
+		if h.requirePasskey() {
 			return nil, err
 		}
 		slog.Error("passkeys unavailable: relying-party configuration rejected", "err", err)

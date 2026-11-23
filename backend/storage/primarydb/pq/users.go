@@ -11,24 +11,43 @@ import (
 // encoded UserAuthentication as DataBlob, and the envelope of the last
 // write.
 type UserRow struct {
-	ID          uint64
-	Name        string
-	DataBlob    []byte
-	CreatedTime int64
-	Seq         int64
-	EventTime   int64
-	Author      int64
+	ID           uint64
+	Name         string
+	Email        string
+	PasswordHash string
+	ActivatedAt  int64
+	DataBlob     []byte
+	CreatedTime  int64
+	Seq          int64
+	EventTime    int64
+	Author       int64
 }
 
-// Public is the account without its authentication material.
+func maybeString(s string) apigen.Maybe[string] {
+	if s == "" {
+		return apigen.Maybe[string]{}
+	}
+	return apigen.Some(s)
+}
+
+func maybeID(id uint64) apigen.Maybe[uint64] {
+	if id == 0 {
+		return apigen.Maybe[uint64]{}
+	}
+	return apigen.Some(id)
+}
+
+// Public is the account without its authentication material or password
+// hash.
 func (r UserRow) Public() apigen.User {
-	return apigen.User{ID: r.ID, Name: r.Name}
+	return apigen.User{ID: r.ID, Name: maybeString(r.Name), Email: maybeString(r.Email), ActivatedAt: millisToTime(r.ActivatedAt)}
 }
 
 // UserEntity is the row as the event stream carries it: the account with
-// its authentication material.
+// its authentication material and password hash.
 func UserEntity(r UserRow) (apigen.User, error) {
 	u := r.Public()
+	u.PasswordHash = maybeString(r.PasswordHash)
 	auth, err := apigen.DecodeUserAuthentication(r.DataBlob)
 	if err != nil {
 		return u, fmt.Errorf("user %d authentication: %w", r.ID, err)
@@ -37,11 +56,11 @@ func UserEntity(r UserRow) (apigen.User, error) {
 	return u, nil
 }
 
-const userColumns = `id, name, data_blob, created_time, seq, event_time, author`
+const userColumns = `id, name, email, password_hash, activated_at, data_blob, created_time, seq, event_time, author`
 
 func scanUserRow(row scanner) (UserRow, error) {
 	var r UserRow
-	err := row.Scan(&r.ID, &r.Name, &r.DataBlob, &r.CreatedTime, &r.Seq, &r.EventTime, &r.Author)
+	err := row.Scan(&r.ID, &r.Name, &r.Email, &r.PasswordHash, &r.ActivatedAt, &r.DataBlob, &r.CreatedTime, &r.Seq, &r.EventTime, &r.Author)
 	return r, err
 }
 
@@ -120,10 +139,11 @@ func (q *Queries) reduceUser(ctx context.Context, env rowEnvelope, meta *apigen.
 	if u == nil {
 		return fmt.Errorf("payload has no user")
 	}
-	return q.upsert(ctx, meta, `INSERT INTO users (id, name, data_blob, created_time, seq, event_time, author) VALUES (?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (id) DO UPDATE SET name = excluded.name, data_blob = excluded.data_blob, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
+	return q.upsert(ctx, meta, `INSERT INTO users (id, name, email, password_hash, activated_at, data_blob, created_time, seq, event_time, author) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET name = excluded.name, email = excluded.email, password_hash = excluded.password_hash, activated_at = excluded.activated_at,
+  data_blob = excluded.data_blob, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,
-		id, u.Name, notNullBlob(u.Authentication.Encode()), env.EventTime, env.Seq, env.EventTime, env.Author)
+		id, u.Name.Value, u.Email.Value, u.PasswordHash.Value, timeToMillis(u.ActivatedAt), notNullBlob(u.Authentication.Encode()), env.EventTime, env.Seq, env.EventTime, env.Author)
 }
 
 func (q *Queries) deleteUserRow(ctx context.Context, id uint64) error {

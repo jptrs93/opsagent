@@ -11,3 +11,11 @@
 -- Databases migrated through v0.0.541 keep a dead NULL-only
 -- nodes.enrollment_id column: its UNIQUE constraint blocks ALTER TABLE DROP
 -- COLUMN, and no query references it.
+
+-- 2026-10-23: per-user passwords, pending users, and link sessions.
+ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN activated_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE user_sessions ADD COLUMN redeemed_at INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE user_sessions ADD COLUMN opened_by INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE user_sessions ADD COLUMN issued_by INTEGER NOT NULL DEFAULT 0;

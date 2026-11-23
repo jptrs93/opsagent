@@ -98,7 +98,8 @@ message LargeAssetsSettings {
 // always available; password login lets the master password open a full
 // session directly.
 message AuthSettings {
-  BoolSetting password_login_enabled = 1 [(cp.go_value) = true];
+  BoolSetting password_login_enabled = 1 [(cp.go_value) = true]; // no longer read; kept for the config history
+  BoolSetting require_passkey = 2 [(cp.go_value) = true];
 }
 
 // NixStoreReset asks every node to reseed its Nix build store for one
