@@ -46,9 +46,8 @@ func (m *Manager) NewBuild(store Store, dns string) (*Build, error) {
 // namespace.
 func (b *Build) ContainerID() string { return network.BuildContainerID(b.ID) }
 
-// Cleanup removes the scratch directory. Files the container created belong
-// to root; the agent's DAC override covers them, and anything it still cannot
-// remove is left for the maintenance sweep.
+// Cleanup removes the scratch directory. Anything it cannot remove is left
+// for the maintenance sweep.
 func (b *Build) Cleanup() {
 	_ = os.RemoveAll(b.Scratch)
 	if b.ResolvConf != "" {

@@ -38,7 +38,7 @@ func TestApplyRestoredSystemConfigOverrides(t *testing.T) {
 		clusterListen:    &clusterListen,
 		enrollmentListen: &enrollmentListen,
 		webHosts:         &acmeHostList,
-	}, noChown)
+	})
 	if err != nil {
 		t.Fatalf("apply overrides: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestInvalidateRestoredPrimaryRuntimeState(t *testing.T) {
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := invalidateRestoredPrimaryRuntimeState(dbPath, noChown); err != nil {
+	if err := invalidateRestoredPrimaryRuntimeState(dbPath); err != nil {
 		t.Fatal(err)
 	}
 }

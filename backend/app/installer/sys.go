@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -22,8 +21,6 @@ import (
 // readlink, userExists, downloads-for-inspection) still run so the planned
 // actions are realistic.
 var dryRun bool
-
-func itoa(i int) string { return strconv.Itoa(i) }
 
 func step(format string, a ...any) { fmt.Printf("\n==> "+format+"\n", a...) }
 func info(format string, a ...any) { fmt.Printf("    "+format+"\n", a...) }
@@ -52,40 +49,21 @@ func probe(name string, args ...string) bool {
 	return cmd.Run() == nil
 }
 
-type owner struct{ uid, gid int }
-
-// noChown is used before the opendeploy user exists (or for root-owned files).
-var noChown = owner{uid: -1, gid: -1}
-
-func (o owner) apply(path string) error {
-	if o.uid < 0 && o.gid < 0 {
-		return nil
-	}
-	if dryRun {
-		planned("chown %d:%d %s", o.uid, o.gid, path)
-		return nil
-	}
-	return os.Chown(path, o.uid, o.gid)
-}
-
-func ensureDir(path string, mode os.FileMode, own owner) error {
+func ensureDir(path string, mode os.FileMode) error {
 	if dryRun {
 		planned("mkdir -m %o %s", mode, path)
-		return own.apply(path)
+		return nil
 	}
 	if err := os.MkdirAll(path, mode); err != nil {
 		return err
 	}
-	if err := os.Chmod(path, mode); err != nil {
-		return err
-	}
-	return own.apply(path)
+	return os.Chmod(path, mode)
 }
 
-// writeFile writes content to path with mode + ownership. If onlyIfAbsent is
-// set and the file already exists, it is left untouched (mirrors the env-file
-// "don't clobber operator edits" behavior).
-func writeFile(path string, content []byte, mode os.FileMode, own owner, onlyIfAbsent bool) (wrote bool, err error) {
+// writeFile writes content to path with mode. If onlyIfAbsent is set and the
+// file already exists, it is left untouched (mirrors the env-file "don't
+// clobber operator edits" behavior).
+func writeFile(path string, content []byte, mode os.FileMode, onlyIfAbsent bool) (wrote bool, err error) {
 	if onlyIfAbsent {
 		if _, statErr := os.Stat(path); statErr == nil {
 			return false, nil
@@ -93,7 +71,7 @@ func writeFile(path string, content []byte, mode os.FileMode, own owner, onlyIfA
 	}
 	if dryRun {
 		planned("write %s (%d bytes, mode %o)", path, len(content), mode)
-		return true, own.apply(path)
+		return true, nil
 	}
 	if err = os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
@@ -104,13 +82,13 @@ func writeFile(path string, content []byte, mode os.FileMode, own owner, onlyIfA
 	if err = os.Chmod(path, mode); err != nil {
 		return false, err
 	}
-	return true, own.apply(path)
+	return true, nil
 }
 
-func installBinary(src, dst string, mode os.FileMode, own owner) error {
+func installBinary(src, dst string, mode os.FileMode) error {
 	if dryRun {
 		planned("install -m %o %s -> %s", mode, src, dst)
-		return own.apply(dst)
+		return nil
 	}
 	data, err := os.ReadFile(src)
 	if err != nil {
@@ -124,9 +102,6 @@ func installBinary(src, dst string, mode os.FileMode, own owner) error {
 		return err
 	}
 	if err = os.Chmod(tmp, mode); err != nil {
-		return err
-	}
-	if err = own.apply(tmp); err != nil {
 		return err
 	}
 	return os.Rename(tmp, dst)
@@ -227,33 +202,6 @@ func unitEnabled(unit string) bool {
 func userExists(name string) bool {
 	_, err := user.Lookup(name)
 	return err == nil
-}
-
-func ensureSystemUser() error {
-	if userExists(osUser) {
-		return nil
-	}
-	info("creating system user: %s", osUser)
-	return run("useradd", "--system", "--shell", "/usr/sbin/nologin",
-		"--home-dir", dataDir, "--create-home", osUser)
-}
-
-// lookupOwner resolves the opendeploy uid/gid. In dry-run before the user is
-// created it may not exist yet; callers fall back to noChown.
-func lookupOwner() (owner, error) {
-	u, err := user.Lookup(osUser)
-	if err != nil {
-		return noChown, err
-	}
-	uid, err := strconv.Atoi(u.Uid)
-	if err != nil {
-		return noChown, err
-	}
-	gid, err := strconv.Atoi(u.Gid)
-	if err != nil {
-		return noChown, err
-	}
-	return owner{uid: uid, gid: gid}, nil
 }
 
 func resolveLatestTag() (string, error) {

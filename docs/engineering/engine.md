@@ -102,6 +102,20 @@ Primary backup restore preserves desired config and append-only status history, 
 Prepare output is written to `{PrepareOutputDir}/{deploymentID}/{version}.log`.
 OpenDeploy-generated entries use `==> message` and failures use `==> ERROR: message`; subprocess output is streamed unchanged between those entries.
 
+## Host privileges
+
+The agent runs as root. The installed unit sets `User=root`, `Group=root` and `NoNewPrivileges=yes`, and grants no ambient capabilities. No `opendeploy` account, sudoers drop-in, or socket group exists on a node installed by a release that runs as root.
+
+- **Trust boundary.** The agent is the node's control plane: it starts containers, creates network namespaces, writes nftables rules, and restarts its own unit and the containerd unit. Compromise of the agent is compromise of the node. [security-severity.md](security-severity.md) states how findings treat this.
+- **Ownership.** Every runtime root and everything the agent writes below it is `root:root`. Two things are given to a workload instead: the default data volume directory and the issued TLS files of a deployment are chowned to the container's user, and the contents of a volume are whatever the container wrote. A numeric uid inside a volume is the container's, including when it equals a host account's uid. Access a container needs to other agent-owned paths is granted by mode (the readiness socket is `0666` in a `0777` run directory), not by ownership.
+- **Host-side children.** `git` (`lib/repo/git`) and the backup child (`app/primary/backup`) run as root. `git` receives the agent's environment with `GIT_CONFIG_*` and `HOME` replaced; `HOME` is the Git cache directory, so root's own `~/.gitconfig` on the host has no effect. `ssh`, started by `git` for `git@` repositories, reads keys from root's home directory.
+- **containerd.** The bundled daemon also runs as root. Its socket is `root:root 0660`; `config.toml` sets no `gid`.
+- **Unit restarts.** The self-deployment runner restarts the agent with `systemd-run --no-block systemctl restart opendeploy.service`, so the restart command is not a member of the cgroup being restarted. The runtime reconcile restarts `opendeploy-containerd.service` with `systemctl`.
+- **Unit hardening.** Options that give the service a private mount namespace (`PrivateTmp`, `ProtectSystem`, `ProtectHome`, `ProtectKernelLogs`) are not set. The agent bind-mounts named network namespaces under `/run/netns`, and containerd, which runs in the host mount namespace, must see them.
+- **Installer.** `install`, `upgrade` and `uninstall` require root. The installer creates directories with a mode and does not change the ownership of existing files. `install` and `upgrade` refuse a node whose data directory exists and is not owned by root, so a node is never left with a root agent over files of the old account.
+
+Nodes installed before the agent ran as root keep the old unit (`User=opendeploy` with ambient capabilities) until `opendeploy upgrade` runs on them as root, because an agent cannot rewrite its own unit from the unprivileged account. On such a node the agent logs a warning at start and prefixes the two `systemctl` restarts with `sudo -n`, which the old sudoers drop-in allows. This fallback exists for the transition only. [upgrade_log.md](../../upgrade_log.md) lists the per-node commands that move a node to the root layout.
+
 ## Filesystem layout
 
 `ainit` derives and creates the fixed primary/secondary runtime roots before opening databases or starting engine components. These include the asset cache, local large-asset store, Git cache parents, netproxy state directory, readiness and resolver roots, worker TLS directory, ACME cache, releases, volumes, and build/run log roots. Dataplane only derives these paths because its netproxy directory is mounted read-only.
@@ -156,7 +170,7 @@ Cross-machine IP-in-IP routing, ingress, and policy enforcement are outside the 
 
 ## Containerd Runtime
 
-OpenDeploy runs its own bundled containerd provisioned by the installer as `opendeploy-containerd.service`. Runtime binaries/config live under `/var/lib/opendeploy/runtime/`; containerd root state lives under `/var/lib/opendeploy-containerd/`; transient state lives under `/run/opendeploy-containerd/`; the socket is `/run/opendeploy/containerd.sock`.
+OpenDeploy runs its own bundled containerd provisioned by the installer as `opendeploy-containerd.service`. Runtime binaries/config live under `/var/lib/opendeploy/runtime/`; containerd root state lives under `/var/lib/opendeploy-containerd/`; transient state lives under `/run/opendeploy-containerd/`; the socket is `/run/opendeploy/containerd.sock`, reachable by root only.
 
 The deployment runtime supports Linux only. The `ctrd` client is compiled on all platforms so platform-independent unit tests run on macOS; container operations still require an accessible containerd daemon and Linux runtime. The networking package retains non-Linux stubs.
 

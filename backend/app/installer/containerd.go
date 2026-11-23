@@ -1,8 +1,8 @@
 package installer
 
 import (
+	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 
@@ -20,12 +20,8 @@ func stageDep(dep runtimebin.Component, arch, tmp string) (runtimebin.Staged, er
 // applyRuntime (phase 2) installs the staged runtime binaries into their version
 // dirs, points the active symlinks in the runtime bin dir at them, renders
 // config.toml, installs/enables the unit, and restarts containerd only when the
-// active version changed. No downloads. Empty deps (an unprivileged upgrade that
-// skipped runtime staging) is a no-op.
+// active version or config.toml changed. No downloads.
 func applyRuntime(deps []runtimebin.Staged) error {
-	if len(deps) == 0 {
-		return nil
-	}
 	step("Provisioning bundled container runtime")
 
 	changed := false
@@ -49,30 +45,24 @@ func applyRuntime(deps []runtimebin.Staged) error {
 		changed = changed || ch
 	}
 
-	// State dirs: containerd root private (0700); volumes dir opendeploy-owned and
-	// world-traversable so the in-container user can reach its bind mount.
-	if err := ensureDir(containerdRoot, 0o700, noChown); err != nil {
+	// State dirs: containerd root private (0700); volumes dir world-traversable
+	// so the in-container user can reach its bind mount.
+	if err := ensureDir(containerdRoot, 0o700); err != nil {
 		return err
 	}
-	volOwner, err := lookupOwner()
-	if err != nil {
-		volOwner = noChown // dry-run before user creation
-	}
-	if err := ensureDir(volumesDir, 0o755, volOwner); err != nil {
+	if err := ensureDir(volumesDir, 0o755); err != nil {
 		return err
 	}
 
-	gid := 0
-	if o, err := lookupOwner(); err == nil {
-		gid = o.gid
-	} else if !dryRun {
-		return fmt.Errorf("resolve opendeploy gid for containerd socket: %w", err)
+	config := []byte(renderContainerdConfig())
+	if existing, err := os.ReadFile(runtimeConfig); err != nil || !bytes.Equal(existing, config) {
+		changed = true
 	}
-	if _, err := writeFile(runtimeConfig, []byte(renderContainerdConfig(gid)), 0o644, noChown, false); err != nil {
+	if _, err := writeFile(runtimeConfig, config, 0o644, false); err != nil {
 		return err
 	}
 
-	if _, err := writeFile(containerdUnitPath, unitContainerd, 0o644, noChown, false); err != nil {
+	if _, err := writeFile(containerdUnitPath, unitContainerd, 0o644, false); err != nil {
 		return err
 	}
 	if err := daemonReload(); err != nil {
@@ -82,14 +72,15 @@ func applyRuntime(deps []runtimebin.Staged) error {
 		return err
 	}
 
-	// Start if down; if already running and the active binaries changed, restart
-	// so the new version takes effect (the running daemon holds the old inode).
+	// Start if down; if already running and the active binaries or config.toml
+	// changed, restart so they take effect (the running daemon holds the old
+	// inode and read its config at start).
 	switch {
 	case !unitActive(containerdService):
 		info("starting %s", containerdService)
 		return systemctl("start", containerdService)
 	case changed:
-		info("restarting %s (runtime binaries updated)", containerdService)
+		info("restarting %s (runtime binaries or config updated)", containerdService)
 		return systemctl("restart", containerdService)
 	default:
 		info("%s already current", containerdService)

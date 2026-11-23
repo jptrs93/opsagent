@@ -68,7 +68,7 @@ func (o restoreOptions) validate() error {
 	return nil
 }
 
-func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner) error {
+func restorePrimaryBackup(opts restoreOptions, install installOptions) error {
 	dbPath := filepath.Join(dataDir, "primary.db")
 	if dryRun {
 		planned("restore primary database from s3://%s/%s to %s", opts.Bucket, opts.Path, dbPath)
@@ -102,27 +102,27 @@ func restorePrimaryBackup(opts restoreOptions, install installOptions, own owner
 	if err := os.Rename(tmpPath, dbPath); err != nil {
 		return fmt.Errorf("install restored primary database: %w", err)
 	}
-	if err := chmodChown(dbPath, 0o600, own); err != nil {
+	if err := os.Chmod(dbPath, 0o600); err != nil {
 		return err
 	}
 
-	if err := unlockRestoredSecrets(dbPath, opts.RecoveryCode, own); err != nil {
+	if err := unlockRestoredSecrets(dbPath, opts.RecoveryCode); err != nil {
 		return fmt.Errorf("%w; delete %s, %s, %s, and %s before trying install recovery again", err, dbPath, dbPath+"-wal", dbPath+"-shm", filepath.Join(dataDir, "machine.key"))
 	}
 	if err := (primarybootstrap.Service{DataDir: dataDir}).Validate(context.Background()); err != nil {
 		return fmt.Errorf("validating restored primary bootstrap state: %w", err)
 	}
-	if err := applyRestoredSystemConfigOverrides(dbPath, install, own); err != nil {
+	if err := applyRestoredSystemConfigOverrides(dbPath, install); err != nil {
 		return err
 	}
-	if err := invalidateRestoredPrimaryRuntimeState(dbPath, own); err != nil {
+	if err := invalidateRestoredPrimaryRuntimeState(dbPath); err != nil {
 		return err
 	}
 	info("restored primary database and re-established local machine key")
 	return nil
 }
 
-func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
+func invalidateRestoredPrimaryRuntimeState(dbPath string) error {
 	store := state.Open(dbPath)
 	nodeID, err := nodes.PrimaryNodeID(store.Queries())
 	if err == nil {
@@ -137,11 +137,6 @@ func invalidateRestoredPrimaryRuntimeState(dbPath string, own owner) error {
 	}
 	if err := store.Close(); err != nil {
 		return fmt.Errorf("close restored primary database after runtime invalidation: %w", err)
-	}
-	for _, path := range sqliteArtifactPaths(dbPath) {
-		if err := chownIfExists(path, own); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -188,7 +183,7 @@ func restoredSystemConfigOverrides(opts installOptions) []restoredSystemConfigOv
 	return overrides
 }
 
-func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions, own owner) error {
+func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions) error {
 	overrides := restoredSystemConfigOverrides(opts)
 	if len(overrides) == 0 {
 		return nil
@@ -271,11 +266,6 @@ func applyRestoredSystemConfigOverrides(dbPath string, opts installOptions, own 
 	if err := store.Close(); err != nil {
 		return fmt.Errorf("close restored primary database after config overrides: %w", err)
 	}
-	for _, path := range sqliteArtifactPaths(dbPath) {
-		if err := chownIfExists(path, own); err != nil {
-			return err
-		}
-	}
 	info("updated restored primary listener config")
 	return nil
 }
@@ -299,7 +289,7 @@ func sqliteArtifactPaths(dbPath string) []string {
 	return []string{dbPath, dbPath + "-wal", dbPath + "-shm"}
 }
 
-func unlockRestoredSecrets(dbPath, recoveryCode string, own owner) error {
+func unlockRestoredSecrets(dbPath, recoveryCode string) error {
 	store := state.Open(dbPath)
 
 	mgr, err := secrets.Open(dataDir, store)
@@ -314,27 +304,5 @@ func unlockRestoredSecrets(dbPath, recoveryCode string, own owner) error {
 	if err := store.Close(); err != nil {
 		return fmt.Errorf("close restored primary database: %w", err)
 	}
-	for _, path := range append(sqliteArtifactPaths(dbPath), filepath.Join(dataDir, "machine.key")) {
-		if err := chownIfExists(path, own); err != nil {
-			return err
-		}
-	}
 	return nil
-}
-
-func chmodChown(path string, mode os.FileMode, own owner) error {
-	if err := os.Chmod(path, mode); err != nil {
-		return err
-	}
-	return own.apply(path)
-}
-
-func chownIfExists(path string, own owner) error {
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	return own.apply(path)
 }

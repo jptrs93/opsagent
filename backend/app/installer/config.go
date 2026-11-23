@@ -6,11 +6,13 @@ package installer
 const (
 	repo = "jptrs93/opsagent"
 
-	osUser  = "opendeploy"
-	osGroup = "opendeploy"
+	// legacyUser and legacyGroup are the account the service ran as before it
+	// ran as root. Nothing creates them; a purge removes them when present.
+	legacyUser  = "opendeploy"
+	legacyGroup = "opendeploy"
 
-	// DataDir stays 0750 (db, TLS keys, logs private); siblings that must be
-	// reachable by a different runAs user are 0755 and live outside it.
+	// DataDir stays 0750 (db, TLS keys, logs private); siblings that a
+	// container user must reach are 0755 and live outside it.
 	dataDir       = "/var/lib/opendeploy"
 	binPath       = "/var/lib/opendeploy/bin/opendeploy"
 	releasesDir   = "/var/lib/opendeploy-releases"
@@ -26,11 +28,14 @@ const (
 	siblingDirGlob = "/var/lib/opendeploy-*"
 	configDir      = "/etc/opendeploy"
 	envFile        = "/etc/opendeploy/env"
+	envFileMode    = 0o600
 	tlsDir         = dataDir + "/tls"
 
 	serviceName     = "opendeploy.service"
 	serviceUnitPath = "/etc/systemd/system/opendeploy.service"
-	sudoersFile     = "/etc/sudoers.d/opendeploy"
+	// legacySudoersFile was installed while the service ran unprivileged.
+	// Nothing writes it; an uninstall removes it when present.
+	legacySudoersFile = "/etc/sudoers.d/opendeploy"
 
 	// Bundled, pinned container runtime: a dedicated containerd with its own
 	// root/state/socket so it never collides with a distro/Docker install.

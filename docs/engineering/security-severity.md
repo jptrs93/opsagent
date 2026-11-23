@@ -80,6 +80,11 @@ these assumptions:
   not automatically trusted with host or cluster administration.
 - Cluster administrators and host administrators are trusted within their
   documented authority. Worker credentials do not imply primary administration.
+- The node agent runs as root and is the node's control plane. Compromise of
+  the agent is compromise of its node by design. That the agent can read,
+  write, or execute something on its own host is not a finding. A finding
+  names how a workload, a network or API caller, another node, or a user
+  reaches the agent's authority.
 - Public-facing interfaces are treated as reachable. Do not assume an unreported
   VPN, firewall, source approval process, or monitoring control mitigates a flaw.
 - Feature-specific findings identify the affected configuration. Do not assume

@@ -12,10 +12,11 @@ import (
 // workloads they leave behind (containers and their shims, build/backup/log
 // helper processes), tears down the virtual network state (container netns
 // entries, veths, the WireGuard link, routes, nftables tables), unmounts and
-// removes runtime state under /run, and removes the binary, units, and sudoers
-// drop-in. Without --purge it preserves user data (the data dir and its
-// siblings, the env file, the opendeploy user) so a reinstall resumes; --purge
-// wipes everything.
+// removes runtime state under /run, and removes the binary and units. Without
+// --purge it preserves user data (the data dir and its siblings, the env file)
+// so a reinstall resumes; --purge wipes everything. Installs made before the
+// service ran as root also lose their sudoers drop-in, and on a purge their
+// opendeploy account.
 func doUninstall(purge, assumeYes bool) error {
 	if !isRoot() && !dryRun {
 		return fmt.Errorf("uninstall must be run as root (try: sudo %s uninstall)", os.Args[0])
@@ -70,7 +71,7 @@ func doUninstall(purge, assumeYes bool) error {
 		}
 	}
 
-	step("Removing units, sudoers drop-in, and binary")
+	step("Removing units and binary")
 	for _, path := range []string{serviceUnitPath, containerdUnitPath} {
 		if err := removePath(path, false); err != nil {
 			return err
@@ -79,7 +80,7 @@ func doUninstall(purge, assumeYes bool) error {
 	if err := daemonReload(); err != nil {
 		return err
 	}
-	for _, path := range []string{sudoersFile, sudoersFile + ".new", binPath} {
+	for _, path := range []string{legacySudoersFile, legacySudoersFile + ".new", binPath} {
 		if err := removePath(path, false); err != nil {
 			return err
 		}
@@ -90,7 +91,10 @@ func doUninstall(purge, assumeYes bool) error {
 		for _, dir := range targets {
 			fmt.Printf("  - %s\n", dir)
 		}
-		fmt.Print("  - opendeploy system user\nRe-run with --purge to delete these.\n")
+		if userExists(legacyUser) {
+			fmt.Printf("  - %s system user\n", legacyUser)
+		}
+		fmt.Print("Re-run with --purge to delete these.\n")
 		printSysctlNote()
 		return nil
 	}
@@ -101,17 +105,17 @@ func doUninstall(purge, assumeYes bool) error {
 			return err
 		}
 	}
-	if userExists(osUser) {
-		if err := run("userdel", osUser); err != nil {
-			warn("removing the %s user: %v", osUser, err)
+	if userExists(legacyUser) {
+		if err := run("userdel", legacyUser); err != nil {
+			warn("removing the %s user: %v", legacyUser, err)
 		} else {
-			info("removed %s system user", osUser)
+			info("removed %s system user", legacyUser)
 		}
 	}
-	if groupExists(osGroup) {
+	if groupExists(legacyGroup) {
 		// userdel only drops a user-private group; remove it explicitly otherwise.
-		if err := run("groupdel", osGroup); err == nil {
-			info("removed %s group", osGroup)
+		if err := run("groupdel", legacyGroup); err == nil {
+			info("removed %s group", legacyGroup)
 		}
 	}
 

@@ -370,3 +370,15 @@ func runTestGit(t *testing.T, dir string, args ...string) string {
 	}
 	return string(out)
 }
+
+func TestGitEnvPinsHome(t *testing.T) {
+	t.Setenv("HOME", "/root")
+
+	env, err := NewManager("/var/lib/opendeploy/git-cache", testGithubCredentialsProvider{}).gitEnv(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(env, "HOME=/root") || !slices.Contains(env, "HOME=/var/lib/opendeploy/git-cache") {
+		t.Fatalf("gitEnv() = %q, want HOME pinned to the cache dir", env)
+	}
+}

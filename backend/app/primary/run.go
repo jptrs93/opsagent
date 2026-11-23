@@ -41,6 +41,7 @@ var ErrRestartRequired = errors.New("primary restart required")
 
 func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	parentCtx = logu.AddTag(parentCtx, "Primary")
+	ainit.WarnIfNotRoot(parentCtx)
 	runtimebin.ReconcileAtStartup(parentCtx)
 	lifecycleCtx, cancel := context.WithCancel(parentCtx)
 	defer cancel()

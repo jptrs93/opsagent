@@ -34,8 +34,8 @@ sudo opendeploy install primary --version latest # latest release
 sudo opendeploy install primary --web-listen '[2001:db8::12]:443' --cluster-listen '[2001:db8::12]:9443' --enrollment-listen '[2001:db8::12]:9444'
 sudo opendeploy install secondary --cluster-addr primary.example.com:9443 --enrollment-addr primary.example.com:9444 --enrollment-fingerprint sha256:<hex>
 
-# Upgrade can run as the opendeploy user (passwordless systemctl-restart sudoers).
-sudo -u opendeploy opendeploy install primary --version v0.1.0
+# In-place upgrade of an installed node (needs root).
+sudo opendeploy upgrade --version v0.1.0
 
 # Preview every action without touching the host.
 sudo opendeploy install primary --dry-run
@@ -68,7 +68,8 @@ therefore always, with or without `--purge`:
    dirs and refuses to delete either while a mount remains (a bind mount
    would otherwise be recursed into), then removes `/run/opendeploy-containerd`
    and `/run/opendeploy`;
-5. removes the units, sudoers drop-in, and binary symlink.
+5. removes the units and binary symlink, and the sudoers drop-in left by an
+   install made before the service ran as root.
 
 `testdata/uninstall_smoke.sh` exercises the whole sequence against a real
 containerd inside a privileged Docker container; its header shows how to run it.
@@ -76,7 +77,8 @@ containerd inside a privileged Docker container; its header shows how to run it.
 `--purge` additionally deletes every data root (`/var/lib/opendeploy` and
 each `/var/lib/opendeploy-*` sibling, including run logs, the log archive,
 metrics, volumes, releases, the asset cache, and the containerd root),
-`/etc/opendeploy`, and the `opendeploy` user and group. The confirmation prompt
+`/etc/opendeploy`, and the `opendeploy` user and group where an install made
+before the service ran as root left them. The confirmation prompt
 lists the exact directories. The forwarding sysctls the agent enables are left
 alone (they revert on reboot).
 
@@ -86,7 +88,7 @@ alone (they revert on reboot).
   and checksum — no drift between installer and runtime layout.
 - **Embedded assets** (`assets/`) instead of `curl`-ing unit files from
   raw.githubusercontent at install time.
-- **`--dry-run`** prints every command, file write, chown, and symlink before
+- **`--dry-run`** prints every command, file write, and symlink before
   committing — recovering the "read it before you run it as root"
   auditability that a compiled installer would otherwise lose versus a script.
 - **Two-phase install**: phase 1 stages the current executable when no version
@@ -96,8 +98,8 @@ alone (they revert on reboot).
   host is touched, instead of leaving a half-provisioned machine. (The shell
   installer downloads the runtime binaries late, after mutating the system.)
 - Same semantics otherwise: versioned-dir + symlink for both the agent binary
-  and the containerd/runc runtime, change-detected containerd restart, visudo
-  validation, generated primary setup password, service start on fresh install,
+  and the containerd/runc runtime, change-detected containerd restart,
+  generated primary setup password, service start on fresh install,
   printed service log directory/current file, env-file preservation, and the
   preserve-vs-`--purge` split.
 - **Direct primary bootstrap**: foundational database, secrets, network, and
@@ -110,8 +112,8 @@ alone (they revert on reboot).
 |---|---|
 | `installer.go` | `IsSubcommand` + `Run`: subcommand dispatch and flags |
 | `config.go` | paths, pinned versions, checksums, runtime dep descriptors |
-| `assets.go` / `assets/` | embedded units, env template, sudoers, config.toml renderer |
-| `sys.go` | exec, download + checksum, file ops, systemd, users (all dry-run aware) |
+| `assets.go` / `assets/` | embedded units, env template, config.toml renderer |
+| `sys.go` | exec, download + checksum, file ops, systemd (all dry-run aware) |
 | `install.go` | two-phase orchestration: `stageAll` (fetch+verify) then `runFreshInstall`/`runUpgrade` (apply) |
 | `containerd.go` | `stageDep` (phase 1) + `applyRuntime` (phase 2): versioned-dir + symlink + change-detect restart |
 | `uninstall.go` | uninstall + `--purge` orchestration |
