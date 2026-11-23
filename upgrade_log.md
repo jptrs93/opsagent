@@ -4,10 +4,22 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
-## Unreleased (after v0.0.617)
+## v0.0.618 (released 2026-11-24)
 
 ### What changed
 
+- **Users sign in with their own username and password.** A passkey is
+  optional per user, added from Users & roles › You. The new setting
+  `auth.require_passkey` (installer `--require-passkey true`, restore
+  override `REQUIRE_PASSKEY`) turns password sign-in off. The old
+  `auth.password_login_enabled` setting and `--password-login` flag are
+  accepted and ignored.
+- **The master password signs nobody in.** It opens a 10-minute root
+  session that can only create users with their grants, issue single-use
+  enrol or recovery links (`/enrol/<token>`, valid 7 days), and open a
+  session for a user. It no longer takes a username, creates a user, or
+  grants `cluster_admin`; a new user gets exactly the grants its creator
+  chooses. Signing in as any user with the master password is gone.
 - **Host ports below 1024 need `use_privileged_ports`.** A deployment that
   forwards a host port below 1024, TCP or UDP, or that takes a TLS
   passthrough host port below 1024 other than 443, can only be created or
@@ -32,6 +44,15 @@ and what to expect during and after the rollout.
 
 ### Before upgrading
 
+- **Check that every user has a way in.** A user with a passkey signs in
+  with it as before. A user who relied on master-password login has no
+  password of their own after the upgrade: open a root session with the
+  master password and issue them a recovery link, or open a session for
+  them, and have them set a password under Users & roles › You.
+- **Password sign-in is on unless `auth.require_passkey` is set.** No
+  existing user has a password, so nothing opens until a user sets one.
+  Set `auth.require_passkey` after the upgrade to keep the cluster
+  passkey-only.
 - **List the deployments that hold a port below 1024.** After the upgrade
   only a caller with `use_privileged_ports` can deploy a version to them,
   stop or start them. If a space admin or an agent session runs those
@@ -54,9 +75,17 @@ and what to expect during and after the rollout.
 - **Every node restarts containerd once**, when its agent first starts on
   this release and installs the new runtime.
 - **Do not roll the primary back** once it has started on this release. The
-  first start rewrites the builtin `space_admin` template to name the new
-  permission, and an older binary rejects a permission it does not know
-  when it encodes that template.
+  first start adds columns to the `users` and `user_sessions` tables and
+  rewrites the builtin grant templates to name the new permission, and an
+  older binary rejects a permission it does not know when it encodes a
+  template.
+- Workers see no change on the cluster connection, so the usual order
+  holds: secondaries first, primary last.
+
+### After upgrading
+
+- Existing users show as pending on the Users page until their next
+  sign-in. Their sessions and grants are unaffected.
 
 ## v0.0.617 (released 2026-10-08)
 
