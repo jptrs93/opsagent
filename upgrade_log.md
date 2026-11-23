@@ -4,7 +4,11 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
-## v0.0.618 (released 2026-11-24)
+## v0.0.619 (released 2026-11-24)
+
+v0.0.618 was tagged and never published: its build stopped at the new
+vulnerability check on an OpenTelemetry advisory published that week
+(GO-2026-6974). This release is the same code with that module bumped.
 
 ### What changed
 
@@ -40,7 +44,8 @@ and what to expect during and after the rollout.
   for the forward or for a host service on the same port. Now it reaches
   the host service. Reach a forward from the host on a node address.
 - **containerd 2.3.7 and runc 1.5.3** replace 2.3.5 and 1.5.1 as the
-  bundled runtime, and the agent is built with Go 1.27.4.
+  bundled runtime, and the agent is built with Go 1.27.4. The release
+  build now fails when govulncheck finds a reachable advisory.
 
 ### Before upgrading
 
