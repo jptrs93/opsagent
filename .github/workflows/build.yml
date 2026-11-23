@@ -14,18 +14,8 @@ permissions:
   contents: read
 
 jobs:
-  check-toolchain-sync:
-    name: Check toolchain sync
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v5
-      - run: ./scripts/check-toolchain-sync.sh
-
   build:
     name: Build linux/${{ matrix.arch }}
-    needs: check-toolchain-sync
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -39,11 +29,11 @@ jobs:
 
       - uses: pnpm/action-setup@v6
         with:
-          version: 10
+          package_json_file: frontend/package.json
 
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version-file: frontend/.nvmrc
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
 

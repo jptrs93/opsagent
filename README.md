@@ -205,7 +205,7 @@ See [`docs/engineering/networking.md`](docs/engineering/networking.md) for the a
 
 # Development
 
-Local dev uses a Nix flake as the source of truth for Go, Node, and pnpm versions. See `CLAUDE.md` for the full set of dev commands.
+Local dev needs Go, Node and pnpm. `backend/go.mod` sets the minimum Go version, and a newer or older Go toolchain downloads that version itself. `frontend/.nvmrc` names the Node version and `packageManager` in `frontend/package.json` the pnpm version; the release workflow reads both files. See `CLAUDE.md` for the full set of dev commands.
 
 ## Quint setup (macOS)
 
