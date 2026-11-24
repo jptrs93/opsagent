@@ -194,9 +194,10 @@ func assertMapsMatchFullRender(t *testing.T, p *Publisher, stage string) map[uin
 }
 
 type shadow struct {
-	instances map[uint64]apigen.NodeInstance
-	netMap    *apigen.ClusterNetMap
-	acme      *apigen.AcmeState
+	instances   map[uint64]apigen.NodeInstance
+	netMap      *apigen.ClusterNetMap
+	acme        *apigen.AcmeState
+	deployments []uint64
 }
 
 func (s *shadow) apply(update *apigen.NodeProjection) {
@@ -215,6 +216,9 @@ func (s *shadow) apply(update *apigen.NodeProjection) {
 		a := update.Acme.Value
 		s.acme = &a
 	}
+	if update.Deployments.Present {
+		s.deployments = update.Deployments.Value.LiveIds
+	}
 }
 
 func shadowOf(snapshot apigen.NodeProjection) *shadow {
@@ -224,6 +228,7 @@ func shadowOf(snapshot apigen.NodeProjection) *shadow {
 	}
 	m := snapshot.NetMap.Value
 	s.netMap = &m
+	s.deployments = snapshot.Deployments.Value.LiveIds
 	return s
 }
 
@@ -241,6 +246,9 @@ func (s *shadow) assertEquals(t *testing.T, snapshot apigen.NodeProjection, node
 	}
 	if !bytes.Equal(s.netMap.Encode(), snapshot.NetMap.Value.Encode()) {
 		t.Fatalf("node %d: folded map %+v, snapshot %+v", nodeID, s.netMap, snapshot.NetMap.Value)
+	}
+	if !snapshot.Deployments.Present || !slices.Equal(s.deployments, snapshot.Deployments.Value.LiveIds) {
+		t.Fatalf("node %d: folded live deployments %v, snapshot %+v", nodeID, s.deployments, snapshot.Deployments)
 	}
 }
 
@@ -542,8 +550,9 @@ func TestPublisherSnapshotThenUpdatesAreContiguous(t *testing.T) {
 		t.Fatalf("snapshot = %+v, store at %d", snapshot, c.seq())
 	}
 	record := statetest.MustCreateDeploymentForNode(c.store, apigen.Context{}, nodes.DefaultSpaceID, "api", node.ID, virtualSpec(""))
-	if update := drainOne(t, updates, node.ID, "deployment create"); update != nil {
-		t.Fatalf("a deployment without placements changed the node's projection: %+v", update)
+	created := drainOne(t, updates, node.ID, "deployment create")
+	if created == nil || len(created.Instances) != 0 || created.NetMap.Present || created.Acme.Present || !slices.Equal(created.Deployments.Value.LiveIds, []uint64{record.Deployment.ID}) {
+		t.Fatalf("a deployment without placements changed more than the node's live deployments: %+v", created)
 	}
 	statetest.CreateScheduledInstance(c.store, record.Deployment.ID, record.Meta.Version, node.ID, 0, apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING)
 	update := drainOne(t, updates, node.ID, "instance create")
@@ -699,5 +708,68 @@ func TestPublisherScopesAcmeByNode(t *testing.T) {
 	deleted := drainOne(t, hostingUpdates, hosting.ID, "delete")
 	if deleted == nil || !deleted.Acme.Present || len(deleted.Acme.Value.CertBindings) != 0 || deleted.Acme.Value.Seq <= update.Acme.Value.Seq {
 		t.Fatalf("delete update = %+v, want the binding withdrawn with a newer ACME seq", deleted)
+	}
+}
+
+func TestPublisherListsLiveDeploymentsByNode(t *testing.T) {
+	c := newTestCluster(t, filepath.Join(t.TempDir(), "primary.db"))
+	node, other := c.nodes[0], c.nodes[1]
+	ctx := apigen.Context{}
+	running := statetest.MustCreateDeploymentForNode(c.store, ctx, nodes.DefaultSpaceID, "running", node.ID, virtualSpec(""))
+	stopped := statetest.MustCreateStoppedDeploymentForNode(c.store, ctx, nodes.DefaultSpaceID, "stopped", node.ID, virtualSpec(""))
+	elsewhere := statetest.MustCreateStoppedDeploymentForNode(c.store, ctx, nodes.DefaultSpaceID, "elsewhere", other.ID, virtualSpec(""))
+	p, err := New(c.store, c.prefix, acmestate.NewHolder())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+
+	var watched [][]uint64
+	if err := p.WatchNode(node.ID, func(update *apigen.NodeProjection) {
+		if update.Deployments.Present {
+			watched = append(watched, update.Deployments.Value.LiveIds)
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, updates, unsubscribe := mustSubscribe(t, p, node.ID)
+	defer unsubscribe()
+	_, otherUpdates, unsubscribeOther := mustSubscribe(t, p, other.ID)
+	defer unsubscribeOther()
+	want := []uint64{running.Deployment.ID, stopped.Deployment.ID}
+	if !snapshot.Deployments.Present || !slices.Equal(snapshot.Deployments.Value.LiveIds, want) {
+		t.Fatalf("snapshot live deployments = %+v, want %v", snapshot.Deployments, want)
+	}
+	if got := mustSnapshot(t, p, other.ID).Deployments.Value.LiveIds; !slices.Equal(got, []uint64{elsewhere.Deployment.ID}) {
+		t.Fatalf("other node live deployments = %v, want [%d]", got, elsewhere.Deployment.ID)
+	}
+
+	statetest.SetDeploymentWorkloadState(c.store, ctx, stopped.Deployment.ID, "", false)
+	if update := drainOne(t, updates, node.ID, "stopped deployment update"); update != nil && update.Deployments.Present {
+		t.Fatalf("an update to a live deployment resent the live deployments: %+v", update)
+	}
+
+	statetest.DeleteDeployment(c.store, ctx, stopped.Deployment.ID)
+	deleted := drainOne(t, updates, node.ID, "deployment delete")
+	if deleted == nil || !deleted.Deployments.Present || !slices.Equal(deleted.Deployments.Value.LiveIds, []uint64{running.Deployment.ID}) {
+		t.Fatalf("update after the delete = %+v, want live deployments [%d]", deleted, running.Deployment.ID)
+	}
+	if update := drainOne(t, otherUpdates, other.ID, "deployment delete"); update != nil && update.Deployments.Present {
+		t.Fatalf("a delete on another node resent this node's live deployments: %+v", update)
+	}
+
+	statetest.DeleteDeployment(c.store, ctx, elsewhere.Deployment.ID)
+	emptied := drainOne(t, otherUpdates, other.ID, "last deployment delete")
+	if emptied == nil || !emptied.Deployments.Present || len(emptied.Deployments.Value.LiveIds) != 0 {
+		t.Fatalf("update after the node's last deployment was deleted = %+v, want a present empty list", emptied)
+	}
+	decoded, err := apigen.DecodeNodeProjection(emptied.Encode())
+	if err != nil || !decoded.Deployments.Present {
+		t.Fatalf("an empty live deployment list did not survive encoding: %+v, %v", decoded, err)
+	}
+
+	wantWatched := [][]uint64{want, {running.Deployment.ID}}
+	if len(watched) != len(wantWatched) || !slices.Equal(watched[0], wantWatched[0]) || !slices.Equal(watched[1], wantWatched[1]) {
+		t.Fatalf("watcher saw live deployments %v, want %v", watched, wantWatched)
 	}
 }

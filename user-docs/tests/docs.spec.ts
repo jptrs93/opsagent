@@ -4,8 +4,8 @@ import { groups } from '../src/lib/nav';
 
 const articles = [
   {
-    slug: 'design/networking', title: 'Networking', editors: 5, figures: 1,
-    anchors: ['goals', 'addressing', 'dns', 'balancing', 'routing', 'rollover', 'policy', 'egress', 'ingress'],
+    slug: 'design/networking', title: 'Networking', editors: 4, figures: 1,
+    anchors: ['goals', 'addressing', 'discovery', 'dns', 'routing', 'rollover', 'policy', 'egress', 'ingress'],
     section: 'DNS', hash: 'dns', content: 'virtual private network',
   },
   {

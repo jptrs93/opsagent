@@ -159,6 +159,9 @@
           <feGaussianBlur stdDeviation="2.5" result="b" />
           <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
+        <filter id="nd-lift" x="-10%" y="-10%" width="120%" height="120%">
+          <feDropShadow dx="0" dy="2" stdDeviation="3" class="nd-shadow" />
+        </filter>
         <linearGradient id="nd-bridge" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" class="nd-stop-virtual" />
           <stop offset="0.5" class="nd-stop-virtual" />
@@ -316,11 +319,12 @@
   .nd-layer.dim .nd-packet { visibility: hidden; }
   .nd-layer[role="button"] { cursor: pointer; outline: none; }
 
-  .nd-ground { fill: var(--nd-underlay-fill); stroke: var(--nd-underlay-line); stroke-width: 1.5; }
-  .nd-plane { fill: var(--nd-virtual-fill); stroke: var(--nd-virtual-line); stroke-width: 1.5; }
+  .nd-ground { fill: var(--nd-underlay); fill-opacity: 0.06; stroke: var(--nd-underlay); stroke-opacity: 0.45; stroke-width: 1.25; stroke-dasharray: 6 4; }
+  .nd-plane { fill: var(--nd-virtual); fill-opacity: 0.06; stroke: var(--nd-virtual); stroke-opacity: 0.45; stroke-width: 1.25; stroke-dasharray: 6 4; }
 
-  .nd-col { fill: var(--nd-slab); fill-opacity: 0.55; stroke: var(--nd-wg); stroke-opacity: 0.45; stroke-width: 1; }
-  .nd-cube { fill: var(--nd-cube); stroke: var(--nd-virtual); stroke-width: 1.2; }
+  .nd-col { fill: var(--nd-node); fill-opacity: 0.92; stroke: var(--nd-wg); stroke-opacity: 0.75; stroke-width: 1.25; filter: url(#nd-lift); }
+  .nd-shadow { flood-color: #0f172a; flood-opacity: 0.16; }
+  .nd-cube { fill: var(--nd-cube); stroke: var(--nd-virtual); stroke-width: 1.4; }
   .proxy .nd-cube { fill: url(#nd-bridge); stroke: var(--nd-wg); stroke-width: 1.4; }
   .nd-stop-virtual { stop-color: var(--nd-cube); }
   .nd-stop-underlay { stop-color: var(--nd-proxy-foot); }

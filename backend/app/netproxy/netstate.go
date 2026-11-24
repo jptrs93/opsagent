@@ -183,7 +183,12 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 		}
 		virtual = append(virtual, item)
 	}
-	sort.SliceStable(virtual, func(i, j int) bool { return virtual[i].Instance.ID < virtual[j].Instance.ID })
+	sort.SliceStable(virtual, func(i, j int) bool {
+		if a, b := virtual[i].Config.Deployment.ID, virtual[j].Config.Deployment.ID; a != b {
+			return a < b
+		}
+		return virtual[i].Instance.ID < virtual[j].Instance.ID
+	})
 
 	services := make([]*apigen.DnsService, 0)
 	serviceByName := make(map[string]*apigen.DnsService)
@@ -213,15 +218,39 @@ func RenderNetState(seq int64, nodeIdentifier string, items []apigen.ScheduledIn
 		addService(service.Name, network.SpaceDNSName(spaceID), endpoints)
 	}
 
+	// A route belongs to one deployment, and a hostname on a port to one
+	// ingress kind: backends merge across the placements of a deployment, never
+	// across deployments, and netproxy consults passthrough before HTTPS.
+	// Validation refuses a second claimant, so one met here was stored before
+	// it did. The lowest deployment id keeps the claim, as in ingressplan.
+	type hostClaim struct {
+		deploymentID uint64
+		kind         apigen.IngressKind
+	}
 	ingress := make([]*apigen.NetIngress, 0)
 	ingressByRoute := make(map[string]*apigen.NetIngress)
+	routeOwner := make(map[string]uint64)
+	hosts := make(map[string]hostClaim)
 	for _, item := range virtual {
-		for _, route := range renderIngress(item, endpointsByDeployment[item.Config.Deployment.ID]) {
+		deploymentID := item.Config.Deployment.ID
+		for _, route := range renderIngress(item, endpointsByDeployment[deploymentID]) {
+			host := ingressHostKey(route)
+			held, claimed := hosts[host]
+			if claimed && held.deploymentID != deploymentID && held.kind != route.Kind {
+				continue
+			}
+			if !claimed {
+				hosts[host] = hostClaim{deploymentID, route.Kind}
+			}
 			key := ingressRouteKey(route)
 			existing := ingressByRoute[key]
 			if existing == nil {
 				ingressByRoute[key] = route
+				routeOwner[key] = deploymentID
 				ingress = append(ingress, route)
+				continue
+			}
+			if routeOwner[key] != deploymentID {
 				continue
 			}
 			mergeIngressBackends(existing, route)
@@ -303,6 +332,15 @@ func ingressRouteKey(route *apigen.NetIngress) string {
 		return "https|" + route.Hostname + "|" + route.Https.Value.PathPrefix
 	}
 	return ""
+}
+
+// ingressHostKey names the hostname on the host port netproxy accepts it on.
+func ingressHostKey(route *apigen.NetIngress) string {
+	port := 443
+	if route.Kind == apigen.IngressKind_INGRESS_KIND_TLS_PASSTHROUGH {
+		port = int(route.TlsPassthrough.Value.HostPort)
+	}
+	return strconv.Itoa(port) + "|" + route.Hostname
 }
 
 func mergeIngressBackends(dst, src *apigen.NetIngress) {

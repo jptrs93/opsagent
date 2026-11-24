@@ -145,7 +145,7 @@ Run-log reads go through `lib/log/logreader`. It identifies all candidate `.logb
 Container runner behavior:
 
 - Environment variables are `EnvVar` entries whose `value` is a union: `literal{value}`, `secret{secret: SecretRef}`, `config{config: ConfigRef}`, `asset{key, asset: AssetRef}` (each ref the stable entity id and value version; `key` is the asset key copied at write time for display), or `address{deployment_id, space_id}`. An asset env ref resolves to the read-only implicit mount path `/opendeploy-env-assets/<asset_id>_<version>`. An address ref, at spawn, derives the target's stable inbound virtual IPv6 address `I` from the local cluster ULA prefix without fetching target deployment state. Address refs never expose `O`. Targets must be virtual-networked on the same node; target deletion, removal of virtual networking, and space moves are rejected while references exist.
-- Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/data`, unless `runtime.default_volume.disabled` is set or `runtime.default_volume.container_path` overrides the destination.
+- Default data volume is created under `{dataDir}-volumes/{deploymentID}/default` and mounted at `/data`, unless `runtime.default_volume.disabled` is set or `runtime.default_volume.container_path` overrides the destination. The directory is removed when the deployment is deleted; see [Volume removal](#volume-removal).
 - Additional host mounts and OpenDeploy-managed asset mounts are translated to containerd bind mounts.
 - `dev_shm_size_kb` (optional, at least 1) resizes the container's default `/dev/shm` tmpfs from containerd's default 64 MiB using a KiB value.
 - `file_descriptor_limit` (optional, at least 1) overrides the OCI `RLIMIT_NOFILE`; when absent, OpenDeploy sets both soft and hard limits to `2048`.
@@ -157,6 +157,30 @@ Container runner behavior:
 - Reattach lists the family prefix rather than an exact id: the restart counter is only persisted after the task is created, so a crash in between leaves the running container one run ahead of the status. The newest run is adopted, its number is written back to the status, and older leftovers are removed. If nothing is running the runner starts fresh.
 - Stop sends SIGTERM, waits up to 3 seconds, sends SIGKILL if needed, then deletes the task/container/snapshot.
 - A lost exit stream is not an exit. containerd is restarted by package upgrades (needrestart after a libc update) and by bundled-binary upgrades, and its unit uses `KillMode=process` so shims and containers survive; only the gRPC wait stream breaks. When the stream yields an error the runner polls the task's status every second for up to a minute: still running means it re-issues the wait on the same handle and the container is never touched; stopped means the exit code is read from the retained task status; not found, or no answer within the window, is treated as an exit with unknown code and takes the normal crash path.
+
+## Volume removal
+
+A node removes `{dataDir}-volumes/{deploymentID}` once the deployment is deleted. Stopping a deployment keeps its volumes: a stopped deployment restarts on the data it left.
+
+The node cannot tell a stopped deployment from a deleted one by its instances, because both have none. The node projection therefore carries `deployments.live_ids`: every deployment placed on the node that is not deleted, running or stopped. The primary sends the list in every snapshot and again when a deployment placed on the node is created or deleted. A secondary takes it from the projection. The primary's own node takes it from the publisher through `Publisher.WatchNode`, which runs inside the publisher lock.
+
+`runner.VolumeSweeper` (`runner/volume_sweep.go`) runs on every node. A sweep runs when the list changes, when a projection changes the node's instances, and every 5 minutes. It lists the volume root, and for each directory whose name is a deployment id:
+
+1. It keeps the directory when the id is in the list.
+2. It keeps the directory when the node still holds an instance of that deployment. The directory goes on a later sweep, after the instance is finalized.
+3. Otherwise it renames the directory to `{deploymentID}.deleting` and removes it. A sweep also removes any `.deleting` directory an earlier sweep left behind.
+
+Entries that are not directories, and names that are not a canonical deployment id, are left alone. Removal does not follow symlinks inside a volume.
+
+Three rules keep the sweep from removing a live volume:
+
+- **No list, no sweep.** The list is held in memory only. A node that starts while the primary is unreachable runs from cached assignments and removes nothing until a session delivers a list. A primary that predates the list never sends one, so its nodes remove nothing.
+- **Absent is not empty.** An update omits an unchanged list. A list that is present and empty means the node has no live deployment.
+- **The list arrives before the instances.** A deployment is in the list from the commit that creates it, so no later than the projection that carries its first instance. The secondary records the list before it applies the rows of the same frame, and keeps it when the frame is refused. The sweep reads the directory listing before the list, so a directory it finds belongs to a deployment the list has already named, unless that deployment is deleted.
+
+The delete is refused while another deployment mounts the volume through `crossDeploymentMounts`, so a sweep never removes a volume a live deployment mounts.
+
+A primary restored from a backup taken before a deployment was created does not know that deployment, and its node removes the volume. Deployment ids are never reused, so a volume directory never passes to another deployment.
 
 ## Networking
 

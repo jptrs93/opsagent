@@ -24997,11 +24997,73 @@ func mergeNodeInstance(b []byte, m *NodeInstance) (*NodeInstance, error) {
 	return m, nil
 }
 
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeDeployments) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeDeployments) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeDeployments) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendRepeatedCompact(b, m.LiveIds, 1, AppendCompactDecorator(AppendUint64Compact))
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeDeployments) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeDeployments(b []byte) (*NodeDeployments, error) {
+	return mergeNodeDeployments(b, nil)
+}
+
+func mergeNodeDeployments(b []byte, m *NodeDeployments) (*NodeDeployments, error) {
+	if m == nil {
+		m = new(NodeDeployments)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var items []uint64
+			b, items, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarUint64)
+			if err == nil {
+				m.LiveIds = append(m.LiveIds, items...)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
 func (m NodeProjection) IsZero() bool {
 	return m.Seq == 0 &&
 		len(m.Instances) == 0 &&
 		m.NetMap.IsZero() &&
 		m.Acme.IsZero() &&
+		m.Deployments.IsZero() &&
 		len(m.unknownFields) == 0
 }
 
@@ -25044,6 +25106,16 @@ func (m *NodeProjection) encodeUnchecked() []byte {
 			value := &v
 			if value != nil {
 				b = AppendTag(b, 4, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.Deployments.Present {
+			v := m.Deployments.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 5, BytesType)
 				b = AppendBytes(b, value.encodeUnchecked())
 			}
 		}
@@ -25116,6 +25188,23 @@ func mergeNodeProjection(b []byte, m *NodeProjection) (*NodeProjection, error) {
 			}
 			if err == nil {
 				m.Acme = Maybe[AcmeState]{Value: *value, Present: true}
+			}
+		case 5:
+			var value *NodeDeployments
+			if m.Deployments.Present {
+				v := m.Deployments.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeDeployments
+				item, err = mergeNodeDeployments(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Deployments = Maybe[NodeDeployments]{Value: *value, Present: true}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

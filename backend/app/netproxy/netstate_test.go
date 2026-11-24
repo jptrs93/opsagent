@@ -474,6 +474,43 @@ func TestRenderNetStateIsDeterministicAcrossItemOrder(t *testing.T) {
 	}
 }
 
+// A route claimed by two deployments keeps the backends of the lower id alone:
+// pooling them would hand the newer deployment a share of the older one's
+// traffic. A passthrough claim on an HTTPS hostname is dropped the same way.
+func TestRenderNetStateNeverMergesAcrossDeployments(t *testing.T) {
+	prefix := network.GeneratePrefix()
+	previousNetwork := network.Default
+	network.SetDefault(network.New(prefix, 99))
+	t.Cleanup(func() { network.SetDefault(previousNetwork) })
+
+	item := func(id, deploymentID uint64, spaceID uint64, routes ...apigen.Ingress) apigen.ScheduledInstanceState {
+		return apigen.ScheduledInstanceState{
+			Instance: apigen.ScheduledInstance{ID: id, NodeID: 1, State: apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING, Deployment: apigen.DeploymentRef{DeploymentID: deploymentID}},
+			Config:   apigen.DeploymentRecord{Deployment: apigen.Deployment{ID: deploymentID, SpaceID: spaceID, Name: "app", Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: routes}}}},
+			Status:   runnerStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING),
+		}
+	}
+	// The newer deployment has the older scheduled instance, so instance
+	// order would favour it.
+	owner := item(9, 42, 2, httpsIngress("app.example.com", 8080))
+	sameRoute := item(5, 43, 3, httpsIngress("app.example.com", 9090))
+	shadow := item(6, 44, 3, tlsIngress("app.example.com", 0, 8443))
+	items := []apigen.ScheduledInstanceState{sameRoute, shadow, owner}
+
+	state := RenderNetState(1, "node-a", items, nil, catalogFor(items...))
+
+	ownerAddr, err := prefix.InboundAddr(2, 42, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Ingress) != 1 || state.Ingress[0].Kind != apigen.IngressKind_INGRESS_KIND_HTTPS {
+		t.Fatalf("ingress = %+v, want the owner's HTTPS route alone", state.Ingress)
+	}
+	if got := state.Ingress[0].Https.Value.Backends; len(got) != 1 || got[0].Address != ownerAddr.String() || got[0].Port != 8080 {
+		t.Fatalf("backends = %+v, want %s:8080 alone", got, ownerAddr)
+	}
+}
+
 func TestRenderNetStateKeepsIngressWithoutReadyBackend(t *testing.T) {
 	state := RenderNetState(1, "node-a", []apigen.ScheduledInstanceState{{
 		Config: apigen.DeploymentRecord{Deployment: apigen.Deployment{Spec: apigen.DeploymentSpec{Networking: apigen.NetworkingConfig{Mode: apigen.NetworkingMode_NETWORKING_MODE_VIRTUAL, Ingress: []apigen.Ingress{tlsIngress("db.example.com", 8443, 5432)}}}}},

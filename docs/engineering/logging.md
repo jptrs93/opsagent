@@ -87,6 +87,7 @@ One tag per component boundary; PascalCase. Current tags:
 | `Worker` | `app/secondary` (worker agent root) |
 | `ClusterSession` | `app/secondary/cluster_session.go` (worker→primary session) |
 | `Retention` | `app/secondary/retention.go` |
+| `VolumeSweep` | `lib/engine/runner/volume_sweep.go` (`VolumeSweeper.Run`, both roles) |
 | `LogShipper` | `app/secondary/logs.go` |
 | `Enrollment` | `app/secondary/enrollment.go`, `app/primary/enrollmenthandler` |
 | `CertRenewal` | `app/secondary/certrenewal.go` |

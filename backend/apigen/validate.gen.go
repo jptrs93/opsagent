@@ -7460,6 +7460,19 @@ func (m *NodeInstance) validate(seen map[any]bool) error {
 	return nil
 }
 
+func (m *NodeDeployments) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeDeployments) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
 func (m *NodeProjection) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *NodeProjection) validate(seen map[any]bool) error {
 	if m == nil {
@@ -7498,6 +7511,19 @@ func (m *NodeProjection) validate(seen map[any]bool) error {
 		if value != nil {
 			if err := value.validate(seen); err != nil {
 				return wrapValidationError(err, "acme")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.Deployments.Value, m.Deployments.Present
+		var value *NodeDeployments
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "deployments")
 			}
 		}
 		_ = value

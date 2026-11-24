@@ -3,9 +3,8 @@
   import NetworkDiagram from '$lib/NetworkDiagram.svelte';
   import NodeDiagram from '$lib/NodeDiagram.svelte';
   import {
-    hostMode,
-    addressReferences,
     serviceEnvironment,
+    applicationDial,
     dnsNames,
     ingressListener,
   } from '$lib/networking-snippets';
@@ -16,37 +15,27 @@
 </svelte:head>
 
 <h1 class="page-title">Networking</h1>
-<p class="lead">This page explains how OpenDeploy networking works: the concepts and design choices.</p>
+<p class="lead">This page discusses the design of OpenDeploy's networking.</p>
 
 <!-- ============================================================ -->
 <section id="goals" class="page">
-<h2>Design overview</h2>
+<h2>Overview</h2>
 
-<p>OpenDeploy ships a complete networking implementation ready to serve production traffic out of the box. The networking system design is illustrated in the interactive diagram below:</p>
+<p>OpenDeploy provides a batteries-included networking implementation aimed at serving production traffic out of the box, without the need to install any additional supporting infrastructure like reverse proxies, certificate managers, or service discovery solutions.</p>
+
+<p>The interactive diagram below illustrates OpenDeploy's networking architecture.</p>
 
 <NetworkDiagram />
 
-<p>Every deployment is attached to one virtual private network that spans the whole cluster. The network is a private IPv6 prefix, and each space, the unit of trust, owns a prefix inside it. A deployment's addresses are a function of its space, its id, and an instance ordinal, so they are known before anything is scheduled and never change when an instance moves. Nothing allocates them, and configuration can refer to them directly.</p>
+<p>There is a single cluster-wide virtual private network. Spaces, a partition and trust boundary, own a prefix within the network address space. Every deployment instance has a static address, independent of placement, derived from its space, id, and instance ordinal. WireGuard tunnels are used to bridge traffic across nodes.</p>
 
-<p>When an instance is scheduled, its node starts the container in an independent network namespace, joined to the host by a veth pair. The primary renders each node a pruned network map, scoped to what the instances on that node can reach, and the node's agent programs that map into ordinary Linux routes, WireGuard peers, and nftables rules. Neither the primary nor the agent is on the packet path. If either is down, topology stops changing and traffic keeps flowing.</p>
+<p>Deployment instances run as containers in their own network namespace, joined to their node's host network namespace by a veth pair. Nodes own a pruned network map, scoped to what instances on that node can reach, and the node's agent programs that map into ordinary Linux routes, WireGuard peers, and nftables rules. The node agent is not on the packet path.</p>
 
-<p>Traffic between deployments is forwarded by the kernel with the sender's and receiver's real addresses intact: wire addresses are true inside the cluster. On the same node a packet crosses from one veth to the other. Between nodes it rides a WireGuard tunnel, encrypted, and the receiving node knows which node sent it. Policy is evaluated once, at the destination, on those true addresses. Deployments in the same space may talk, traffic between spaces is dropped unless a policy allows it, and egress to the outside world is open and masqueraded through the node.</p>
+<p>Traffic between deployments is forwarded by the kernel with its real source and destination addresses intact, from one veth to the other on the same node or through a WireGuard tunnel between nodes. Policy is evaluated once, at the destination, on those addresses: deployments in the same space may talk, traffic between spaces is dropped unless a policy allows it, and egress to the outside world is open and masqueraded through the node.</p>
 
 <p>At the edge, a built-in reverse proxy, netproxy, serves public traffic and answers internal DNS. It configures itself from each deployment's ingress routes, with certificates issued automatically, and dials backends over the same virtual private network. Almost all networking configuration lives inline on the deployment itself, and there are no independent networking-related objects to keep in sync.</p>
 
-<p>The rest of this page takes each stage in turn: <a href="#addressing">addressing</a>, <a href="#dns">DNS</a>, <a href="#balancing">load balancing</a>, <a href="#routing">routing and transport</a>, <a href="#rollover">rollover</a>, <a href="#policy">network policy</a>, <a href="#egress">egress</a>, and <a href="#ingress">ingress</a>.</p>
-
-<h3>Inside a node</h3>
-
-<p>On each node, the OpenDeploy agent runs in the host's main network namespace, where the underlay address interface exists. Each deployment instance runs as a container with its own independent network namespace. A veth pair connects each container namespace to the host namespace. In the host namespace, routing tables, netfilter hooks, and a WireGuard device are all configured to provide the networking system shown earlier. The diagram below illustrates the components inside one node and the paths packets take through them.</p>
-
-<NodeDiagram />
-
-<div class="callout">
-  <div class="k">Host mode is the escape hatch</div>
-  <p>In rare cases you may want to run a workload container directly in the host network namespace. A <code class="inl">host</code> networking mode exists for this, beside the default <code class="inl">virtual</code> mode that the rest of this page describes. Creating or editing a deployment in host mode requires additional permissions.</p>
-<CodeBlock code={hostMode} language="hcl" title="Host network mode" />
-</div>
+<p>The rest of this page takes each stage in turn: <a href="#addressing">addressing</a>, <a href="#discovery">service discovery and load balancing</a>, <a href="#dns">DNS</a>, <a href="#routing">routing and transport</a>, <a href="#rollover">rollover</a>, <a href="#policy">network policy</a>, <a href="#egress">egress</a>, and <a href="#ingress">ingress</a>.</p>
 </section>
 
 <!-- ============================================================ -->
@@ -113,63 +102,43 @@
   </tbody>
 </table>
 
-<p>The service address uses the top ordinal value, 4095, which is reserved for it, so a deployment can have up to 4,095 instances. Each connection to the service address is balanced to one ready instance, as described under <a href="#balancing">Load balancing</a>.</p>
+<p>The service address uses the top ordinal value, 4095, which is reserved for it, so a deployment can have up to 4,095 instances. Each connection to the service address is balanced to one ready instance, as described under <a href="#discovery">Service discovery and load balancing</a>.</p>
 
 <p>The layout fixes the capacities: 65,536 spaces, about 16 million deployments, and 4,095 instances per deployment plus the reserved service ordinal. The discriminator bits leave about a million placement slots and 255 run slots per instance, where a placement is one instance assigned to one node and a run is one container lifetime of that placement. Both wrap, and a live collision on an outbound address is rejected rather than allowed.</p>
 
-<p>Each address is a function of space, deployment, and ordinal, and that is how configuration writes them:</p>
+<h3>Outbound addresses</h3>
 
-<CodeBlock code={addressReferences} language="hcl" title="Address references" />
+<p>Every instance has a second internal address alongside its inbound address: the outbound address. It shares the instance's prefix, and the 28 discriminator bits, which are all zeros in the inbound address, hold a value unique to the placement and run number. Each container run uses it as the source for the connections it opens, so it is the address other services see when this instance connects to them. It is never published: not in DNS, and not through config references. It lies in the same deployment prefix as the inbound address, so policy rules cover both without distinguishing them.</p>
 
-<p>This is the encouraged way to hand one service the address of another. A deployment that talks to <code class="inl">payments-api</code> sets an environment variable in its config:</p>
-
-<CodeBlock code={serviceEnvironment} language="hcl" title="Service address environment variable" />
-
-<p>The application reads the variable and dials it. The reference is recorded as a dependency, so <code class="inl">payments-api</code> cannot be deleted or changed in a way that would break it, and nothing is resolved at runtime. <a href="#dns">DNS</a> covers the cases where a runtime lookup is needed.</p>
-
-<h3>Outbound addresses and rollover</h3>
-
-<p>Every instance has a second internal address alongside its inbound address: the outbound address. It shares the instance's prefix, and the 28 discriminator bits, which are all zeros in the inbound address, hold a value unique to the placement and run number. Each container run uses it as the source for the connections it opens, so it is the address other services see when this instance connects to them. It is never published: not in DNS, and not through config references.</p>
-
-<p>The pattern exists because of rollover. During a zero-downtime upgrade, two containers for the same instance ordinal run at once: the existing container, and the new one warming up to take over. Warm-up may itself need to open connections, and the replies must come back to the container that opened them, so each container run needs an outbound address of its own. Both containers hold both addresses from the start, and promotion is a route change on the node, as <a href="#rollover">Rollover</a> describes.</p>
-
-<p>In practice: connect to a service's inbound address, and expect its connections to arrive from an outbound address. Both belong to the same deployment and fall under the same policy rules, so the split is invisible to policy.</p>
+<p>The pattern exists because during a zero-downtime upgrade, two containers for the same instance ordinal run at once, and each needs its own address for the replies to the connections it opens. How the switch between them happens is described under <a href="#rollover">Rollover</a>.</p>
 
 <h3>What the container sees</h3>
 
 <p>A container has one interface, <code class="inl">eth0</code>, the container end of a veth pair whose other end is on the node. Listing its addresses shows four. Two are the cluster addresses above. The other two exist only to get packets to the node and out to the internet.</p>
 
 <table>
-  <thead><tr><th>Address</th><th>Form</th><th>Used for</th><th>Notes</th></tr></thead>
+  <thead><tr><th>Address</th><th>Used for</th></tr></thead>
   <tbody>
     <tr>
-      <td><strong>Outbound address</strong></td>
-      <td>Cluster IPv6, <code class="inl">/128</code></td>
-      <td>The source of every connection the container opens, whether to another deployment or to the external network.</td>
-      <td>The only preferred IPv6 address, so the kernel picks it without being asked. New for every run.</td>
+      <td><strong>Outbound address</strong><br><span class="sub">cluster IPv6, <code class="inl">/128</code></span></td>
+      <td>The source of every connection the container opens, whether to another deployment or to the external network. It is the only preferred IPv6 address, so the kernel picks it without being asked.</td>
     </tr>
     <tr>
-      <td><strong>Inbound address</strong></td>
-      <td>Cluster IPv6, <code class="inl">/128</code>, flagged <code class="inl">deprecated</code></td>
-      <td>What other deployments, DNS answers, and ingress backends dial to reach this instance.</td>
-      <td>Accepted as a destination and never chosen as a source. A UDP server that must reply from it should bind it explicitly rather than the wildcard address.</td>
+      <td><strong>Inbound address</strong><br><span class="sub">cluster IPv6, <code class="inl">/128</code>, flagged <code class="inl">deprecated</code></span></td>
+      <td>What other deployments, DNS answers, and ingress backends dial to reach this instance. Accepted as a destination and never chosen as a source, so a UDP server that must reply from it should bind it explicitly rather than the wildcard address.</td>
     </tr>
     <tr>
-      <td><strong>Link-local address</strong></td>
-      <td><code class="inl">fe80::/64</code>, generated by the kernel</td>
-      <td>Reaching the node, which answers as <code class="inl">fe80::1</code> on its end of the veth. The IPv6 default route points there.</td>
-      <td>Valid only on the veth and never seen in traffic. Every container has the same gateway and the same default route, whatever node or space it is in.</td>
+      <td><strong>Link-local address</strong><br><span class="sub"><code class="inl">fe80::/64</code>, generated by the kernel</span></td>
+      <td>Reaching the node, which answers as <code class="inl">fe80::1</code> on its end of the veth. The IPv6 default route points there, and it is the same in every container whatever node or space it is in.</td>
     </tr>
     <tr>
-      <td><strong>IPv4 address</strong></td>
-      <td><code class="inl">10.201.0.0/16</code>, one <code class="inl">/30</code> per container</td>
-      <td>IPv4 <a href="#egress">egress</a> only. The IPv4 default route points at the node's end of the <code class="inl">/30</code>.</td>
-      <td>Machine-local. The same range is reused on every node, it is never routed between nodes, and the firewall closes it to workload-to-workload traffic.</td>
+      <td><strong>IPv4 address</strong><br><span class="sub"><code class="inl">10.201.0.0/16</code>, one <code class="inl">/30</code> per container</span></td>
+      <td>IPv4 <a href="#egress">egress</a> only, with the IPv4 default route pointing at the node's end of the <code class="inl">/30</code>. The range is reused on every node, never routed between nodes, and closed to workload-to-workload traffic by the firewall.</td>
     </tr>
   </tbody>
 </table>
 
-<p>The routing table is as small as the address list. There is one default route per family, both via the node, and no route for the cluster prefix or the space prefix. The container cannot tell which destinations are on its own node and which are elsewhere; it hands every packet to the node and the node's routes decide. Rollover changes nothing here: a promoted container has exactly the addresses and routes it started with, because promotion is a route change on the node.</p>
+<p>The routing table is as small as the address list. There is one default route per family, both via the node, and no route for the cluster prefix or the space prefix. The container cannot tell which destinations are on its own node and which are elsewhere; it hands every packet to the node and the node's routes decide.</p>
 
 <p>The resolver in <code class="inl">/etc/resolv.conf</code> is the inbound address of the node's built-in DNS service, which is itself a deployment in the system space and so is derived like any other address.</p>
 
@@ -188,101 +157,73 @@
 </section>
 
 <!-- ============================================================ -->
-<section id="dns" class="page">
-<h2>DNS</h2>
+<section id="discovery" class="page">
+<h2>Service discovery and load balancing</h2>
 
-<p>DNS covers what an address reference cannot: discovering a deployment's instances at runtime, or reaching one from something that has no configuration to hold a reference. Every workload can resolve internal names, and containers are pointed at the cluster's resolver automatically. Two name forms exist:</p>
+<p>Modern software systems often have many internal services, most of which must talk to each other. That raises three concerns:</p>
 
-<CodeBlock code={dnsNames} language="text" title="Internal DNS names" />
+<ol>
+  <li>How does one service know where to reach another?</li>
+  <li>When the target service has several instances, how is traffic distributed across them?</li>
+  <li>When a target instance is redeployed to a different node, some routing configuration somewhere must change. How is that done?</li>
+</ol>
 
-<p>Names are lowercase DNS labels; underscores in deployment names become dashes. Answers are inbound addresses and nothing else.</p>
+<p>The traditional answer is DNS. Each service has a stable name such as <code class="inl">payments-api</code>, the connecting code refers to that name, and a DNS lookup at connection time resolves it to an IP address or a set of them. The instance addresses underneath can then be ephemeral and change on every redeployment, which is how Kubernetes treats pod addresses. When they change, the DNS server is updated and new queries return the new addresses. OpenDeploy ships a DNS implementation, but it does not use DNS to answer these concerns, for two reasons:</p>
 
-<p><strong>Resolution follows target state.</strong> The primary publishes a DNS catalog in each node's network map, one entry per deployment the node's workloads may reach, listing its established ordinals, and the node's resolver answers from it. An ordinal is established when a placement has been told to serve it. Runner health is not an input. A crashed container keeps its records, and an instance that is still warming up has none. This is deliberate: naming answers "which addresses exist for this service", and health belongs to the <a href="#balancing">load-balancing</a> layer, which has the information to act on it per connection rather than per cached DNS answer.</p>
+<ul>
+  <li>DNS is not suited to frequent change. Its propagation is lazy and passes through caches outside the cluster's control.</li>
+  <li>A string name is useful at the level where humans write configuration. It does not need to be part of the routing information that must change and propagate when an instance moves.</li>
+</ul>
 
-<p><strong>Names of known services never fall through.</strong> A service that exists but has no established instance resolves to an empty answer, not to "no such name". A temporarily-down service is therefore never cached as nonexistent. A deployment the node's workloads may not reach is absent from its catalog and resolves to "no such name", and internal names are never leaked to upstream resolvers. Names outside the cluster are forwarded to the node's normal upstream resolvers.</p>
+<p>OpenDeploy's philosophy is that these concerns belong lower in the networking stack, and that one service talking to another is a dependency that should be captured up front as part of the cluster state. The encouraged approach is to put the target's address in an environment variable in your deployment configuration:</p>
 
-<p><strong>Answers carry no locality.</strong> The catalog has no node information and no per-node ordering. Preferring a local instance is a balancing decision, made in the balancing layer, so that a DNS answer means the same thing wherever it is resolved.</p>
+<CodeBlock code={serviceEnvironment} language="hcl" title="Target address in an environment variable" />
 
+<p>Your application then connects to that address directly, skipping DNS completely:</p>
+
+<CodeBlock code={applicationDial} language="typescript" title="Connecting from application code" />
+
+<p>The reference is recorded as a dependency, so <code class="inl">payments-api</code> cannot be deleted or changed in a way that would break it. Because deployment addresses are deterministic and static, the application's view is the same whatever the instance placement. Routing changes happen transparently underneath, as updates to the host routing tables on the nodes that can reach the instance, as described under <a href="#routing">Routing and transport</a>. <a href="#dns">DNS</a> covers the cases where a runtime lookup is needed.</p>
+
+<h3>Load balancing <span class="pill p-plan">planned</span></h3>
+
+<p>Load balancing is also transparent to the application. The application dials the deployment's static service address, and which instance it ultimately connects to is decided underneath, on the sender's node, by one of two Linux kernel networking mechanisms:</p>
+
+<ol>
+  <li><strong>Connect hook.</strong> A cgroup hook on the <code class="inl">connect()</code> call rewrites the destination from the service address to the inbound address of one ready instance before any packet exists. The socket holds the decision, nothing is tracked per packet, and the choice dies with the socket. This is the preferred mechanism wherever the host can see the syscall.</li>
+  <li><strong>DNAT.</strong> For connections the hook cannot see, such as VM-isolated runtimes and unconnected UDP, an nftables rule on the sender's node rewrites the first packet of the flow in the same way, and conntrack applies that choice to the rest of the flow.</li>
+</ol>
+
+<p>The two dispatch themselves by destination address: a connection the hook rewrote already carries a real inbound address, so the DNAT rule never matches it. Translation only ever happens on the sender's node. The service address never crosses a link, and inbound addresses are never translated, so the wire, the tunnels, and the receiving node's policy see nothing but real instance addresses. Selection is uniform over the ready instances. Retries, traffic splitting, and locality preferences belong to the built-in layer&nbsp;7 proxy, as an opt-in. Today a deployment's address reference resolves to the inbound address of its first instance; the service address and both mechanisms are designed but not yet built.</p>
 </section>
 
 <!-- ============================================================ -->
-<section id="balancing" class="page">
-<h2>Load balancing</h2>
+<section id="dns" class="page">
+<h2>DNS</h2>
 
-<p>Direct instance traffic needs no balancing: the inbound address already names exactly the instance a client wants, and it stays valid across restarts and moves. Balancing exists for the other case, where a client wants the deployment and does not care which instance serves it. The only thing a user sets is a replica count. Everything below is automatic. Of the rungs described here, DNS is in the product today; the service address and the rungs that bind to it are designed but not yet built.</p>
+<p>Every deployment gets a DNS name automatically, based on its name, and every instance gets a sub-name of it. The pattern is:</p>
 
-<p><strong>Balancing is a ladder of binding points.</strong> Each rung fixes the failure mode of the rung above it, and a connection takes a lower rung only where the higher one cannot see it. All rungs consume the same distributed set of ready instances.</p>
+<CodeBlock code={dnsNames} language="text" title="Internal DNS names" />
 
-<table>
-  <thead><tr><th>Rung</th><th>Decision made at</th><th>State it leaves behind</th><th>Covers</th></tr></thead>
-  <tbody>
-    <tr>
-      <td><strong>DNS</strong> over established instances</td>
-      <td>Name resolution</td>
-      <td>Client caches, outside the cluster's control</td>
-      <td>Everything, weakly. Long-lived connections pin to one instance.</td>
-    </tr>
-    <tr>
-      <td><strong>Connect hook</strong> on the service address</td>
-      <td>The <code class="inl">connect()</code> call, before any packet exists</td>
-      <td>None. The socket itself holds the decision.</td>
-      <td>Connections the host can see: container runtimes where the syscall is host-visible.</td>
-    </tr>
-    <tr>
-      <td><strong>Sender-side DNAT</strong> on the service address</td>
-      <td>The first packet of a flow</td>
-      <td>One conntrack entry per flow, on the sender's node</td>
-      <td>Everything the hook cannot see: VM-isolated runtimes, unconnected UDP.</td>
-    </tr>
-    <tr>
-      <td><strong>Layer 7</strong> through the built-in proxy, opt-in</td>
-      <td>Each request</td>
-      <td>Proxy connection state</td>
-      <td>HTTP workloads that want retries, traffic splitting, and drain-aware handoff.</td>
-    </tr>
-  </tbody>
-</table>
+<p>Names are lowercase DNS labels, underscores in deployment names become dashes, and answers are inbound addresses and nothing else. Resolution follows target state: each node's network map carries a DNS catalog listing the established ordinals of every deployment the node's workloads may reach, and the node's resolver answers from it. An ordinal is established when a placement has been told to serve it; runner health is not an input, so a crashed container keeps its records and an instance still warming up has none.</p>
 
-<p>The rungs dispatch themselves by destination address. A client that dials an inbound address matches no rung and is routed as-is. A client that dials the service address is caught by the connect hook where the host can see the syscall; the packets it then sends already carry a real inbound address, so the DNAT rule never matches. A client whose syscalls the host cannot see sends packets that still carry the service address, and the DNAT rung catches those. No per-runtime configuration exists on the data path.</p>
-
-<div class="callout">
-  <div class="k">Two invariants</div>
-  <p><strong>Inbound addresses are never translated.</strong> A DNS answer, an address reference, and an <code class="inl">&#123;ordinal&#125;.&#123;name&#125;</code> lookup always mean exactly the instance they name.</p>
-  <p><strong>The service address never crosses a link.</strong> All translation happens on the sender's node at the point where the workload attaches to the host. The wire, the tunnels, and the receiving node's policy only ever see real instance addresses.</p>
-</div>
-
-<p>The connect hook is the preferred rung. It rewrites the destination before a packet exists, costs nothing per packet, keeps no translation state, and its decision dies with the socket. The DNAT rung is one nftables rule per node that matches service addresses against a backend map the agent updates as readiness changes. Conntrack records the chosen backend at flow birth and applies it for the flow's life, so a backend change steers only new flows. Selection at both rungs is uniform over the ready set; anything smarter belongs at layer 7.</p>
-
-<p>This is a deliberate exception to the "wire addresses are true" principle, and a narrow one. What that principle rejects is translation as the universal path, with wire addresses that lie and cluster-wide correctness resting on conntrack. Sender-side DNAT scoped to service addresses keeps wire addresses true and confines flow-state criticality to flows that chose balancing.</p>
-
-<h3>Locality <span class="pill p-plan">planned</span></h3>
-
-<p>A deployment declares how balancing treats locality: spread across all instances, prefer instances on the sender's node, or use local instances only. This is resolved inside the balancing rungs and never by DNS answer content, which stays locality-free.</p>
+<p>A known service with no established instance resolves to an empty answer, not to "no such name", so a temporarily down service is never cached as nonexistent. A deployment the node's workloads may not reach is absent from its catalog and resolves to "no such name". Internal names never leak to upstream resolvers, and names outside the cluster are forwarded to the node's normal upstream resolvers. Answers carry no locality: preferring a local instance is a balancing decision, so a DNS answer means the same thing wherever it is resolved.</p>
 </section>
 
 <!-- ============================================================ -->
 <section id="routing" class="page">
 <h2>Routing and transport</h2>
 
-<p>On a node, the host side of each veth pair holds a <code class="inl">/128</code> route for every address the container owns, pointing into its namespace. Nothing proxies east–west traffic: a packet from one container to another on the same node is forwarded by the kernel from one veth to the other.</p>
+<p>The OpenDeploy agent runs in the node's host network namespace, where the underlay interface exists. The diagram below illustrates the components it programs there and the paths packets take through them.</p>
 
-<h3>The network map</h3>
+<NodeDiagram />
 
-<p><strong>Cross-node routing is derived from scheduling alone.</strong> The primary renders a network map for each node from its database. A node's map lists the underlay address, WireGuard public key, and routed prefixes of every node holding a workload its own workloads may reach or be reached by, along with the matching DNS catalog entries and network policy rules. Reachability follows the policy relation, so a node never learns about workloads it has no business talking to. Every live placement contributes its <code class="inl">/120</code>, pointed at its node, for as long as it exists. The placement that is serving an instance additionally contributes the instance's <code class="inl">/100</code>, which is the prefix that carries the inbound address. Longest-prefix match then delivers each placement's reply traffic to the node running it, while inbound traffic follows whichever placement is serving.</p>
+<div class="callout">
+  <div class="k">Host mode is the escape hatch</div>
+  <p>In rare cases you may want to run a workload container directly in the host network namespace. A <code class="inl">host</code> networking mode exists for this, beside the default <code class="inl">virtual</code> mode that the rest of this page assumes. Creating or editing a deployment in host mode requires additional permissions.</p>
+</div>
 
-<p>Runner status is not an input to the map. Container restarts and crashes never move a route or republish the map, because run numbers live below the <code class="inl">/120</code> boundary. Only two routed prefix lengths are legal, <code class="inl">/100</code> and <code class="inl">/120</code>; nodes reject anything else. A <code class="inl">/128</code> would pin a single run, and a deployment-wide prefix would send every ordinal to one node.</p>
-
-<p><strong>The map is derived state and is never persisted on the primary.</strong> Every render is stamped with the global write sequence its inputs reflect, and a node's map is published only when its rendered content changes, so a scheduling change reaches only the nodes it concerns. Nodes validate and persist accepted maps, so forwarding survives a primary outage and an agent restart. Each node reports the stamp it has applied to its kernel, and the primary uses those reports as a barrier: a superseded placement keeps running, and keeps its routes, until every node has applied the map that replaced it.</p>
-
-<h3>Node transport</h3>
-
-<p>Cross-node traffic rides one WireGuard device per node. Each node mints a static key pair at first boot; the private key never leaves the machine, and the public key is registered with the primary and carried in the map. Nodes reconcile one peer per remote node, with that peer's allowed prefixes set to exactly the prefixes the map routes to it. This turns cryptokey routing into node-level source attribution: the kernel drops any decrypted packet whose source lies outside the sending node's prefixes, before policy ever sees it.</p>
-
-<p>The transport preserves the complete logical packet. There is no translation at either end, so a receiving node's policy evaluates the same source and destination addresses whether the sender was local or remote. The initial design targets a full mesh of at most about 100 nodes; larger clusters need a different tunnel topology, and that change would not alter any workload address.</p>
-
-<p>Two guards keep unknown destinations from escaping. An <code class="inl">unreachable</code> route for the whole cluster <code class="inl">/48</code> sits below every workload route, so an address nothing routes to is rejected rather than sent to the host's default gateway. And local <code class="inl">/128</code> workload routes always win over a routed prefix, so a map that lags a placement arriving on this node cannot divert that placement's traffic elsewhere.</p>
-
-<p><strong>The agent audits what it wrote.</strong> Kernel state is written once and assumed to persist, so every 60 seconds the agent compares its desired routes and nftables rules against the live kernel and logs any divergence. It never silently repairs. Divergence is evidence of a bug or outside interference and is meant to stay visible.</p>
+<p>Cross-node routes are derived from scheduling alone: a node's network map lists the prefixes routed to every node holding a workload its own workloads may reach, and nothing else. Each node mints its WireGuard key pair at first boot, and only the public key is carried in the map. The initial design targets a full mesh of at most about 100 nodes; a larger cluster needs a different tunnel topology, which would not alter any workload address.</p>
 </section>
 
 <!-- ============================================================ -->
@@ -297,7 +238,7 @@
   <thead><tr><th>State</th><th>Owns</th><th>Meaning</th></tr></thead>
   <tbody>
     <tr><td><strong>Serving</strong></td><td>The instance's <code class="inl">/100</code> and its inbound address</td><td>Exactly one placement per instance holds this.</td></tr>
-    <tr><td><strong>Standby</strong></td><td>Its own <code class="inl">/120</code></td><td>A warming replacement. Its outbound traffic is routable before it serves. It is absent from DNS and ingress because the inbound address does not route to it yet.</td></tr>
+    <tr><td><strong>Standby</strong></td><td>Its own <code class="inl">/120</code></td><td>A warming replacement. Its <a href="#addressing">outbound address</a> is routable before it serves. It is absent from DNS and ingress because the inbound address does not route to it yet.</td></tr>
     <tr><td><strong>Draining</strong></td><td>Its own <code class="inl">/120</code></td><td>A superseded placement still running. Replies to work already in flight still reach it after the inbound address has moved.</td></tr>
   </tbody>
 </table>

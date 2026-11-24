@@ -41,7 +41,7 @@ func (o *outbox) Send(msg *apigen.MsgToPrimary) bool {
 // notifySynced (optional) is signalled once the first snapshot from the
 // primary has been applied to the store; the boot sync gate releases the
 // deployment operator on it.
-func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) {
+func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Service, primaryHTTPClient *http.Client, acme *acmestate.Holder, netMaps *netmapstate.Holder, volumes liveDeploymentSink, notifySynced func()) {
 	ctx = logu.AddTag(ctx, "ClusterSession")
 	capi := apigen.NewOpsagentClusterV1Capi(
 		"https://"+cfg.PrimaryClusterAddr,
@@ -58,7 +58,7 @@ func runPrimaryConnLoop(ctx context.Context, cfg runtimeConfig, store *state.Ser
 			underlayAddress, err = resolveDefaultUnderlayAddress(cfg.PrimaryClusterAddr)
 		}
 		if err == nil {
-			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, cfg.WGPublicKey, acme, netMaps, notifySynced, cfg.NodeIdentifier)
+			err = runSession(ctx, capi, store, cfg.NodeID, underlayAddress, cfg.WGPublicKey, acme, netMaps, volumes, notifySynced, cfg.NodeIdentifier)
 		}
 		if ctx.Err() != nil {
 			return
@@ -128,7 +128,7 @@ func scheduledInstancePredicateForNode(nodeID uint64) storage.ScheduledInstanceP
 	}
 }
 
-func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID uint64, underlayAddress, wgPublicKey string, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func(), identifiers ...string) error {
+func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *state.Service, nodeID uint64, underlayAddress, wgPublicKey string, acme *acmestate.Holder, netMaps *netmapstate.Holder, volumes liveDeploymentSink, notifySynced func(), identifiers ...string) error {
 	underlay, err := apigen.ParseAddr(underlayAddress)
 	if err != nil {
 		return fmt.Errorf("parsing underlay address %q: %w", underlayAddress, err)
@@ -204,7 +204,7 @@ func runSession(ctx context.Context, capi *apigen.OpsagentClusterV1Capi, store *
 		if msg.Evicted.Present && msg.Evicted.Value {
 			return errEvicted
 		}
-		dispatchFromPrimary(sessCtx, out, store, tracker, sess, msg, nodeID, acme, netMaps, notifySynced)
+		dispatchFromPrimary(sessCtx, out, store, tracker, sess, msg, nodeID, acme, netMaps, volumes, notifySynced)
 	}
 	return sessErr
 }
@@ -215,7 +215,7 @@ type primarySessionState struct {
 	netMapSnapshotPending bool
 }
 
-func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToSecondary, nodeID uint64, acme *acmestate.Holder, netMaps *netmapstate.Holder, notifySynced func()) {
+func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service, tracker *logStreamTracker, sess *primarySessionState, msg *apigen.MsgToSecondary, nodeID uint64, acme *acmestate.Holder, netMaps *netmapstate.Holder, volumes liveDeploymentSink, notifySynced func()) {
 	msgType := "heartbeat"
 	switch {
 	case msg.NodeSnapshot.Present:
@@ -239,9 +239,9 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 
 	switch {
 	case msg.NodeSnapshot.Present:
-		applyProjectionFrame(ctx, out, store, nodeID, frameOf(&msg.NodeSnapshot.Value, true), sess, netMaps, acme, notifySynced)
+		applyProjectionFrame(ctx, out, store, nodeID, frameOf(&msg.NodeSnapshot.Value, true), sess, netMaps, acme, volumes, notifySynced)
 	case msg.NodeUpdate.Present:
-		applyProjectionFrame(ctx, out, store, nodeID, frameOf(&msg.NodeUpdate.Value, false), sess, netMaps, acme, nil)
+		applyProjectionFrame(ctx, out, store, nodeID, frameOf(&msg.NodeUpdate.Value, false), sess, netMaps, acme, volumes, nil)
 	case msg.NixStoreResets.Present:
 		for _, item := range msg.NixStoreResets.Value.Items {
 			nixstore.Default().RequestReset(item.Repo, item.RequestedAt)
@@ -360,12 +360,18 @@ func statusPushLoop(ctx context.Context, out *outbox, store scheduledInstanceSub
 	}
 }
 
+type liveDeploymentSink interface {
+	SetLive(ids []uint64)
+	Kick()
+}
+
 type projectionFrame struct {
-	seq       int64
-	instances []apigen.NodeInstance
-	snapshot  bool
-	netMap    *apigen.ClusterNetMap
-	acme      *apigen.AcmeState
+	seq         int64
+	instances   []apigen.NodeInstance
+	snapshot    bool
+	netMap      *apigen.ClusterNetMap
+	acme        *apigen.AcmeState
+	deployments *apigen.NodeDeployments
 }
 
 func frameOf(p *apigen.NodeProjection, snapshot bool) projectionFrame {
@@ -375,6 +381,9 @@ func frameOf(p *apigen.NodeProjection, snapshot bool) projectionFrame {
 	}
 	if p.Acme.Present {
 		frame.acme = &p.Acme.Value
+	}
+	if p.Deployments.Present {
+		frame.deployments = &p.Deployments.Value
 	}
 	return frame
 }
@@ -424,7 +433,7 @@ func applyProjection(ctx context.Context, store *state.Service, nodeID uint64, f
 	return status, pruned, nil
 }
 
-func applyProjectionFrame(ctx context.Context, out *outbox, store *state.Service, nodeID uint64, frame projectionFrame, sess *primarySessionState, netMaps *netmapstate.Holder, acme *acmestate.Holder, notifySynced func()) {
+func applyProjectionFrame(ctx context.Context, out *outbox, store *state.Service, nodeID uint64, frame projectionFrame, sess *primarySessionState, netMaps *netmapstate.Holder, acme *acmestate.Holder, volumes liveDeploymentSink, notifySynced func()) {
 	if frame.snapshot {
 		slog.InfoContext(ctx, fmt.Sprintf("applying node snapshot from primary seq=%d instances=%d", frame.seq, len(frame.instances)))
 	} else {
@@ -434,6 +443,11 @@ func applyProjectionFrame(ctx context.Context, out *outbox, store *state.Service
 				frame.seq, item.Config.Meta.SpecVersion, item.Instance.State),
 				"scheduled_instance", item.Instance.ID, "dep", item.Instance.Deployment.DeploymentID)
 		}
+	}
+	// The live set is recorded before the frame's rows, and kept when the rest
+	// of the frame is refused: a later update omits an unchanged section.
+	if frame.deployments != nil && volumes != nil {
+		volumes.SetLive(frame.deployments.LiveIds)
 	}
 	expectedPrefix, _ := network.Default.PrefixValue()
 	status, pruned, err := applyProjection(ctx, store, nodeID, frame, expectedPrefix, sess.netMapSnapshotPending, netMaps, acme)
@@ -450,6 +464,9 @@ func applyProjectionFrame(ctx context.Context, out *outbox, store *state.Service
 	}
 	if len(pruned) > 0 {
 		slog.InfoContext(ctx, fmt.Sprintf("finalizing scheduled instances absent from the primary snapshot ids=%v", pruned))
+	}
+	if volumes != nil && (frame.snapshot || len(frame.instances) > 0) {
+		volumes.Kick()
 	}
 	if frame.netMap != nil {
 		sess.netMapSnapshotPending = false

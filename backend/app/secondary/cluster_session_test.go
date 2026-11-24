@@ -38,7 +38,7 @@ func testAssignment(id, deploymentID, nodeID uint64) apigen.NodeInstance {
 
 func applySnapshotFrame(ctx context.Context, out *outbox, store *state.Service, nodeID uint64, items ...apigen.NodeInstance) {
 	sess := &primarySessionState{netMapSnapshotPending: true}
-	applyProjectionFrame(ctx, out, store, nodeID, projectionFrame{instances: items, snapshot: true}, sess, nil, nil, nil)
+	applyProjectionFrame(ctx, out, store, nodeID, projectionFrame{instances: items, snapshot: true}, sess, nil, nil, nil, nil)
 }
 
 func instanceIDs(states []apigen.ScheduledInstanceState) []uint64 {
@@ -112,5 +112,59 @@ func TestApplyProjectionIsAtomic(t *testing.T) {
 	}
 	if cached, _, ok, err := cachedClusterNetMap(ctx, store, nodeID, prefix); err != nil || !ok || cached.DerivedFromSeq != 1 {
 		t.Fatalf("cached map after accepted frame: %+v ok=%v err=%v", cached, ok, err)
+	}
+}
+
+type recordingLiveDeployments struct {
+	sets  [][]uint64
+	kicks int
+}
+
+func (r *recordingLiveDeployments) SetLive(ids []uint64) { r.sets = append(r.sets, ids) }
+func (r *recordingLiveDeployments) Kick()                { r.kicks++ }
+
+func TestProjectionFrameRecordsLiveDeployments(t *testing.T) {
+	const nodeID uint64 = 1
+	store := state.Open(filepath.Join(t.TempDir(), "secondary.db"))
+	defer store.Close()
+	prefix := network.GeneratePrefix()
+	oldDefault := network.Default
+	network.SetDefault(network.New(prefix, 0))
+	t.Cleanup(func() { network.SetDefault(oldDefault) })
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := &outbox{ch: make(chan *apigen.MsgToPrimary, 16), ctx: ctx}
+	sess := &primarySessionState{netMapSnapshotPending: true}
+	live := &recordingLiveDeployments{}
+	dispatch := func(msg *apigen.MsgToSecondary) {
+		dispatchFromPrimary(ctx, out, store, newLogStreamTracker(), sess, msg, nodeID, nil, nil, live, nil)
+	}
+
+	dispatch(&apigen.MsgToSecondary{NodeUpdate: apigen.Some(apigen.NodeProjection{Seq: 1, Instances: []apigen.NodeInstance{testAssignment(41, 8, nodeID)}})})
+	if len(live.sets) != 0 || live.kicks != 1 {
+		t.Fatalf("an update without the section: sets=%v kicks=%d, want no set and one kick", live.sets, live.kicks)
+	}
+
+	dispatch(&apigen.MsgToSecondary{NodeUpdate: apigen.Some(apigen.NodeProjection{Seq: 2, Deployments: apigen.Some(apigen.NodeDeployments{})})})
+	if len(live.sets) != 1 || len(live.sets[0]) != 0 {
+		t.Fatalf("an update with an empty section: sets=%v, want one empty set", live.sets)
+	}
+
+	invalid := testClusterNetMap(t, prefix, 1)
+	invalid.TargetNodeID = nodeID + 1
+	dispatch(&apigen.MsgToSecondary{NodeUpdate: apigen.Some(apigen.NodeProjection{
+		Seq:         3,
+		Instances:   []apigen.NodeInstance{testAssignment(42, 9, nodeID)},
+		NetMap:      apigen.Some(*invalid),
+		Deployments: apigen.Some(apigen.NodeDeployments{LiveIds: []uint64{8, 9}}),
+	})})
+	if got := instanceIDs(store.FetchScheduledSnapshot(nil)); len(got) != 1 || got[0] != 41 {
+		t.Fatalf("instances after a refused frame = %v, want [41]", got)
+	}
+	if len(live.sets) != 2 || len(live.sets[1]) != 2 || live.sets[1][0] != 8 || live.sets[1][1] != 9 {
+		t.Fatalf("a refused frame dropped its live deployments: sets=%v", live.sets)
+	}
+	if live.kicks != 1 {
+		t.Fatalf("a refused frame kicked the sweep: kicks=%d", live.kicks)
 	}
 }

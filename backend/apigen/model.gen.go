@@ -2403,15 +2403,25 @@ type NodeInstance struct {
 	StatusWatermark Maybe[time.Time]  `json:"status_watermark,omitzero"`
 }
 
+// NodeDeployments lists every deployment placed on the node that has not been
+// deleted, running or stopped. The node removes the volumes of any deployment
+// absent from it.
+type NodeDeployments struct {
+	unknownFields []byte
+	LiveIds       []uint64 `json:"live_ids,omitempty"`
+}
+
 // NodeProjection is one node's view of the cluster. As node_snapshot it is
-// complete (every live instance, the map, the ACME subset); as node_update it
-// carries only what one write event changed, with unchanged sections absent.
+// complete (every live instance, the map, the ACME subset, the live
+// deployments); as node_update it carries only what one write event changed,
+// with unchanged sections absent.
 type NodeProjection struct {
 	unknownFields []byte
-	Seq           int64                `json:"seq"`
-	Instances     []NodeInstance       `json:"instances,omitempty"`
-	NetMap        Maybe[ClusterNetMap] `json:"net_map,omitzero"`
-	Acme          Maybe[AcmeState]     `json:"acme,omitzero"`
+	Seq           int64                  `json:"seq"`
+	Instances     []NodeInstance         `json:"instances,omitempty"`
+	NetMap        Maybe[ClusterNetMap]   `json:"net_map,omitzero"`
+	Acme          Maybe[AcmeState]       `json:"acme,omitzero"`
+	Deployments   Maybe[NodeDeployments] `json:"deployments,omitzero"`
 }
 
 type ClusterSecretsRequest struct {

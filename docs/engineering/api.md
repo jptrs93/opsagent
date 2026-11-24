@@ -553,8 +553,8 @@ read the tables for it: it holds the pinned deployment version in its cache
 while any live instance pins it and builds the finalized row from the
 commit's own payload, so the worker hears that the instance ended and drops
 its ingress routes. A session receives one `NodeProjection` at its head, complete, and one
-per commit that changed its node's rows, map, or ACME subset, carrying only
-what changed; a status write advances the publisher's applied sequence and
+per commit that changed its node's rows, map, ACME subset, or live
+deployments, carrying only what changed; a status write advances the publisher's applied sequence and
 the instance watermarks and sends nothing. `pq.ScheduledInstanceEvent` is the backend's row view (envelope plus
 `ScheduledInstance`); the message of that name is gone.
 

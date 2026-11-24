@@ -15,7 +15,7 @@ Implemented today:
 - The host routes `O` to the run for its full lifetime and routes `I` only to the current run.
 - OpenDeploy-owned host routes use a dedicated route-protocol tag, and an `unreachable` cluster ULA `/48` route prevents unknown logical destinations from reaching the host default route.
 - Each node records one underlay address. The primary uses `--underlay-address` or derives it from its cluster listener; a worker uses the flag or derives the source address selected for its primary cluster connection and includes it in enrollment.
-- The primary renders one deterministic network map per node, containing the underlay addresses of the node's peers and the virtual-workload routes within the node's reachability scope. Each node's map is stamped with `derived_from_seq`, the global write sequence of the commit that last changed that node's content; the map itself is derived state re-rendered on every boot, and only the per-node stamp is persisted (`node_netmap`) so a restart keeps the stamp of an unchanged map. The map travels inside the node projection (`app/primary/nodepublisher`): one complete `NodeProjection` at enrollment and at the head of every session, then one per commit that changed the node's instance rows, its map, or its ACME subset, all three in the same message. Enrollment includes the node's snapshot with its map or fails.
+- The primary renders one deterministic network map per node, containing the underlay addresses of the node's peers and the virtual-workload routes within the node's reachability scope. Each node's map is stamped with `derived_from_seq`, the global write sequence of the commit that last changed that node's content; the map itself is derived state re-rendered on every boot, and only the per-node stamp is persisted (`node_netmap`) so a restart keeps the stamp of an unchanged map. The map travels inside the node projection (`app/primary/nodepublisher`): one complete `NodeProjection` at enrollment and at the head of every session, then one per commit that changed the node's instance rows, its map, its ACME subset, or its live deployments, all in the same message. Enrollment includes the node's snapshot with its map or fails.
 - Cluster routes are prefixes, not addresses, and are derived from scheduled instance assignments alone. No runner status is read, so container restarts and crashes never move a route or republish the map.
 - Workers validate and persist accepted maps before exposing their prefix to runtime networking. Acceptance is session-based: the first map accepted after connect replaces the cache unconditionally; a later in-session map with a lower stamp is refused and one with an equal stamp is a no-op. Wrong targets, mixed underlay families, and invalid route layouts are rejected; cached maps survive primary outages and agent restarts.
 - Cross-node traffic rides a single managed WireGuard device per node (`odwg0`, alias `opendeploy:wg`, MTU 1420, fixed listen port 51833). Each node mints a static Curve25519 keypair at first boot (`<DataDir>/wireguard.key`, 0600); the private key never leaves the machine, and the public key is registered on the node row — carried in enrollment and re-reported in every cluster hello. A key that fails to load or parse blocks boot: WireGuard is the only cross-node transport, and every member node must be keyed. Enrollment and the session hello reject a node without a valid key, and the primary loads its own key before it writes its node row, so the render never sees a keyless member and does not check for one. The same holds for the underlay address family: the cluster has one, enrollment and the hello reject a node of the other family, and the primary refuses to boot when its own underlay address differs from the enrolled nodes. Worker map validation and topology conversion hard-error on a keyless or mixed-family map.
@@ -253,14 +253,14 @@ cannot divert its traffic.
 
 Session delivery sends the mTLS-authenticated node's own projection at the
 head of every session as one complete `NodeProjection` (its instance rows,
-each with the status watermark the primary holds for it, its map, and its
-ACME subset at one sequence), then one `NodeProjection` per later commit
+each with the status watermark the primary holds for it, its map, its
+ACME subset, and its live deployments at one sequence), then one `NodeProjection` per later commit
 carrying only what changed, from a bounded per-session queue; a session that cannot drain
 the queue is dropped and reconnects to a fresh snapshot. The map carries the
 cluster ULA prefix, which is the only place the secondary learns it. The
 secondary applies a snapshot or an update atomically: the map is validated
 first and the rows, the map, and the ACME subset are written in one
-transaction, so a rejected map leaves the rows unwritten too. Worker acceptance is session-based: the
+transaction, so a rejected map leaves the rows unwritten too. The live deployments are the exception: they are held in memory and recorded even from a rejected frame (see [Volume removal](engine.md#volume-removal)). Worker acceptance is session-based: the
 snapshot served at connect replaces the persisted map unconditionally — a
 primary restored from backup republishes with a rolled-back counter, and its
 snapshot is authoritative even so — while a later in-session map with a lower
@@ -400,7 +400,12 @@ address that does not route; a crashed container keeps its records. The
 rendered snapshot is
 deterministic and duplicate-free: the DNS services and ingress routes an old
 and a replacement placement both render are merged with their backends
-deduplicated.
+deduplicated. Ingress backends merge across the placements of one deployment
+and never across deployments: a route claimed by two deployments keeps the
+backends of the lower deployment id alone, and a passthrough route on a
+hostname another deployment serves over HTTPS is dropped the same way.
+Validation refuses both, so the render only meets them in claims stored before
+2026-11-24.
 
 The agent writes full node-local `NetState` protobuf snapshots to `/var/lib/opendeploy/netproxy/netstate.pb`. It atomically takes its initial deployment snapshot and subscribes before writing, so a concurrent route or endpoint update cannot be lost during startup. The snapshot contains DNS records and rendered ingress routes. Writes are content-diffed: `netstate.pb` and `certbundle.pb` each carry an independent sequence and are rewritten only when their own rendered content changed, so status heartbeats that change nothing rendered trigger no writes and no nftables reconciliation. Sequences seed at `max(persisted seq, unix-millis)` because netproxy's monotonic gates live in a separate process that survives an agent state-dir wipe. Netproxy watches its directory for the atomic write-rename updates and answers authoritatively for every catalogued name: AAAA records for established virtual endpoints anywhere in the cluster, and an empty `NOERROR` answer (any record type) for a service that exists but has no established ordinal, so `.internal` names of unestablished services are neither leaked upstream nor denied with `NXDOMAIN`. Names not in the catalog are forwarded to the host's upstream resolvers. Resolver discovery ignores loopback stubs that are unreachable from the netproxy namespace and falls back to the systemd-resolved or NetworkManager upstream resolver files. Forwarding is capped at 256 concurrent queries; overload and upstream failure return `SERVFAIL` rather than a cacheable negative answer.
 
@@ -618,11 +623,12 @@ entry denotes a set: no entry is every address of the node, `ipv4()` and
 address. Two sets intersect when one contains the other; the whole space
 intersects everything and the two families never intersect each other.
 
-Collisions are decided on these sets, on one node and port, and never on the
-inventory a node reports today, so `10.0.0.0/8` collides with an omitted
-selector even on a node without a `10.x` address. The inventory is used only
-afterwards, to expand the accepted claims into the publish set. Rules, since
-2026-10-07:
+A claim collides with a platform listener on these sets, on one node and
+port, and never on the inventory a node reports today, so a listener on
+`10.0.0.1` collides with an omitted selector even on a node without a `10.x`
+address. Two deployments collide on the hostname alone, whatever their sets
+(see below). The inventory is used only afterwards, to expand the accepted
+claims into the publish set. Rules, since 2026-10-07:
 
 - The Web UI listeners (`https_web.listen`, `http_web.listen`, when enabled)
   are reservations on the primary: every address of the node on that port for
@@ -633,21 +639,29 @@ afterwards, to expand the accepted claims into the publish set. Rules, since
   address; narrowing `https_web.listen` to one address frees the others. A
   settings change whose listeners would intersect a stored claim is rejected.
 - Two deployments whose claims share (node, port, hostname) and, for HTTPS,
-  the path prefix, with intersecting sets collide. Cross-kind hostname claims
-  and `certSource` mismatches on one hostname are collisions too, as are raw
-  TCP port forwards on an ingress port of the same node (a port forward has
-  no selector and claims every address). At save time the candidate is
-  rejected; only the candidate ever receives an error.
+  the path prefix, collide. Cross-kind hostname claims and `certSource`
+  mismatches on one hostname are collisions too. None of the three reads the
+  listen sets (since 2026-11-24): netproxy routes on the hostname alone, so a
+  second claim on an address the first does not name would still meet it in
+  netproxy's tables, pooling its backends with the first deployment's or,
+  as passthrough, taking the hostname's connections ahead of the HTTPS route.
+  A different path prefix on another deployment's hostname still composes.
+  Raw TCP port forwards on an ingress port of the same node collide as well
+  (a port forward has no selector and claims every address). At save time
+  the candidate is rejected; only the candidate ever receives an error.
 - A wildcard, family, or CIDR selector expanding onto a node that hosts
   host-mode deployments produces a warning naming them; their bound ports are
   not visible to the evaluator.
 
-Write-time validation guarantees that stored claims never collide with each
-other or with the Web UI listeners: a deployment save is rejected when its
-candidate collides with a stored claim or a reservation, and a listen settings
-save is rejected when its listeners would intersect a stored claim. The
-evaluator handles no stored collision; `Result.Excluded` exists for the
-settings path alone and is empty on every publish.
+Write-time validation guarantees that stored claims never collide with the
+Web UI listeners, or with each other under the rules in force when they were
+saved: a deployment save is rejected when its candidate collides with a stored
+claim or a reservation, and a listen settings save is rejected when its
+listeners would intersect a stored claim. `Result.Excluded` exists for the
+settings path alone and is empty on every publish. Two deployments saved
+before 2026-11-24 can share a hostname on disjoint listen sets; the evaluator
+keeps the lower deployment id's claim, leaves the other unpublished with a
+warning on it, and refuses a save of either until one gives the hostname up.
 
 The publisher distributes each node's concrete set as
 `ClusterNetMapNode.ingress_publish` (`[(address, port)]`, empty address =
