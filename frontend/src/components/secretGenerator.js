@@ -74,7 +74,7 @@ export function secretGenerator({onGenerate, disabled = false, className = ""}) 
                         oninput: event => passwordLength.val = event.target.value,
                         "aria-label": "Generated password length",
                     })),
-                label({class: "inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-md border border-gray-700 bg-gray-900/60 px-2.5 text-xs text-gray-300"},
+                label({class: "explorer-chip inline-flex h-8 items-center gap-2 whitespace-nowrap rounded-md border px-2.5 text-xs text-gray-300"},
                     input({
                         class: "accent-blue-500",
                         type: "checkbox",

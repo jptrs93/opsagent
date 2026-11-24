@@ -4,6 +4,45 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.623 (released 2026-11-24)
+
+### What changed
+
+Only the Web UI changes. Nothing changes on disk or on the wire.
+
+- **The Web UI has three themes: Slate, Graphite and Classic.** Classic is
+  the look of earlier releases. A cog at the bottom left of the sidebar,
+  and of the sign-in and enrolment pages, picks one. The choice is kept in
+  the browser.
+- **Every tabbed page uses the Deployments page's tabs**, in Classic too.
+- **The Metrics page is tabbed.** The table of running containers is the
+  Overview tab, and a click on a row opens that deployment's charts in a
+  tab that can be closed.
+- **The connection indicator reads "Connected"** in place of "Connection
+  healthy". Hovering it shows when the connection opened, the last
+  heartbeat and update, the number of updates, the bytes received and the
+  last write sequence.
+- **The space filter has a search box and presets.** It is the same on
+  Deployments, Secrets / Configs, Assets, Logs and Metrics. A selection can
+  be saved under a name and applied on any of the five pages. Presets are
+  kept in the browser and are not sent to the server.
+
+### Before upgrading
+
+- Nothing needs doing.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. Only the primary
+  serves the Web UI, so the new look appears once the primary is upgraded.
+  Reload any open tab afterwards.
+
+### After upgrading
+
+- **Everyone sees Slate until they pick a theme.** Choose Classic from the
+  cog to get the earlier look back.
+- The spaces each page had hidden stay hidden. Presets start empty.
+
 ## v0.0.622 (released 2026-11-24)
 
 ### What changed

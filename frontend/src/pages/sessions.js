@@ -15,20 +15,22 @@ import {
 } from "../lib/agentSessions.js";
 import {userSessionLive, userSessionStatus, summarizeUserAgent, isLinkSession} from "../lib/userSessions.js";
 import {usersMapS} from "../state/deployments.js";
+import {tabButton, tabStrip} from "../components/tabs.js";
 
 const {button, div, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
-const iconButtonClass = "rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer";
+const iconButtonClass = "rounded p-1 text-gray-400 transition-colors hover:bg-surface-hover slate:hover:bg-white/[0.06] graphite:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer";
 
 // Header cells stick to the top of the scrolling list, so they need an opaque
-// background (gray-950 at 40% over the surface) and an inset shadow in place
-// of a bottom border, which a sticky cell in a border-separate table drops.
-const thCell = (label, extra = "") => th(
-    {class: `sticky top-0 z-[1] border-r border-r-gray-800/40 last:border-r-0 bg-[#141b28] px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gray-500 shadow-[inset_0_-1px_0_rgba(55,65,81,0.7)] ${extra}`},
-    label);
-const tdCell = (extra, ...children) => td(
-    {class: `border-b border-gray-800/50 border-r border-r-gray-800/30 last:border-r-0 px-2 py-[3px] ${extra}`},
-    ...children);
+// background and an inset shadow in place of a bottom border, which a sticky
+// cell in a border-separate table drops (styles/access.css).
+const thCell = (label, extra = "") => th({class: `access-th ${extra}`}, label);
+const tdCell = (extra, ...children) => td({class: `access-td ${extra}`}, ...children);
+
+const statusCell = (status, text) => tdCell(`whitespace-nowrap ${status.tone}`,
+    span({class: "inline-flex items-center gap-1.5"},
+        span({class: "access-status-dot h-1.5 w-1.5 flex-none rounded-full bg-current"}),
+        span({class: status.tone === "text-green-400" ? "access-status-ok" : ""}, text)));
 
 const denseTable = (headers, bodyRows) => table(
     {class: "w-full border-separate border-spacing-0 text-xs"},
@@ -37,11 +39,11 @@ const denseTable = (headers, bodyRows) => table(
 );
 
 const emptyRow = (colCount, text) => tr(
-    td({class: "border-b border-gray-800/50 px-2 py-[3px] text-gray-500", colspan: colCount},
+    td({class: "access-td text-gray-500", colspan: colCount},
         div({class: "flex h-8 items-center justify-center text-xs"}, text)));
 
 const errorLine = (error, testId) => () => error.val
-    ? p({class: "px-2 pt-1.5 text-xs text-red-400", "data-testid": testId}, error.val)
+    ? p({class: "px-2 pt-1.5 text-xs text-red-400 slate:px-3 graphite:px-3", "data-testid": testId}, error.val)
     : "";
 
 function agentSessionsTab() {
@@ -69,9 +71,9 @@ function agentSessionsTab() {
         const status = sessionStatus(session);
         const stoppable = sessionStoppable(session);
         return tr(
-            {class: pending ? "bg-amber-500/5" : "hover:bg-gray-800/40"},
+            {class: `access-tr ${pending ? "access-tr-pending" : ""}`},
             tdCell("whitespace-nowrap text-gray-300 tabular-nums", formatHistoryTime(session.createdAt)),
-            tdCell(`whitespace-nowrap ${status.tone}`,
+            statusCell(status,
                 status.label === "Active" ? `Active until ${formatHistoryTime(sessionExpiresAt(session))}` : status.label),
             tdCell("whitespace-nowrap font-mono",
                 pending
@@ -106,7 +108,7 @@ function agentSessionsTab() {
     return div(
         {class: "flex flex-1 min-h-0 flex-col"},
         div(
-            {class: "flex flex-none flex-col gap-1.5 p-2"},
+            {class: "flex flex-none flex-col gap-1.5 p-2 slate:px-3 slate:py-3 graphite:px-3 graphite:py-2.5"},
             p({class: "text-[11px] text-gray-500"},
                 "Give this to an agent. It will fetch its own instructions and request a session, which you can approve below."),
             codeBlock({
@@ -167,9 +169,9 @@ function userSessionsTab() {
                 isMine(session) ? `for you, issued by ${session.issuedBy ? userName(session.issuedBy) : "the master password"}` : `for ${userName(session.userId)}`)
             : summarizeUserAgent(session.userAgent);
         return tr(
-            {class: "hover:bg-gray-800/40", ...(link ? {"data-testid": `user-session-link-${session.sessionId}`} : {})},
+            {class: "access-tr", ...(link ? {"data-testid": `user-session-link-${session.sessionId}`} : {})},
             tdCell("whitespace-nowrap text-gray-300 tabular-nums", formatHistoryTime(session.createdAt)),
-            tdCell(`whitespace-nowrap ${status.tone}`, status.label),
+            statusCell(status, status.label),
             tdCell("whitespace-nowrap text-gray-300",
                 device,
                 current
@@ -210,31 +212,16 @@ function userSessionsTab() {
 export function sessionsPage() {
     const tab = van.state("agent");
 
-    const tabButton = (key, label, countS) => button(
-        {
-            type: "button",
-            role: "tab",
-            "aria-selected": () => String(tab.val === key),
-            class: () => `-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${tab.val === key
-                ? "border-brand text-gray-100"
-                : "border-transparent text-gray-400 hover:text-gray-200"}`,
-            onclick: () => { tab.val = key; },
-        },
-        label,
-        () => span({class: "text-[10px] text-gray-500 tabular-nums"}, String(countS())),
-    );
-
     return div(
-        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
-        div(
-            {class: "flex flex-none items-end gap-1 border-b border-gray-800 bg-gray-950/40 px-2 pt-1", role: "tablist"},
-            tabButton("agent", "Agent sessions", () => agentSessionsS.val.length),
-            tabButton("user", "User sessions", () => userSessionsS.val.length),
+        {class: "page"},
+        tabStrip({label: "Sessions"},
+            tabButton({id: "agent", activeTab: tab, title: "Agent sessions", testid: "sessions-tab-agent", count: () => String(agentSessionsS.val.length)}),
+            tabButton({id: "user", activeTab: tab, title: "User sessions", testid: "sessions-tab-user", count: () => String(userSessionsS.val.length)}),
         ),
         // The tab body is a flex column, not a scroller: each tab owns its
         // own scrolling list so the table header stays fixed.
         div(
-            {class: "flex flex-1 min-h-0 flex-col overflow-hidden"},
+            {class: "page-body flex flex-col overflow-hidden"},
             () => tab.val === "agent" ? agentSessionsTab() : userSessionsTab(),
         ),
     );

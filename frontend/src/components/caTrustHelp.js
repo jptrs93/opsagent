@@ -91,27 +91,25 @@ function caTrustHelpBody() {
 
     const step = (n, title, ...body) => div(
         {class: "flex gap-3"},
-        span({class: "mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-gray-800 text-[11px] font-medium text-gray-300 ring-1 ring-gray-700"}, String(n)),
+        span({class: "auth-step-num mt-px flex h-5 w-5 shrink-0 items-center justify-center text-[11px] font-medium"}, String(n)),
         div({class: "flex min-w-0 flex-1 flex-col gap-2.5"}, p({class: "text-sm font-medium text-gray-200"}, title), ...body),
     );
 
-    const chip = "inline-flex items-center gap-1.5 rounded-md border border-gray-600 bg-gray-800/60 px-2.5 py-1 text-xs text-gray-200 transition-colors hover:bg-gray-700 cursor-pointer no-underline";
+    const chip = "auth-action inline-flex items-center gap-1.5 px-2.5 py-1 text-xs transition-colors cursor-pointer no-underline";
 
     const fact = (term, value, mono) => div(
         {class: "flex items-baseline gap-3 px-3 py-1.5"},
-        span({class: "w-16 shrink-0 text-[11px] uppercase tracking-wide text-gray-500"}, term),
+        span({class: "auth-term w-16 shrink-0"}, term),
         span({class: `min-w-0 break-all text-xs text-gray-300 ${mono ? "font-mono" : ""}`}, value),
     );
 
     const platformPicker = div(
-        {class: "inline-flex flex-wrap gap-0.5 rounded-md border border-gray-700 bg-gray-900/60 p-0.5", role: "tablist"},
+        {class: "auth-seg inline-flex flex-wrap gap-0.5 p-0.5", role: "tablist"},
         ...PLATFORMS.map(({key, label}) => button({
             type: "button",
             role: "tab",
             "aria-selected": () => String(tab.val === key),
-            class: () => `cursor-pointer rounded px-2.5 py-1 text-xs transition-colors ${tab.val === key
-                ? "bg-gray-700 text-white shadow-sm"
-                : "text-gray-400 hover:text-gray-200"}`,
+            class: "auth-seg-item cursor-pointer px-2.5 py-1 text-xs transition-colors",
             onclick: () => { tab.val = key; },
         }, label)),
     );
@@ -123,10 +121,10 @@ function caTrustHelpBody() {
         const done = van.state(false);
         const full = () => build(pemS.val);
         return div(
-            {class: "overflow-hidden rounded-md border border-gray-700/80"},
+            {class: "auth-code overflow-hidden"},
             div(
-                {class: "flex items-center justify-between gap-2 bg-gray-900/70 px-3 py-1.5"},
-                span({class: "truncate text-[11px] text-gray-400"}, title),
+                {class: "auth-code-head flex items-center justify-between gap-2 px-3 py-1.5"},
+                span({class: "auth-code-title truncate"}, title),
                 button({
                     type: "button",
                     class: "flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-gray-400 transition-colors hover:text-gray-100",
@@ -158,7 +156,7 @@ function caTrustHelpBody() {
                 () => copyErr.val ? span({class: "text-xs text-red-400"}, copyErr.val) : "",
             ),
             div(
-                {class: "divide-y divide-gray-800 rounded-md border border-gray-700/80 bg-gray-900/50"},
+                {class: "auth-facts"},
                 fact("Issuer", "OpenDeploy Local CA"),
                 fact("Serves", window.location.host, true),
                 () => fingerprint.val ? fact("SHA-256", fingerprint.val, true) : "",
@@ -172,8 +170,8 @@ function caTrustHelpBody() {
             },
         ),
         step(3, "Restart the browser, then reload this page"),
-        p({class: "flex items-start gap-2 rounded-md border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs leading-relaxed text-amber-200/90", "data-testid": "login-ca-warning"},
-            alertCircleIcon({class: "mt-0.5 h-3.5 w-3.5 shrink-0"}),
+        p({class: "auth-notice auth-notice-warning flex items-start gap-2 px-3 py-2 text-xs leading-relaxed classic:rounded-md", "data-testid": "login-ca-warning"},
+            alertCircleIcon({class: "auth-notice-icon mt-0.5 h-3.5 w-3.5 shrink-0"}),
             span("A trusted CA can sign certificates for any site. Only do this for a server you control, from a machine you trust, and remove the CA when you no longer need it.")),
     );
 }
@@ -193,19 +191,19 @@ export function caTrustHelp(open) {
             {class: "fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4 backdrop-blur-[2px]",
                 onclick: (e) => { if (e.target === e.currentTarget) open.val = false; }},
             div(
-                {class: "flex max-h-[88vh] w-[600px] max-w-full flex-col overflow-hidden rounded-xl border border-gray-700/80 bg-surface shadow-2xl shadow-black/60",
+                {class: "auth-dialog flex max-h-[88vh] w-[600px] max-w-full flex-col overflow-hidden",
                     role: "dialog", "aria-modal": "true", "aria-label": "Trust this server's certificate", "data-testid": "login-ca-help"},
                 div(
-                    {class: "flex items-start justify-between gap-4 border-b border-gray-700/80 px-5 py-4"},
+                    {class: "auth-dialog-head flex items-start justify-between gap-4 px-5 py-4"},
                     div(
                         {class: "flex items-start gap-3"},
-                        span({class: "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand/15 text-brand ring-1 ring-brand/30"}, shieldCheckIcon({class: "h-[18px] w-[18px]"})),
+                        span({class: "auth-dialog-icon flex h-9 w-9 shrink-0 items-center justify-center"}, shieldCheckIcon({class: "h-[18px] w-[18px]"})),
                         div(
-                            p({class: "text-base font-semibold text-white"}, "Trust this server's certificate"),
+                            p({class: "auth-dialog-title"}, "Trust this server's certificate"),
                             p({class: "mt-0.5 text-xs text-gray-400"}, "The server signs its own TLS certificate. Trust its CA once and the browser warning goes away."),
                         ),
                     ),
-                    button({type: "button", class: "-mr-1 -mt-1 shrink-0 cursor-pointer rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100", title: "Close", "aria-label": "Close", onclick: () => { open.val = false; }},
+                    button({type: "button", class: "-mr-1 -mt-1 shrink-0 cursor-pointer rounded p-1 text-gray-400 transition-colors hover:bg-surface-hover hover:text-gray-100", title: "Close", "aria-label": "Close", onclick: () => { open.val = false; }},
                         closeIcon({class: "h-4 w-4"})),
                 ),
                 div({class: "app-scroll min-h-0 overflow-y-auto px-5 py-5"}, caTrustHelpBody()),

@@ -1,0 +1,732 @@
+@layer components {
+    .auth-chip,
+    .auth-btn,
+    .auth-btn-secondary {
+        @apply transition-colors;
+    }
+
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        .auth-page {
+            @apply bg-gray-950;
+        }
+
+        .auth-card {
+            @apply rounded-xl border border-gray-700/80 bg-surface shadow-2xl shadow-black/60;
+        }
+
+        .auth-head {
+            @apply border-b border-gray-700/80 px-5 py-3.5;
+        }
+
+        .auth-title {
+            @apply text-lg font-semibold tracking-tight text-white;
+        }
+
+        .auth-title-page {
+            @apply font-normal text-gray-500;
+        }
+
+        .auth-fields {
+            @apply divide-y divide-gray-700 rounded-lg border border-gray-700 bg-gray-900/60
+            focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/25;
+        }
+
+        .auth-field {
+            @apply px-3 py-2;
+        }
+
+        .auth-caption {
+            @apply text-[10px] uppercase tracking-wide text-gray-500;
+        }
+
+        .auth-input {
+            @apply placeholder-gray-600;
+        }
+
+        .auth-btn,
+        .auth-btn-secondary {
+            @apply rounded-lg border border-brand/40 bg-brand/15 text-blue-100 hover:border-brand/70 hover:bg-brand/25;
+        }
+
+        .auth-link {
+            @apply text-brand hover:text-blue-400;
+        }
+
+        .auth-notice {
+            @apply rounded-lg border;
+        }
+
+        .auth-notice-error {
+            @apply border-red-900/60 bg-red-950/40 text-red-300;
+        }
+
+        .auth-notice-warning {
+            @apply border-amber-900/50 bg-amber-950/30 text-amber-200/90;
+        }
+
+        .auth-notice-success {
+            @apply border-emerald-900/60 bg-emerald-950/30 text-emerald-200/90;
+        }
+
+        .auth-divider {
+            @apply text-[10px] uppercase tracking-wide text-gray-500;
+        }
+
+        .auth-divider-rule {
+            @apply bg-gray-700/80;
+        }
+
+        .auth-foot {
+            @apply divide-y divide-gray-800 border-t border-gray-700/80 bg-gray-900/40;
+        }
+
+        .auth-term {
+            @apply text-[11px] uppercase tracking-wide text-gray-500;
+        }
+
+        .auth-foot-text {
+            @apply text-gray-500;
+        }
+
+        .auth-chip {
+            @apply rounded-md border border-gray-700 text-gray-300 hover:border-gray-600 hover:bg-gray-800 hover:text-white;
+        }
+
+        .auth-hint {
+            @apply text-gray-500;
+        }
+
+        .auth-aside {
+            @apply rounded-lg border border-gray-800 bg-gray-900/40 text-gray-400;
+        }
+
+        .auth-skeleton-fields {
+            @apply rounded-lg border border-gray-700 bg-gray-900/40;
+        }
+
+        .auth-skeleton {
+            @apply rounded-lg bg-gray-800/70;
+        }
+
+        .auth-retry {
+            @apply decoration-amber-200/40 hover:text-amber-100;
+        }
+
+
+        .auth-step.auth-step-current {
+            @apply text-gray-100;
+        }
+
+        .auth-step-marker {
+            @apply rounded-full border;
+        }
+
+        .auth-step-marker-current {
+            @apply border-brand/70 bg-brand/15 text-blue-100;
+        }
+
+        .auth-step-marker-done {
+            @apply border-emerald-700/70 bg-emerald-950/40 text-emerald-300;
+        }
+
+        .auth-step-marker-next {
+            @apply border-gray-700 text-gray-500;
+        }
+
+        .auth-step-rule {
+            @apply bg-gray-700/80;
+        }
+
+        .auth-step {
+            @apply text-xs text-gray-500;
+        }
+
+        .auth-label {
+            @apply text-[10px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .auth-wbtn-primary {
+            @apply bg-brand text-white hover:bg-blue-600;
+        }
+
+        .auth-wbtn {
+            @apply border border-gray-600 text-gray-200 hover:bg-surface-hover;
+        }
+
+        .auth-segment {
+            @apply rounded border border-gray-600 text-gray-400;
+        }
+
+        .auth-segment:not(.auth-segment-on) {
+            @apply hover:bg-surface-hover;
+        }
+
+        .auth-segment-on {
+            @apply border-brand bg-brand/15 text-gray-100;
+        }
+
+        .auth-choice {
+            @apply rounded-lg border border-gray-700 bg-gray-900/40 hover:border-brand/70 hover:bg-brand/10;
+        }
+
+        .auth-choice-icon {
+            @apply rounded-md border border-gray-700 bg-gray-950/60 text-gray-300;
+        }
+
+        .auth-choice:hover .auth-choice-icon {
+            @apply border-brand/50 text-blue-200;
+        }
+
+        .auth-overlay {
+            @apply rounded-[0.3rem] border border-gray-700 bg-surface shadow-2xl;
+        }
+
+        .auth-overlay-head {
+            @apply border-b border-gray-800;
+        }
+
+        .auth-dialog {
+            @apply rounded-xl border border-gray-700/80 bg-surface shadow-2xl shadow-black/60;
+        }
+
+        .auth-dialog-head {
+            @apply border-b border-gray-700/80;
+        }
+
+        .auth-dialog-icon {
+            @apply rounded-lg bg-brand/15 text-brand ring-1 ring-brand/30;
+        }
+
+        .auth-dialog-title {
+            @apply text-base font-semibold text-white;
+        }
+
+        .auth-step-num {
+            @apply rounded-full bg-gray-800 text-gray-300 ring-1 ring-gray-700;
+        }
+
+        .auth-action {
+            @apply rounded-md border border-gray-600 bg-gray-800/60 text-gray-200 hover:bg-gray-700;
+        }
+
+        .auth-facts {
+            @apply divide-y divide-gray-800 rounded-md border border-gray-700/80 bg-gray-900/50;
+        }
+
+        .auth-seg {
+            @apply rounded-md border border-gray-700 bg-gray-900/60;
+        }
+
+        .auth-seg-item {
+            @apply rounded text-gray-400 hover:text-gray-200;
+        }
+
+        .auth-seg-item[aria-selected="true"] {
+            @apply bg-gray-700 text-white shadow-sm;
+        }
+
+        .auth-code {
+            @apply rounded-md border border-gray-700/80;
+        }
+
+        .auth-code-head {
+            @apply bg-gray-900/70;
+        }
+
+        .auth-code-title {
+            @apply text-[11px] text-gray-400;
+        }
+    }
+
+    :root[data-theme="slate"] {
+        .auth-page {
+            @apply bg-frame;
+        }
+
+        .auth-backdrop,
+        .auth-glow {
+            @apply hidden;
+        }
+
+        .auth-card {
+            @apply rounded-lg border border-line bg-surface shadow-xl shadow-black/25;
+        }
+
+        .auth-head {
+            @apply border-b border-line px-5 py-3.5;
+        }
+
+        .auth-title {
+            @apply text-[15px] font-semibold text-gray-100;
+        }
+
+        .auth-title-page {
+            @apply font-normal text-gray-500;
+        }
+
+        .auth-fields {
+            @apply divide-y divide-[#2a3443] rounded-md border border-[#2a3443] bg-field
+            focus-within:border-brand/80 focus-within:ring-2 focus-within:ring-brand/20;
+        }
+
+        .auth-field {
+            @apply px-3 py-2;
+        }
+
+        .auth-caption {
+            @apply text-[11px] font-medium text-gray-500;
+        }
+
+        .auth-input {
+            @apply placeholder-gray-500/60;
+        }
+
+        .auth-btn {
+            @apply rounded-md bg-brand text-white hover:bg-blue-600;
+        }
+
+        .auth-btn-secondary {
+            @apply rounded-md bg-white/[0.06] text-gray-200 hover:bg-white/10;
+        }
+
+        .auth-link {
+            @apply text-blue-400 hover:text-blue-300;
+        }
+
+        .auth-notice {
+            @apply rounded-md border;
+        }
+
+        .auth-notice-error {
+            @apply border-red-400/25 bg-red-400/[0.08] text-red-300;
+        }
+
+        .auth-notice-warning {
+            @apply border-amber-400/25 bg-amber-400/[0.07] text-amber-200;
+        }
+
+        .auth-notice-success {
+            @apply border-emerald-400/25 bg-emerald-400/[0.07] text-emerald-200;
+        }
+
+        .auth-divider {
+            @apply text-[11px] text-gray-500;
+        }
+
+        .auth-divider-rule {
+            @apply bg-line;
+        }
+
+        .auth-foot {
+            @apply divide-y divide-line border-t border-line;
+        }
+
+        .auth-term {
+            @apply text-xs text-gray-500;
+        }
+
+        .auth-foot-text {
+            @apply text-gray-500;
+        }
+
+        .auth-chip {
+            @apply rounded-md bg-white/[0.06] text-gray-300 hover:bg-white/10 hover:text-white;
+        }
+
+        .auth-hint {
+            @apply text-gray-500;
+        }
+
+        .auth-aside {
+            @apply rounded-md bg-white/[0.04] text-gray-400;
+        }
+
+        .auth-skeleton-fields {
+            @apply rounded-md border border-[#2a3443] bg-field;
+        }
+
+        .auth-skeleton {
+            @apply rounded-md bg-white/[0.06];
+        }
+
+        .auth-retry {
+            @apply decoration-amber-200/40 hover:text-amber-100;
+        }
+
+
+        .auth-step.auth-step-current {
+            @apply font-medium text-gray-100;
+        }
+
+        .auth-step-marker {
+            @apply rounded-full;
+        }
+
+        .auth-step-marker-current {
+            @apply bg-brand text-white;
+        }
+
+        .auth-step-marker-done {
+            @apply bg-emerald-400/15 text-emerald-300;
+        }
+
+        .auth-step-marker-next {
+            @apply bg-white/[0.06] text-gray-500;
+        }
+
+        .auth-step-rule {
+            @apply bg-line;
+        }
+
+        .auth-step {
+            @apply text-xs text-gray-500;
+        }
+
+        .auth-label {
+            @apply text-xs font-medium text-gray-400;
+        }
+
+        .auth-wbtn-primary {
+            @apply bg-brand text-white hover:bg-blue-600;
+        }
+
+        .auth-wbtn {
+            @apply bg-white/[0.06] text-gray-200 hover:bg-white/10;
+        }
+
+        .auth-segment {
+            @apply rounded-md text-gray-400;
+        }
+
+        .auth-segment:not(.auth-segment-on) {
+            @apply hover:bg-white/5 hover:text-gray-200;
+        }
+
+        .auth-segment-on {
+            @apply bg-white/10 font-medium text-white;
+        }
+
+        .auth-choice {
+            @apply rounded-md border border-line bg-white/[0.02] hover:border-[#2a3443] hover:bg-white/[0.045];
+        }
+
+        .auth-choice-icon {
+            @apply rounded-md bg-white/[0.06] text-gray-300;
+        }
+
+        .auth-choice:hover .auth-choice-icon {
+            @apply text-blue-300;
+        }
+
+        .auth-overlay,
+        .auth-dialog {
+            @apply rounded-lg border border-[#2a3443] bg-surface shadow-2xl shadow-black/40;
+        }
+
+        .auth-overlay-head,
+        .auth-dialog-head {
+            @apply border-b border-line;
+        }
+
+        .auth-dialog-icon {
+            @apply rounded-md bg-brand/15 text-blue-400;
+        }
+
+        .auth-dialog-title {
+            @apply text-[15px] font-semibold text-gray-100;
+        }
+
+        .auth-step-num {
+            @apply rounded-full bg-white/[0.08] text-gray-300;
+        }
+
+        .auth-action {
+            @apply rounded-md bg-white/[0.06] text-gray-200 hover:bg-white/10;
+        }
+
+        .auth-facts {
+            @apply divide-y divide-line rounded-md border border-line;
+        }
+
+        .auth-seg {
+            @apply rounded-md bg-white/[0.04];
+        }
+
+        .auth-seg-item {
+            @apply rounded-[5px] text-gray-400 hover:text-gray-200;
+        }
+
+        .auth-seg-item[aria-selected="true"] {
+            @apply bg-white/10 font-medium text-white;
+        }
+
+        .auth-code {
+            @apply rounded-md border border-line;
+        }
+
+        .auth-code-head {
+            @apply border-b border-line bg-white/[0.03];
+        }
+
+        .auth-code-title {
+            @apply text-[11px] text-gray-400;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .auth-page {
+            @apply bg-surface;
+        }
+
+        .auth-backdrop,
+        .auth-glow {
+            @apply hidden;
+        }
+
+        .auth-card {
+            @apply rounded border border-line bg-frame;
+            border-top: 2px solid var(--color-brand);
+        }
+
+        .auth-head {
+            @apply border-b border-line px-5 py-3;
+        }
+
+        .auth-title {
+            @apply text-sm font-semibold text-gray-100;
+        }
+
+        .auth-title svg {
+            @apply h-5 w-5;
+        }
+
+        .auth-title-page {
+            @apply font-normal text-gray-500;
+        }
+
+        .auth-fields {
+            @apply divide-y divide-line rounded border border-gray-600 bg-surface
+            focus-within:border-brand focus-within:ring-1 focus-within:ring-brand/40;
+        }
+
+        .auth-field {
+            @apply px-3 py-2;
+        }
+
+        .auth-caption {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .auth-input {
+            @apply placeholder-gray-500/50;
+        }
+
+        .auth-btn {
+            @apply rounded bg-brand text-white hover:bg-blue-500;
+        }
+
+        .auth-btn-secondary {
+            @apply rounded border border-gray-600 text-gray-200 hover:bg-white/[0.04];
+        }
+
+        .auth-link {
+            @apply text-blue-400 hover:text-blue-300;
+        }
+
+        .auth-notice {
+            @apply rounded-sm border border-line bg-surface text-gray-200;
+            border-left-width: 2px;
+        }
+
+        .auth-notice-error {
+            @apply border-l-red-400;
+        }
+
+        .auth-notice-error .auth-notice-icon {
+            @apply text-red-400;
+        }
+
+        .auth-notice-warning {
+            border-left-color: #d8b36a;
+        }
+
+        .auth-notice-warning .auth-notice-icon {
+            color: #d8b36a;
+        }
+
+        .auth-notice-success {
+            @apply border-l-emerald-400;
+        }
+
+        .auth-notice-success .auth-notice-icon {
+            @apply text-emerald-400;
+        }
+
+        .auth-divider {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .auth-divider-rule {
+            @apply bg-line;
+        }
+
+        .auth-foot {
+            @apply divide-y divide-line border-t border-line;
+        }
+
+        .auth-term {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .auth-foot-text {
+            @apply text-gray-500;
+        }
+
+        .auth-chip {
+            @apply rounded border border-gray-600 text-gray-300 hover:bg-white/[0.04] hover:text-white;
+        }
+
+        .auth-hint {
+            @apply text-gray-500;
+        }
+
+        .auth-aside {
+            @apply rounded border border-line text-gray-400;
+        }
+
+        .auth-skeleton-fields {
+            @apply rounded border border-line bg-surface;
+        }
+
+        .auth-skeleton {
+            @apply rounded bg-white/[0.05];
+        }
+
+        .auth-retry {
+            @apply text-gray-100 decoration-gray-500 hover:decoration-gray-200;
+        }
+
+        .auth-step {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .auth-step.auth-step-current {
+            @apply text-gray-100;
+        }
+
+        .auth-step-marker {
+            @apply rounded-sm border border-gray-600 text-[10.5px];
+        }
+
+        .auth-step-marker-current {
+            @apply border-brand bg-brand text-white;
+        }
+
+        .auth-step-marker-done {
+            @apply border-line text-emerald-400;
+        }
+
+        .auth-step-rule {
+            @apply bg-line;
+        }
+
+        .auth-label {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .auth-wbtn-primary {
+            @apply bg-brand text-white hover:bg-blue-500;
+        }
+
+        .auth-wbtn {
+            @apply border border-gray-600 text-gray-200 hover:bg-white/[0.04];
+        }
+
+        .auth-segment {
+            @apply rounded border border-gray-600 text-gray-400;
+        }
+
+        .auth-segment:not(.auth-segment-on) {
+            @apply hover:text-gray-200;
+        }
+
+        .auth-segment-on {
+            @apply border-brand bg-brand/15 text-white;
+        }
+
+        .auth-choice {
+            @apply rounded border border-line bg-surface hover:border-gray-600;
+        }
+
+        .auth-choice:hover {
+            box-shadow: inset 2px 0 0 var(--color-brand);
+        }
+
+        .auth-choice-icon {
+            @apply rounded border border-line text-gray-400;
+        }
+
+        .auth-choice:hover .auth-choice-icon {
+            @apply text-blue-300;
+        }
+
+        .auth-overlay,
+        .auth-dialog {
+            @apply rounded border border-[#3a3e46] bg-frame shadow-2xl shadow-black/50;
+        }
+
+        .auth-dialog {
+            border-top: 2px solid var(--color-brand);
+        }
+
+        .auth-overlay-head,
+        .auth-dialog-head {
+            @apply border-b border-line;
+        }
+
+        .auth-dialog-icon {
+            @apply rounded border border-line text-blue-400;
+        }
+
+        .auth-dialog-title {
+            @apply text-sm font-semibold text-gray-100;
+        }
+
+        .auth-step-num {
+            @apply rounded-sm border border-gray-600 text-gray-300;
+        }
+
+        .auth-action {
+            @apply rounded border border-gray-600 text-gray-200 hover:bg-white/[0.04];
+        }
+
+        .auth-facts {
+            @apply divide-y divide-line rounded border border-line bg-surface;
+        }
+
+        .auth-seg {
+            @apply rounded border border-line;
+        }
+
+        .auth-seg-item {
+            @apply rounded-sm text-gray-400 hover:text-gray-200;
+        }
+
+        .auth-seg-item[aria-selected="true"] {
+            @apply bg-white/[0.07] text-white;
+            box-shadow: inset 0 2px 0 var(--color-brand);
+        }
+
+        .auth-code {
+            @apply rounded border border-line;
+        }
+
+        .auth-code-head {
+            @apply border-b border-line bg-white/[0.02];
+        }
+
+        .auth-code-title {
+            @apply text-[11px] text-gray-400;
+        }
+    }
+}

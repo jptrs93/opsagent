@@ -58,9 +58,9 @@ export function deploymentOverlay(deploymentRow, onClose) {
         div(
             {class: "fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 pointer-events-none", "data-testid": "deployment-json-overlay"},
             div(
-                {class: "w-full h-full max-w-[1200px] max-h-[90vh] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto", onclick: (e) => e.stopPropagation()},
+                {class: "dep-dialog w-full h-full max-w-[1200px] max-h-[90vh] pointer-events-auto", onclick: (e) => e.stopPropagation()},
                 div(
-                    {class: "flex flex-col gap-3 px-4 py-3 border-b border-gray-700 md:flex-row md:items-start md:justify-between"},
+                    {class: "flex flex-col gap-3 px-4 py-3 border-b border-gray-700 slate:border-line graphite:border-line md:flex-row md:items-start md:justify-between"},
                     div({class: "min-w-0"},
                         div(
                             {class: "flex flex-wrap gap-x-3 gap-y-1 text-xs"},
@@ -71,21 +71,21 @@ export function deploymentOverlay(deploymentRow, onClose) {
                     ),
                     div({class: "flex shrink-0 items-center gap-2"},
                         div(
-                            {class: "flex rounded-lg border border-gray-700 bg-gray-950 p-0.5"},
+                            {class: "flex rounded-lg border border-gray-700 bg-gray-950 slate:bg-field graphite:bg-field p-0.5"},
                             modeButton("JSON", "json", selectedMode),
                             modeButton("YAML", "yaml", selectedMode),
                         ),
-                        button({class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5", onclick: onClose, type: "button"}, "Close"),
+                        button({class: "text-sm text-gray-400 hover:text-gray-200 slate:hover:bg-white/5 graphite:hover:bg-white/5 rounded-md cursor-pointer px-3 py-1.5", onclick: onClose, type: "button"}, "Close"),
                     ),
                 ),
-                div({class: "flex-1 min-h-0 bg-gray-950 overflow-hidden"},
+                div({class: "dep-code flex-1 min-h-0 overflow-hidden"},
                     pre(
                         {class: "app-scroll h-full w-full overflow-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
                         outputText,
                     ),
                 ),
                 div(
-                    {class: "flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-700"},
+                    {class: "flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-700 slate:border-line graphite:border-line"},
                     button({class: "btn-secondary text-sm py-1.5 px-3 cursor-pointer", onclick: copyConfig}, () => copied.val ? "Copied" : "Copy"),
                 ),
             ),

@@ -1,4 +1,16 @@
 @import "tailwindcss" source("..");
+@import "./styles/deployments.css";
+@import "./styles/editor.css";
+@import "./styles/explorer.css";
+@import "./styles/logs.css";
+@import "./styles/metrics.css";
+@import "./styles/access.css";
+@import "./styles/cluster.css";
+@import "./styles/auth.css";
+
+@custom-variant slate (&:where([data-theme="slate"], [data-theme="slate"] *));
+@custom-variant graphite (&:where([data-theme="graphite"], [data-theme="graphite"] *));
+@custom-variant classic (&:where(:root:not([data-theme="slate"], [data-theme="graphite"]), :root:not([data-theme="slate"], [data-theme="graphite"]) *));
 
 @layer base {
     html,
@@ -10,7 +22,6 @@
 
     body {
         @apply text-gray-100 bg-gray-950;
-        background-image: radial-gradient(circle at top left, #172554 0, transparent 28rem);
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 }
@@ -18,22 +29,112 @@
 @theme {
     --color-brand: #3b82f6;
     --color-asset: #2dd4bf;
+    --color-frame: #111827;
     --color-sidebar: #111827;
     --color-surface: #1f2937;
     --color-surface-hover: #374151;
+    --color-raised: #1f2937;
+    --color-field: #1f2937;
+    --color-line: #374151;
     /* Recessed surface for code and preformatted output. Sits between the page
        background and a card, so a code block inside a card reads as inset
        rather than as a hole punched through to the near-black body. */
     --color-code: #151d2b;
 }
 
+:root[data-theme="slate"] {
+    --color-gray-950: #06090e;
+    --color-gray-900: #0f151d;
+    --color-gray-800: #1b2431;
+    --color-gray-700: #263040;
+    --color-gray-600: #3a475a;
+    --color-gray-500: #8791a1;
+    --color-gray-400: #aab2bf;
+    --color-gray-300: #cdd3dc;
+    --color-gray-200: #e6e9ee;
+    --color-gray-100: #f2f4f7;
+    --color-frame: #0c1118;
+    --color-sidebar: #0c1118;
+    --color-surface: #161d27;
+    --color-surface-hover: #232d3b;
+    --color-raised: #1b2431;
+    --color-field: #111720;
+    --color-line: #242d3b;
+    --color-code: #10161f;
+    --od-scroll-thumb: #344154;
+    --od-scroll-track: transparent;
+}
+
+:root[data-theme="graphite"] {
+    --color-gray-950: #09090b;
+    --color-gray-900: #17181b;
+    --color-gray-800: #1f2125;
+    --color-gray-700: #2a2d33;
+    --color-gray-600: #3d4149;
+    --color-gray-500: #8f939b;
+    --color-gray-400: #b1b4ba;
+    --color-gray-300: #cfd1d6;
+    --color-gray-200: #e7e8ea;
+    --color-gray-100: #f3f3f4;
+    --color-blue-50: #eef0fd;
+    --color-blue-100: #dfe3fb;
+    --color-blue-200: #c5cbf8;
+    --color-blue-300: #a7b0f3;
+    --color-blue-400: #8792ea;
+    --color-blue-500: #6672e0;
+    --color-blue-600: #4f5bd5;
+    --color-blue-700: #4049b8;
+    --color-blue-800: #353d95;
+    --color-blue-900: #2c3377;
+    --color-blue-950: #1c2050;
+    --color-amber-100: #f3e6c8;
+    --color-amber-200: #e9d3a3;
+    --color-amber-300: #e0c184;
+    --color-amber-400: #d8b36a;
+    --color-amber-500: #c79a45;
+    --color-amber-600: #a87f33;
+    --color-brand: #5a66db;
+    --color-frame: #1a1c20;
+    --color-sidebar: #1a1c20;
+    --color-surface: #111214;
+    --color-surface-hover: #2c3036;
+    --color-raised: #202328;
+    --color-field: #1a1c20;
+    --color-line: #2a2d33;
+    --color-code: #17181b;
+    --radius-sm: 0.1875rem;
+    --radius-md: 0.25rem;
+    --radius-lg: 0.3125rem;
+    --radius-xl: 0.375rem;
+    --radius-2xl: 0.5rem;
+    --od-scroll-thumb: #3d4149;
+    --od-scroll-track: transparent;
+}
+
+:root {
+    --od-scroll-thumb: #4b5563;
+    --od-scroll-track: #111827;
+}
+
+:root:not([data-theme="slate"], [data-theme="graphite"]) body {
+    background-image: radial-gradient(circle at top left, #172554 0, transparent 28rem);
+}
+
+:root[data-theme="slate"] body {
+    background-color: var(--color-frame);
+}
+
+:root[data-theme="graphite"] body {
+    background-color: var(--color-surface);
+}
+
 .text-input {
-    @apply w-full px-3 py-2 rounded-lg bg-gray-800 text-gray-100 border border-gray-600
+    @apply w-full px-3 py-2 rounded-lg bg-field text-gray-100 border border-gray-600
     focus:outline-none focus:ring-1 focus:ring-brand;
 }
 
 .input {
-    @apply px-2 py-1 rounded-[0.3rem] bg-gray-800 text-gray-100 border border-gray-600
+    @apply px-2 py-1 rounded-[0.3rem] bg-field text-gray-100 border border-gray-600
     focus:outline-none focus:ring-1 focus:ring-brand;
 }
 
@@ -79,6 +180,14 @@
     box-shadow: 0 0 0 1px rgb(96 165 250 / 0.45);
 }
 
+:root[data-theme="graphite"] .explain-open {
+    border-color: rgb(135 146 234 / 0.7) !important;
+}
+
+:root[data-theme="graphite"] .explain-pinned {
+    box-shadow: 0 0 0 1px rgb(135 146 234 / 0.5);
+}
+
 .btn-primary {
     @apply px-4 py-2 rounded-lg bg-brand text-white font-medium
     hover:bg-blue-600 transition-colors cursor-pointer;
@@ -90,7 +199,7 @@
 }
 
 .card {
-    @apply rounded-[0.3rem] bg-surface border border-gray-700 p-4;
+    @apply rounded-[0.3rem] bg-raised border border-gray-700 p-4;
 }
 
 /* Mono text reads slightly large next to the UI face, so shrink it unless an
@@ -104,6 +213,594 @@
     }
 }
 
+/* Layered, unlike the rules above, so that a utility on the same element
+   wins, including a theme variant such as "slate:px-4". */
+@layer components {
+    .page {
+        @apply flex h-full min-h-0 min-w-0 flex-col bg-surface;
+    }
+
+    .page-strip {
+        @apply flex flex-none flex-wrap items-center gap-1.5;
+    }
+
+    .page-tabs {
+        @apply flex flex-none flex-nowrap;
+    }
+
+    .page-body {
+        @apply relative min-h-0 min-w-0 flex-1;
+    }
+
+    .page-toolbar {
+        @apply flex flex-none flex-wrap items-center gap-1.5;
+    }
+
+    .data-row {
+        @apply transition-colors;
+    }
+
+    .dialog {
+        @apply rounded-lg border border-gray-600 bg-raised shadow-2xl;
+    }
+
+    .tab {
+        @apply relative flex min-w-0 max-w-[16rem] shrink cursor-pointer select-none items-center gap-1.5
+        whitespace-nowrap text-xs text-gray-400 transition-colors;
+    }
+
+    .tab:hover {
+        @apply text-gray-200;
+    }
+
+    .tab[aria-selected="true"] {
+        @apply text-white;
+    }
+
+    .tab-pinned {
+        @apply shrink-0;
+    }
+
+    .tab-title {
+        @apply truncate;
+    }
+
+    .tab-count {
+        @apply rounded bg-white/5 px-1 text-[10px] tabular-nums text-gray-500;
+    }
+
+    .tab[aria-selected="true"] .tab-count {
+        @apply bg-white/10 text-gray-300;
+    }
+
+    .tab-icon {
+        @apply h-3 w-3 flex-none text-gray-500;
+    }
+
+    .tab[aria-selected="true"] .tab-icon {
+        @apply text-brand;
+    }
+
+    .tab-close {
+        @apply -mr-1.5 ml-1 inline-flex h-4 w-4 flex-none cursor-pointer items-center justify-center rounded
+        text-transparent transition-colors;
+    }
+
+    .tab:hover .tab-close {
+        @apply text-gray-500;
+    }
+
+    .tab[aria-selected="true"] .tab-close {
+        @apply text-gray-400;
+    }
+
+    .tab .tab-close:hover {
+        @apply bg-white/10 text-gray-100;
+    }
+
+    .band,
+    .band-label {
+        @apply flex flex-none items-center;
+    }
+
+    .band-rule {
+        @apply hidden;
+    }
+
+    .band-title {
+        @apply font-semibold;
+    }
+
+    .col-head {
+        @apply whitespace-nowrap text-left text-gray-500;
+    }
+
+    .status-line {
+        @apply min-w-0 flex-none truncate text-[11px] text-gray-500;
+    }
+
+    .menu {
+        @apply rounded-md border border-gray-600 bg-raised p-1 shadow-2xl;
+    }
+
+    .menu-item {
+        @apply flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-200
+        hover:bg-surface-hover;
+    }
+
+    .space-name {
+        @apply font-mono text-[0.92em] slate:font-sans slate:text-[1em] graphite:font-sans graphite:text-[1em];
+    }
+
+    .multiselect-trigger {
+        @apply inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded border border-gray-600 px-2 text-xs
+        text-gray-300 transition-colors hover:bg-surface-hover hover:text-gray-100;
+    }
+
+    .multiselect {
+        @apply fixed z-[60] flex w-72 flex-col rounded-md border border-gray-600 bg-raised text-xs shadow-2xl;
+    }
+
+    .multiselect-search {
+        @apply flex h-[34px] flex-none items-center gap-2 border-b border-line px-2.5 text-gray-500;
+    }
+
+    .multiselect-search input {
+        @apply h-full min-w-0 flex-1 bg-transparent text-xs text-gray-100 outline-none placeholder:text-gray-500;
+    }
+
+    .multiselect-list {
+        @apply min-h-0 flex-1 overflow-y-auto p-1;
+    }
+
+    .multiselect-section {
+        @apply mb-1 border-b border-line pb-1;
+    }
+
+    .multiselect-label {
+        @apply px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500;
+    }
+
+    .multiselect-row {
+        @apply w-full outline-none focus-visible:bg-surface-hover;
+    }
+
+    .multiselect-row[aria-disabled="true"] {
+        @apply cursor-default opacity-50 hover:bg-transparent;
+    }
+
+    .multiselect-check {
+        @apply flex h-3.5 w-3.5 flex-none items-center justify-center text-brand;
+    }
+
+    .multiselect-tail {
+        @apply flex-none pl-2 text-[10px] tabular-nums text-gray-500;
+    }
+
+    .multiselect-act {
+        @apply invisible flex h-4 flex-none cursor-pointer items-center rounded px-1 text-[10px] text-gray-400
+        hover:bg-white/10 hover:text-gray-100;
+    }
+
+    .multiselect-row:hover .multiselect-act,
+    .multiselect-row:focus-visible .multiselect-act {
+        @apply visible;
+    }
+
+    .multiselect-empty {
+        @apply px-2 py-3 text-center text-gray-500;
+    }
+
+    .multiselect-foot {
+        @apply flex flex-none flex-col border-t border-line p-1;
+    }
+
+    .multiselect-actions {
+        @apply flex items-center gap-0.5;
+    }
+
+    .multiselect-link {
+        @apply cursor-pointer rounded px-2 py-1 text-[11px] text-gray-400 outline-none hover:bg-surface-hover
+        hover:text-gray-100 focus-visible:bg-surface-hover focus-visible:text-gray-100;
+    }
+
+    .multiselect-save {
+        @apply flex items-center gap-1.5 p-1;
+    }
+
+    .multiselect-name {
+        @apply h-7 min-w-0 flex-1 rounded border border-gray-600 bg-field px-2 text-xs text-gray-100 outline-none
+        placeholder:text-gray-500 focus:border-brand;
+    }
+
+    .multiselect-primary {
+        @apply h-7 flex-none cursor-pointer rounded bg-brand px-2.5 text-xs font-medium text-white hover:bg-blue-600
+        disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .sidebar {
+        @apply flex h-full min-h-0 w-48 shrink-0 flex-col overflow-hidden bg-frame;
+    }
+
+    .sidebar-head {
+        @apply flex flex-none items-center font-bold text-white;
+    }
+
+    .sidebar-nav {
+        @apply flex flex-col;
+    }
+
+    .nav-group-handle {
+        @apply flex cursor-pointer select-none items-center gap-1.5 rounded text-gray-500 hover:text-gray-300;
+    }
+
+    .nav-item {
+        @apply flex cursor-pointer items-center gap-2 text-sm text-gray-400 transition-colors hover:text-gray-200;
+    }
+
+    .nav-item[aria-current="page"] {
+        @apply text-white;
+    }
+
+    .nav-item-future {
+        @apply text-gray-500;
+    }
+
+    .nav-soon {
+        @apply ml-auto rounded px-1 text-[9px] font-semibold uppercase tracking-wider text-gray-600;
+    }
+
+    .sidebar-foot {
+        @apply flex flex-none items-center gap-1;
+    }
+
+    .icon-button {
+        @apply flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded text-gray-500
+        transition-colors hover:bg-surface-hover hover:text-gray-200;
+    }
+
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        .page-strip {
+            @apply border-b border-gray-700 px-2 py-1.5;
+        }
+
+        .page-tabs {
+            @apply h-[34px] items-end gap-0.5 border-b border-gray-700 bg-gray-900/80 pr-2 pt-0.5;
+        }
+
+        .page-toolbar {
+            @apply border-b border-gray-700 px-2 py-1.5;
+        }
+
+        .data-row {
+            @apply border-b border-gray-800/60 hover:bg-gray-800/40;
+        }
+
+        .tab {
+            @apply -mb-px h-8 rounded-t-md border border-b-0 border-transparent px-3;
+        }
+
+        .page-tabs > .tab:first-child {
+            @apply rounded-tl-none border-l-0;
+        }
+
+        .tab:hover {
+            @apply bg-white/5;
+        }
+
+        .tab[aria-selected="true"] {
+            @apply border-gray-700 bg-surface;
+        }
+
+        .tab-deep[aria-selected="true"] {
+            @apply bg-gray-900;
+        }
+
+        .tab-title {
+            @apply font-medium;
+        }
+
+        .band,
+        .band-bg {
+            @apply border-b border-gray-800/80 bg-gray-950/30;
+        }
+
+        .band:hover,
+        .band-bg:hover {
+            @apply bg-gray-700/35;
+        }
+
+        .band,
+        .band-label {
+            @apply gap-1.5 px-2 py-1 font-mono text-[13px];
+        }
+
+        .band-title {
+            @apply text-gray-100;
+        }
+
+        .band-count {
+            @apply text-[10.5px] text-gray-500;
+        }
+
+        .col-head {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider;
+        }
+
+        .status-line {
+            @apply border-b border-gray-800 bg-gray-950/40 px-2 py-1;
+        }
+
+        .sidebar {
+            @apply border-r border-gray-800;
+        }
+
+        .sidebar-head {
+            @apply border-b border-gray-800 px-4 py-3 text-lg;
+        }
+
+        .sidebar-nav {
+            @apply px-3 pb-3 pt-1.5;
+        }
+
+        .nav-group + .nav-group {
+            @apply mt-1.5 border-t border-gray-800 pt-1.5;
+        }
+
+        .nav-group-handle {
+            @apply px-2;
+        }
+
+        .nav-item {
+            @apply rounded py-1.5 pl-4 pr-3 hover:bg-surface-hover;
+        }
+
+        .nav-item[aria-current="page"] {
+            @apply bg-surface;
+        }
+
+        .sidebar-foot {
+            @apply border-t border-gray-800 py-2 pl-2 pr-3;
+        }
+    }
+
+    :root[data-theme="slate"] {
+        .page {
+            @apply bg-frame;
+        }
+
+        .page-strip {
+            @apply min-h-11 py-2 pl-2 pr-3;
+        }
+
+        .page-tabs {
+            @apply h-11 items-center gap-0.5 pl-2 pr-3;
+        }
+
+        .page-body {
+            @apply overflow-hidden rounded-tl-lg border-l border-t border-line bg-surface;
+        }
+
+        .page-toolbar {
+            @apply px-3 py-2;
+        }
+
+        .data-row {
+            @apply border-b border-[#1d2531] hover:bg-white/[0.03];
+        }
+
+        .tab {
+            @apply h-7 rounded-md px-3 text-[13px];
+        }
+
+        .tab:hover {
+            @apply bg-white/5;
+        }
+
+        .tab[aria-selected="true"] {
+            @apply bg-white/10 font-medium;
+        }
+
+        .band,
+        .band-bg {
+            @apply bg-white/[0.045];
+        }
+
+        .band:hover,
+        .band-bg:hover {
+            @apply bg-white/[0.07];
+        }
+
+        .band,
+        .band-label {
+            @apply min-h-7 gap-[7px] px-3 text-xs;
+        }
+
+        .band-title {
+            @apply text-white;
+        }
+
+        .band-count {
+            @apply rounded-full bg-white/[0.07] px-1.5 text-[10.5px] leading-4 tabular-nums text-gray-400;
+        }
+
+        .col-head {
+            @apply text-[11px] font-medium;
+        }
+
+        .status-line {
+            @apply px-3 py-1;
+        }
+
+        .sidebar-head {
+            @apply h-11 px-4 text-[15px];
+        }
+
+        .sidebar-nav {
+            @apply px-3 pb-3;
+        }
+
+        .nav-group + .nav-group {
+            @apply mt-1.5 border-t border-white/[0.07] pt-1.5;
+        }
+
+        .nav-group-handle {
+            @apply px-2;
+        }
+
+        .nav-item {
+            @apply rounded-md py-1.5 pl-4 pr-3 hover:bg-white/[0.04];
+        }
+
+        .nav-item[aria-current="page"] {
+            @apply bg-white/[0.08];
+        }
+
+        .sidebar-foot {
+            @apply h-10 pl-2 pr-2;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .page-strip {
+            @apply min-h-9 border-b border-line bg-frame px-3 py-1;
+        }
+
+        .page-tabs {
+            @apply h-9 items-stretch border-b border-line bg-frame;
+        }
+
+        .page-toolbar {
+            @apply border-b border-line px-3 py-1.5;
+        }
+
+        .data-row {
+            @apply hover:bg-white/[0.04];
+        }
+
+        .tab {
+            @apply border-r border-line px-4;
+        }
+
+        .tab:hover {
+            @apply bg-white/[0.03];
+        }
+
+        .tab[aria-selected="true"] {
+            @apply -mb-px bg-surface font-medium;
+            box-shadow: inset 0 2px 0 var(--color-brand);
+        }
+
+        .band,
+        .band-label {
+            @apply gap-2 px-3 pb-1 pt-3 text-xs;
+        }
+
+        .band-title {
+            @apply text-white;
+        }
+
+        .band-count {
+            @apply text-[11px] tabular-nums text-gray-500;
+        }
+
+        .band-rule {
+            @apply block h-px min-w-4 flex-1 bg-line;
+        }
+
+        .col-head {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider;
+        }
+
+        .status-line {
+            @apply px-3 py-1;
+        }
+
+        .sidebar {
+            @apply border-r border-line;
+        }
+
+        .sidebar-head {
+            @apply h-9 border-b border-line px-4 text-sm;
+        }
+
+        .sidebar-nav {
+            @apply pb-3;
+        }
+
+        .nav-group {
+            @apply pt-1.5;
+        }
+
+        .nav-group + .nav-group {
+            @apply mt-1.5 border-t border-line;
+        }
+
+        .nav-group-handle {
+            @apply rounded-none px-3;
+        }
+
+        .nav-item {
+            @apply py-1.5 pl-[22px] pr-3.5 hover:bg-white/[0.04];
+        }
+
+        .nav-item[aria-current="page"] {
+            @apply bg-white/[0.06];
+            box-shadow: inset 2px 0 0 var(--color-brand);
+        }
+
+        .sidebar-foot {
+            @apply h-9 border-t border-line pl-2 pr-2;
+        }
+    }
+}
+
+/* Not layered: .input, .text-input and .toolbar-button above are not, and a
+   layered rule can never restyle an un-layered one. */
+:root[data-theme="slate"] {
+    .input,
+    .text-input {
+        border-color: #2a3443;
+    }
+
+    .page-strip .toolbar-button,
+    .page-toolbar .toolbar-button {
+        @apply rounded-md border-transparent bg-white/[0.06] text-gray-200 hover:bg-white/10;
+    }
+
+    .page-strip .input,
+    .page-strip .text-input {
+        @apply border-transparent bg-white/[0.06];
+    }
+
+    .page-toolbar .input,
+    .page-toolbar .text-input {
+        border-color: #2a3443;
+    }
+}
+
+:root[data-theme="graphite"] {
+    .input,
+    .text-input {
+        border-color: #33373f;
+    }
+
+    .page-strip .toolbar-button,
+    .page-toolbar .toolbar-button {
+        @apply rounded border-gray-700 bg-transparent text-gray-400 hover:bg-white/[0.04] hover:text-gray-200;
+    }
+
+    .page-strip .input,
+    .page-strip .text-input {
+        @apply border-gray-700 bg-surface;
+    }
+
+    .page-toolbar .input,
+    .page-toolbar .text-input {
+        @apply border-gray-700;
+    }
+}
+
 .app-scroll,
 .deployment-table-scroll {
     scrollbar-gutter: stable;
@@ -113,7 +810,7 @@
 .app-scroll-x,
 .deployment-table-scroll,
 textarea {
-    scrollbar-color: #4b5563 #111827;
+    scrollbar-color: var(--od-scroll-thumb) var(--od-scroll-track);
     scrollbar-width: thin;
 }
 
@@ -129,15 +826,15 @@ textarea::-webkit-scrollbar {
 .app-scroll-x::-webkit-scrollbar-track,
 .deployment-table-scroll::-webkit-scrollbar-track,
 textarea::-webkit-scrollbar-track {
-    background: #111827;
+    background: var(--od-scroll-track);
 }
 
 .app-scroll::-webkit-scrollbar-thumb,
 .app-scroll-x::-webkit-scrollbar-thumb,
 .deployment-table-scroll::-webkit-scrollbar-thumb,
 textarea::-webkit-scrollbar-thumb {
-    background: #4b5563;
-    border: 2px solid #111827;
+    background: var(--od-scroll-thumb);
+    border: 2px solid var(--od-scroll-track);
     border-radius: 999px;
 }
 
@@ -145,7 +842,7 @@ textarea::-webkit-scrollbar-thumb {
 .app-scroll-x::-webkit-scrollbar-thumb:hover,
 .deployment-table-scroll::-webkit-scrollbar-thumb:hover,
 textarea::-webkit-scrollbar-thumb:hover {
-    background: #6b7280;
+    background: var(--color-gray-500);
 }
 
 /* Secrets/configs explorer: column and inspector resize grips. The visible
@@ -171,7 +868,7 @@ textarea::-webkit-scrollbar-thumb:hover {
     bottom: 22%;
     left: 4px;
     width: 1px;
-    background: #374151;
+    background: var(--color-line);
     transition: background 0.1s, top 0.1s, bottom 0.1s;
 }
 

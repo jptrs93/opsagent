@@ -57,9 +57,9 @@ const applyScenario = async () => {
 // --- fixture chrome ----------------------------------------------------------
 
 const chrome = div(
-    // Narrow enough to sit inside the sidebar column, so it never covers the
-    // page under review.
-    {class: "fixed bottom-2 left-2 z-[80] w-[11rem] rounded-lg border border-gray-700 bg-gray-900/95 text-xs shadow-xl shadow-black/50 backdrop-blur"},
+    // Bottom-right: the sidebar footer holds the theme picker and the stream
+    // status, so the panel stays out of that corner.
+    {class: "fixed bottom-2 right-2 z-[80] w-[11rem] rounded-lg border border-gray-700 bg-gray-900/95 text-xs shadow-xl shadow-black/50 backdrop-blur"},
     div(
         {class: "flex items-center justify-between border-b border-gray-800 px-3 py-2"},
         span({class: "font-medium text-gray-200"}, "Fixture"),

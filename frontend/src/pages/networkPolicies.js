@@ -181,7 +181,7 @@ export function networkPoliciesPage() {
     };
 
     const formRow = () => formOpen.val ? div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-3 py-2", "data-testid": "network-policy-form"},
+        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-3 py-2 slate:border-line graphite:border-line", "data-testid": "network-policy-form"},
         span({class: "text-xs uppercase tracking-wide text-gray-500"}, "allow"),
         peerSelects(sourceKind, sourceId, "Source"),
         span({class: "text-gray-500"}, "→"),
@@ -219,7 +219,7 @@ export function networkPoliciesPage() {
     };
 
     const policyRow = (policy) => tr(
-        {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `network-policy-row-${policy.id}`},
+        {class: "data-row align-middle classic:border-gray-800 classic:last:border-0 classic:hover:bg-transparent", "data-testid": `network-policy-row-${policy.id}`},
         peerCell(policy.source),
         peerCell(policy.destination),
         td({class: "py-1 pr-3 text-gray-400 whitespace-nowrap"}, formatPorts(policy.ports)),
@@ -229,26 +229,26 @@ export function networkPoliciesPage() {
                     type: "button",
                     title: `Edit policy ${policy.id}`,
                     "aria-label": `Edit policy ${policy.id}`,
-                    class: "inline-flex h-7 items-center justify-center rounded px-2 text-xs text-gray-400 hover:bg-surface hover:text-gray-100 transition-colors cursor-pointer",
+                    class: "inline-flex h-7 items-center justify-center rounded px-2 text-xs text-gray-400 hover:bg-surface hover:text-gray-100 slate:hover:bg-white/5 graphite:hover:bg-white/5 transition-colors cursor-pointer",
                     onclick: () => openEditForm(policy),
                 }, "Edit"),
                 button({
                     type: "button",
                     title: `Delete policy ${policy.id}`,
                     "aria-label": `Delete policy ${policy.id}`,
-                    class: "inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-surface hover:text-red-400 transition-colors cursor-pointer",
+                    class: "inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-surface hover:text-red-400 slate:hover:bg-white/5 graphite:hover:bg-white/5 transition-colors cursor-pointer",
                     onclick: () => { deleteTarget.val = policy; },
                 }, trashIcon()),
             )),
     );
 
     const headerCell = (text, cls = "pr-3") => th(
-        {class: `py-1.5 ${cls} text-[10px] font-semibold uppercase tracking-wider`}, text);
+        {class: `col-head py-1.5 ${cls} classic:text-[10px] slate:h-7 slate:py-0 graphite:h-6 graphite:py-0`}, text);
 
     const toolbar = () => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        {class: "page-toolbar cluster-toolbar gap-2 classic:py-2"},
         input({
-            class: "text-input search-input",
+            class: "text-input search-input slate:h-[30px]! slate:py-0! graphite:h-[30px]! graphite:py-0!",
             type: "search",
             placeholder: "Search policies",
             "aria-label": "Search policies",
@@ -260,13 +260,16 @@ export function networkPoliciesPage() {
             type: "button",
             disabled: () => formOpen.val,
             class: () => "flex items-center gap-1 whitespace-nowrap text-sm px-3 py-1.5 rounded-lg bg-gray-700 " +
-                `text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer ${formOpen.val ? "opacity-50 cursor-not-allowed" : ""}`,
+                "text-gray-200 hover:bg-gray-600 transition-colors cursor-pointer " +
+                "slate:rounded-md slate:bg-white/[0.06] slate:text-xs slate:hover:bg-white/10 " +
+                "graphite:rounded graphite:border graphite:border-line graphite:bg-transparent graphite:text-xs graphite:text-gray-300 graphite:hover:bg-white/[0.04] " +
+                (formOpen.val ? "opacity-50 cursor-not-allowed" : ""),
             onclick: () => { if (!formOpen.val) openCreateForm(); },
         }, "Add policy"),
     );
 
     const explainer = () => p(
-        {class: "flex-none border-b border-gray-800 px-3 py-1.5 text-xs text-gray-500"},
+        {class: "flex-none border-b border-gray-800 px-3 py-1.5 text-xs text-gray-500 slate:border-0 slate:pb-2 slate:pt-0 graphite:border-0 graphite:pt-2"},
         "Traffic within a space, to the global space, and to DNS is always allowed. ",
         "Policies grant additional cross-space access; writing one requires update access on the destination's space.",
     );
@@ -278,7 +281,7 @@ export function networkPoliciesPage() {
                 return p({class: "px-4 py-3 text-gray-400 text-sm"},
                     search.val.trim() ? "No policies match your search." : "No override policies. Cross-space traffic is denied by default.");
             }
-            return div({class: "pl-4 pr-2"}, table(
+            return div({class: "pl-4 pr-2 slate:px-3 graphite:px-3"}, table(
                 {class: "w-full table-fixed text-[13px]"},
                 colgroup(
                     col({style: "width:33%"}),
@@ -286,7 +289,7 @@ export function networkPoliciesPage() {
                     col({style: "width:24%"}),
                     col({style: "width:10%"}),
                 ),
-                thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
+                thead(tr({class: "text-left border-b border-gray-800 slate:border-line graphite:border-0"},
                     headerCell("Source"),
                     headerCell("Destination"),
                     headerCell("Ports"),
@@ -319,7 +322,7 @@ export function networkPoliciesPage() {
     };
 
     return div(
-        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        {class: "h-full min-h-0 flex flex-col overflow-hidden"},
         toolbar(),
         explainer(),
         formRow,

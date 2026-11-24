@@ -16,6 +16,7 @@ import {accountPanel} from "../components/accountPanel.js";
 import {formatDate} from "../lib/date.js";
 import {globalRuleDisplay, ruleDisplay} from "../components/ruleDisplay.js";
 import {explorerBand} from "../components/sectionBand.js";
+import {tabButton, tabPanel, tabStrip} from "../components/tabs.js";
 import {closeExplainer, explainable, explainerWidth, mountExplainerLayer, renderExplainer} from "../components/ruleExplainer.js";
 import {closeIcon, editIcon, infoIcon, lockIcon, plusIcon, searchIcon, trashIcon} from "../lib/icons.js";
 
@@ -125,7 +126,7 @@ export function usersPage({enrol, account} = {}) {
 
     const newUserOverlay = () => div(
         {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-        div({class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
+        div({class: "dialog access-dialog w-full max-w-md flex flex-col gap-4 p-4"},
             h2({class: "text-base font-semibold"}, "New user"),
             p({class: "text-sm text-gray-300"},
                 "Users are created at the login screen: sign in with the setup password and a new username, " +
@@ -135,7 +136,7 @@ export function usersPage({enrol, account} = {}) {
 
     const confirmOverlay = ({title, body, confirmLabel, onConfirm}) => div(
         {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-        div({class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
+        div({class: "dialog access-dialog w-full max-w-md flex flex-col gap-4 p-4"},
             h2({class: "text-base font-semibold"}, title),
             p({class: "text-sm text-gray-300"}, body),
             div({class: "flex items-center justify-end gap-2"},
@@ -165,13 +166,13 @@ export function usersPage({enrol, account} = {}) {
         type: "button",
         title,
         "aria-label": title,
-        class: `inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-surface ${hoverClass} cursor-pointer`,
+        class: `inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-surface slate:hover:bg-white/[0.06] graphite:hover:bg-white/[0.06] ${hoverClass} cursor-pointer`,
         onclick,
     }, icon);
 
     const headerRow = (...labels) => thead(tr(
-        {class: "text-left text-gray-500 border-b border-gray-800"},
-        ...labels.map(([text, cls]) => th({class: `py-1.5 pr-3 text-[10px] font-semibold uppercase tracking-wider ${cls || ""}`}, text)),
+        {class: "access-head"},
+        ...labels.map(([text, cls]) => th({class: `col-head ${cls || ""}`}, text)),
     ));
 
     const emptyLine = (text) => p({class: "px-3 py-3 text-sm text-gray-400"}, text);
@@ -188,13 +189,13 @@ export function usersPage({enrol, account} = {}) {
         }));
 
     const toolbar = (...children) => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        {class: "page-toolbar gap-2 classic:py-2"},
         ...children,
     );
 
-    const toolbarButton = (text, onclick, attrs = {}) => button({
+    const toolbarButton = (text, onclick, attrs = {}, primary = false) => button({
         type: "button",
-        class: "toolbar-button",
+        class: `access-toolbar-button ${primary ? "access-toolbar-primary" : ""}`,
         onclick,
         ...attrs,
     }, plusIcon({class: "w-3.5 h-3.5"}), text);
@@ -202,7 +203,7 @@ export function usersPage({enrol, account} = {}) {
     // The hint under each toolbar says how to open an explanation; it is the
     // one line of help the page carries, and the explainer does the rest.
     const readingHint = (what) => div(
-        {class: "flex flex-none items-center gap-1.5 px-3 py-1 text-[11px] text-gray-500"},
+        {class: "access-hint"},
         infoIcon({class: "h-3 w-3 flex-none"}),
         `Hover a ${what} to see exactly what it allows; click to keep the explanation open.`,
     );
@@ -258,14 +259,9 @@ export function usersPage({enrol, account} = {}) {
     const grantChip = (user, grant) => {
         const chip = describeGrant(grant, templatesById(), spaceNameMap());
         const el = span(
-            {
-                class: `inline-flex items-center gap-1.5 rounded border px-1.5 py-px text-[11px] transition-colors ` +
-                    (chip.template
-                        ? "border-blue-500/30 bg-blue-500/10 text-gray-300 hover:border-blue-400/60"
-                        : "border-gray-700 bg-gray-950/40 text-gray-400 hover:border-blue-400/60"),
-            },
-            span({class: `font-medium ${chip.template ? "text-blue-300" : "text-gray-200"}`}, chip.label),
-            chip.detail ? span({class: "text-gray-400"}, chip.template ? `(${chip.detail})` : chip.detail) : "",
+            {class: `access-chip ${chip.template ? "access-chip-role" : "access-chip-direct"}`},
+            span({class: "access-chip-label"}, chip.label),
+            chip.detail ? span({class: "access-chip-detail"}, chip.template ? `(${chip.detail})` : chip.detail) : "",
             revokeControl(user, grant, chip),
         );
         const subject = () => grantSubject(grant, {templatesById: templatesById(), spaceNames: spaceNameMap(), spaces: liveSpaces()});
@@ -279,26 +275,24 @@ export function usersPage({enrol, account} = {}) {
         const isSelf = Number(loginS.val?.userId || 0) === user.id;
         const grants = grantsByUser.get(user.id) || [];
         return tr(
-            {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `user-row-${user.id}`},
-            td({class: "py-1.5 pr-3 min-w-0"},
+            {class: "access-row align-middle", "data-testid": `user-row-${user.id}`},
+            td({class: "min-w-0"},
                 div({class: "flex items-center gap-2 min-w-0"},
                     span({class: "truncate text-gray-200"}, user.name || `user ${user.id}`),
-                    isSelf ? span(
-                        {class: "shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500"},
-                        "you") : "",
+                    isSelf ? span({class: "access-badge access-badge-quiet"}, "you") : "",
                     user.pending ? span(
-                        {class: "shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300", title: "Has not signed in yet"},
+                        {class: "access-badge bg-amber-500/15 text-amber-300", title: "Has not signed in yet"},
                         "pending") : "")),
-            td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap tabular-nums"}, String(user.id)),
-            td({class: "py-1.5 pr-3 text-gray-400 whitespace-nowrap"}, formatDate(new Date(user.createdAt), "—")),
-            td({class: "py-1.5 pr-3"},
+            td({class: "text-gray-400 whitespace-nowrap tabular-nums"}, String(user.id)),
+            td({class: "text-gray-400 whitespace-nowrap"}, formatDate(new Date(user.createdAt), "—")),
+            td(
                 div({class: "flex flex-wrap items-center gap-1"},
                     ...grants.map((grant) => grantChip(user, grant)),
                     button({
                         type: "button",
                         title: `Grant access to ${user.name || user.id}`,
                         "aria-label": `Grant access to ${user.name || user.id}`,
-                        class: "inline-flex h-5 w-5 items-center justify-center rounded border border-dashed border-gray-600 text-gray-500 hover:text-gray-200 hover:border-gray-400 cursor-pointer",
+                        class: "access-add",
                         onclick: () => { overlayS.val = {type: "grant", user}; },
                     }, plusIcon({class: "w-3 h-3"})))),
         );
@@ -308,7 +302,7 @@ export function usersPage({enrol, account} = {}) {
         const visible = filteredUsers();
         if (!visible.length) return emptyLine(userSearch.val.trim() ? "No users match your search." : "No users yet.");
         const grantsByUser = groupGrantsByUser(authzGrantsS.val);
-        return div({class: "px-3"},
+        return div({class: "access-table-wrap"},
             table({class: "w-full table-fixed text-[13px]"},
                 colgroup(col({style: "width:18%"}), col({style: "width:5%"}), col({style: "width:11%"}), col({style: "width:66%"})),
                 headerRow(["Name"], ["ID"], ["Joined"], ["Permissions"]),
@@ -320,7 +314,7 @@ export function usersPage({enrol, account} = {}) {
         toolbar(
             searchBox(userSearch, "Search users"),
             div({class: "flex-1"}),
-            toolbarButton(enrol ? "Enrol or recover" : "New user", () => { overlayS.val = {type: "newUser"}; }, {"data-testid": "new-user-button"})),
+            toolbarButton(enrol ? "Enrol or recover" : "New user", () => { overlayS.val = {type: "newUser"}; }, {"data-testid": "new-user-button"}, true)),
         div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"}, readingHint("permission"), usersTable),
     );
 
@@ -345,24 +339,21 @@ export function usersPage({enrol, account} = {}) {
         const args = templateArguments(record.spec);
         const holders = usedBy(record.id);
         return tr(
-            {class: "border-b border-gray-800 last:border-0 align-top", "data-testid": `template-row-${record.id}`},
-            td({class: "py-1.5 pr-3 min-w-0"},
+            {class: "access-row align-top", "data-testid": `template-row-${record.id}`},
+            td({class: "min-w-0"},
                 div({class: "flex items-center gap-2 min-w-0"},
                     templateName(record),
-                    record.builtin ? span(
-                        {class: "shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500"},
-                        "built in") : "")),
-            td({class: "py-1.5 pr-3 font-mono text-[11px] text-amber-300"},
+                    record.builtin ? span({class: "access-badge access-badge-quiet"}, "built in") : "")),
+            td({class: "access-rule-arg font-mono text-[11px]"},
                 args.length ? args.map((a) => "${" + a.name + "}").join(", ") : span({class: "text-gray-600"}, "—")),
-            td({class: "py-1.5 pr-3 min-w-0"},
+            td({class: "min-w-0"},
                 div({class: "flex flex-col gap-1"},
                     ...(record.spec?.rules || []).map((rule, i) => templateRulePill(rule, record, i)))),
-            td({class: "py-1.5 pr-3 min-w-0"},
+            td({class: "min-w-0"},
                 holders.length
-                    ? div({class: "flex flex-wrap gap-1"}, ...holders.map((name) => span(
-                        {class: "rounded border border-gray-700 bg-gray-950/40 px-1.5 py-px text-[11px] text-gray-300"}, name)))
+                    ? div({class: "flex flex-wrap gap-1"}, ...holders.map((name) => span({class: "access-tag"}, name)))
                     : span({class: "text-gray-600"}, "—")),
-            td({class: "py-1.5 pl-2 text-right whitespace-nowrap w-px"},
+            td({class: "pl-2 text-right whitespace-nowrap w-px classic:pr-0"},
                 record.builtin ? "" : div({class: "flex items-center justify-end gap-0.5"},
                     iconButton(editIcon({class: "w-3.5 h-3.5"}), `Edit role ${record.name}`,
                         () => { overlayS.val = {type: "template", record}; }),
@@ -384,7 +375,7 @@ export function usersPage({enrol, account} = {}) {
         if (!open.templates.val) return "";
         const templates = (authzTemplatesS.val || []).filter((t) => matchesRuleSearch(t.name));
         if (!templates.length) return emptyLine(ruleSearch.val.trim() ? "No roles match your search." : "No roles yet.");
-        return div({class: "px-3"},
+        return div({class: "access-table-wrap"},
             table({class: "w-full table-fixed text-[13px]"},
                 colgroup(col({style: "width:15%"}), col({style: "width:9%"}), col({style: "width:58%"}), col({style: "width:12%"}), col({style: "width:6%"})),
                 headerRow(["Name"], ["Arguments"], ["Rules"], ["Granted to"], ["", "w-px"]),
@@ -392,11 +383,11 @@ export function usersPage({enrol, account} = {}) {
     };
 
     const globalRuleRow = (record) => tr(
-        {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `global-rule-row-${record.id}`},
-        td({class: "py-1.5 pr-3 min-w-0"},
+        {class: "access-row align-middle", "data-testid": `global-rule-row-${record.id}`},
+        td({class: "min-w-0"},
             div({class: "truncate text-gray-200", title: record.name || ""}, record.name || `rule ${record.id}`)),
-        td({class: "py-1.5 pr-3 min-w-0"}, globalRulePill(record)),
-        td({class: "py-1.5 pl-2 text-right whitespace-nowrap w-px"},
+        td({class: "min-w-0"}, globalRulePill(record)),
+        td({class: "pl-2 text-right whitespace-nowrap w-px classic:pr-0"},
             iconButton(trashIcon({class: "w-3.5 h-3.5"}), `Delete global rule ${record.name || record.id}`,
                 () => {
                     overlayS.val = {
@@ -417,7 +408,7 @@ export function usersPage({enrol, account} = {}) {
             return emptyLine(ruleSearch.val.trim() ? "No global rules match your search."
                 : "No global rules. A global rule denies matching requests for everyone before any grant applies, or allows them for everyone alongside grants.");
         }
-        return div({class: "px-3"},
+        return div({class: "access-table-wrap"},
             table({class: "w-full table-fixed text-[13px]"},
                 colgroup(col({style: "width:16%"}), col({style: "width:77%"}), col({style: "width:7%"})),
                 headerRow(["Name"], ["Rule"], ["", "w-px"]),
@@ -429,7 +420,7 @@ export function usersPage({enrol, account} = {}) {
         toolbar(
             searchBox(ruleSearch, "Search roles and rules"),
             div({class: "flex-1"}),
-            toolbarButton("New role", () => { overlayS.val = {type: "template", record: null}; }, {"data-testid": "new-role-button"}),
+            toolbarButton("New role", () => { overlayS.val = {type: "template", record: null}; }, {"data-testid": "new-role-button"}, true),
             toolbarButton("New global rule", () => { overlayS.val = {type: "globalRule"}; }, {"data-testid": "new-global-rule-button"})),
         div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"},
             readingHint("rule or role name"),
@@ -441,35 +432,10 @@ export function usersPage({enrol, account} = {}) {
 
     // --- tab strip ----------------------------------------------------------------
 
-    // Same geometry as pages/deployments.js: the first tab is flush with the
-    // sidebar, the active tab shares the panel's surface tone so it reads as
-    // attached to it. Both tabs are pinned; nothing here opens or closes.
-    const tabButton = ({id, title, count, first = false}) => {
-        const active = () => activeTab.val === id;
-        return div(
-            {
-                role: "tab",
-                "aria-selected": () => String(active()),
-                "data-testid": `users-tab-${id}`,
-                tabindex: 0,
-                class: () => `relative -mb-px flex h-8 shrink-0 cursor-pointer select-none items-center gap-1.5 border border-b-0 px-3 text-xs transition-colors ${first ? "rounded-tr-md border-l-0" : "rounded-t-md"} ` + (active()
-                    ? "border-gray-700 bg-surface text-white"
-                    : "border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200"),
-                onclick: () => { activeTab.val = id; },
-                onkeydown: (event) => {
-                    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activeTab.val = id; }
-                },
-            },
-            span({class: "font-medium"}, title),
-            count ? span({class: () => `rounded px-1 text-[10px] tabular-nums ${active() ? "bg-white/10 text-gray-300" : "bg-white/5 text-gray-500"}`}, count) : "",
-        );
-    };
-
-    const tabStrip = div(
-        {class: "flex h-[34px] flex-none flex-nowrap items-end gap-0.5 border-b border-gray-700 bg-gray-900/80 pr-2 pt-0.5", role: "tablist", "aria-label": "Users and roles"},
-        tabButton({id: USERS, title: "Users", count: () => String(sortedUsers().length), first: true}),
-        tabButton({id: RULES, title: "Roles & rules", count: () => String((authzTemplatesS.val || []).length + (authzGlobalRulesS.val || []).length)}),
-        account ? tabButton({id: YOU, title: "You"}) : "",
+    const strip = tabStrip({label: "Users and roles"},
+        tabButton({id: USERS, activeTab, title: "Users", testid: `users-tab-${USERS}`, count: () => String(sortedUsers().length)}),
+        tabButton({id: RULES, activeTab, title: "Roles & rules", testid: `users-tab-${RULES}`, count: () => String((authzTemplatesS.val || []).length + (authzGlobalRulesS.val || []).length)}),
+        account ? tabButton({id: YOU, activeTab, title: "You", testid: `users-tab-${YOU}`}) : "",
     );
 
     const youPanel = () => account ? accountPanel({
@@ -483,18 +449,19 @@ export function usersPage({enrol, account} = {}) {
         onManageSessions: account.onManageSessions,
     }) : "";
 
-    const panel = (id, content) => div({class: () => `h-full min-h-0 min-w-0 ${activeTab.val === id ? "" : "hidden"}`}, content);
+    const panel = (id, content) => tabPanel(activeTab, id, content);
 
     return div(
-        {class: "flex h-full min-h-0 min-w-0 flex-col bg-surface", "data-testid": "users-page"},
-        tabStrip,
-        () => error.val ? p(
-            {class: "flex-none border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300"},
-            `Error: ${error.val}`) : "",
-        div({class: "relative flex-1 min-h-0 min-w-0"},
-            panel(USERS, usersPanel),
-            panel(RULES, rulesPanel),
-            account ? panel(YOU, youPanel()) : ""),
+        {class: "page", "data-testid": "users-page"},
+        strip,
+        div({class: "page-body flex flex-col"},
+            () => error.val ? p(
+                {class: "flex-none border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300"},
+                `Error: ${error.val}`) : "",
+            div({class: "relative min-h-0 min-w-0 flex-1"},
+                panel(USERS, usersPanel),
+                panel(RULES, rulesPanel),
+                account ? panel(YOU, youPanel()) : "")),
         overlay,
     );
 }

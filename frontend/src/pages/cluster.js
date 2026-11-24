@@ -8,6 +8,7 @@ import {capi} from "../capi/index.js";
 import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {evictNodeOverlay, pinnedUserDeployments} from "../components/evictNodeOverlay.js";
 import {explorerBand} from "../components/sectionBand.js";
+import {tabButton, tabPanel, tabStrip} from "../components/tabs.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
 import {deploymentWorkload, isSelfDeployment, placementNodeId} from "../lib/deployment.js";
 import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
@@ -79,22 +80,22 @@ const statusDot = (machine) => span({
 });
 
 const statusText = (machine) => span(
-    {class: `truncate ${machine.evicted ? "text-gray-500" : machine.connected ? "text-green-300" : "text-red-300"}`},
+    {class: "cluster-tone", "data-tone": machine.evicted ? "off" : machine.connected ? "ok" : "error"},
     nodeState(machine));
 
 // In the table the draining word replaces the connection word rather than
 // sitting beside it, so the cell stays one line when the inspector narrows
 // the table; the dot still carries the connection state.
 const compactStatus = (machine) => machine.draining
-    ? span({class: "truncate text-amber-300", title: `${nodeState(machine)}, draining`, "data-testid": "node-draining-badge"}, "draining")
+    ? span({class: "cluster-tone", "data-tone": "warn", title: `${nodeState(machine)}, draining`, "data-testid": "node-draining-badge"}, "draining")
     : statusText(machine);
 
 const drainingTag = () => span(
-    {class: "flex-none rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-amber-300", "data-testid": "node-draining-badge"},
+    {class: "flex-none rounded bg-amber-500/15 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-amber-300 graphite:bg-[#d8b36a]/10 graphite:text-[#d8b36a]", "data-testid": "node-draining-badge"},
     "draining");
 
 const roleTag = (machine) => machine.isPrimary
-    ? span({class: "flex-none rounded bg-blue-500/15 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-blue-300"}, "primary")
+    ? span({class: "flex-none rounded bg-blue-500/15 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-blue-300 graphite:bg-white/[0.06] graphite:text-gray-400"}, "primary")
     : "";
 
 // --- page ---------------------------------------------------------------------
@@ -141,9 +142,9 @@ export function clusterPage() {
     // --- shared pieces ----------------------------------------------------------
 
     const headerRow = (...labels) => thead(tr(
-        {class: "text-left text-gray-500"},
+        {class: "cluster-head-row"},
         ...labels.map(([text, cls]) => th({
-            class: `sticky top-0 z-[1] whitespace-nowrap bg-surface py-1.5 pr-3 text-[10px] font-semibold uppercase tracking-wider ${cls || ""}`,
+            class: `cluster-th col-head classic:text-[10px] ${cls || ""}`,
         }, text)),
     ));
 
@@ -161,7 +162,7 @@ export function clusterPage() {
         }));
 
     const toolbar = (...children) => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        {class: "page-toolbar cluster-toolbar gap-2 classic:py-2"},
         ...children,
     );
 
@@ -181,7 +182,7 @@ export function clusterPage() {
             "aria-label": label,
             class: small
                 ? "inline-flex h-5 w-5 flex-none items-center justify-center rounded text-gray-500 hover:bg-white/10 hover:text-gray-100 cursor-pointer"
-                : "inline-flex items-center gap-1 rounded border border-gray-600 px-2 py-0.5 text-xs text-gray-300 hover:bg-surface-hover cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
+                : "cluster-btn inline-flex items-center gap-1 px-2 py-0.5",
             disabled: () => !text(),
             onclick: async () => {
                 const value = text();
@@ -203,8 +204,8 @@ export function clusterPage() {
         const cell = (cls, ...children) => td({class: `truncate py-1 pr-3 ${cls}`}, ...children);
         return tr(
             {
-                class: () => `cursor-pointer border-b border-gray-800/80 last:border-0 align-middle transition-colors ${
-                    selected() ? "bg-white/5" : "hover:bg-white/3"} ${muted ? "text-gray-500" : ""}`,
+                class: () => `data-row cursor-pointer align-middle classic:border-gray-800/80 classic:last:border-0 ${
+                    selected() ? "bg-white/5" : "classic:hover:bg-white/3"} ${muted ? "text-gray-500" : ""}`,
                 tabindex: 0,
                 "aria-selected": () => String(selected()),
                 "data-testid": `machine-row-${machine.identifier}`,
@@ -213,7 +214,7 @@ export function clusterPage() {
                     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectedId.val = machine.id; }
                 },
             },
-            td({class: () => `truncate py-1 pl-3 pr-3 ${selected() ? "shadow-[inset_2px_0_0_#3b82f6]" : ""}`},
+            td({class: () => `truncate py-1 pl-3 pr-3 ${selected() ? "shadow-[inset_2px_0_0_var(--color-brand)]" : ""}`},
                 div({class: "flex min-w-0 items-center gap-1.5"},
                     span({class: `truncate font-mono ${muted ? "text-gray-500" : "text-gray-100"}`, title: machine.identifier, "data-testid": "node-name"}, machine.name || machine.identifier),
                     roleTag(machine))),
@@ -221,7 +222,7 @@ export function clusterPage() {
             cell("font-mono text-gray-300", span({title: (machine.addresses || []).join("\n")}, listSummary(machine.addresses, "addresses"))),
             cell("font-mono text-gray-300", div({"data-testid": "node-host-addresses"}, hostAddressesSummary(machine))),
             cell("text-gray-300", span({title: allowedSpaceNames(machine, spacesS.val).join(", ")}, machine.evicted ? "-" : spacesSummary(machine))),
-            cell("font-mono text-gray-400", span({title: machine.opendeployVersion ? `Agent ${machine.opendeployVersion}` : "", "data-testid": "node-version"}, machine.opendeployVersion || "-")),
+            cell(`font-mono text-gray-400 ${muted ? "" : "slate:text-[#5fcfc0] graphite:text-gray-300"}`, span({title: machine.opendeployVersion ? `Agent ${machine.opendeployVersion}` : "", "data-testid": "node-version"}, machine.opendeployVersion || "-")),
             cell("font-mono text-gray-400", span({title: machine.runtimeVersions || "", "data-testid": "node-runtime-versions"}, runtimeSummary(machine.runtimeVersions))),
             cell("text-gray-400 tabular-nums", span({title: machine.evicted ? absoluteTime(machine.eventTime) : absoluteTime(machine.connectedAt)},
                 machine.isPrimary ? "-" : machine.evicted ? `evicted ${relativeTime(machine.eventTime)}` : machine.connected ? relativeTime(machine.connectedAt) : "-")),
@@ -242,7 +243,7 @@ export function clusterPage() {
     // --- inspector --------------------------------------------------------------
 
     const kvRow = (key, ...value) => div({class: "flex flex-col gap-0.5 px-3 py-1.5"},
-        span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, key),
+        span({class: "col-head classic:text-[10px]"}, key),
         div({class: "min-w-0 text-xs text-gray-200"}, ...value));
 
     const monoValue = (value, {copy = true} = {}) => div({class: "flex items-start gap-1"},
@@ -314,7 +315,7 @@ export function clusterPage() {
             if (checked) next.add(Number(id)); else next.delete(Number(id));
             spacesDraft.val = next;
         };
-        return div({class: "flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-900/60 p-2"},
+        return div({class: "flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-900/60 p-2 slate:border-line slate:bg-transparent graphite:border-line graphite:bg-transparent"},
             ...[...(spacesS.val || [])].sort((a, b) => Number(a.id) - Number(b.id)).map((space) => {
                 const fixed = isFixedSpace(space.id);
                 return label({class: "flex items-center gap-2 text-xs text-gray-300"},
@@ -347,7 +348,7 @@ export function clusterPage() {
         const all = total && names.length >= total;
         return div({class: "flex flex-col gap-1.5"},
             div({class: "flex flex-wrap items-center gap-1"},
-                ...(all ? [span({class: "text-gray-300"}, "all spaces")] : names.map((n) => span({class: "rounded bg-gray-800 px-1.5 py-0.5 font-mono text-[11px] text-gray-200"}, n))),
+                ...(all ? [span({class: "text-gray-300"}, "all spaces")] : names.map((n) => span({class: "cluster-chip"}, n))),
                 button({
                     type: "button",
                     class: "ml-1 text-[11px] text-brand hover:text-blue-300 hover:underline cursor-pointer",
@@ -384,12 +385,11 @@ export function clusterPage() {
                 close: () => { overlay.val = null; },
             });
         };
-        const actionClass = "rounded border px-2.5 py-1 text-xs cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ";
-        return div({class: "flex flex-col gap-1.5 border-t border-gray-800 px-3 py-2.5"},
+        return div({class: "flex flex-col gap-1.5 border-t border-gray-800 px-3 py-2.5 slate:border-line graphite:border-line"},
             div({class: "flex items-center gap-2"},
                 button({
                     type: "button", disabled: busy,
-                    class: actionClass + "border-gray-600 text-gray-300 hover:bg-surface-hover",
+                    class: "cluster-btn",
                     "data-testid": `node-drain-${machine.identifier}`,
                     title: machine.draining ? "Allow new deployments on this node again" : "Stop placing new deployments on this node",
                     onclick: toggleDrain,
@@ -397,7 +397,7 @@ export function clusterPage() {
                 div({class: "flex-1"}),
                 button({
                     type: "button", disabled: busy,
-                    class: actionClass + "border-red-800 text-red-300 hover:bg-red-900/40",
+                    class: "cluster-btn cluster-btn-danger",
                     "data-testid": `node-evict-${machine.identifier}`,
                     title: "Permanently remove this node from the cluster",
                     onclick: openEvict,
@@ -406,7 +406,7 @@ export function clusterPage() {
     };
 
     const inspectorBody = (machine) => {
-        const header = div({class: "flex flex-col gap-1 border-b border-gray-800 px-3 pb-2.5 pt-3 pr-8"},
+        const header = div({class: "flex flex-col gap-1 border-b border-gray-800 px-3 pb-2.5 pt-3 pr-8 slate:border-line graphite:border-line"},
             machine.evicted
                 ? span({class: "font-mono text-sm font-medium text-gray-400"}, machine.name || machine.identifier)
                 : nameEditor(machine),
@@ -431,7 +431,7 @@ export function clusterPage() {
                     ? span({class: "text-gray-500"}, "always (primary)")
                     : machine.connected
                         ? span({title: absoluteTime(machine.connectedAt)}, `${formatDateTime(asDate(machine.connectedAt), "-")} · ${relativeTime(machine.connectedAt)}`)
-                        : span({class: "text-red-300"}, machine.connectedAt ? `last seen ${relativeTime(machine.connectedAt)}` : "never connected")),
+                        : span({class: "cluster-tone", "data-tone": "error"}, machine.connectedAt ? `last seen ${relativeTime(machine.connectedAt)}` : "never connected")),
                 kvRow("Enrolled", span({title: absoluteTime(machine.enrolledAt)}, formatDateTime(asDate(machine.enrolledAt), "-"))),
                 kvRow("Cluster address", monoList(machine.addresses, "No underlay address reported")),
                 kvRow("Host addresses", div({"data-testid": "node-inspector-host-addresses"},
@@ -468,7 +468,7 @@ export function clusterPage() {
     };
 
     const inspector = () => div(
-        {class: "relative flex flex-none flex-col border-l border-gray-700 bg-gray-950/35", style: () => `width:${inspectorWidth.val}px`, "data-testid": "node-inspector"},
+        {class: "relative flex flex-none flex-col border-l border-gray-700 bg-gray-950/35 slate:border-line slate:bg-transparent graphite:border-line graphite:bg-transparent", style: () => `width:${inspectorWidth.val}px`, "data-testid": "node-inspector"},
         span({
             class: "vgrip", tabindex: "0", role: "separator", "aria-orientation": "vertical", "aria-label": "Resize details pane",
             onmousedown: startInspectorResize,
@@ -535,7 +535,7 @@ export function clusterPage() {
             }
         };
         return tr(
-            {class: "border-b border-gray-800/80 last:border-0 align-middle", "data-testid": `enrollment-request-${req.id}`},
+            {class: "data-row align-middle classic:border-gray-800/80 classic:last:border-0 classic:hover:bg-transparent", "data-testid": `enrollment-request-${req.id}`},
             td({class: "truncate py-1.5 pl-3 pr-3"},
                 div({class: "flex min-w-0 items-center gap-2"},
                     span({class: "flex-none text-gray-200"}, `#${req.id}`),
@@ -598,10 +598,10 @@ export function clusterPage() {
 
     // --- replication tab ----------------------------------------------------------
 
-    const tile = (labelText, value, {tone = "text-gray-200", testId = "", hint = ""} = {}) => div(
-        {class: "flex min-w-0 flex-col gap-1 rounded border border-gray-800 bg-black/20 px-3 py-2.5"},
-        span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, labelText),
-        span({class: `truncate font-mono text-sm ${tone}`, "data-testid": testId, title: hint}, value));
+    const tile = (labelText, value, {tone = "", testId = "", hint = ""} = {}) => div(
+        {class: "cluster-tile"},
+        span({class: "col-head classic:text-[10px]"}, labelText),
+        span({class: `cluster-tone font-mono text-sm ${tone ? "" : "text-gray-200"}`, "data-tone": tone, "data-testid": testId, title: hint}, value));
 
     const replicationBody = () => {
         const status = backupStatusS.val;
@@ -620,19 +620,19 @@ export function clusterPage() {
             div({class: "grid grid-cols-2 gap-2 md:grid-cols-4"},
                 tile("Local TXID", String(status.localTxid || 0), {testId: "backup-replication-local-txid"}),
                 tile("Remote TXID", String(status.remoteTxid || 0), {testId: "backup-replication-remote-txid"}),
-                tile("Lag", lag === 0 ? "0" : `${lag} tx`, {tone: lag === 0 ? "text-green-300" : "text-amber-300", hint: "Transactions the remote copy is behind the primary"}),
+                tile("Lag", lag === 0 ? "0" : `${lag} tx`, {tone: lag === 0 ? "ok" : "warn", hint: "Transactions the remote copy is behind the primary"}),
                 tile("Last successful sync", lastSync ? `${formatDateTime(lastSync)} · ${relativeTime(lastSync)}` : "never",
-                    {tone: lastSync ? "text-gray-200" : "text-gray-500", testId: "backup-replication-last-sync", hint: absoluteTime(lastSync)})),
+                    {tone: lastSync ? "" : "off", testId: "backup-replication-last-sync", hint: absoluteTime(lastSync)})),
             assetsSyncing(status)
-                ? div({class: "rounded border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200"},
+                ? div({class: "rounded border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200 slate:rounded-md slate:border-amber-500/25 slate:bg-amber-500/[0.07] graphite:border-[#d8b36a]/30 graphite:bg-[#d8b36a]/[0.06] graphite:text-[#d8b36a]"},
                     `${status.assetPending || 0} asset(s) ${assetPendingDescription(status)}.`)
                 : "",
             status.assetError
-                ? div({class: "rounded border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200 break-words"},
+                ? div({class: "rounded border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200 break-words slate:rounded-md slate:border-red-500/30 slate:bg-red-500/[0.08] graphite:border-red-500/30 graphite:bg-red-500/[0.06]"},
                     span({class: "font-semibold"}, "Asset sync: "), status.assetError)
                 : "",
             status.error
-                ? div({class: "rounded border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200 break-words", "data-testid": "backup-replication-error"},
+                ? div({class: "rounded border border-red-900/60 bg-red-950/30 px-3 py-2 text-xs text-red-200 break-words slate:rounded-md slate:border-red-500/30 slate:bg-red-500/[0.08] graphite:border-red-500/30 graphite:bg-red-500/[0.06]", "data-testid": "backup-replication-error"},
                     span({class: "font-semibold"}, "Database replication: "), status.error)
                 : "");
     };
@@ -644,46 +644,23 @@ export function clusterPage() {
 
     // --- tab strip ------------------------------------------------------------
 
-    const tabButton = ({id, title, count, badge, first = false}) => {
-        const active = () => activeTab.val === id;
-        return div(
-            {
-                role: "tab",
-                "aria-selected": () => String(active()),
-                "data-testid": `nodes-tab-${id}`,
-                tabindex: 0,
-                class: () => `relative -mb-px flex h-8 shrink-0 cursor-pointer select-none items-center gap-1.5 border border-b-0 px-3 text-xs transition-colors ${first ? "rounded-tr-md border-l-0" : "rounded-t-md"} ` + (active()
-                    ? "border-gray-700 bg-surface text-white"
-                    : "border-transparent text-gray-400 hover:bg-white/5 hover:text-gray-200"),
-                onclick: () => { activeTab.val = id; },
-                onkeydown: (event) => {
-                    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activeTab.val = id; }
-                },
-            },
-            span({class: "font-medium"}, title),
-            count ? span({class: () => `rounded px-1 text-[10px] tabular-nums ${active() ? "bg-white/10 text-gray-300" : "bg-white/5 text-gray-500"}`}, count) : "",
-            badge ? badge : "",
-        );
-    };
-
     const replicationDot = () => span({
         class: () => `inline-block h-1.5 w-1.5 rounded-full ${backupToneDot(backupStatusS.val)}`,
         title: () => backupStatusLabel(backupStatusS.val),
     });
 
-    const tabStrip = div(
-        {class: "flex h-[34px] flex-none flex-nowrap items-end gap-0.5 border-b border-gray-700 bg-gray-900/80 pr-2 pt-0.5", role: "tablist", "aria-label": "Nodes"},
-        tabButton({id: NODES, title: "Nodes", count: () => String(liveNodes().length), first: true}),
-        tabButton({id: ENROLLMENTS, title: "Enrollments", count: () => String(pendingEnrollments().length)}),
-        tabButton({id: REPLICATION, title: "Replication", badge: replicationDot()}),
+    const strip = tabStrip({label: "Nodes"},
+        tabButton({id: NODES, activeTab, title: "Nodes", testid: `nodes-tab-${NODES}`, count: () => String(liveNodes().length)}),
+        tabButton({id: ENROLLMENTS, activeTab, title: "Enrollments", testid: `nodes-tab-${ENROLLMENTS}`, count: () => String(pendingEnrollments().length)}),
+        tabButton({id: REPLICATION, activeTab, title: "Replication", testid: `nodes-tab-${REPLICATION}`, trailing: replicationDot()}),
     );
 
-    const panel = (id, content) => div({class: () => `h-full min-h-0 min-w-0 ${activeTab.val === id ? "" : "hidden"}`}, content);
+    const panel = (id, content) => tabPanel(activeTab, id, content);
 
     return div(
-        {class: "flex h-full min-h-0 min-w-0 flex-col bg-surface", "data-testid": "nodes-page"},
-        tabStrip,
-        div({class: "relative flex-1 min-h-0 min-w-0"},
+        {class: "page", "data-testid": "nodes-page"},
+        strip,
+        div({class: "page-body"},
             panel(NODES, nodesPanel),
             panel(ENROLLMENTS, enrollmentsPanel),
             panel(REPLICATION, replicationPanel)),
@@ -732,14 +709,15 @@ function backupToneDot(status) {
 }
 
 function backupStatusBadge(status) {
-    const klass = status?.error || status?.assetError
-        ? "bg-red-950 text-red-300 border-red-800"
+    const tone = status?.error || status?.assetError
+        ? "error"
         : status?.inSync && !assetsSyncing(status)
-            ? "bg-green-950 text-green-300 border-green-800"
+            ? "ok"
             : status?.configured || assetsSyncing(status)
-                ? "bg-yellow-950 text-yellow-300 border-yellow-800"
-                : "bg-gray-800 text-gray-300 border-gray-700";
-    return span({class: klass + " rounded border px-2 py-0.5 text-xs font-medium", "data-testid": "backup-replication-status"}, backupStatusLabel(status));
+                ? "warn"
+                : "off";
+    return span({class: "cluster-status", "data-tone": tone, "data-testid": "backup-replication-status"},
+        span({class: "cluster-status-dot"}), backupStatusLabel(status));
 }
 
 // --- install command (as src/pages/cluster.js builds it) -------------------------

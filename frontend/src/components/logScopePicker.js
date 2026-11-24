@@ -60,19 +60,19 @@ export function logScopePicker({scopeS, ordinalsS, versionsS, ensureVersions, fe
 
     const item = (selected, text, onclick) => button({
         type: "button",
-        class: "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs text-gray-200 hover:bg-gray-800",
+        class: "menu-item w-full classic:gap-1.5 classic:rounded-none classic:py-1 classic:hover:bg-gray-800",
         onclick,
     }, span({class: "w-3.5 flex-none"}, selected ? checkIcon({class: "w-3.5 h-3.5 text-brand"}) : ''), text);
 
-    const note = (text) => div({class: "px-2.5 py-1 text-[11px] text-gray-600"}, text);
+    const note = (text) => div({class: "px-2.5 py-1 text-[11px] text-gray-600 slate:px-2 slate:text-gray-500 graphite:px-2 graphite:text-gray-500"}, text);
 
     const column = (title, testid, body) => div(
-        {"data-testid": testid, class: "flex w-40 flex-none flex-col border-r border-gray-800 last:border-r-0"},
-        div({class: "px-2.5 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-gray-500"}, title),
+        {"data-testid": testid, class: "logs-menu-col flex w-40 flex-none flex-col slate:px-1 graphite:px-1 slate:first:pl-0 graphite:first:pl-0 slate:last:pr-0 graphite:last:pr-0"},
+        div({class: "logs-micro px-2.5 pb-0.5 pt-2 slate:px-2 slate:pt-1 graphite:px-2 graphite:pt-1"}, title),
         div({class: "app-scroll max-h-64 min-h-24 flex-1 overflow-y-auto pb-1"}, body),
     );
 
-    const versionColumn = () => column("version", "logs-scope-versions", (() => {
+    const versionColumn = () => column("Version", "logs-scope-versions", (() => {
         const versions = versionsS.val;
         if (versions === null) return note("Loading…");
         return div(
@@ -81,12 +81,12 @@ export function logScopePicker({scopeS, ordinalsS, versionsS, ensureVersions, fe
         );
     })());
 
-    const instanceColumn = () => column("instance", "logs-scope-instances", div(
+    const instanceColumn = () => column("Instance", "logs-scope-instances", div(
         item(scopeS.val.instance == null, "All instances", () => setScope({instance: null, run: 0})),
         ...(ordinalsS.val || []).map(n => item(scopeS.val.instance === n, `Instance ${n}`, () => setScope({instance: n, run: 0}))),
     ));
 
-    const runColumn = () => column("run", "logs-scope-runs", (() => {
+    const runColumn = () => column("Run", "logs-scope-runs", (() => {
         if (!runEligible()) {
             return note(multiInstance()
                 ? "Select a version and instance to filter by run."
@@ -109,7 +109,7 @@ export function logScopePicker({scopeS, ordinalsS, versionsS, ensureVersions, fe
             "data-testid": "logs-scope-button",
             type: "button",
             disabled: () => Boolean(disabledS && disabledS.val),
-            class: "input flex h-[30px] items-center gap-1.5 whitespace-nowrap text-xs text-gray-200 cursor-pointer hover:bg-gray-700 disabled:cursor-default disabled:opacity-50 disabled:hover:bg-gray-800",
+            class: "logs-ctl flex items-center gap-1.5 whitespace-nowrap cursor-pointer",
             onclick: () => {
                 open.val = !open.val;
                 if (open.val) {
@@ -121,7 +121,7 @@ export function logScopePicker({scopeS, ordinalsS, versionsS, ensureVersions, fe
         () => !open.val ? '' : div(
             div({class: "fixed inset-0 z-20", onclick: () => { open.val = false; }}),
             div(
-                {"data-testid": "logs-scope-panel", class: "absolute left-0 top-full z-30 mt-1 flex rounded border border-gray-700 bg-gray-900 shadow-xl"},
+                {"data-testid": "logs-scope-panel", class: "menu absolute left-0 top-full z-30 mt-1 flex classic:rounded classic:border-gray-700 classic:bg-gray-900 classic:p-0 classic:shadow-xl"},
                 () => versionColumn(),
                 () => multiInstance() ? instanceColumn() : '',
                 () => runColumn(),

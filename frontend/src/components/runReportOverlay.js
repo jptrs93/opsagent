@@ -98,7 +98,7 @@ export function runReportOverlay(target, onClose) {
         class: () => "flex w-full cursor-pointer items-center gap-1.5 py-0.5 pr-2 pl-7 text-left text-[11px] " +
             (selected.val?.instanceId === inst.id && selected.val?.run === run
                 ? "bg-brand/20 text-gray-100"
-                : "text-gray-400 hover:bg-gray-800/40 hover:text-gray-200"),
+                : "text-gray-400 hover:bg-gray-800/40 slate:hover:bg-white/5 graphite:hover:bg-white/5 hover:text-gray-200"),
         "data-testid": `run-report-run-${inst.id}-${run}`,
         onclick: () => selectRun(inst.id, run),
     },
@@ -113,7 +113,7 @@ export function runReportOverlay(target, onClose) {
         const isOpen = expanded.val.has(inst.id);
         return div(
             div({
-                class: "flex cursor-pointer items-center gap-1 px-2 py-1 hover:bg-gray-800/40",
+                class: "flex cursor-pointer items-center gap-1 px-2 py-1 hover:bg-gray-800/40 slate:hover:bg-white/5 graphite:hover:bg-white/5",
                 "data-testid": `run-report-instance-${inst.id}`,
                 onclick: () => toggleExpanded(inst.id),
             },
@@ -133,7 +133,7 @@ export function runReportOverlay(target, onClose) {
 
     const sidebar = () => {
         const list = instances();
-        return div({class: "app-scroll w-56 flex-none overflow-y-auto border-r border-gray-800 bg-gray-950/40 py-1"},
+        return div({class: "dep-sunken dep-hr app-scroll w-56 flex-none overflow-y-auto border-r py-1"},
             list.length === 0
                 ? p({class: "px-3 py-4 text-xs text-gray-500"}, `No instances recorded for v${version}.`)
                 : list.map(instanceEntry));
@@ -152,11 +152,11 @@ export function runReportOverlay(target, onClose) {
     };
 
     const fact = (label, ...value) => div({class: "flex min-w-0 items-baseline gap-1.5"},
-        span({class: "text-[10px] font-semibold uppercase tracking-wide text-gray-500"}, label),
+        span({class: "dep-micro"}, label),
         span({class: "truncate font-mono text-xs text-gray-300"}, ...value));
 
     const reportView = (r) => div({class: "flex min-h-0 flex-1 flex-col"},
-        div({class: "flex flex-none flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-gray-800 px-4 py-2.5"},
+        div({class: "dep-hr flex flex-none flex-wrap items-center gap-x-5 gap-y-1.5 border-b px-4 py-2.5"},
             fact("Node", nodeDisplayName(r.nodeId, machinesS.val) || String(r.nodeId || '-')),
             fact("Instance", `#${selected.val?.instanceId ?? '-'} · ord ${r.instanceOrdinal}`),
             fact("Run", String(r.run)),
@@ -167,18 +167,18 @@ export function runReportOverlay(target, onClose) {
             formatDuration(r.startedAt, r.stoppedAt) ? fact("Duration", formatDuration(r.startedAt, r.stoppedAt)) : '',
             exitChip(r)),
         (r.warnings || []).length > 0
-            ? div({class: "flex-none border-b border-gray-800 px-4 py-1.5"},
+            ? div({class: "dep-hr flex-none border-b px-4 py-1.5"},
                 ...(r.warnings || []).map((w) => p({class: "text-[11px] text-amber-400"}, w)))
             : '',
         r.running
             ? p({class: "px-4 py-6 text-sm text-gray-500"}, "Run is still in progress — log tail only shown for ended deployments.")
             : (r.logLines || []).length > 0
                 ? div({class: "flex min-h-0 flex-1 flex-col"},
-                    p({class: "flex-none px-4 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500"},
+                    p({class: "dep-micro flex-none px-4 pt-2 pb-1"},
                         `Last ${(r.logLines || []).length} log lines`),
                     pre({
                         "data-testid": "run-report-logs",
-                        class: "app-scroll min-h-0 flex-1 overflow-auto bg-gray-950 px-4 py-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-gray-200",
+                        class: "dep-code app-scroll min-h-0 flex-1 overflow-auto px-4 py-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-gray-200",
                     }, r.logLines.join('\n')))
                 : p({class: "px-4 py-6 text-sm text-gray-500"}, "No log lines found for this run."),
     );
@@ -205,20 +205,20 @@ export function runReportOverlay(target, onClose) {
         div(
             {class: "fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 pointer-events-none", "data-testid": "run-report-overlay"},
             div(
-                {class: "w-full h-full max-w-[1600px] max-h-[94vh] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto", onclick: (e) => e.stopPropagation()},
+                {class: "dep-dialog w-full h-full max-w-[1600px] max-h-[94vh] pointer-events-auto", onclick: (e) => e.stopPropagation()},
                 div(
-                    {class: "flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-700"},
+                    {class: "flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-700 slate:border-line graphite:border-line"},
                     div(
                         {class: "flex min-w-0 items-baseline gap-2.5"},
                         h2({class: "text-sm font-semibold text-gray-200 truncate"},
                             () => `Run report: ${name()} · #${deploymentId} · v${version}`),
                         headerMeta,
                     ),
-                    button({class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5", onclick: onClose}, "Close"),
+                    button({class: "text-sm text-gray-400 hover:text-gray-200 slate:hover:bg-white/5 graphite:hover:bg-white/5 rounded-md cursor-pointer px-3 py-1.5", onclick: onClose}, "Close"),
                 ),
                 div({class: "flex min-h-0 flex-1"},
                     () => sidebar(),
-                    div({class: "flex min-h-0 min-w-0 flex-1 flex-col bg-gray-900"}, body)),
+                    div({class: "flex min-h-0 min-w-0 flex-1 flex-col classic:bg-gray-900"}, body)),
             ),
         ),
     );

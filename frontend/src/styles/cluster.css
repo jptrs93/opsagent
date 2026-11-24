@@ -1,0 +1,186 @@
+@layer components {
+    .cluster-th {
+        @apply sticky top-0 z-[1] whitespace-nowrap bg-surface pr-3;
+    }
+
+    .cluster-head-row {
+        @apply text-left;
+    }
+
+    .cluster-tone {
+        @apply truncate;
+    }
+
+    .cluster-chip {
+        @apply rounded px-1.5 py-0.5 font-mono text-[11px] text-gray-200;
+    }
+
+    .cluster-btn {
+        @apply rounded border px-2.5 py-1 text-xs cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .cluster-tile {
+        @apply flex min-w-0 flex-col gap-1 rounded border px-3 py-2.5;
+    }
+
+    .cluster-status {
+        @apply inline-flex items-center gap-1.5 text-xs font-medium;
+    }
+
+    .cluster-status-dot {
+        @apply inline-block h-1.5 w-1.5 flex-none rounded-full;
+    }
+
+    .cluster-status[data-tone="ok"] .cluster-status-dot { @apply bg-emerald-400; }
+    .cluster-status[data-tone="warn"] .cluster-status-dot { @apply bg-amber-400; }
+    .cluster-status[data-tone="error"] .cluster-status-dot { @apply bg-red-400; }
+    .cluster-status[data-tone="off"] .cluster-status-dot { @apply bg-gray-600; }
+
+    .cluster-planned-tag {
+        @apply text-[9px] uppercase tracking-wider;
+    }
+
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        .cluster-th {
+            @apply py-1.5;
+        }
+
+        .cluster-tone[data-tone="ok"] { @apply text-green-300; }
+        .cluster-tone[data-tone="warn"] { @apply text-amber-300; }
+        .cluster-tone[data-tone="error"] { @apply text-red-300; }
+        .cluster-tone[data-tone="off"] { @apply text-gray-500; }
+
+        .cluster-chip {
+            @apply bg-gray-800;
+        }
+
+        .cluster-btn {
+            @apply border-gray-600 text-gray-300 hover:bg-surface-hover;
+        }
+
+        .cluster-btn-danger {
+            @apply border-red-800 text-red-300 hover:bg-red-900/40;
+        }
+
+        .cluster-tile {
+            @apply border-gray-800 bg-black/20;
+        }
+
+        .cluster-status {
+            @apply rounded border px-2 py-0.5;
+        }
+
+        .cluster-status-dot {
+            @apply hidden;
+        }
+
+        .cluster-status[data-tone="ok"] { @apply border-green-800 bg-green-950 text-green-300; }
+        .cluster-status[data-tone="warn"] { @apply border-yellow-800 bg-yellow-950 text-yellow-300; }
+        .cluster-status[data-tone="error"] { @apply border-red-800 bg-red-950 text-red-300; }
+        .cluster-status[data-tone="off"] { @apply border-gray-700 bg-gray-800 text-gray-300; }
+
+        .cluster-planned-tag {
+            @apply text-blue-300/70;
+        }
+    }
+
+    :root[data-theme="slate"] {
+        .cluster-th {
+            @apply h-7 overflow-hidden text-ellipsis py-0 font-medium;
+            box-shadow: inset 0 -1px 0 var(--color-line);
+        }
+
+        .cluster-tone[data-tone="ok"] { color: #4cc38a; }
+        .cluster-tone[data-tone="warn"] { color: #e0a43a; }
+        .cluster-tone[data-tone="error"] { color: #f0716b; }
+        .cluster-tone[data-tone="off"] { @apply text-gray-500; }
+
+        .cluster-chip {
+            @apply rounded-md bg-white/[0.06];
+        }
+
+        .cluster-btn {
+            @apply rounded-md border-transparent bg-white/[0.06] text-gray-200 hover:bg-white/10;
+        }
+
+        .cluster-btn-danger {
+            @apply bg-red-500/10 text-red-300 hover:bg-red-500/20;
+        }
+
+        .cluster-tile {
+            @apply rounded-md border-line;
+        }
+
+        .cluster-status[data-tone="ok"] { color: #4cc38a; }
+        .cluster-status[data-tone="warn"] { color: #e0a43a; }
+        .cluster-status[data-tone="error"] { color: #f0716b; }
+        .cluster-status[data-tone="off"] { @apply text-gray-400; }
+
+        .cluster-planned-tag {
+            @apply font-semibold text-gray-500;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .cluster-th {
+            @apply h-6 overflow-hidden text-ellipsis py-0;
+        }
+
+        .cluster-tone[data-tone="ok"] { @apply text-gray-300; }
+        .cluster-tone[data-tone="warn"] { color: #d8b36a; }
+        .cluster-tone[data-tone="error"] { @apply text-red-400; }
+        .cluster-tone[data-tone="off"] { @apply text-gray-500; }
+
+        .cluster-chip {
+            @apply border border-line text-gray-300;
+        }
+
+        .cluster-btn {
+            @apply border-line text-gray-300 hover:bg-white/[0.04];
+        }
+
+        .cluster-btn-danger {
+            @apply border-red-900/70 text-red-300 hover:bg-red-500/10;
+        }
+
+        .cluster-tile {
+            @apply border-line;
+        }
+
+        .cluster-status[data-tone="ok"] { @apply text-gray-200; }
+        .cluster-status[data-tone="warn"] { color: #d8b36a; }
+        .cluster-status[data-tone="warn"] .cluster-status-dot { background-color: #d8b36a; }
+        .cluster-status[data-tone="error"] { @apply text-red-400; }
+        .cluster-status[data-tone="off"] { @apply text-gray-400; }
+
+        .cluster-planned-tag {
+            @apply font-semibold text-gray-500;
+        }
+    }
+}
+
+/* .toolbar-button is un-layered in style.css, so a layered rule cannot
+   restyle it; these stay outside the layer and win on specificity. */
+:root[data-theme="slate"] .cluster-toolbar .toolbar-button {
+    @apply rounded-md border-transparent bg-white/[0.06] hover:bg-white/10;
+}
+
+:root[data-theme="slate"] .cluster-toolbar .toolbar-button[aria-pressed="true"] {
+    @apply bg-white/[0.12] text-white;
+}
+
+:root[data-theme="graphite"] .cluster-toolbar .toolbar-button {
+    @apply rounded border-line hover:bg-white/[0.04];
+}
+
+:root[data-theme="graphite"] .cluster-toolbar .toolbar-button[aria-pressed="true"] {
+    @apply bg-white/[0.06] text-white;
+}
+
+:root[data-theme="slate"] .cluster-add-input,
+:root[data-theme="graphite"] .cluster-add-input {
+    height: 30px;
+    padding-top: 0;
+    padding-bottom: 0;
+    font-size: 0.8125rem;
+}

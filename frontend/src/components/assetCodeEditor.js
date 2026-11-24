@@ -9,13 +9,13 @@ import {tags} from "@lezer/highlight";
 const {div} = van.tags;
 
 const codeEditorTheme = EditorView.theme({
-    "&": {height: "100%", color: "#f3f4f6", backgroundColor: "#111827"},
-    ".cm-scroller": {overflow: "auto", scrollbarColor: "#4b5563 #111827", scrollbarWidth: "thin"},
+    "&": {height: "100%", color: "var(--explorer-code-fg)", backgroundColor: "var(--explorer-code-bg)"},
+    ".cm-scroller": {overflow: "auto", scrollbarColor: "var(--explorer-code-thumb) var(--explorer-code-bg)", scrollbarWidth: "thin"},
     ".cm-scroller::-webkit-scrollbar": {width: "8px", height: "8px"},
-    ".cm-scroller::-webkit-scrollbar-track": {background: "#111827"},
+    ".cm-scroller::-webkit-scrollbar-track": {background: "var(--explorer-code-bg)"},
     ".cm-scroller::-webkit-scrollbar-thumb": {
-        background: "#4b5563",
-        border: "2px solid #111827",
+        background: "var(--explorer-code-thumb)",
+        border: "2px solid var(--explorer-code-bg)",
         borderRadius: "999px",
     },
     ".cm-content": {
@@ -24,26 +24,26 @@ const codeEditorTheme = EditorView.theme({
         fontFamily: 'ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace',
         fontSize: "0.875rem",
         lineHeight: "1.625",
-        caretColor: "#93c5fd",
+        caretColor: "var(--explorer-code-caret)",
     },
     ".cm-line": {padding: "0 12px"},
-    ".cm-gutters": {backgroundColor: "#111827", color: "#6b7280", border: "none"},
+    ".cm-gutters": {backgroundColor: "var(--explorer-code-bg)", color: "var(--explorer-code-gutter)", border: "none"},
     ".cm-activeLine": {backgroundColor: "transparent"},
     ".cm-activeLineGutter": {backgroundColor: "transparent", color: "inherit"},
     ".cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection": {
-        backgroundColor: "#1e3a5f !important",
+        backgroundColor: "var(--explorer-code-selection) !important",
     },
-    ".cm-cursor": {borderLeftColor: "#93c5fd"},
+    ".cm-cursor": {borderLeftColor: "var(--explorer-code-caret)"},
 }, {dark: true});
 
 const yamlHighlightStyle = HighlightStyle.define([
-    {tag: [tags.propertyName, tags.labelName], color: "#7dd3fc"},
-    {tag: [tags.string, tags.special(tags.string)], color: "#86efac"},
-    {tag: [tags.number, tags.bool], color: "#c4b5fd"},
-    {tag: [tags.null, tags.tagName, tags.meta], color: "#fbbf24"},
-    {tag: tags.comment, color: "#6b7280", fontStyle: "italic"},
-    {tag: [tags.punctuation, tags.contentSeparator], color: "#9ca3af"},
-    {tag: tags.invalid, color: "#f87171"},
+    {tag: [tags.propertyName, tags.labelName], color: "var(--explorer-code-key)"},
+    {tag: [tags.string, tags.special(tags.string)], color: "var(--explorer-code-string)"},
+    {tag: [tags.number, tags.bool], color: "var(--explorer-code-number)"},
+    {tag: [tags.null, tags.tagName, tags.meta], color: "var(--explorer-code-null)"},
+    {tag: tags.comment, color: "var(--explorer-code-comment)", fontStyle: "italic"},
+    {tag: [tags.punctuation, tags.contentSeparator], color: "var(--explorer-code-punct)"},
+    {tag: tags.invalid, color: "var(--explorer-code-invalid)"},
 ]);
 
 const stateValue = value => typeof value === "function" ? value() : (value?.val ?? value);

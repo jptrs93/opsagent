@@ -48,23 +48,23 @@ export function exportConfigOverlay(onClose) {
         div(
             {class: "fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 pointer-events-none", "data-testid": "export-config-overlay"},
             div(
-                {class: "w-full h-full max-w-[1200px] max-h-[90vh] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto", onclick: (e) => e.stopPropagation()},
+                {class: "dep-dialog w-full h-full max-w-[1200px] max-h-[90vh] pointer-events-auto", onclick: (e) => e.stopPropagation()},
                 div(
-                    {class: "flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-700"},
+                    {class: "flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-700 slate:border-line graphite:border-line"},
                     div({class: "min-w-0"},
                         h2({class: "text-sm font-semibold text-gray-200"}, "Export configuration"),
                         p({class: () => `text-xs ${error.val ? 'text-red-400' : 'text-gray-500'}`}, () => status.val),
                     ),
-                    button({class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5", onclick: onClose}, "Close"),
+                    button({class: "text-sm text-gray-400 hover:text-gray-200 slate:hover:bg-white/5 graphite:hover:bg-white/5 rounded-md cursor-pointer px-3 py-1.5", onclick: onClose}, "Close"),
                 ),
-                div({class: "flex-1 min-h-0 bg-gray-950 overflow-hidden"},
+                div({class: "dep-code flex-1 min-h-0 overflow-hidden"},
                     pre(
                         {class: "app-scroll h-full w-full overflow-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
                         () => outputText.val || (loading.val ? 'Generating export...' : error.val),
                     ),
                 ),
                 div(
-                    {class: "flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-700"},
+                    {class: "flex items-center justify-between gap-3 px-4 py-3 border-t border-gray-700 slate:border-line graphite:border-line"},
                     p({class: "text-xs text-gray-500"}, "Secrets are exported as metadata only. Asset blob contents are omitted."),
                     div({class: "flex items-center gap-2"},
                         button({class: "btn-secondary text-sm py-1.5 px-3 cursor-pointer", disabled: () => !outputText.val, onclick: copyExport}, () => copied.val ? 'Copied' : 'Copy'),

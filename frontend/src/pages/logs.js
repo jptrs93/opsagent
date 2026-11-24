@@ -34,23 +34,23 @@ const NL = LEVELS.length;
 
 // Width hints for well-known fields; anything else gets a generic column.
 const COLUMN_DEFS = {
-    time: {label: 'time', px: 152},
-    level: {label: 'level', px: 58},
-    msg: {label: 'message', flex: true, minPx: 320, mono: true},
-    service: {label: 'service', px: 90},
-    host: {label: 'host', px: 74},
-    version: {label: 'version', px: 76},
-    node: {label: 'node', px: 52, num: true},
-    run: {label: 'run', px: 46, num: true},
-    instance: {label: 'inst', px: 46, num: true},
-    stream: {label: 'stream', px: 60},
-    logger: {label: 'logger', px: 100},
-    method: {label: 'method', px: 68},
-    path: {label: 'path', px: 170, mono: true},
-    status: {label: 'status', px: 58, num: true},
-    duration_ms: {label: 'duration', px: 78, num: true},
-    trace_id: {label: 'trace', px: 136, mono: true},
-    err: {label: 'err', px: 130, mono: true},
+    time: {label: 'Time', px: 152},
+    level: {label: 'Level', px: 58},
+    msg: {label: 'Message', flex: true, minPx: 320, mono: true},
+    service: {label: 'Service', px: 90},
+    host: {label: 'Host', px: 74},
+    version: {label: 'Version', px: 76},
+    node: {label: 'Node', px: 52, num: true},
+    run: {label: 'Run', px: 46, num: true},
+    instance: {label: 'Inst', px: 46, num: true},
+    stream: {label: 'Stream', px: 60},
+    logger: {label: 'Logger', px: 100},
+    method: {label: 'Method', px: 68},
+    path: {label: 'Path', px: 170, mono: true},
+    status: {label: 'Status', px: 58, num: true},
+    duration_ms: {label: 'Duration', px: 78, num: true},
+    trace_id: {label: 'Trace', px: 136, mono: true},
+    err: {label: 'Err', px: 130, mono: true},
 };
 
 const META_FIELDS = new Set(['version', 'node', 'run', 'instance', 'stream']);
@@ -428,12 +428,12 @@ export function logsPage(selectedDeploymentId) {
         hiddenS: hiddenSpaces,
         onChange: saveHiddenSpaces,
         testid: "logs-space-filter",
-        buttonClass: "input inline-flex h-[30px] items-center gap-1.5 text-xs text-gray-200 cursor-pointer hover:bg-gray-700",
+        buttonClass: "logs-ctl inline-flex items-center gap-1.5 cursor-pointer",
     });
 
     const deploymentSelect = select({
         "data-testid": "logs-deployment-select",
-        class: "input h-[30px] min-w-48 py-1 text-xs",
+        class: "logs-ctl min-w-48 cursor-pointer",
         onchange: (e) => {
             deploymentId.val = Number(e.target.value || 0);
             if (deploymentId.val) void runSearch();
@@ -542,7 +542,7 @@ export function logsPage(selectedDeploymentId) {
 
     const queryInput = input({
         "data-testid": "logs-query-input",
-        class: "input search-input-iconed h-[30px] w-full py-1 pr-2 font-mono text-xs bg-gray-900",
+        class: "logs-ctl search-input-iconed w-full pr-2 font-mono text-xs",
         placeholder: 'free text and field filters — e.g. level:error "pool exhausted" status:500 err:* -host:node-2',
         value: () => queryText.val,
         oninput: (e) => { queryText.val = e.target.value; },
@@ -556,9 +556,7 @@ export function logsPage(selectedDeploymentId) {
     });
 
     const chip = (token, pos) => span(
-        {class: `inline-flex items-center gap-1 rounded border px-1.5 py-px font-mono text-[11px] ${token.neg
-            ? "border-red-900/60 bg-red-950/40 text-red-300"
-            : "border-gray-700 bg-gray-800 text-gray-200"}`},
+        {class: `logs-chip ${token.neg ? "logs-chip-neg" : ""}`},
         token.neg ? span({class: "font-sans text-[9px] uppercase text-red-400"}, "not") : '',
         token.type === 'pair' ? `${token.key}${token.sep || ':'}${quoteValue(token.value, token.quoted)}` : `"${token.value}"`,
         button({
@@ -570,52 +568,50 @@ export function logsPage(selectedDeploymentId) {
     );
 
     const searchBar = div(
-        {class: "flex-none border-b border-gray-700"},
+        {class: "page-strip"},
+        spaceFilter,
+        deploymentSelect,
+        logScopePicker({
+            scopeS: workloadScope,
+            ordinalsS: workloadOrdinals,
+            versionsS: workloadVersionsS,
+            ensureVersions: ensureWorkloadVersions,
+            fetchRuns: fetchWorkloadRuns,
+            disabledS: van.derive(() => !Number(deploymentId.val || 0)),
+            onChange: () => { if (Number(deploymentId.val || 0)) void runSearch(); },
+        }),
+        logLevelPicker({
+            onS: levelOn,
+            onChange: () => { if (Number(deploymentId.val || 0)) void runSearch(); },
+        }),
         div(
-            {class: "flex items-center gap-1.5 px-2 py-1.5"},
-            spaceFilter,
-            deploymentSelect,
-            logScopePicker({
-                scopeS: workloadScope,
-                ordinalsS: workloadOrdinals,
-                versionsS: workloadVersionsS,
-                ensureVersions: ensureWorkloadVersions,
-                fetchRuns: fetchWorkloadRuns,
-                disabledS: van.derive(() => !Number(deploymentId.val || 0)),
-                onChange: () => { if (Number(deploymentId.val || 0)) void runSearch(); },
-            }),
-            logLevelPicker({
-                onS: levelOn,
-                onChange: () => { if (Number(deploymentId.val || 0)) void runSearch(); },
-            }),
-            div(
-                {class: "relative min-w-0 flex-1"},
-                span({class: "pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-gray-500"}, searchIcon({class: "w-3.5 h-3.5"})),
-                queryInput,
-            ),
-            timePicker,
-            // Not btn-primary: its un-layered padding beats utility overrides,
-            // and the border keeps the button the same box as the .input row.
-            button({
-                "data-testid": "logs-search-button",
-                type: "button",
-                class: "inline-flex h-[30px] cursor-pointer items-center rounded-[0.3rem] border border-brand bg-brand px-3 text-xs font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-default disabled:opacity-50",
-                disabled: () => searching.val,
-                onclick: () => void runSearch(),
-            }, () => searching.val ? 'Searching…' : 'Search'),
+            {class: "relative min-w-56 flex-1 basis-56 max-xl:order-last max-xl:basis-full"},
+            span({class: "pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-gray-500"}, searchIcon({class: "w-3.5 h-3.5"})),
+            queryInput,
         ),
-        () => {
-            const tokens = parseQuery(queryText.val);
-            return tokens.length === 0 ? '' : div(
-                {class: "flex flex-wrap items-center gap-1 px-2 pb-1.5"},
-                ...tokens.map(chip),
-            );
-        },
+        div({class: "max-xl:ml-auto"}, timePicker),
+        // Not btn-primary: its un-layered padding beats utility overrides,
+        // and the border keeps the button the same box as the controls.
+        button({
+            "data-testid": "logs-search-button",
+            type: "button",
+            class: "logs-run",
+            disabled: () => searching.val,
+            onclick: () => void runSearch(),
+        }, () => searching.val ? 'Searching…' : 'Search'),
     );
+
+    const chipsBar = () => {
+        const tokens = parseQuery(queryText.val);
+        return tokens.length === 0 ? '' : div(
+            {class: "page-toolbar gap-1"},
+            ...tokens.map(chip),
+        );
+    };
 
     // --- histogram -----------------------------------------------------------
 
-    const histTooltip = div({class: "pointer-events-none absolute z-30 hidden rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[10px] shadow-xl"});
+    const histTooltip = div({class: "logs-tip pointer-events-none absolute z-30 hidden"});
     const histHover = div({class: "pointer-events-none absolute inset-y-0 hidden bg-white/5"});
     const histBrush = div({class: "pointer-events-none absolute inset-y-0 hidden border-x border-brand/70 bg-brand/15"});
     const histSvgHost = div({class: "absolute inset-0"});
@@ -623,8 +619,8 @@ export function logsPage(selectedDeploymentId) {
         {"data-testid": "logs-histogram", class: "relative h-[76px] min-w-0 flex-1 cursor-crosshair"},
         histSvgHost, histHover, histBrush, histTooltip,
     );
-    const histMax = span({class: "w-10 flex-none self-start text-right text-[10px] tabular-nums text-gray-600"});
-    const histAxis = div({class: "flex justify-between pl-12 pr-1 text-[10px] tabular-nums text-gray-600"});
+    const histMax = span({class: "logs-axis w-10 flex-none self-start text-right"});
+    const histAxis = div({class: "logs-axis flex justify-between pl-12 pr-1"});
 
     let drag = null;
 
@@ -660,7 +656,7 @@ export function logsPage(selectedDeploymentId) {
             if (totalH < 1) {
                 let top = 0;
                 for (let l = 1; l < NL; l++) if (res.counts[b * NL + l] > res.counts[b * NL + top]) top = l;
-                bars.push(rect({x: x.toFixed(1), y: String(h - 1), width: barW.toFixed(1), height: "1", fill: levelMeta(LEVELS[top]).fill}));
+                bars.push(rect({x: x.toFixed(1), y: String(h - 1), width: barW.toFixed(1), height: "1", style: `fill:${levelMeta(LEVELS[top]).fill}`}));
                 continue;
             }
             let y = h;
@@ -677,14 +673,14 @@ export function logsPage(selectedDeploymentId) {
                     x: x.toFixed(1), y: Math.max(0, y).toFixed(1),
                     width: barW.toFixed(1), height: Math.max(0.5, segH - (!topDrawn || segH < 3 ? 0 : 1)).toFixed(1),
                     rx: isTop && segH >= 3 ? 1.5 : 0,
-                    fill: levelMeta(LEVELS[l]).fill,
+                    style: `fill:${levelMeta(LEVELS[l]).fill}`,
                 }));
                 topDrawn = true;
             }
         }
         histSvgHost.replaceChildren(svgEl(
             {width: String(w), height: String(h), viewBox: `0 0 ${w} ${h}`},
-            svgLine({x1: "0", y1: String(h / 2), x2: String(w), y2: String(h / 2), stroke: "#1f2937", "stroke-width": "1"}),
+            svgLine({x1: "0", y1: String(h / 2), x2: String(w), y2: String(h / 2), style: "stroke:var(--logs-grid)", "stroke-width": "1"}),
             ...bars,
         ));
         histMax.textContent = fmtNum(maxTotal);
@@ -773,20 +769,19 @@ export function logsPage(selectedDeploymentId) {
     };
 
     const histogramBand = div(
-        {class: "flex-none border-b border-gray-800 bg-gray-950/40 px-2 pb-1 pt-1"},
+        {class: "logs-hist"},
         div(
             {class: "flex items-center gap-3 pb-1"},
-            p({class: "min-w-0 flex-1 truncate text-[11px] text-gray-500", "aria-live": "polite", "data-testid": "logs-status"}, statusLine),
+            p({class: () => `min-w-0 flex-1 truncate text-[11px] text-gray-500 ${errorMsg.val ? 'slate:text-red-400 graphite:text-red-400' : ''}`, "aria-live": "polite", "data-testid": "logs-status"}, statusLine),
             () => range.val.kind !== 'custom' ? '' : button({
                 type: "button",
-                class: "cursor-pointer rounded border border-gray-700 px-1.5 py-px text-[10px] text-gray-400 hover:text-gray-200",
+                class: "logs-mini",
                 onclick: () => { range.val = {kind: 'preset', key: DEFAULT_PRESET}; void runSearch(); },
             }, "clear zoom"),
             legend,
             button({
                 type: "button",
-                class: () => `cursor-pointer rounded border px-1.5 py-px text-[10px] ${wrap.val
-                    ? 'border-brand/60 bg-brand/15 text-blue-300' : 'border-gray-700 text-gray-400 hover:text-gray-200'}`,
+                class: "logs-mini",
                 "aria-pressed": () => String(wrap.val),
                 onclick: () => { wrap.val = !wrap.val; },
             }, "wrap"),
@@ -797,11 +792,11 @@ export function logsPage(selectedDeploymentId) {
 
     // --- sidebar: columns + fields ------------------------------------------
 
-    const microHeader = (text) => div({class: "px-2 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-gray-500"}, text);
+    const microHeader = (text) => div({class: "logs-micro px-2 pb-0.5 pt-2 slate:px-3 graphite:px-3"}, text);
 
     const columnRow = (key) => div(
-        {class: "group flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-300 hover:bg-gray-800/40"},
-        span({class: "min-w-0 flex-1 truncate font-mono"}, COLUMN_DEFS[key]?.label || key),
+        {class: "group flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-300 hover:bg-gray-800/40 slate:px-3 slate:hover:bg-white/[0.03] graphite:px-3 graphite:hover:bg-white/[0.04]"},
+        span({class: "min-w-0 flex-1 truncate font-mono"}, COLUMN_DEFS[key] ? COLUMN_DEFS[key].label.toLowerCase() : key),
         div(
             {class: "hidden items-center gap-0.5 group-hover:flex"},
             button({type: "button", class: "cursor-pointer rounded px-1 text-gray-500 hover:text-gray-200", title: "Move left", onclick: () => moveColumn(key, -1)}, "↑"),
@@ -814,7 +809,7 @@ export function logsPage(selectedDeploymentId) {
     );
 
     const fieldValueRow = (key, entry) => div(
-        {class: "group/val px-2 py-0.5"},
+        {class: "group/val px-2 py-0.5 slate:px-3 graphite:px-3"},
         div(
             {class: "flex items-center gap-1 text-[11px]"},
             span({class: "min-w-0 flex-1 truncate font-mono text-gray-300", title: entry.value}, entry.value),
@@ -840,33 +835,33 @@ export function logsPage(selectedDeploymentId) {
     const fieldStatsPanel = (key) => {
         const s = (result.val?.fields || []).find(f => f.field === key);
         const sampled = result.val?.sampled || 0;
-        if (!s || !sampled) return div({class: "px-2 py-1 text-[11px] text-gray-600"}, "No matches to sample.");
+        if (!s || !sampled) return div({class: "logs-note px-2 py-1 slate:px-3 graphite:px-3"}, "No matches to sample.");
         const withField = Number(s.coverage || 0) * sampled;
-        if (!withField) return div({class: "px-2 py-1 text-[11px] text-gray-600"}, "Not in the sampled matches.");
+        if (!withField) return div({class: "logs-note px-2 py-1 slate:px-3 graphite:px-3"}, "Not in the sampled matches.");
         const other = Number(s.other || 0);
         return div(
-            {class: "border-b border-gray-800/60 pb-1"},
-            div({class: "px-2 py-0.5 text-[10px] text-gray-500"},
+            {class: "border-b border-gray-800/60 pb-1 slate:border-line graphite:border-line"},
+            div({class: "px-2 py-0.5 text-[10px] text-gray-500 slate:px-3 graphite:px-3"},
                 `in ${Math.round(Number(s.coverage || 0) * 100)}% of ${fmtNum(sampled)} sampled · ${Number(s.distinct || 0)} distinct`),
             ...(s.top || []).map(entry => fieldValueRow(key, {
                 value: entry.value,
                 frac: sampled ? Number(entry.count) / sampled : 0,
             })),
-            other > 0 ? div({class: "px-2 py-0.5 text-[10px] text-gray-600"},
+            other > 0 ? div({class: "logs-note px-2 py-0.5 text-[10px] slate:px-3 graphite:px-3"},
                 `+ ${fmtNum(other)} in ${fmtNum(Number(s.distinct || 0) - (s.top || []).length)} other values`) : '',
         );
     };
 
     const fieldRow = (key) => div(
         div(
-            {class: "flex cursor-pointer items-center gap-1 px-1 py-0.5 hover:bg-gray-800/40",
+            {class: "flex cursor-pointer items-center gap-1 px-1 py-0.5 hover:bg-gray-800/40 slate:pl-2 slate:hover:bg-white/[0.03] graphite:pl-2 graphite:hover:bg-white/[0.04]",
                 "data-testid": `logs-field-${key}`,
                 onclick: () => { fieldOpen.val = fieldOpen.val === key ? '' : key; }},
-            caretRightIcon({class: () => `w-3 h-3 flex-none text-gray-600 transition-transform ${fieldOpen.val === key ? 'rotate-90' : ''}`}),
+            caretRightIcon({class: () => `w-3 h-3 flex-none text-gray-600 slate:text-gray-500 graphite:text-gray-500 transition-transform ${fieldOpen.val === key ? 'rotate-90' : ''}`}),
             span({class: "min-w-0 flex-1 truncate font-mono text-[11px] text-gray-300"}, key),
             button({
                 type: "button",
-                class: () => `cursor-pointer rounded p-0.5 ${columns.val.includes(key) ? 'text-brand' : 'text-gray-600 hover:text-gray-300'}`,
+                class: () => `cursor-pointer rounded p-0.5 ${columns.val.includes(key) ? 'text-brand' : 'text-gray-600 hover:text-gray-300 slate:text-gray-500 slate:hover:text-gray-300 graphite:text-gray-500 graphite:hover:text-gray-300'}`,
                 title: () => columns.val.includes(key) ? "Remove column" : "Add as column",
                 onclick: (e) => { e.stopPropagation(); toggleColumn(key); },
             }, columnsIcon({size: 12})),
@@ -876,31 +871,31 @@ export function logsPage(selectedDeploymentId) {
 
     const sidebar = () => !sidebarOpen.val
         ? div(
-            {class: "flex w-7 flex-none flex-col items-center border-r border-gray-800 pt-1.5"},
+            {class: "logs-side flex w-7 flex-none flex-col items-center pt-1.5"},
             button({
-                type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200",
+                type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200 slate:hover:bg-white/[0.07] graphite:hover:bg-white/[0.06]",
                 title: "Show fields", onclick: () => { sidebarOpen.val = true; },
             }, columnsIcon({size: 14})),
         )
         : div(
-            {class: "flex w-60 flex-none flex-col border-r border-gray-800"},
+            {class: "logs-side flex w-60 flex-none flex-col"},
             div(
-                {class: "flex flex-none items-center border-b border-gray-800 py-0.5 pl-2 pr-1"},
-                span({class: "flex-1 text-[10px] font-medium uppercase tracking-wide text-gray-500"}, "fields"),
+                {class: "logs-side-head flex flex-none items-center"},
+                span({class: "logs-micro flex-1"}, "Fields"),
                 button({
-                    type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200",
+                    type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200 slate:hover:bg-white/[0.07] graphite:hover:bg-white/[0.06]",
                     title: "Hide fields", onclick: () => { sidebarOpen.val = false; },
                 }, caretRightIcon({class: "w-3 h-3 rotate-180"})),
             ),
             div(
                 {class: "app-scroll min-h-0 flex-1 overflow-y-auto pb-2"},
-                microHeader("columns"),
+                microHeader("Columns"),
                 () => div(...columns.val.map(columnRow)),
-                microHeader("available fields"),
+                microHeader("Available fields"),
                 () => {
                     const names = (result.val?.fields || []).map(f => f.field);
                     return names.length === 0
-                        ? div({class: "px-2 py-1 text-[11px] text-gray-600"}, "No parsed fields in results.")
+                        ? div({class: "logs-note px-2 py-1 slate:px-3 graphite:px-3"}, "No parsed fields in results.")
                         : div(...names.map(fieldRow));
                 },
             ),
@@ -918,7 +913,7 @@ export function logsPage(selectedDeploymentId) {
         return n + (d.flex ? d.minPx : d.px);
     }, 0);
 
-    const headerRow = div({class: "sticky top-0 z-20 grid border-b border-gray-700 bg-gray-950"});
+    const headerRow = div({class: "logs-head sticky top-0 z-20 grid"});
     const rowsHost = div({class: "relative"});
     const inner = div({}, headerRow, rowsHost);
 
@@ -940,13 +935,13 @@ export function logsPage(selectedDeploymentId) {
 
     scroller = div({
         "data-testid": "logs-results",
-        class: "app-scroll min-h-0 flex-1 overflow-auto bg-gray-950",
+        class: "logs-results app-scroll min-h-0 flex-1 overflow-auto",
     }, probeHost, inner);
 
     const headerCell = (key) => {
         const d = COLUMN_DEFS[key] || {label: key};
         return div(
-            {class: "group flex items-center gap-1 border-r border-gray-800/40 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-gray-500 last:border-r-0"},
+            {class: "logs-head-cell col-head group flex h-6 items-center gap-1 px-2 classic:text-[10px] classic:font-medium classic:tracking-wide"},
             span({class: "truncate"}, d.label || key),
             key === 'msg' ? '' : span(
                 {class: "hidden items-center group-hover:inline-flex"},
@@ -960,11 +955,11 @@ export function logsPage(selectedDeploymentId) {
 
     const cellEl = (key, rec, lines) => {
         const d = COLUMN_DEFS[key] || {};
-        const base = "overflow-hidden border-r border-gray-800/25 px-2 py-[3px] last:border-r-0";
-        if (key === 'time') return div({class: `${base} whitespace-nowrap font-mono tabular-nums text-gray-400`}, fmtRowTime(rec.ts));
+        const base = "logs-cell";
+        if (key === 'time') return div({class: `${base} logs-row-time whitespace-nowrap font-mono tabular-nums`}, fmtRowTime(rec.ts));
         if (key === 'level') return rec.level
             ? div({class: `${base} font-medium ${levelMeta(rec.level).text}`}, rec.level)
-            : div({class: `${base} text-gray-700`}, "—");
+            : div({class: `${base} logs-empty-cell`}, "—");
         // Newlines always render as line breaks (the row is sized for them);
         // wrap only adds soft-wrapping of long lines. The inline clamp pins
         // the message to the lines the row was sized for, so a mis-estimate
@@ -976,7 +971,7 @@ export function logsPage(selectedDeploymentId) {
             title: rec.msg,
         }, rec.msg);
         const value = recordField(rec, key);
-        if (value === undefined || value === '') return div({class: `${base} text-gray-700`}, "—");
+        if (value === undefined || value === '') return div({class: `${base} logs-empty-cell`}, "—");
         return div({class: `${base} truncate whitespace-nowrap ${d.num ? 'text-right tabular-nums' : ''} ${d.mono ? 'font-mono' : ''} text-gray-300`}, String(value));
     };
 
@@ -998,14 +993,14 @@ export function logsPage(selectedDeploymentId) {
             '\n',
             button({
                 type: "button", "data-testid": "logs-fold-toggle",
-                class: "cursor-pointer text-[11px] text-green-400 hover:underline",
+                class: "cursor-pointer text-[11px] text-green-400 hover:underline slate:text-blue-300 graphite:text-blue-300",
                 onclick: (e) => { e.stopPropagation(); open.val = !open.val; },
             }, () => open.val ? 'show less' : `+${hidden} more lines`),
         );
     };
 
     const detailFieldRow = (rec, key, value) => div(
-        {class: "group grid grid-cols-[9rem_minmax(0,1fr)_auto] items-baseline gap-2 rounded px-1 py-0.5 hover:bg-gray-800/40"},
+        {class: "group grid grid-cols-[9rem_minmax(0,1fr)_auto] items-baseline gap-2 rounded px-1 py-0.5 hover:bg-gray-800/40 slate:hover:bg-white/[0.04] graphite:hover:bg-white/[0.04]"},
         span({class: "truncate font-mono text-[11px] text-gray-500"}, key),
         key === 'msg'
             ? foldedText(String(value), "whitespace-pre-wrap break-all font-mono text-[11px] text-gray-200")
@@ -1031,8 +1026,8 @@ export function logsPage(selectedDeploymentId) {
     const detailEl = (y, rec) => {
         const tabButton = (key, text) => button({
             type: "button",
-            class: () => `cursor-pointer border-b-2 px-2 py-1 text-[11px] ${detailTab.val === key
-                ? 'border-brand text-gray-100' : 'border-transparent text-gray-500 hover:text-gray-300'}`,
+            class: "logs-seg-btn",
+            "aria-pressed": () => String(detailTab.val === key),
             onclick: () => { detailTab.val = key; },
         }, text);
         const kvPairs = [
@@ -1050,22 +1045,23 @@ export function logsPage(selectedDeploymentId) {
             {style: `position:absolute;top:${y}px;left:0;right:0;`},
             div(
                 {"data-testid": "logs-detail",
-                    class: "sticky left-0 z-10 flex flex-col overflow-hidden border-y border-gray-600 bg-gray-950 shadow-xl",
+                    class: "logs-detail sticky left-0 z-10 flex flex-col overflow-hidden",
                     style: `height:${DETAIL_H}px;width:${scroller.clientWidth}px`,
                     onclick: (e) => e.stopPropagation()},
                 div(
-                    {class: "flex flex-none items-center gap-1 border-b border-gray-800 bg-gray-900/60 px-2"},
-                    tabButton('fields', 'Fields'),
-                    tabButton('json', 'JSON'),
+                    {class: "logs-detail-head flex flex-none items-center gap-1"},
+                    div({class: "logs-seg"},
+                        tabButton('fields', 'Fields'),
+                        tabButton('json', 'JSON')),
                     div({class: "flex-1"}),
                     button({
                         type: "button",
-                        class: "cursor-pointer rounded border border-gray-700 px-2 py-0.5 text-[11px] text-gray-300 hover:bg-gray-800",
+                        class: "logs-ghost",
                         "data-testid": "logs-context-button",
                         onclick: () => { context.val = {rec}; },
                     }, "View in context"),
                     button({
-                        type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200",
+                        type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200 slate:hover:bg-white/[0.07] graphite:hover:bg-white/[0.06]",
                         title: () => jsonCopied.val ? "Copied" : "Copy JSON",
                         onclick: async () => {
                             await navigator.clipboard.writeText(recordJson(rec));
@@ -1074,14 +1070,14 @@ export function logsPage(selectedDeploymentId) {
                         },
                     }, () => jsonCopied.val ? checkIcon({class: "w-3.5 h-3.5 text-green-400"}) : copyIcon({class: "w-3.5 h-3.5"})),
                     button({
-                        type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200",
+                        type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200 slate:hover:bg-white/[0.07] graphite:hover:bg-white/[0.06]",
                         "aria-label": "Close details", onclick: () => { expanded.val = null; },
                     }, xIcon({size: 13})),
                 ),
                 div(
                     {class: "app-scroll min-h-0 flex-1 overflow-y-auto p-2"},
                     () => detailTab.val === 'json'
-                        ? pre({class: "whitespace-pre-wrap break-all font-mono text-[11px] leading-4 text-gray-200"}, recordJson(rec))
+                        ? pre({class: "logs-json"}, recordJson(rec))
                         : div(...kvPairs.filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => detailFieldRow(rec, k, v))),
                 ),
             ),
@@ -1091,10 +1087,10 @@ export function logsPage(selectedDeploymentId) {
     const rowEl = (pos, y, rowH, lines, cols, template, rec) => {
         const exp = expanded.val;
         const isExp = exp && exp.pos === pos;
-        const tint = rec.level === 'ERROR' ? '#c42121' : rec.level === 'WARN' ? '#c67b04' : '';
+        const tint = rec.level === 'ERROR' || rec.level === 'WARN' ? levelMeta(rec.level).fill : '';
         return div(
             {"data-testid": "logs-row",
-                class: `grid cursor-pointer items-start overflow-hidden border-b border-gray-800/40 text-[11px] leading-[15px] ${isExp ? 'bg-gray-800/70' : 'hover:bg-gray-800/40'}`,
+                class: `logs-row ${isExp ? 'logs-row-open' : ''}`,
                 style: `position:absolute;top:${y}px;left:0;right:0;height:${rowH}px;grid-template-columns:${template}`,
                 onclick: () => toggleExpand(pos)},
             tint ? span({style: `position:absolute;left:0;top:0;bottom:0;width:2px;background:${tint};opacity:.7`}) : '',
@@ -1166,7 +1162,7 @@ export function logsPage(selectedDeploymentId) {
         }
         if (len === 0) {
             rowsHost.replaceChildren(div(
-                {class: "flex h-24 items-center justify-center text-xs text-gray-600"},
+                {class: "flex h-24 items-center justify-center text-xs text-gray-600 slate:text-gray-500 graphite:text-gray-500"},
                 searching.val ? 'Searching…' : (res ? 'No events match.' : ''),
             ));
             return;
@@ -1246,7 +1242,7 @@ export function logsPage(selectedDeploymentId) {
             const el = div(
                 {class: `whitespace-pre-wrap break-all px-3 ${isAnchor ? 'border-l-2 border-amber-400 bg-amber-500/10' : 'border-l-2 border-transparent'}`},
                 span({class: "text-gray-500"}, fmtClock(rec.ts)), '  ',
-                rec.level ? span({class: levelMeta(rec.level).text}, rec.level.padEnd(5)) : span({class: "text-gray-600"}, '·    '),
+                rec.level ? span({class: levelMeta(rec.level).text}, rec.level.padEnd(5)) : span({class: "logs-empty-cell"}, '·    '),
                 ' ',
                 foldedText(rec.msg, "text-gray-200"),
             );
@@ -1260,7 +1256,7 @@ export function logsPage(selectedDeploymentId) {
 
         const moreButton = (text, onclick) => button({
             type: "button",
-            class: "block w-full cursor-pointer py-1 text-center text-[11px] text-gray-500 hover:bg-gray-900 hover:text-gray-300 disabled:opacity-30",
+            class: "logs-more",
             onclick,
         }, text);
 
@@ -1324,14 +1320,14 @@ export function logsPage(selectedDeploymentId) {
                 onkeydown: (e) => { if (e.key === 'Escape') context.val = null; },
                 onclick: (e) => { if (e.target === overlay) context.val = null; }},
             div(
-                {class: "flex h-[82vh] w-full max-w-5xl flex-col overflow-hidden rounded border border-gray-700 bg-gray-950 shadow-2xl"},
+                {class: "logs-context flex h-[82vh] w-full max-w-5xl flex-col overflow-hidden"},
                 div(
-                    {class: "flex flex-none items-center gap-2 border-b border-gray-800 bg-gray-900/60 px-3 py-1.5"},
+                    {class: "logs-context-head flex flex-none items-center gap-2"},
                     span({class: "text-xs text-gray-200"}, `Context around ${fmtRowTime(anchor.ts)}`),
                     span({class: "text-[10px] text-gray-500"}, "search filters do not apply here"),
                     div({class: "flex-1"}),
                     button({
-                        type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200",
+                        type: "button", class: "cursor-pointer rounded p-1 text-gray-500 hover:bg-gray-800 hover:text-gray-200 slate:hover:bg-white/[0.07] graphite:hover:bg-white/[0.06]",
                         "aria-label": "Close context view", onclick: () => { context.val = null; },
                     }, xIcon({size: 14})),
                 ),
@@ -1345,13 +1341,17 @@ export function logsPage(selectedDeploymentId) {
     // --- assemble ------------------------------------------------------------
 
     return div(
-        {class: "flex h-full min-h-0 flex-col overflow-hidden bg-surface"},
+        {class: "page overflow-hidden"},
         searchBar,
-        histogramBand,
         div(
-            {class: "flex min-h-0 flex-1"},
-            () => sidebar(),
-            div({class: "flex min-w-0 flex-1 flex-col"}, scroller),
+            {class: "page-body flex flex-col overflow-hidden"},
+            chipsBar,
+            histogramBand,
+            div(
+                {class: "flex min-h-0 flex-1"},
+                () => sidebar(),
+                div({class: "flex min-w-0 flex-1 flex-col"}, scroller),
+            ),
         ),
         () => context.val ? contextPanel(context.val) : '',
     );

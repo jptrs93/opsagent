@@ -276,10 +276,13 @@ const smallButtonClass = "text-xs px-3 py-1 rounded-md font-medium cursor-pointe
 const neutralButtonClass = `${smallButtonClass} bg-gray-700 text-gray-200 hover:bg-gray-600`;
 const primaryButtonClass = "bg-brand text-white hover:bg-blue-600";
 const rowButtonBase = "inline-flex h-6 items-center gap-1 whitespace-nowrap rounded border px-2 text-[11px]";
-const rowButtonClass = `${rowButtonBase} border-gray-600 text-gray-300 hover:bg-surface-hover cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed`;
+const rowButtonTone = "border-gray-600 text-gray-300 hover:bg-surface-hover slate:border-transparent slate:bg-white/[0.06] slate:hover:bg-white/10 graphite:border-line graphite:hover:bg-white/[0.04]";
+const rowButtonClass = `${rowButtonBase} ${rowButtonTone} cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed`;
 const iconButtonClass = "inline-flex h-6 w-6 flex-none items-center justify-center rounded text-gray-500 hover:text-gray-100 hover:bg-white/10 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-gray-500";
 const hintClass = "min-w-0 flex-1 truncate font-mono text-[11px] text-gray-500";
 const mutedClass = "text-[11px] text-gray-500";
+
+const dirtyDotClass = "bg-amber-300 graphite:bg-[#d8b36a]";
 
 const iconButton = (icon, title, onclick, attrs = {}) => button({
     type: "button",
@@ -713,7 +716,7 @@ export function settingsPage() {
 
     const labelCell = (text, dirty = () => false) => td({class: `${cellClass} overflow-hidden whitespace-nowrap`},
         div({class: "flex min-w-0 items-center gap-1.5"},
-            span({class: () => `h-1.5 w-1.5 flex-none rounded-full ${dirty() ? "bg-amber-300" : "invisible"}`}),
+            span({class: () => `h-1.5 w-1.5 flex-none rounded-full ${dirty() ? dirtyDotClass : "invisible"}`}),
             span({class: "min-w-0 truncate text-gray-300"}, text)));
 
     const sourceCell = (setting, item, patch) => td({class: cellClass},
@@ -822,7 +825,7 @@ export function settingsPage() {
         return tr(
             {
                 "data-testid": `setting-row-${setting.key}`,
-                class: () => !settingShown(section, setting) ? "hidden" : dirty() ? "bg-amber-500/5" : "hover:bg-gray-700/25",
+                class: () => !settingShown(section, setting) ? "hidden" : dirty() ? "bg-amber-500/5 graphite:bg-[#d8b36a]/[0.05]" : "hover:bg-gray-700/25 slate:hover:bg-white/[0.03] graphite:hover:bg-white/[0.04]",
             },
             labelCell(setting.label, dirty),
             sourceCell(setting, item, patch),
@@ -833,7 +836,7 @@ export function settingsPage() {
     const actionRow = (section, key, label, content, {top = false} = {}) => tr(
         {
             "data-testid": `setting-row-${key}`,
-            class: () => matchesSearch(section, label) ? "hover:bg-gray-700/25" : "hidden",
+            class: () => matchesSearch(section, label) ? "hover:bg-gray-700/25 slate:hover:bg-white/[0.03] graphite:hover:bg-white/[0.04]" : "hidden",
         },
         top ? td({class: `${cellClass} overflow-hidden whitespace-nowrap align-top pt-2.5`},
             div({class: "flex min-w-0 items-center gap-1.5"},
@@ -859,7 +862,7 @@ export function settingsPage() {
         const configured = Boolean(status.recoveryConfigured);
         return div({class: "flex min-w-0 flex-wrap items-center gap-2"},
             spinnerButton(configured ? "Regenerate recovery code" : "Generate recovery code", generateRecovery,
-                configured ? "border-gray-600 text-gray-300 hover:bg-surface-hover" : "border-brand bg-brand text-white hover:bg-blue-600",
+                configured ? rowButtonTone : "border-brand bg-brand text-white hover:bg-blue-600",
                 "button", undefined, {base: rowButtonBase}),
             configured
                 ? span({class: "inline-flex items-center gap-1 text-[11px] text-green-400"}, checkIcon({class: "h-3 w-3"}), "A recovery code is configured.")
@@ -884,10 +887,14 @@ export function settingsPage() {
     );
 
     const groupEl = (section, rows, shownCount, ruled) => div(
-        {class: () => `${shownCount() ? "flex" : "hidden"}${ruled() ? " border-t border-gray-700" : ""}`, "data-testid": `settings-section-${section.key}`},
-        div({class: "flex w-[7.5rem] flex-none items-center justify-center border-r border-gray-800/80 px-2 py-1.5 text-center"},
+        {class: () => `${shownCount() ? "flex flex-col classic:flex-row" : "hidden"}${ruled() ? " classic:border-t classic:border-gray-700" : ""}`, "data-testid": `settings-section-${section.key}`},
+        div({class: "band classic:hidden"},
+            span({class: "band-title"}, section.title),
+            span({class: "band-count"}, () => String(shownCount())),
+            span({class: "band-rule"})),
+        div({class: "flex w-[7.5rem] flex-none items-center justify-center border-r border-gray-800/80 px-2 py-1.5 text-center slate:hidden graphite:hidden"},
             h2({class: "text-[10.5px] font-semibold uppercase leading-tight tracking-wider text-gray-400"}, section.title)),
-        div({class: "min-w-0 flex-1 py-1.5"}, settingsTable(...rows)),
+        div({class: "min-w-0 flex-1 py-1.5 slate:px-1 graphite:px-1 graphite:py-0.5"}, settingsTable(...rows)),
     );
 
     const extraRows = {
@@ -928,26 +935,26 @@ export function settingsPage() {
         }));
 
     const saveControls = () => !dirtyCount.val ? "" : div({class: "flex items-center gap-2"},
-        span({class: "inline-flex items-center gap-1.5 text-xs text-amber-300"},
-            span({class: "h-1.5 w-1.5 rounded-full bg-amber-300"}),
+        span({class: "inline-flex items-center gap-1.5 text-xs text-amber-300 graphite:text-[#d8b36a]"},
+            span({class: `h-1.5 w-1.5 rounded-full ${dirtyDotClass}`}),
             "Unsaved changes",
-            span({class: "tabular-nums text-amber-200/70"}, () => String(dirtyCount.val))),
+            span({class: "tabular-nums text-amber-200/70 graphite:text-[#d8b36a]/70"}, () => String(dirtyCount.val))),
         button({type: "button", class: "toolbar-button", disabled: () => saving.val, onclick: resetChanges}, "Reset"),
         spinnerButton("Save changes", saveChanges, "border border-brand bg-brand text-white hover:bg-blue-600", "button",
             () => saving.val, {base: "inline-flex h-[30px] items-center rounded-lg px-3 text-xs font-medium whitespace-nowrap"}));
 
     const toolbar = div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        {class: "page-strip gap-2 classic:py-2"},
         searchBox,
         div({class: "flex-1"}),
         saveControls,
     );
 
     const statusLine = () => settingsChangedElsewhere.val
-        ? div({class: "flex flex-none items-center gap-1.5 border-b border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200"},
+        ? div({class: "flex flex-none items-center gap-1.5 border-b border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200 slate:px-3 graphite:border-[#d8b36a]/25 graphite:bg-[#d8b36a]/[0.06] graphite:px-3 graphite:text-[#d8b36a]"},
             infoIcon({class: "h-3 w-3 flex-none"}),
             "Settings changed elsewhere while you were editing. Saving overwrites those changes; Reset loads them and drops yours.")
-        : div({class: "flex flex-none items-center gap-1.5 border-b border-gray-800 bg-gray-950/40 px-2 py-1 text-[11px] text-gray-500"},
+        : div({class: "flex flex-none items-center gap-1.5 border-b border-gray-800 bg-gray-950/40 px-2 py-1 text-[11px] text-gray-500 slate:border-0 slate:bg-transparent slate:px-3 slate:pt-2.5 graphite:border-0 graphite:bg-transparent graphite:px-3 graphite:pt-2"},
             infoIcon({class: "h-3 w-3 flex-none"}),
             "A setting holds a value typed here or follows a config from Secrets / Configs; secrets are always references. Nothing applies until saved.");
 
@@ -958,13 +965,14 @@ export function settingsPage() {
     );
 
     return div(
-        {class: "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-surface", "data-testid": "settings-page"},
+        {class: "page overflow-hidden", "data-testid": "settings-page"},
         toolbar,
-        () => error.val ? p(
-            {class: "flex-none border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300"},
-            `Error: ${error.val}`) : "",
-        statusLine,
-        body,
+        div({class: "page-body flex flex-col overflow-hidden"},
+            () => error.val ? p(
+                {class: "flex-none border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-300"},
+                `Error: ${error.val}`) : "",
+            statusLine,
+            body),
         masterPasswordVerifyDialog,
         masterPasswordChangeDialog,
         recoveryCodeDialog,

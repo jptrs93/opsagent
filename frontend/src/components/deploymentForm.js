@@ -46,16 +46,16 @@ const INTERNAL_SPACE_ID = 0;
 const stateValue = (value) => value && typeof value === 'object' && 'val' in value ? value.val : value;
 
 const configurationPaneClass = open => open
-    ? "w-full md:w-2/3 shrink-0 border-l border-gray-700 flex flex-col"
+    ? "editor-pane w-full md:w-2/3 shrink-0 border-l flex flex-col"
     : "hidden";
 
 // Asset / container path / mode / actions. Shared by the mounted-assets header
 // and every mount row so the columns stay aligned without a real <table>.
 const ASSET_MOUNT_GRID = "grid grid-cols-[minmax(6rem,1fr)_minmax(7rem,1.5fr)_6.5rem_auto] items-center gap-2";
-const assetMountSelectClass = "h-8 w-full min-w-0 rounded-sm border border-gray-700 bg-gray-800 px-2 text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand";
-const assetMountInputClass = "h-8 w-full min-w-0 rounded-sm border border-gray-700 bg-gray-800 px-2 font-mono text-xs text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand";
+const assetMountSelectClass = "editor-cell h-8 w-full min-w-0 px-2 text-xs";
+const assetMountInputClass = "editor-cell h-8 w-full min-w-0 px-2 font-mono text-xs";
 const assetMountIconButtonClass = "rounded p-1.5 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer";
-const assetMountHeaderCellClass = "text-[10px] font-medium uppercase tracking-wide text-gray-500";
+const assetMountHeaderCellClass = "editor-colhead";
 
 let nextEnvID = 1;
 let nextAssetMountID = 1;
@@ -166,7 +166,7 @@ export function deploymentForm(form, opts = {}) {
     };
 
     return div(
-        {class: "flex flex-col gap-[1.125rem]"},
+        {class: "flex flex-col gap-[1.125rem] slate:gap-3"},
         collapsibleSection(
             "Deployment identity",
             form.identitySectionOpen,
@@ -185,7 +185,7 @@ export function deploymentForm(form, opts = {}) {
                     }), identityLocked, () => showIdentityLockedNotice("Name is not currently changeable after creation."), () => {
                         if (identityLocked || !nameValid(form)) return '';
                         const taken = deploymentNameTaken(form, opts.deployments || []);
-                        return span({class: taken ? "text-xs text-red-400" : "text-xs text-green-400"}, taken ? "Name unavailable" : "Name available");
+                        return span({class: taken ? "text-xs text-red-400" : "text-xs text-green-400 graphite:text-gray-400"}, taken ? "Name unavailable" : "Name available");
                     }),
                     identityField("Space", () => {
                         const spaceOptions = publicSpaceOptions(stateValue(opts.spaceOptions) || [], form.spaceId.val);
@@ -446,7 +446,7 @@ function makeFormState(values) {
 
 export function collapsibleSection(title, open, content) {
     return div(
-        {class: "flex flex-col gap-2"},
+        {class: "editor-section flex flex-col gap-2"},
         button(
             {
                 type: "button",
@@ -454,9 +454,10 @@ export function collapsibleSection(title, open, content) {
                 "aria-expanded": () => String(open.val),
                 onclick: () => { open.val = !open.val; },
             },
-            span({class: "mr-2 text-[10px] text-gray-500 transition-transform group-hover:text-gray-300"}, () => open.val ? "▼" : "▶"),
-            span({class: "text-xs font-semibold tracking-wide text-blue-300 whitespace-nowrap group-hover:text-blue-200"}, title),
-            span({class: "ml-3 h-px flex-1 bg-gradient-to-r from-gray-600/80 to-transparent"}),
+            span({class: "mr-2 text-[10px] text-gray-500 transition-transform group-hover:text-gray-300 slate:hidden graphite:hidden"}, () => open.val ? "▼" : "▶"),
+            chevronDownIcon({class: () => `mr-1.5 h-3 w-3 flex-none text-gray-500 transition-transform group-hover:text-gray-300 classic:hidden ${open.val ? "" : "-rotate-90"}`}),
+            span({class: "editor-section-title"}, title),
+            span({class: "editor-section-rule ml-3 graphite:ml-2"}),
         ),
         div({class: () => open.val ? '' : 'hidden'}, content),
     );
@@ -561,8 +562,8 @@ export function commandPane(form) {
     return div(
         {class: () => configurationPaneClass(form.commandPaneOpen.val)},
         div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Command"),
+            {class: "editor-pane-head flex items-center justify-between gap-3 px-4 py-3"},
+            h3({class: "editor-pane-title"}, "Command"),
             button({
                 type: "button",
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
@@ -683,8 +684,8 @@ export function networkingPane(form, opts = {}) {
     return div(
         {class: () => configurationPaneClass(form.networkingPaneOpen.val)},
         div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-3 py-2"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Networking"),
+            {class: "editor-pane-head flex items-center justify-between gap-3 px-3 py-2"},
+            h3({class: "editor-pane-title"}, "Networking"),
             button({
                 type: "button",
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
@@ -695,7 +696,7 @@ export function networkingPane(form, opts = {}) {
         div(
             {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-3 p-3"},
             div(
-                {class: "grid grid-cols-1 items-end gap-2 rounded-sm border border-gray-700 bg-gray-900/40 p-3 md:grid-cols-[9rem_minmax(0,1fr)]"},
+                {class: "editor-group grid grid-cols-1 items-end gap-2 border p-3 md:grid-cols-[9rem_minmax(0,1fr)]"},
                 selectField("Mode", form.networkingMode, [
                     {value: String(NETWORKING_MODE_VIRTUAL), label: "Virtual"},
                     {value: String(NETWORKING_MODE_HOST), label: "Host"},
@@ -736,7 +737,7 @@ function portForwardingSection(form) {
     const rowsBody = stableRowsBody(rows, row => tr(
         td({class: "pr-2 py-1"}, select({
             value: String(row.protocol || PORT_FORWARD_PROTOCOL_TCP),
-            class: "w-full px-2 py-1 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand",
+            class: "editor-input w-full px-2 py-1",
             onchange: e => update(row, {protocol: Number(e.target.value || PORT_FORWARD_PROTOCOL_TCP)}),
         },
             option({value: String(PORT_FORWARD_PROTOCOL_TCP), selected: Number(row.protocol) === PORT_FORWARD_PROTOCOL_TCP}, "TCP"),
@@ -776,7 +777,7 @@ function portForwardingSection(form) {
         }, xIcon({class: "w-4 h-4"}))),
     ));
     return div(
-        {class: "flex flex-col gap-1.5 rounded-sm border border-gray-800 bg-gray-900/40 p-2.5"},
+        {class: "editor-group-quiet flex flex-col gap-1.5 border p-2.5"},
         div(
             {class: "flex items-center justify-between gap-3"},
             div(
@@ -785,7 +786,7 @@ function portForwardingSection(form) {
             ),
             button({
                 type: "button",
-                class: "px-2 py-0.5 rounded-sm bg-gray-800 text-gray-200 text-xs hover:bg-gray-700 cursor-pointer",
+                class: "editor-btn-sm px-2 py-0.5 text-xs cursor-pointer",
                 onclick: () => { form.portForwarding.val = [...rows(), newPortForwardingRow()]; },
             }, "Add port"),
         ),
@@ -793,10 +794,10 @@ function portForwardingSection(form) {
         table(
             {class: () => rows().length === 0 ? "hidden" : "w-full text-xs"},
             thead(tr(
-                th({class: "text-left font-normal text-gray-500 pb-1"}, "Protocol"),
-                th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
-                th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
-                th({class: "text-left font-normal text-gray-500 pb-1"}, "Allowed IPs"),
+                th({class: "editor-th text-left text-gray-500 pb-1"}, "Protocol"),
+                th({class: "editor-th text-left text-gray-500 pb-1"}, "Host port"),
+                th({class: "editor-th text-left text-gray-500 pb-1"}, "Container port"),
+                th({class: "editor-th text-left text-gray-500 pb-1"}, "Allowed IPs"),
                 th({class: "w-8"}),
             )),
             rowsBody,
@@ -875,7 +876,7 @@ function ingressSection(form, opts = {}) {
         }, xIcon({class: "w-4 h-4"}))),
     ));
     return div(
-        {class: "flex flex-col gap-1.5 rounded-sm border border-gray-800 bg-gray-900/40 p-2.5", "data-testid": "deployment-ingress-section"},
+        {class: "editor-group-quiet flex flex-col gap-1.5 border p-2.5", "data-testid": "deployment-ingress-section"},
         div(
             {class: "flex items-center justify-between gap-3"},
             div(
@@ -884,7 +885,7 @@ function ingressSection(form, opts = {}) {
             ),
             button({
                 type: "button",
-                class: "px-2 py-0.5 rounded-sm bg-gray-800 text-gray-200 text-xs hover:bg-gray-700 cursor-pointer",
+                class: "editor-btn-sm px-2 py-0.5 text-xs cursor-pointer",
                 "data-testid": "deployment-add-ingress-route",
                 onclick: () => { form.ingress.val = [...rows(), newIngressRow()]; },
             }, "Add route"),
@@ -895,15 +896,15 @@ function ingressSection(form, opts = {}) {
             const items = deploymentId ? diagnostics().filter(item => Number(item.deploymentId) === deploymentId) : [];
             if (!items.length) return '';
             return div({class: "flex flex-col gap-0.5", "data-testid": "deployment-ingress-warnings"},
-                ...items.map(item => p({class: "text-[11px] leading-tight text-amber-300", "data-testid": "deployment-ingress-warning"}, item.message)));
+                ...items.map(item => p({class: "editor-attention text-[11px] leading-tight", "data-testid": "deployment-ingress-warning"}, item.message)));
         },
         table(
             {class: () => rows().length === 0 && httpsRoutes().length === 0 ? "hidden" : "w-full text-xs"},
             thead(tr(
-                th({class: "text-left font-normal text-gray-500 pb-1"}, "Kind"),
-                th({class: "text-left font-normal text-gray-500 pb-1"}, "Hostname"),
-                th({class: "text-left font-normal text-gray-500 pb-1"}, "Host port"),
-                th({class: "text-left font-normal text-gray-500 pb-1"}, "Container port"),
+                th({class: "editor-th text-left text-gray-500 pb-1"}, "Kind"),
+                th({class: "editor-th text-left text-gray-500 pb-1"}, "Hostname"),
+                th({class: "editor-th text-left text-gray-500 pb-1"}, "Host port"),
+                th({class: "editor-th text-left text-gray-500 pb-1"}, "Container port"),
                 th({class: "w-8"}),
             )),
             httpsRowsBody,
@@ -1003,8 +1004,8 @@ export function upgradeStrategyPane(form) {
     return div(
         {class: () => configurationPaneClass(form.upgradeStrategyPaneOpen.val)},
         div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Upgrade strategy"),
+            {class: "editor-pane-head flex items-center justify-between gap-3 px-4 py-3"},
+            h3({class: "editor-pane-title"}, "Upgrade strategy"),
             button({
                 type: "button",
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
@@ -1039,8 +1040,8 @@ export function resourcesPane(form) {
     return div(
         {class: () => configurationPaneClass(form.resourcesPaneOpen.val)},
         div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Resources"),
+            {class: "editor-pane-head flex items-center justify-between gap-3 px-4 py-3"},
+            h3({class: "editor-pane-title"}, "Resources"),
             button({
                 type: "button",
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
@@ -1051,7 +1052,7 @@ export function resourcesPane(form) {
         div(
             {class: "app-scroll flex-1 min-h-0 overflow-auto flex flex-col gap-4 p-4"},
             div(
-                {class: "flex flex-col gap-3 rounded-sm border border-gray-700 bg-gray-900/40 p-4"},
+                {class: "editor-group flex flex-col gap-3 border p-4"},
                 label({class: "flex items-center gap-2 text-sm text-gray-200"},
                     input({
                         type: "checkbox",
@@ -1092,7 +1093,7 @@ export function resourcesPane(form) {
                         : "Unchecked leaves this field out of the deployment config and uses the OpenDeploy default of 64 MiB."),
             ),
             div(
-                {class: "flex flex-col gap-3 rounded-sm border border-gray-700 bg-gray-900/40 p-4"},
+                {class: "editor-group flex flex-col gap-3 border p-4"},
                 label({class: "flex items-center gap-2 text-sm text-gray-200"},
                     input({
                         type: "checkbox",
@@ -1356,8 +1357,8 @@ export function assetMountsPane(form, opts = {}) {
     return div(
         {class: () => configurationPaneClass(form.assetMountsPaneOpen.val)},
         div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Mounted assets"),
+            {class: "editor-pane-head flex items-center justify-between gap-3 px-4 py-3"},
+            h3({class: "editor-pane-title"}, "Mounted assets"),
             button({
                 type: "button",
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
@@ -1384,7 +1385,7 @@ export function assetMountsPane(form, opts = {}) {
                         "No assets currently mounted"),
                 )])),
             div(
-                {class: "flex items-center justify-between gap-2 border-t border-gray-800 pt-3"},
+                {class: "editor-hairline flex items-center justify-between gap-2 border-t pt-3"},
                 button({
                     type: "button",
                     class: "text-xs text-blue-400 hover:text-blue-300 cursor-pointer",
@@ -1469,7 +1470,7 @@ export function volumeMountsPane(form, opts = {}) {
     };
     const deploymentOptions = row => deploymentVolumeOptions(optionDeployments(opts), form, stateValue(opts.spaces) || [], row?.deploymentId);
     const deploymentRowEl = (row) => div(
-        {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
+        {class: "editor-card border p-3 flex flex-col gap-2"},
         div(
             {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
             field("Deployment", select({
@@ -1507,7 +1508,7 @@ export function volumeMountsPane(form, opts = {}) {
         ),
     );
     const hostRowEl = (row) => div(
-        {class: "rounded-lg border border-gray-700 bg-gray-900/60 p-3 flex flex-col gap-2"},
+        {class: "editor-card border p-3 flex flex-col gap-2"},
         div(
             {class: "grid grid-cols-1 md:grid-cols-2 gap-3"},
             field("Host path", input({
@@ -1542,8 +1543,8 @@ export function volumeMountsPane(form, opts = {}) {
     return div(
         {class: () => configurationPaneClass(form.volumeMountsPaneOpen.val)},
         div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-3"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Mounted volumes"),
+            {class: "editor-pane-head flex items-center justify-between gap-3 px-4 py-3"},
+            h3({class: "editor-pane-title"}, "Mounted volumes"),
             button({
                 type: "button",
                 class: "text-gray-500 hover:text-gray-200 cursor-pointer",
@@ -1574,8 +1575,8 @@ export function volumeMountsPane(form, opts = {}) {
     );
 }
 
-const envGridCellClass = "border border-gray-700 p-0 align-middle";
-const envControlFocusClass = "focus:outline-none focus:bg-gray-800 focus:ring-1 focus:ring-inset focus:ring-brand";
+const envGridCellClass = "editor-env-cell border p-0 align-middle";
+const envControlFocusClass = "focus:outline-none focus:bg-gray-800 slate:focus:bg-field graphite:focus:bg-field focus:ring-1 focus:ring-inset focus:ring-brand";
 const envTextInputClass = `h-6 w-full bg-transparent px-1.5 text-gray-100 font-mono ${envControlFocusClass}`;
 const envPickerInputClass = `h-6 w-full bg-transparent px-1.5 ${envControlFocusClass}`;
 const envSelectClass = `h-6 w-full bg-transparent px-1 text-gray-100 cursor-pointer ${envControlFocusClass}`;
@@ -1697,8 +1698,8 @@ export function envVarsPane(form, opts = {}) {
     return div(
         {class: () => configurationPaneClass(form.envPaneOpen.val)},
         div(
-            {class: "flex items-center justify-between gap-3 bg-gray-950/90 px-4 py-2"},
-            h3({class: "text-sm font-semibold text-gray-200"}, "Environment variables"),
+            {class: "editor-pane-head flex items-center justify-between gap-3 px-4 py-2"},
+            h3({class: "editor-pane-title"}, "Environment variables"),
             div(
                 {class: "flex items-center gap-4"},
                 envHeaderToggle("Group by prefix", groupByPrefix, "env-group-by-prefix-toggle"),
@@ -1716,9 +1717,9 @@ export function envVarsPane(form, opts = {}) {
             table({class: "w-full text-xs border-collapse"},
                 thead(
                     tr({class: "text-left text-gray-400"},
-                        th({class: "border border-gray-700 bg-gray-900 px-1.5 py-1 font-medium"}, "Env name"),
-                        th({class: "border border-gray-700 bg-gray-900 px-1.5 py-1 font-medium w-24"}, "Type"),
-                        th({class: "border border-gray-700 bg-gray-900 px-1.5 py-1 font-medium"}, "Value"),
+                        th({class: "editor-env-th border px-1.5 py-1"}, "Env name"),
+                        th({class: "editor-env-th border px-1.5 py-1 w-24"}, "Type"),
+                        th({class: "editor-env-th border px-1.5 py-1"}, "Value"),
                         th({class: "w-12"}, ""),
                     ),
                 ),
@@ -2295,9 +2296,9 @@ function spaceName(id, spaces) {
 
 function paneSectionDivider(text) {
     return div(
-        {class: "flex items-center gap-3 mt-2 first:mt-0"},
-        span({class: "text-xs font-semibold tracking-wide text-blue-300 whitespace-nowrap"}, text),
-        div({class: "h-px flex-1 bg-gradient-to-r from-gray-600/80 to-transparent"}),
+        {class: "editor-subhead flex items-center gap-3 mt-2 first:mt-0 graphite:gap-2"},
+        span({class: "editor-section-title"}, text),
+        div({class: "editor-section-rule"}),
     );
 }
 
@@ -2462,7 +2463,7 @@ function dockerImageField(form, sourceController) {
 }
 
 function repoInputClass() {
-    return 'w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand';
+    return 'editor-input w-full';
 }
 
 // layerMessage echoes a source layer's result beside its field. Unvalidated
@@ -2472,7 +2473,7 @@ function layerMessage(layerState) {
     const status = layerState?.status;
     if (!status || status === 'unvalidated') return '';
     const cls = status === 'ok' || status === 'trusted'
-        ? 'text-xs text-green-400'
+        ? 'text-xs text-green-400 graphite:text-gray-400'
         : (status === 'error' ? 'text-xs text-red-400' : 'text-xs text-gray-500');
     return span({class: cls}, layerState.message);
 }
@@ -2489,7 +2490,7 @@ function selectField(text, state, options, widthClass = "w-56", onChange) {
     return field(text, select({
         "data-testid": testID,
         value: state,
-        class: `${widthClass} px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand`,
+        class: `editor-input ${widthClass}`,
         onchange: e => {
             state.val = e.target.value;
             if (onChange) onChange(e.target.value);
@@ -2513,13 +2514,12 @@ function textInput(state, placeholder = '', onblur) {
 }
 
 function textInputClass(valid = false, disabled = false) {
-    const border = 'border-gray-700 focus:ring-brand';
     const muted = disabled ? 'opacity-70 cursor-not-allowed pointer-events-none' : '';
-    return `w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border ${border} focus:outline-none focus:ring-1 ${muted}`;
+    return `editor-input w-full ${muted}`;
 }
 
 function selectClass() {
-    return "w-full px-3 py-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand";
+    return "editor-input w-full";
 }
 
 function publicSpaceOptions(spaces, currentSpaceID) {

@@ -1,0 +1,471 @@
+@layer components {
+    .dep-th {
+        @apply sticky top-0 z-[1] bg-surface px-2 py-1.5;
+    }
+
+    .dep-td {
+        @apply overflow-hidden px-2 align-middle;
+    }
+
+    .dep-row {
+        @apply cursor-default transition-colors;
+    }
+
+    .dep-row-selected {
+        @apply bg-brand/15;
+    }
+
+    .dep-band > td {
+        @apply p-0;
+    }
+
+    .dep-band .band-label {
+        @apply cursor-default;
+    }
+
+    .dep-filter {
+        @apply inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded border px-2 text-xs transition-colors
+        hover:bg-surface-hover hover:text-gray-100;
+    }
+
+    .dep-menu {
+        @apply absolute left-0 top-full z-30 mt-1.5 flex min-w-52 flex-col;
+    }
+
+    .dep-name {
+        @apply truncate font-medium;
+    }
+
+    .dep-nodes {
+        @apply truncate;
+    }
+
+    .dep-dot {
+        @apply inline-block h-1.5 w-1.5 flex-none rounded-full;
+    }
+
+    .dep-link {
+        @apply cursor-pointer;
+    }
+
+    .dep-hr {
+        @apply border-gray-800;
+    }
+
+    .dep-inspector {
+        @apply relative flex h-full flex-none flex-col border-l;
+    }
+
+    .dep-section {
+        @apply px-2 pb-1 pt-3;
+    }
+
+    .dep-fact-th {
+        @apply w-[92px] px-2 py-1 text-left align-baseline;
+    }
+
+    .dep-fact-td {
+        @apply break-all px-2 py-1 align-baseline text-xs text-gray-300;
+    }
+
+    .dep-mini-th {
+        @apply px-2 py-1 text-left;
+    }
+
+    .dep-mini-td {
+        @apply overflow-hidden whitespace-nowrap px-2 py-[3px];
+    }
+
+    .dep-btn {
+        @apply cursor-pointer rounded-md font-medium transition-colors disabled:opacity-60;
+    }
+
+    .dep-dialog {
+        @apply flex flex-col overflow-hidden border shadow-2xl;
+    }
+
+    .dep-micro {
+        @apply text-[10px] font-semibold uppercase tracking-wide text-gray-500;
+    }
+
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        .dep-th {
+            @apply shadow-[inset_0_-1px_0_#374151];
+        }
+
+        .dep-td {
+            @apply border-b border-r border-b-gray-800/60 border-r-gray-800/30 py-[3px] text-[13px] last:border-r-0;
+        }
+
+        .dep-row:not(.dep-row-selected):hover {
+            @apply bg-gray-700/35;
+        }
+
+        .dep-band > td {
+            @apply border-b border-gray-800/80;
+        }
+
+        .dep-filter {
+            @apply border-gray-600 text-gray-400;
+        }
+
+        .dep-name {
+            @apply text-white;
+        }
+
+        .dep-nodes {
+            @apply text-gray-300;
+        }
+
+        .dep-st-ok { @apply text-green-300; }
+        .dep-st-ok .dep-dot { @apply bg-green-500; }
+        .dep-st-warn { @apply text-yellow-300; }
+        .dep-st-warn .dep-dot { @apply bg-yellow-500; }
+        .dep-st-busy { @apply text-blue-300; }
+        .dep-st-busy .dep-dot { @apply bg-blue-500; }
+        .dep-st-err { @apply text-red-300; }
+        .dep-st-err .dep-dot { @apply bg-red-500; }
+        .dep-st-off { @apply text-gray-400; }
+        .dep-st-off .dep-dot { @apply bg-gray-500; }
+        .dep-st-none { @apply text-gray-400; }
+        .dep-st-none .dep-dot { @apply bg-gray-600; }
+        .dep-st-absent { @apply text-gray-500; }
+        .dep-st-absent .dep-dot { @apply bg-gray-600; }
+
+        .dep-prep { @apply underline; }
+        .dep-prep-ready { @apply text-green-300; }
+        .dep-prep-progress { @apply text-blue-300; }
+        .dep-prep-failed { @apply text-red-300; }
+
+        .dep-ver { @apply text-gray-300; }
+        .dep-ver-drift { @apply text-orange-400; }
+        a.dep-ver { @apply underline hover:text-white; }
+
+        .dep-hot { @apply text-gray-300 underline hover:text-white; }
+
+        .dep-inspector {
+            @apply border-gray-700 bg-gray-950/35;
+        }
+
+        .dep-section {
+            @apply text-[10px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .dep-fact-th {
+            @apply border-b border-gray-800/60 text-[10px] font-semibold uppercase tracking-wide text-gray-500;
+        }
+
+        .dep-fact-td {
+            @apply border-b border-gray-800/60;
+        }
+
+        .dep-mini-th {
+            @apply border-b border-r border-b-gray-700/70 border-r-gray-800/40 bg-gray-950/40 text-[10px] font-medium
+            uppercase tracking-wide text-gray-500 last:border-r-0;
+        }
+
+        .dep-mini-td {
+            @apply border-b border-r border-b-gray-800/50 border-r-gray-800/30 last:border-r-0;
+        }
+
+        .dep-mini-row:hover {
+            @apply bg-gray-700/35;
+        }
+
+        .dep-btn { @apply bg-gray-700 text-gray-200 hover:bg-gray-600; }
+        .dep-btn-primary { @apply bg-brand text-white hover:bg-blue-600; }
+        .dep-btn-blue { @apply bg-blue-600 text-white hover:bg-blue-500; }
+        .dep-btn-danger { @apply bg-red-600 text-white hover:bg-red-500; }
+        .dep-btn-delete { @apply hover:bg-red-600 hover:text-white; }
+
+        .dep-dialog {
+            @apply rounded-xl border-gray-700 bg-gray-900;
+        }
+
+        .dep-code {
+            @apply bg-gray-950;
+        }
+
+        .dep-sunken {
+            @apply bg-gray-950/40;
+        }
+
+        .dep-dialog-head {
+            @apply border-b border-gray-700 bg-gray-950 text-xs uppercase tracking-wide text-gray-500;
+        }
+
+        .dep-dialog-foot {
+            @apply bg-gray-950/90;
+        }
+
+        .dep-field {
+            @apply bg-gray-800;
+        }
+    }
+
+    :root[data-theme="slate"] {
+        .dep-th {
+            @apply h-7 py-0 first:pl-3;
+            box-shadow: inset 0 -1px 0 var(--color-line);
+        }
+
+        .dep-td {
+            @apply h-7 border-b border-[#1d2531] py-0.5 text-xs first:pl-3;
+        }
+
+        .dep-row:not(.dep-row-selected):hover {
+            @apply bg-white/[0.04];
+        }
+
+        .dep-page-toolbar {
+            @apply gap-2 px-3.5 py-2.5;
+        }
+
+        .dep-page-toolbar .text-input {
+            border-color: var(--color-gray-700);
+        }
+
+        .dep-page-toolbar .toolbar-button {
+            @apply border-transparent! bg-white/[0.06]! text-gray-300! hover:bg-white/10!;
+        }
+
+        .dep-filter {
+            @apply border-gray-700 bg-field text-gray-200 hover:bg-surface-hover;
+        }
+
+        .dep-page-toolbar .dep-add {
+            @apply bg-brand! font-medium text-white! hover:bg-blue-600!;
+        }
+
+        .dep-name {
+            @apply text-gray-200;
+        }
+
+        .dep-nodes {
+            @apply text-gray-400;
+        }
+
+        .dep-st-ok { @apply text-[#4cc38a]; }
+        .dep-st-ok .dep-dot { @apply bg-[#4cc38a]; }
+        .dep-st-warn { @apply text-[#e0a43a]; }
+        .dep-st-warn .dep-dot { @apply bg-[#e0a43a]; }
+        .dep-st-busy { @apply text-blue-400; }
+        .dep-st-busy .dep-dot { @apply bg-blue-400; }
+        .dep-st-err { @apply text-[#f0716b]; }
+        .dep-st-err .dep-dot { @apply bg-[#f0716b]; }
+        .dep-st-off,
+        .dep-st-none,
+        .dep-st-absent { @apply text-gray-500; }
+        .dep-st-off .dep-dot,
+        .dep-st-none .dep-dot,
+        .dep-st-absent .dep-dot { @apply bg-[#6b7482]; }
+
+        .dep-prep { @apply hover:underline; }
+        .dep-prep-ready { @apply text-gray-500 hover:text-gray-300; }
+        .dep-prep-progress { @apply text-blue-400; }
+        .dep-prep-failed { @apply text-[#f0716b]; }
+
+        .dep-ver { @apply text-asset; }
+        .dep-ver-drift { @apply text-[#e0a43a]; }
+        a.dep-ver { @apply hover:underline; }
+
+        .dep-hot { @apply text-[#e0a43a] hover:underline; }
+
+        .dep-hr {
+            @apply border-line;
+        }
+
+        .dep-inspector {
+            @apply border-line;
+        }
+
+        .dep-section {
+            @apply px-3 pb-1.5 pt-3.5 text-[11px] font-medium text-gray-500;
+        }
+
+        .dep-section-break {
+            @apply mt-2 border-t border-line;
+        }
+
+        .dep-micro {
+            @apply text-[11px] font-medium normal-case tracking-normal;
+        }
+
+        .dep-fact-th {
+            @apply pl-3 text-[11px] font-normal text-gray-500;
+        }
+
+        .dep-fact-td {
+            @apply text-gray-200;
+        }
+
+        .dep-mini-th {
+            @apply border-b border-line text-[11px] font-medium text-gray-500;
+        }
+
+        .dep-mini-td {
+            @apply border-b border-[#1d2531];
+        }
+
+        .dep-mini-row:hover {
+            @apply bg-white/[0.04];
+        }
+
+        .dep-btn { @apply bg-white/[0.06] text-gray-200 hover:bg-white/10; }
+        .dep-btn-primary,
+        .dep-btn-blue { @apply bg-brand text-white hover:bg-blue-600; }
+        .dep-btn-danger { @apply bg-red-600 text-white hover:bg-red-500; }
+        .dep-btn-delete { @apply hover:bg-red-600 hover:text-white; }
+
+        .dep-dialog {
+            @apply rounded-lg border-gray-700 bg-raised;
+        }
+
+        .dep-code {
+            @apply bg-code;
+        }
+
+        .dep-sunken {
+            @apply bg-white/[0.02];
+        }
+
+        .dep-dialog-head {
+            @apply border-b border-line text-[11px] text-gray-500;
+        }
+
+        .dep-dialog-foot {
+            @apply border-t border-line;
+        }
+
+        .dep-field {
+            @apply border-gray-700 bg-field;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .dep-th {
+            @apply h-6 py-0 first:pl-3;
+        }
+
+        .dep-td {
+            @apply h-[27px] py-0 text-xs first:pl-3;
+        }
+
+        .dep-row:not(.dep-row-selected):hover {
+            @apply bg-white/[0.04];
+        }
+
+        .dep-row-selected {
+            @apply bg-white/[0.07];
+            box-shadow: inset 2px 0 0 var(--color-brand);
+        }
+
+        .dep-page-toolbar {
+            @apply gap-2 px-3.5 py-1.5;
+        }
+
+        .dep-page-toolbar .text-input {
+            border-color: var(--color-gray-700);
+        }
+
+        .dep-page-toolbar .toolbar-button {
+            @apply border-gray-700! bg-transparent! text-gray-400! hover:bg-white/[0.04]! hover:text-gray-200!;
+        }
+
+        .dep-filter {
+            @apply border-gray-700 bg-field text-gray-200 hover:bg-surface-hover;
+        }
+
+        .dep-page-toolbar .dep-add {
+            @apply border-transparent! bg-brand! font-medium text-white! hover:bg-blue-600!;
+        }
+
+        .dep-name {
+            @apply text-gray-200;
+        }
+
+        .dep-nodes {
+            @apply text-gray-400;
+        }
+
+        .dep-st-ok,
+        .dep-st-busy { @apply text-gray-400; }
+        .dep-st-ok .dep-dot { @apply bg-[#4cc38a]; }
+        .dep-st-busy .dep-dot { @apply bg-blue-400; }
+        .dep-st-warn { @apply text-[#d8b36a]; }
+        .dep-st-warn .dep-dot { @apply bg-[#d8b36a]; }
+        .dep-st-err { @apply text-[#f0716b]; }
+        .dep-st-err .dep-dot { @apply bg-[#f0716b]; }
+        .dep-st-off,
+        .dep-st-none,
+        .dep-st-absent { @apply text-gray-500; }
+        .dep-st-off .dep-dot,
+        .dep-st-none .dep-dot,
+        .dep-st-absent .dep-dot { @apply bg-[#6f747d]; }
+
+        .dep-prep { @apply hover:underline; }
+        .dep-prep-ready { @apply text-gray-500 hover:text-gray-300; }
+        .dep-prep-progress { @apply text-gray-300; }
+        .dep-prep-failed { @apply text-[#f0716b]; }
+
+        .dep-ver { @apply text-gray-300; }
+        .dep-ver-drift { @apply text-[#d8b36a]; }
+        a.dep-ver { @apply hover:underline; }
+
+        .dep-hot { @apply text-[#d8b36a] hover:underline; }
+
+        .dep-hr {
+            @apply border-line;
+        }
+
+        .dep-inspector {
+            @apply border-line;
+        }
+
+        .dep-section {
+            @apply px-3 pb-1 pt-3.5 text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .dep-section-break {
+            @apply mt-2 border-t border-line;
+        }
+
+        .dep-fact-th {
+            @apply pl-3 text-[10.5px] font-semibold uppercase tracking-wide text-gray-500;
+        }
+
+        .dep-mini-th {
+            @apply border-b border-line text-[10px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .dep-mini-row:hover {
+            @apply bg-white/[0.04];
+        }
+
+        .dep-btn { @apply border border-gray-700 bg-transparent text-gray-300 hover:bg-white/[0.05] hover:text-gray-100; }
+        .dep-btn-primary,
+        .dep-btn-blue { @apply border-transparent bg-brand text-white hover:bg-blue-600 hover:text-white; }
+        .dep-btn-danger { @apply border-transparent bg-red-600 text-white hover:bg-red-500 hover:text-white; }
+        .dep-btn-delete { @apply hover:border-red-600 hover:bg-red-600 hover:text-white; }
+
+        .dep-dialog {
+            @apply rounded-lg border-gray-600 bg-raised;
+        }
+
+        .dep-code {
+            @apply bg-code;
+        }
+
+        .dep-dialog-head {
+            @apply border-b border-line text-[10.5px] uppercase tracking-wider text-gray-500;
+        }
+
+        .dep-dialog-foot {
+            @apply border-t border-line;
+        }
+
+        .dep-field {
+            @apply border-gray-600 bg-field;
+        }
+    }
+}

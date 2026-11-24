@@ -112,12 +112,8 @@ const tsMs = (t) => (t instanceof Date ? t.getTime() : 0);
 // inspector.
 const showStatusRows = van.state(false);
 
-const miniTh = (text, extra = "") => th(
-    {class: `border-b border-gray-700/70 border-r border-r-gray-800/40 last:border-r-0 bg-gray-950/40 px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gray-500 ${extra}`},
-    text);
-const miniTd = (extra, ...children) => td(
-    {class: `border-b border-gray-800/50 border-r border-r-gray-800/30 last:border-r-0 px-2 py-[3px] whitespace-nowrap overflow-hidden ${extra}`},
-    ...children);
+const miniTh = (text, extra = "") => th({class: `dep-mini-th ${extra}`}, text);
+const miniTd = (extra, ...children) => td({class: `dep-mini-td ${extra}`}, ...children);
 
 // deploymentHistoryPanel renders one deployment's audit trail as the inspector
 // History tab: a dense Time | Type | V | By | Change table with an inline
@@ -215,9 +211,9 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
             ),
             thead(tr(miniTh("Time"), miniTh("Type"), miniTh("V"), miniTh("By"), miniTh("Change"))),
             tbody(...rows.map((entry) => tr(
-                {class: "hover:bg-gray-700/35"},
+                {class: "dep-mini-row"},
                 miniTd("font-mono text-gray-500 tabular-nums", formatHistoryTime(entry.at)),
-                miniTd(entry.kind === 'config' ? "text-orange-300" : "text-gray-500", entry.kind),
+                miniTd(entry.kind === 'config' ? "text-orange-300 graphite:text-gray-300" : "text-gray-500", entry.kind),
                 miniTd("font-mono text-gray-500 tabular-nums",
                     entry.v === null ? "" : span(`v${entry.v}`),
                     entry.canRevert
@@ -225,12 +221,12 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
                             button({
                                 type: "button",
                                 title: "Revert target version to this config's version",
-                                class: "p-0 text-[11px] text-blue-400 underline hover:text-blue-300 cursor-pointer",
+                                class: "p-0 text-[11px] text-blue-400 underline slate:no-underline slate:hover:underline graphite:no-underline graphite:hover:underline hover:text-blue-300 cursor-pointer",
                                 onclick: () => onRevertTargetVersion(deploymentId, entry.config),
                             }, "revert"))
                         : ""),
                 miniTd("truncate text-gray-500", entry.by),
-                miniTd(`font-mono truncate ${entry.kind === 'config' ? 'text-orange-300' : 'text-gray-400'}`,
+                miniTd(`font-mono truncate ${entry.kind === 'config' ? 'text-orange-300 graphite:text-gray-200' : 'text-gray-400'}`,
                     span({title: entry.change}, entry.change)),
             ))),
         );
@@ -245,7 +241,7 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
 
     return div(
         {class: "flex min-h-0 flex-1 flex-col"},
-        div({class: "flex flex-none items-center justify-between px-3 py-1.5"},
+        div({class: "flex flex-none items-center justify-between px-3 py-1.5 slate:py-2 graphite:py-2"},
             span({class: "text-[11px] text-gray-500"},
                 () => error.val ? span({class: "text-red-400"}, error.val) : countLine()),
             label({class: "flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-400 select-none"},

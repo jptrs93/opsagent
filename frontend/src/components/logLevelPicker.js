@@ -35,12 +35,12 @@ export function logLevelPicker({onS, onChange, testid = "logs-level"}) {
     const item = (attrs, selected, onclick, ...children) => button({
         type: "button",
         ...attrs,
-        class: "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs text-gray-200 hover:bg-gray-800",
+        class: "menu-item w-full classic:gap-1.5 classic:rounded-none classic:py-1 classic:hover:bg-gray-800",
         onclick,
     }, span({class: "w-3.5 flex-none"}, selected ? checkIcon({class: "w-3.5 h-3.5 text-brand"}) : ''), ...children);
 
     const menu = () => div(
-        {"data-testid": `${testid}-panel`, class: "absolute left-0 top-full z-30 mt-1 flex min-w-40 flex-col rounded border border-gray-700 bg-gray-900 py-1 shadow-xl"},
+        {"data-testid": `${testid}-panel`, class: "menu absolute left-0 top-full z-30 mt-1 flex min-w-40 flex-col classic:rounded classic:border-gray-700 classic:bg-gray-900 classic:px-0 classic:py-1 classic:shadow-xl"},
         ...MENU_ORDER.map(level => item(
             {
                 "data-testid": `${testid}-row-${rowKey(level)}`,
@@ -53,7 +53,7 @@ export function logLevelPicker({onS, onChange, testid = "logs-level"}) {
             labelOf(level),
         )),
         ...(off().length === 0 ? [] : [
-            div({class: "my-1 border-t border-gray-800"}),
+            div({class: "logs-menu-rule"}),
             item({"data-testid": `${testid}-row-all`}, false, () => set(Object.fromEntries(LOG_LEVELS.map(l => [l, true]))),
                 closeIcon({class: "w-3.5 h-3.5 flex-none text-brand"}), "Show all levels"),
         ]),
@@ -67,7 +67,7 @@ export function logLevelPicker({onS, onChange, testid = "logs-level"}) {
             "aria-haspopup": "true",
             "aria-expanded": () => String(open.val),
             "aria-label": "Filter levels",
-            class: "input flex h-[30px] items-center gap-1.5 whitespace-nowrap text-xs text-gray-200 cursor-pointer hover:bg-gray-700",
+            class: "logs-ctl flex items-center gap-1.5 whitespace-nowrap cursor-pointer",
             onclick: () => { open.val = !open.val; },
         }, () => label(), chevronDownIcon({class: "w-3 h-3 text-gray-500"})),
         () => !open.val ? '' : div(

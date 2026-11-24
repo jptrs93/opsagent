@@ -22,10 +22,10 @@ import {
 import {
     buildRows, checkDrop, dirIdForWire, dirsById, dirPathSegments, dragSource, dropDestination,
     emptySpaceIds, flexColumnKey, folderOptions, itemKey, itemPathSegments, sameSet,
-    spaceHue,
 } from "../lib/valueExplorer.js";
 import {assetDirectoriesS, assetMetasS, deploymentsS, machinesS, spacesS} from "../state/deployments.js";
 import {resolveUserDisplayName} from "../lib/users.js";
+import {spaceDot, spacesFilter} from "../components/spacesFilter.js";
 import {loginS} from "../state/login.js";
 
 // selectEl: the pages define their own row-selection helper named `select`.
@@ -175,9 +175,6 @@ export function assetsPage() {
     )));
     const visibleSpaces = () => listedSpaces().filter((s) => !filteredSpaces.val.has(Number(s.id)));
 
-    // Dirty against the landing default — empty spaces hidden — so the reset
-    // row offers itself only for choices actually made here.
-    const spacesDirty = () => !sameSet(filteredSpaces.val, emptySpaces.val);
     const colsDirty = () => !sameSet(shownCols.val, new Set(ASSET_DEFAULT_COLUMNS));
 
     const usageForItem = (item) => {
@@ -567,11 +564,6 @@ export function assetsPage() {
     };
 
 
-    const spaceDot = (spaceId) => span({
-        class: "inline-block w-[7px] h-[7px] rounded-full flex-none",
-        style: `background:${spaceHue(spaceId)}`,
-    });
-
     const assetIcon = (extra = "") => fileIcon({
         class: `w-[13px] h-[13px] flex-none text-asset ${extra}`, role: "img", "aria-label": "Asset",
     });
@@ -607,10 +599,10 @@ export function assetsPage() {
         onclick: (e) => { e.stopPropagation(); onclick(e); },
     }, child);
 
-    const actionButton = (text, onclick, cls = "bg-gray-700 text-gray-200 hover:bg-gray-600", attrs = {}) => button({
+    const actionButton = (text, onclick, cls = "", attrs = {}) => button({
         type: "button",
         ...attrs,
-        class: () => `text-xs px-2.5 py-1.5 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap ${cls} ` +
+        class: () => `explorer-btn text-xs px-2.5 py-1.5 rounded-md ${cls} ` +
             `${typeof attrs.disabledWhen === "function" && attrs.disabledWhen() ? "opacity-50 cursor-not-allowed" : ""}`,
         onclick: async (e) => {
             if (typeof attrs.disabledWhen === "function" && attrs.disabledWhen()) return;
@@ -626,8 +618,7 @@ export function assetsPage() {
         "aria-haspopup": "true",
         "aria-expanded": () => String(openMenu.val === menu),
         "aria-label": ariaLabel,
-        class: "inline-flex h-[30px] items-center gap-1.5 rounded border border-gray-600 px-2 text-xs " +
-            "text-gray-400 hover:bg-surface-hover hover:text-gray-100 transition-colors cursor-pointer",
+        class: "explorer-filter",
         onclick: (e) => {
             e.stopPropagation();
             openMenu.val = openMenu.val === menu ? null : menu;
@@ -635,13 +626,13 @@ export function assetsPage() {
     }, () => span({class: "inline-flex items-center gap-1.5"}, ...label()));
 
     const menuShell = (...children) => div({
-        class: "absolute top-full left-0 z-30 mt-1.5 min-w-52 rounded-md border border-gray-600 bg-surface p-1 shadow-2xl flex flex-col",
+        class: "menu explorer-menu",
         onclick: (e) => e.stopPropagation(),
     }, ...children);
 
     const menuRow = (onclick, ...children) => button({
         type: "button",
-        class: "flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-200 hover:bg-surface-hover cursor-pointer",
+        class: "menu-item",
         onclick,
     }, ...children);
 
@@ -654,39 +645,44 @@ export function assetsPage() {
         menuRow(onclick, closeIcon({class: "w-3.5 h-3.5 flex-none text-brand"}), "Reset to default"),
     ];
 
-    // A row ticks and unticks against the effective filter, so an empty space
-    // hidden by default takes one click to bring back — the tick just has to
-    // write to whichever half of the filter is holding it out.
-    const toggleSpace = (id) => {
+    // The filter reports the effective hidden set. Each space whose state
+    // changed is written to whichever half was holding it: bringing one back
+    // clears the hand-hidden mark and re-admits it if it is empty.
+    const setFilteredSpaces = (nextHidden) => {
         const hidden = new Set(hiddenSpaces.val);
         const shownEmpty = new Set(shownEmptySpaces.val);
-        if (filteredSpaces.val.has(id)) {
-            hidden.delete(id);
-            shownEmpty.add(id);
-            expandTo(id, 0);
-        } else {
-            hidden.add(id);
-            shownEmpty.delete(id);
+        for (const space of listedSpaces()) {
+            const id = Number(space.id);
+            const wasFiltered = filteredSpaces.val.has(id);
+            if (nextHidden.has(id) === wasFiltered) continue;
+            if (wasFiltered) {
+                hidden.delete(id);
+                shownEmpty.add(id);
+                expandTo(id, 0);
+            } else {
+                hidden.add(id);
+                shownEmpty.delete(id);
+            }
         }
         hiddenSpaces.val = hidden;
         shownEmptySpaces.val = shownEmpty;
         persistView();
     };
 
-    const spacesMenu = () => menuShell(
-        ...listedSpaces().map((space) => menuRow(
-            () => toggleSpace(Number(space.id)),
-            menuCheck(!filteredSpaces.val.has(Number(space.id))),
-            spaceDot(space.id),
-            span({class: "font-mono"}, space.name),
-            ...(emptySpaces.val.has(Number(space.id)) ? [menuTail("empty")] : []),
-        )),
-        ...(spacesDirty() ? resetRow(() => {
+    const spaceFilter = spacesFilter({
+        spaces: listedSpaces,
+        hidden: () => filteredSpaces.val,
+        defaultHidden: () => emptySpaces.val,
+        onChange: setFilteredSpaces,
+        onReset: () => {
             hiddenSpaces.val = new Set();
             shownEmptySpaces.val = new Set();
             persistView();
-        }) : []),
-    );
+        },
+        tail: (space) => emptySpaces.val.has(Number(space.id)) ? "empty" : "",
+        buttonClass: "explorer-filter",
+        testid: "assets-space-filter",
+    });
 
     const colsMenu = () => menuShell(
         menuHeader("Columns"),
@@ -707,7 +703,7 @@ export function assetsPage() {
     );
 
     const toolbar = () => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        {class: "page-strip explorer-strip gap-2 classic:py-2"},
         div({class: "relative"},
             searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"}),
             input({
@@ -718,17 +714,7 @@ export function assetsPage() {
                 value: search,
                 oninput: (e) => { search.val = e.target.value; },
             })),
-        span({class: "relative inline-flex"},
-            filterButton({
-                menu: "spaces",
-                ariaLabel: "Filter spaces",
-                label: () => [
-                    span({class: "inline-flex items-center gap-1"}, ...visibleSpaces().map((s) => spaceDot(s.id))),
-                    `${visibleSpaces().length} space${visibleSpaces().length === 1 ? "" : "s"}`,
-                    chevronDownIcon({class: "w-3 h-3"}),
-                ],
-            }),
-            () => openMenu.val === "spaces" ? spacesMenu() : ""),
+        spaceFilter,
         span({class: "relative inline-flex"},
             filterButton({
                 menu: "cols",
@@ -768,8 +754,7 @@ export function assetsPage() {
             onmousedown: (e) => startColResize(e, column.key, column.min),
             onkeydown: (e) => nudgeColWidth(e, column.key, column.min),
         });
-        const base = "sticky top-0 z-[1] bg-surface px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase tracking-wider " +
-            "whitespace-nowrap shadow-[inset_0_-1px_0_#374151]";
+        const base = "explorer-th col-head";
         if (column.noSort) {
             return th({class: `${base} text-right text-gray-500`}, column.label, grip);
         }
@@ -909,7 +894,7 @@ export function assetsPage() {
         return props;
     };
 
-    const namePad = (depth) => `padding-left:${0.5 + depth * 1.15}rem`;
+    const nameDepth = (depth) => `--depth:${depth}`;
 
     const disclosure = (open, key) => button({
         type: "button",
@@ -918,27 +903,35 @@ export function assetsPage() {
         onclick: (e) => { e.stopPropagation(); toggleExpanded(key); },
     }, caretRightIcon({class: `w-[11px] h-[11px] transition-transform ${open ? "rotate-90" : ""}`}));
 
-    const countTag = (count) => span({class: "font-mono text-[10.5px] text-gray-500 flex-none"}, String(count));
+    const countTag = (count) => span({class: "explorer-count"}, String(count));
     const nameText = (text, cls = "text-gray-100") => span({class: `truncate min-w-0 ${cls}`}, text);
-    const blankCells = (columns) => columns.slice(1).map(() => td({class: "border-b border-gray-800/80 px-2 py-1"}));
+    const blankCells = (columns) => columns.slice(1).map(() => td({class: "explorer-td"}));
 
-    // Colors match the design mock: everything sits on the card surface, rows
-    // hover with the lighter surface-hover tint, and space roots are slightly
-    // recessed toward the page background.
-    const rowClass = (row) => {
-        if (selectedKey.val === row.key) return "group cursor-default bg-brand/15";
-        return `group cursor-default hover:bg-gray-700/35 ${row.type === "space" ? "bg-gray-950/30" : ""}`;
-    };
+    const SELECTED_ROW = "bg-brand/15 graphite:bg-white/[0.07] graphite:shadow-[inset_2px_0_0_var(--color-brand)]";
+    const rowClass = (row) => `group explorer-row ${selectedKey.val === row.key ? SELECTED_ROW : ""}`;
 
     const groupRow = (row, columns, ...inner) => tr(
         {class: rowClass(row), onclick: () => select(row.key), ...dndProps(row)},
-        td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
+        td({class: "explorer-name", style: nameDepth(row.depth)},
             span({class: "flex items-center gap-1.5 min-w-0"}, ...inner)),
         ...blankCells(columns),
     );
 
+    // A space is a band across the whole table, so the Graphite rule can run
+    // to the right edge.
+    const spaceRow = (row, columns) => tr(
+        {class: `${rowClass(row)} band-bg explorer-band`, onclick: () => select(row.key), ...dndProps(row)},
+        td({colSpan: columns.length},
+            div({class: "band-label"},
+                disclosure(row.expanded, row.key),
+                spaceDot(row.space.id),
+                span({class: "band-title"}, row.space.name),
+                span({class: "band-count"}, String(row.count)),
+                span({class: "band-rule"}))),
+    );
+
     const itemActionsCell = (item) => td(
-        {class: "border-b border-gray-800/80 px-1 py-0.5 text-right whitespace-nowrap"},
+        {class: "explorer-td px-1 classic:py-0.5 text-right overflow-visible"},
         span({class: () => `inline-flex justify-end gap-0.5 transition-opacity ${selectedKey.val === itemKey(item) ? "opacity-100" : "opacity-40 group-hover:opacity-100"}`},
             iconButton(editIcon({class: "w-3.5 h-3.5"}), () => openEditor(item), {
                 title: `Edit asset ${item.name}`,
@@ -965,7 +958,7 @@ export function assetsPage() {
     };
 
     const itemCell = (column, item, usesMap) => {
-        const base = "border-b border-gray-800/80 px-2 py-1 whitespace-nowrap overflow-hidden text-gray-400";
+        const base = "explorer-td";
         if (column.key === "version") return td({class: `${base} text-right tabular-nums`}, `v${item.version}`);
         if (column.key === "created") return td({class: base, title: formatDateTime(item.createdAt, "")}, formatDate(item.createdAt, "-"));
         if (column.key === "uses") return td({class: `${base} text-right tabular-nums`}, usesCell(item, usesMap));
@@ -976,7 +969,7 @@ export function assetsPage() {
 
     const itemRow = (row, columns, usesMap) => tr(
         {class: rowClass(row), onclick: () => select(row.key), ...dndProps(row)},
-        td({class: "border-b border-gray-800/80 py-1 pr-2 font-mono text-[13px] whitespace-nowrap overflow-hidden", style: namePad(row.depth)},
+        td({class: "explorer-name", style: nameDepth(row.depth)},
             span({class: "flex items-center gap-1.5 min-w-0"},
                 span({class: "w-4 flex-none"}),
                 assetIcon(),
@@ -1012,23 +1005,17 @@ export function assetsPage() {
         return div(
             {class: "app-scroll flex-1 min-h-0 overflow-auto"},
             table(
-                {class: "w-full table-fixed border-separate border-spacing-0 text-sm"},
+                {class: "explorer-table"},
                 colgroup(...columns.map((c) => c.key === flexKey
                     ? col({"data-col": c.key})
                     : col({"data-col": c.key, style: `width:${colWidths.val[c.key] ?? ASSET_DEFAULT_COLUMN_WIDTHS[c.key]}px`}))),
                 thead(tr(...columns.map((c) => headerCell(c, flexKey, lastKey)))),
                 tbody(...rows.map((row) => {
-                    if (row.type === "space") {
-                        return groupRow(row, columns,
-                            disclosure(row.expanded, row.key),
-                            spaceDot(row.space.id),
-                            nameText(row.space.name, "text-gray-100 font-semibold"),
-                            countTag(row.count));
-                    }
+                    if (row.type === "space") return spaceRow(row, columns);
                     if (row.type === "dir") {
                         return groupRow(row, columns,
                             disclosure(row.expanded, row.key),
-                            folderIcon({class: "w-[13px] h-[13px] flex-none text-slate-400"}),
+                            folderIcon({class: "explorer-folder-icon w-[13px] h-[13px] flex-none"}),
                             nameText(row.dir.key),
                             countTag(row.count));
                     }
@@ -1054,7 +1041,7 @@ export function assetsPage() {
         if (!parts.length) return "";
         return div(
             {
-                class: "flex flex-none items-center gap-1.5 border-t border-gray-700 bg-gray-950/40 px-3 py-1.5 font-mono text-[11px] text-gray-500",
+                class: "explorer-pathbar",
                 "data-testid": "explorer-pathbar",
             },
             ...parts.flatMap((part, i) => [
@@ -1066,8 +1053,8 @@ export function assetsPage() {
 
 
     const kvRow = (label, value) => [
-        dt({class: "text-[10.5px] font-semibold uppercase tracking-wide text-gray-500"}, label),
-        dd({class: "m-0 min-w-0 break-all font-mono text-xs text-gray-300"}, value),
+        dt({class: "explorer-kv-label"}, label),
+        dd({class: "explorer-kv-value"}, value),
     ];
 
     const inspectorTitle = (sel, currentName) => {
@@ -1097,7 +1084,7 @@ export function assetsPage() {
         return p({class: "break-all font-mono text-xs text-white"}, path);
     };
 
-    const badge = (text, cls) => span({class: `inline-flex rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${cls}`}, text);
+    const badge = (text, kind) => span({class: `explorer-badge explorer-badge-${kind}`}, text);
 
     const inspectorSpaceTag = (spaceId) => span(
         {class: "inline-flex items-center gap-1.5 font-mono text-[11px] text-gray-400"},
@@ -1152,10 +1139,10 @@ export function assetsPage() {
         const usage = usageForItem(item);
         const usageCount = usage.deployments.length;
         return [
-            div({class: "flex flex-none flex-col gap-2 border-b border-gray-800 py-2.5 pl-3 pr-9"},
+            div({class: "explorer-insp-head"},
                 inspectorTitle(sel, item.name),
                 div({class: "flex items-center gap-2"},
-                    badge("Asset", "bg-teal-500/15 text-teal-300"),
+                    badge("Asset", "asset"),
                     inspectorSpaceTag(item.spaceId))),
             div({class: "app-scroll flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5"},
                 dl({class: "m-0 grid grid-cols-[76px_1fr] items-baseline gap-x-2 gap-y-1.5"},
@@ -1171,14 +1158,14 @@ export function assetsPage() {
                             onclick: () => { usageTarget.val = {resourceName: item.name, ...usage}; },
                         }, `${usageCount} deployment${usageCount === 1 ? "" : "s"}`)
                         : "0 deployments")),
-                p({class: "mt-1 text-[10.5px] font-semibold uppercase tracking-wide text-gray-500"}, "Versions"),
+                p({class: "explorer-section"}, "Versions"),
                 versionsList(item)),
-            div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
-                actionButton("Edit", () => openEditor(item), "bg-brand text-white hover:bg-blue-600"),
+            div({class: "explorer-insp-foot"},
+                actionButton("Edit", () => openEditor(item), "explorer-btn-primary"),
                 actionButton("Upload version", () => pickUploadVersion(item)),
                 actionButton("Rename", () => startRename(itemKey(item), item.name)),
                 actionButton("Move", () => openMoveDialog(sel)),
-                actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white")),
+                actionButton("Delete", () => openDelete(sel), "explorer-btn-delete")),
         ];
     };
 
@@ -1211,10 +1198,10 @@ export function assetsPage() {
             ? currentDirs().filter((d) => Number(d.spaceId) === spaceId).length
             : null;
         return [
-            div({class: "flex flex-none flex-col gap-2 border-b border-gray-800 py-2.5 pl-3 pr-9"},
+            div({class: "explorer-insp-head"},
                 inspectorTitle(sel, isSpace ? sel.space.name : sel.dir.key),
                 div({class: "flex items-center gap-2"},
-                    badge(isSpace ? "Space" : "Folder", "bg-slate-500/15 text-slate-300"),
+                    badge(isSpace ? "Space" : "Folder", "group"),
                     isSpace ? "" : inspectorSpaceTag(spaceId))),
             div({class: "app-scroll flex-1 min-h-0 overflow-y-auto px-3 py-2.5 flex flex-col gap-2.5"},
                 dl({class: "m-0 grid grid-cols-[76px_1fr] items-baseline gap-x-2 gap-y-1.5"},
@@ -1222,13 +1209,13 @@ export function assetsPage() {
                     ...(folderCount !== null ? kvRow("Folders", String(folderCount)) : []),
                     ...kvRow("Size", fmtSize(stats.totalSize)),
                     ...kvRow("Newest", span({title: formatDateTime(stats.newest, "")}, formatDate(stats.newest, "-"))))),
-            div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
+            div({class: "explorer-insp-foot"},
                 actionButton("New asset here", openCreate),
                 actionButton("Upload here", pickUploadNew),
                 ...(isSpace ? [actionButton("New folder here", openNewFolder)] : [
                     actionButton("Rename", () => startRename(selectedKey.val, sel.dir.key)),
                     actionButton("Move", () => openMoveDialog(sel)),
-                    actionButton("Delete", () => openDelete(sel), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white"),
+                    actionButton("Delete", () => openDelete(sel), "explorer-btn-delete"),
                 ])),
         ];
     };
@@ -1236,7 +1223,7 @@ export function assetsPage() {
     const inspector = () => {
         const sel = resolveSelection();
         return div(
-            {class: "relative flex flex-none flex-col border-l border-gray-700 bg-gray-950/35", style: () => `width:${inspectorWidth.val}px`},
+            {class: "explorer-inspector", style: () => `width:${inspectorWidth.val}px`},
             span({
                 class: "vgrip",
                 tabindex: "0",
@@ -1267,15 +1254,15 @@ export function assetsPage() {
 
 
     const errorLine = () => error.val ? div(
-        {class: "flex flex-none items-center gap-3 border-b border-red-500/30 bg-red-500/10 px-3 py-1.5"},
-        p({class: "min-w-0 flex-1 truncate text-xs text-red-300", title: error.val}, `Error: ${error.val}`),
+        {class: "explorer-alert explorer-error"},
+        p({class: "explorer-error-text min-w-0 flex-1 truncate text-xs", title: error.val}, `Error: ${error.val}`),
         iconButton(closeIcon({class: "w-3 h-3"}), () => { error.val = null; }, {title: "Dismiss error", "aria-label": "Dismiss error"}),
     ) : "";
 
     const dialogShell = (labelledBy, ...children) => div(
         {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: () => { if (!dialogSaving.val) { folderDialog.val = null; moveDialog.val = null; deleteTarget.val = null; moveError.val = null; } }},
         div({
-            class: "card w-full max-w-md flex flex-col gap-3 shadow-2xl",
+            class: "dialog w-full max-w-md flex flex-col gap-3 p-4 classic:rounded-[0.3rem] classic:border-gray-700",
             role: "dialog",
             "aria-modal": "true",
             "aria-labelledby": labelledBy,
@@ -1336,7 +1323,7 @@ export function assetsPage() {
                         : "text-gray-200 hover:bg-surface-hover cursor-pointer"}`,
                     onclick: () => { void applyMove(option.id); },
                 },
-                folderIcon({class: "w-3.5 h-3.5 flex-none text-slate-400"}),
+                folderIcon({class: "explorer-folder-icon w-3.5 h-3.5 flex-none"}),
                 option.label,
                 option.id === currentId ? span({class: "ml-auto font-sans text-[10px] text-gray-500"}, "current") : ""))),
             div({class: "flex items-center justify-end"},
@@ -1367,7 +1354,7 @@ export function assetsPage() {
             p({class: "text-sm text-gray-300"}, span({class: "font-mono text-gray-100"}, target.name), " was not moved."),
             p({class: "text-sm text-red-400"}, target.message),
             div({class: "flex items-center justify-end"},
-                actionButton("Close", () => { moveError.val = null; }, "bg-brand text-white hover:bg-blue-600")));
+                actionButton("Close", () => { moveError.val = null; }, "explorer-btn-primary")));
     };
 
     const uploadDialogEl = () => {
@@ -1386,7 +1373,7 @@ export function assetsPage() {
         return div(
             {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onclick: closeUpload},
             div({
-                class: "card w-full max-w-lg flex flex-col gap-4 shadow-2xl",
+                class: "dialog w-full max-w-lg flex flex-col gap-4 p-4 classic:rounded-[0.3rem] classic:border-gray-700",
                 role: "dialog",
                 "aria-modal": "true",
                 "aria-labelledby": "upload-asset-title",
@@ -1403,7 +1390,7 @@ export function assetsPage() {
                 : "",
             () => uploadSaving.val ? div({class: "flex flex-col gap-2"},
                 p({class: "text-xs text-gray-400"}, progressText),
-                div({class: "h-2 overflow-hidden rounded-full bg-gray-800"},
+                div({class: "h-2 overflow-hidden rounded-full bg-gray-800 slate:bg-white/10 graphite:bg-white/10"},
                     div({class: "h-full rounded-full bg-brand transition-all", style: () => `width:${pct()}`})),
             ) : "",
             () => !uploadedKey.val && !uploadSaving.val ? div({class: "flex flex-col gap-3"},
@@ -1473,18 +1460,17 @@ export function assetsPage() {
 
 
     return div(
-        // bg-surface: per the design mock the explorer is one flush card
-        // surface, not content floating on the page background.
-        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        {class: "page overflow-hidden"},
         toolbar(),
-        errorLine,
-        div({class: "flex flex-1 min-h-0"},
-            div({class: "flex min-w-0 flex-1 flex-col"},
-                tableArea,
-                pathbar),
-            // The inspector only exists alongside a selection: an empty page
-            // gets the full table width instead of a "select a row" stub.
-            () => inspectorOpen.val && selectedKey.val ? inspector() : ""),
+        div({class: "page-body flex flex-col overflow-hidden"},
+            errorLine,
+            div({class: "flex flex-1 min-h-0"},
+                div({class: "flex min-w-0 flex-1 flex-col"},
+                    tableArea,
+                    pathbar),
+                // The inspector only exists alongside a selection: an empty page
+                // gets the full table width instead of a "select a row" stub.
+                () => inspectorOpen.val && selectedKey.val ? inspector() : "")),
         () => openMenu.val ? div({class: "fixed inset-0 z-20", onclick: () => { openMenu.val = null; }}) : "",
         uploadPicker,
         folderDialogEl,

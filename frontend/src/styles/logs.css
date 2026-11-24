@@ -1,0 +1,471 @@
+@layer components {
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        --logs-fill-error: #c42121;
+        --logs-fill-warn: #c67b04;
+        --logs-fill-info: #3b82f6;
+        --logs-fill-debug: #0e9488;
+        --logs-fill-other: #7c3aed;
+        --logs-fill-none: #6b7280;
+        --logs-text-error: var(--color-red-400);
+        --logs-text-warn: var(--color-amber-400);
+        --logs-text-info: var(--color-blue-400);
+        --logs-text-debug: var(--color-teal-500);
+        --logs-text-other: var(--color-violet-400);
+        --logs-text-none: var(--color-gray-400);
+        --logs-grid: #1f2937;
+    }
+
+    :root[data-theme="slate"] {
+        --logs-fill-error: #e0524c;
+        --logs-fill-warn: #d4962c;
+        --logs-fill-info: #3c6fc2;
+        --logs-fill-debug: #2b6f69;
+        --logs-fill-other: #8a70cf;
+        --logs-fill-none: #46505f;
+        --logs-text-error: #f0716b;
+        --logs-text-warn: #e0a43a;
+        --logs-text-info: #79a3e6;
+        --logs-text-debug: #5d938d;
+        --logs-text-other: #a995e3;
+        --logs-text-none: #7b8494;
+        --logs-grid: #1f2733;
+    }
+
+    :root[data-theme="graphite"] {
+        --logs-fill-error: #d9534f;
+        --logs-fill-warn: #c9a35c;
+        --logs-fill-info: #5c66b8;
+        --logs-fill-debug: #3d6763;
+        --logs-fill-other: #8571b5;
+        --logs-fill-none: #4a4e57;
+        --logs-text-error: #f0716b;
+        --logs-text-warn: #d8b36a;
+        --logs-text-info: #b1b4ba;
+        --logs-text-debug: #7c8088;
+        --logs-text-other: #a694d6;
+        --logs-text-none: #7c8088;
+        --logs-grid: #1e2024;
+    }
+
+    .logs-lvl-error { color: var(--logs-text-error); }
+    .logs-lvl-warn { color: var(--logs-text-warn); }
+    .logs-lvl-info { color: var(--logs-text-info); }
+    .logs-lvl-debug { color: var(--logs-text-debug); }
+    .logs-lvl-other { color: var(--logs-text-other); }
+    .logs-lvl-none { color: var(--logs-text-none); }
+
+    .logs-ctl {
+        @apply h-[30px] rounded-[0.3rem] border border-gray-600 bg-field px-2 text-xs text-gray-100
+        focus:outline-none focus:ring-1 focus:ring-brand disabled:cursor-default disabled:opacity-50;
+    }
+
+    button.logs-ctl:hover:not(:disabled) {
+        @apply bg-gray-700;
+    }
+
+    .logs-run {
+        @apply inline-flex h-[30px] cursor-pointer items-center rounded-[0.3rem] border border-brand bg-brand px-3 text-xs
+        font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-default disabled:opacity-50;
+    }
+
+    .logs-mini {
+        @apply cursor-pointer rounded border border-gray-700 px-1.5 py-px text-[10px] text-gray-400 hover:text-gray-200;
+    }
+
+    .logs-mini[aria-pressed="true"] {
+        @apply border-brand/60 bg-brand/15 text-blue-300 hover:text-blue-300;
+    }
+
+    .logs-ghost {
+        @apply cursor-pointer rounded border border-gray-700 px-2 py-0.5 text-[11px] text-gray-300 hover:bg-gray-800;
+    }
+
+    .logs-chip {
+        @apply inline-flex items-center gap-1 rounded border border-gray-700 bg-gray-800 px-1.5 py-px font-mono text-[11px] text-gray-200;
+    }
+
+    .logs-chip-neg {
+        @apply border-red-900/60 bg-red-950/40 text-red-300;
+    }
+
+    .logs-micro {
+        @apply text-[10px] font-medium uppercase tracking-wide text-gray-500;
+    }
+
+    .logs-hist {
+        @apply flex-none border-b border-gray-800 bg-gray-950/40 px-2 pb-1 pt-1;
+    }
+
+    .logs-axis {
+        @apply text-[10px] tabular-nums text-gray-600;
+    }
+
+    .logs-note {
+        @apply text-[11px] text-gray-600;
+    }
+
+    .logs-side {
+        @apply border-r border-gray-800;
+    }
+
+    .logs-side-head {
+        @apply border-b border-gray-800 py-0.5 pl-2 pr-1;
+    }
+
+    .logs-results {
+        @apply bg-gray-950;
+    }
+
+    .logs-head {
+        @apply border-b border-gray-700 bg-gray-950;
+    }
+
+    .logs-head-cell {
+        @apply border-r border-gray-800/40 last:border-r-0;
+    }
+
+    .logs-cell {
+        @apply overflow-hidden border-r border-gray-800/25 px-2 py-[3px] last:border-r-0;
+    }
+
+    .logs-row {
+        @apply grid cursor-pointer items-start overflow-hidden border-b border-gray-800/40 text-[11px] leading-[15px] hover:bg-gray-800/40;
+    }
+
+    .logs-row-open,
+    .logs-row-open:hover {
+        @apply bg-gray-800/70;
+    }
+
+    .logs-row-time {
+        @apply text-gray-400;
+    }
+
+    .logs-empty-cell {
+        @apply text-gray-700;
+    }
+
+    .logs-detail {
+        @apply border-y border-gray-600 bg-gray-950 shadow-xl;
+    }
+
+    .logs-detail-head {
+        @apply border-b border-gray-800 bg-gray-900/60 px-2;
+    }
+
+    .logs-seg {
+        @apply flex gap-1;
+    }
+
+    .logs-seg-btn {
+        @apply cursor-pointer border-b-2 border-transparent px-2 py-1 text-[11px] text-gray-500 hover:text-gray-300;
+    }
+
+    .logs-seg-btn[aria-pressed="true"] {
+        @apply border-brand text-gray-100 hover:text-gray-100;
+    }
+
+    .logs-json {
+        @apply whitespace-pre-wrap break-all font-mono text-[11px] leading-4 text-gray-200;
+    }
+
+    .logs-tip {
+        @apply rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[10px] shadow-xl;
+    }
+
+    .logs-context {
+        @apply rounded border border-gray-700 bg-gray-950 shadow-2xl;
+    }
+
+    .logs-context-head {
+        @apply border-b border-gray-800 bg-gray-900/60 px-3 py-1.5;
+    }
+
+    .logs-more {
+        @apply block w-full cursor-pointer py-1 text-center text-[11px] text-gray-500 hover:bg-gray-900 hover:text-gray-300 disabled:opacity-30;
+    }
+
+    .logs-menu-col {
+        @apply border-r border-gray-800 last:border-r-0;
+    }
+
+    .logs-menu-rule {
+        @apply my-1 border-t border-gray-800;
+    }
+
+    :root[data-theme="slate"] {
+        .logs-ctl {
+            @apply h-7 rounded-md border-transparent bg-white/[0.06] px-2.5 text-gray-200;
+        }
+
+        button.logs-ctl:hover:not(:disabled),
+        select.logs-ctl:hover {
+            @apply bg-white/10;
+        }
+
+        .logs-run {
+            @apply h-7 rounded-md border-transparent;
+        }
+
+        .logs-mini {
+            @apply border-transparent bg-white/[0.05];
+        }
+
+        .logs-mini[aria-pressed="true"] {
+            @apply border-transparent bg-brand/20;
+        }
+
+        .logs-ghost {
+            @apply border-transparent bg-white/[0.06] hover:bg-white/10;
+        }
+
+        .logs-chip {
+            @apply border-transparent bg-white/[0.07];
+        }
+
+        .logs-chip-neg {
+            @apply bg-red-500/15;
+        }
+
+        .logs-micro {
+            @apply text-[11px] normal-case tracking-normal;
+        }
+
+        .logs-hist {
+            @apply border-line bg-transparent px-3 pb-1.5 pt-2;
+        }
+
+        .logs-axis,
+        .logs-note {
+            @apply text-gray-500;
+        }
+
+        .logs-side,
+        .logs-side-head {
+            @apply border-line;
+        }
+
+        .logs-side-head {
+            @apply pl-3;
+        }
+
+        .logs-results {
+            @apply bg-transparent;
+        }
+
+        .logs-head {
+            @apply border-line bg-surface;
+        }
+
+        .logs-head-cell,
+        .logs-cell {
+            @apply border-transparent;
+        }
+
+        .logs-head-cell:first-child,
+        div.logs-cell:first-of-type {
+            @apply pl-3;
+        }
+
+        .logs-row {
+            @apply border-white/[0.035] hover:bg-white/[0.03];
+        }
+
+        .logs-row-open,
+        .logs-row-open:hover {
+            @apply bg-white/[0.07];
+        }
+
+        .logs-row-time {
+            @apply text-gray-500;
+        }
+
+        .logs-empty-cell {
+            @apply text-gray-600;
+        }
+
+        .logs-detail {
+            @apply border-line bg-raised shadow-lg;
+        }
+
+        .logs-detail-head {
+            @apply border-line bg-transparent py-1;
+        }
+
+        .logs-seg {
+            @apply gap-0 rounded-md bg-black/20 p-0.5;
+        }
+
+        .logs-seg-btn {
+            @apply rounded border-0 px-2.5 py-0.5 text-gray-400 hover:text-gray-200;
+        }
+
+        .logs-seg-btn[aria-pressed="true"] {
+            @apply bg-white/10 text-white;
+        }
+
+        .logs-json {
+            @apply rounded-md bg-code p-2;
+        }
+
+        .logs-context {
+            @apply rounded-lg border-gray-700 bg-surface;
+        }
+
+        .logs-context-head {
+            @apply border-line bg-transparent;
+        }
+
+        .logs-more {
+            @apply hover:bg-white/5;
+        }
+
+        .logs-menu-col {
+            @apply border-gray-700;
+        }
+
+        .logs-menu-rule {
+            @apply border-gray-700;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .logs-ctl {
+            @apply h-6 rounded border-[#33373f] bg-surface text-gray-200;
+        }
+
+        button.logs-ctl:hover:not(:disabled),
+        select.logs-ctl:hover {
+            @apply bg-white/[0.04];
+        }
+
+        .logs-run {
+            @apply h-6 rounded border-transparent px-2.5;
+        }
+
+        .logs-mini {
+            @apply border-line;
+        }
+
+        .logs-ghost {
+            @apply border-gray-700 hover:bg-white/[0.04];
+        }
+
+        .logs-chip {
+            @apply border-gray-700 bg-transparent;
+        }
+
+        .logs-chip-neg {
+            @apply border-red-900/60 bg-red-500/10;
+        }
+
+        .logs-micro {
+            @apply text-[10.5px] font-semibold tracking-wider;
+        }
+
+        .logs-hist {
+            @apply border-line bg-transparent px-3 pb-1 pt-1.5;
+        }
+
+        .logs-axis,
+        .logs-note {
+            @apply text-gray-500;
+        }
+
+        .logs-side,
+        .logs-side-head {
+            @apply border-line;
+        }
+
+        .logs-side-head {
+            @apply pl-3;
+        }
+
+        .logs-results {
+            @apply bg-transparent;
+        }
+
+        .logs-head {
+            @apply border-line bg-surface;
+        }
+
+        .logs-head-cell,
+        .logs-cell {
+            @apply border-transparent;
+        }
+
+        .logs-head-cell:first-child,
+        div.logs-cell:first-of-type {
+            @apply pl-3;
+        }
+
+        .logs-row {
+            @apply border-transparent hover:bg-white/[0.04];
+        }
+
+        .logs-row-open,
+        .logs-row-open:hover {
+            @apply bg-white/[0.07];
+        }
+
+        .logs-row-time {
+            @apply text-gray-500;
+        }
+
+        .logs-empty-cell {
+            @apply text-gray-600;
+        }
+
+        .logs-detail {
+            @apply border-line bg-frame shadow-lg;
+        }
+
+        .logs-detail-head {
+            @apply border-line bg-transparent py-1;
+        }
+
+        .logs-seg {
+            @apply gap-0 rounded border border-gray-700;
+        }
+
+        .logs-seg-btn {
+            @apply border-0 px-2.5 py-0.5 text-gray-400 hover:text-gray-200;
+        }
+
+        .logs-seg-btn + .logs-seg-btn {
+            @apply border-l border-gray-700;
+        }
+
+        .logs-seg-btn[aria-pressed="true"] {
+            @apply bg-white/[0.07] text-white;
+        }
+
+        .logs-json {
+            @apply rounded bg-code p-2;
+        }
+
+        .logs-tip {
+            @apply border-gray-600 bg-raised;
+        }
+
+        .logs-context {
+            @apply border-gray-600 bg-surface;
+        }
+
+        .logs-context-head {
+            @apply border-line bg-frame;
+        }
+
+        .logs-more {
+            @apply hover:bg-white/[0.04];
+        }
+
+        .logs-menu-col {
+            @apply border-gray-700;
+        }
+
+        .logs-menu-rule {
+            @apply border-gray-700;
+        }
+    }
+}

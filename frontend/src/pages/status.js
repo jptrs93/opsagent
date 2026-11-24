@@ -20,7 +20,7 @@ import {deploymentUsages} from "../lib/referenceUsage.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {preparerPhase} from "../lib/preparerStatus.js";
 import {formatDateTime} from "../lib/date.js";
-import {spaceHue} from "../lib/valueExplorer.js";
+import {spaceDot, spacesFilter} from "../components/spacesFilter.js";
 
 const { div, h2, p, button, input, label: labelTag, a, table, thead, tbody, tr, th, td, span, colgroup, col } = van.tags;
 
@@ -187,13 +187,13 @@ function deleteDeploymentOverlay(deploymentRow, close) {
             div({class: "flex items-center justify-end gap-2"},
                 button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-60 cursor-pointer",
+                    class: "dep-btn text-xs px-3 py-1",
                     disabled: () => saving.val,
                     onclick: close,
                 }, "Cancel"),
                 button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500 disabled:opacity-60 cursor-pointer",
+                    class: "dep-btn dep-btn-danger text-xs px-3 py-1",
                     disabled: () => saving.val,
                     onclick: confirmDelete,
                 }, () => saving.val ? "Deleting..." : "Delete"),
@@ -233,13 +233,13 @@ function resetNixStoreOverlay(deploymentRow, close) {
             div({class: "flex items-center justify-end gap-2"},
                 button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-60 cursor-pointer",
+                    class: "dep-btn text-xs px-3 py-1",
                     disabled: () => saving.val,
                     onclick: close,
                 }, () => done.val ? "Close" : "Cancel"),
                 () => done.val ? '' : button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-red-600 text-white hover:bg-red-500 disabled:opacity-60 cursor-pointer",
+                    class: "dep-btn dep-btn-danger text-xs px-3 py-1",
                     "data-testid": "nix-store-reset-confirm",
                     disabled: () => saving.val,
                     onclick: confirmReset,
@@ -311,20 +311,20 @@ function revertDeploymentTargetVersionOverlay(deploymentId, historyConfig, getCu
             p({class: "text-sm text-gray-300"}, `Revert ${label} to the target version from config v${historyVersion}?`),
             p({class: "text-xs text-gray-400"}, "This only changes the desired target version and preserves the deployment's current running or stopped state."),
             div(
-                {class: "rounded-lg border border-gray-700 bg-gray-950/60 px-3 py-2 font-mono text-xs text-blue-200 break-all"},
+                {class: "rounded-lg border border-gray-700 bg-gray-950/60 slate:bg-code graphite:bg-code px-3 py-2 font-mono text-xs text-blue-200 slate:text-asset graphite:text-gray-200 break-all"},
                 targetVersion || 'No target version',
             ),
             () => error.val ? p({class: "text-sm text-red-400"}, error.val) : '',
             div({class: "flex items-center justify-end gap-2"},
                 button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-60 cursor-pointer",
+                    class: "dep-btn text-xs px-3 py-1",
                     disabled: () => saving.val,
                     onclick: close,
                 }, "Cancel"),
                 button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-60 cursor-pointer",
+                    class: "dep-btn dep-btn-blue text-xs px-3 py-1",
                     disabled: () => saving.val || !targetVersion,
                     onclick: confirmRevert,
                 }, () => saving.val ? "Reverting..." : "Revert target"),
@@ -461,20 +461,19 @@ const dnsLabel = (s) => {
 const deploymentDnsName = (name, spaceId) => `${dnsLabel(name)}.space-${spaceId}.internal`;
 
 const STATUS_ORDER = ['Running', 'Starting', 'Preparing', 'Stopped', 'Crashed', 'Prepare failed', 'Unknown', 'No Deployment', 'No existing deployment'];
-const STATUS_STYLE = {
-    'Running': {dot: 'bg-green-500', text: 'text-green-300'},
-    'Starting': {dot: 'bg-yellow-500', text: 'text-yellow-300'},
-    'Preparing': {dot: 'bg-blue-500', text: 'text-blue-300'},
-    'Stopped': {dot: 'bg-gray-500', text: 'text-gray-400'},
-    'Crashed': {dot: 'bg-red-500', text: 'text-red-300'},
-    'Prepare failed': {dot: 'bg-red-500', text: 'text-red-300'},
-    'Unknown': {dot: 'bg-gray-500', text: 'text-gray-400'},
-    'No Deployment': {dot: 'bg-gray-600', text: 'text-gray-400'},
-    'No existing deployment': {dot: 'bg-gray-600', text: 'text-gray-500'},
+const STATUS_TONE = {
+    'Running': 'ok',
+    'Starting': 'warn',
+    'Preparing': 'busy',
+    'Stopped': 'off',
+    'Crashed': 'err',
+    'Prepare failed': 'err',
+    'Unknown': 'off',
+    'No Deployment': 'none',
+    'No existing deployment': 'absent',
 };
 const existingStatusNames = {0: 'Unknown', 1: 'No Deployment', 2: 'Running', 3: 'Stopped', 4: 'Starting', 5: 'Crashed'};
 const preRunnerNames = {progress: 'Preparing', ready: 'Starting', failed: 'Prepare failed'};
-const PREPARE_TEXT = {ready: 'text-green-300', progress: 'text-blue-300', failed: 'text-red-300'};
 
 const instanceStatusView = (member, instance) => {
     const hasExisting = instance.existingStatus !== STATUS_NO_DEPLOYMENT;
@@ -487,7 +486,7 @@ const instanceStatusView = (member, instance) => {
     else label = existingStatusNames[instance.existingStatus] || 'Unknown';
     return {
         label,
-        style: STATUS_STYLE[label] || STATUS_STYLE.Unknown,
+        tone: `dep-st-${STATUS_TONE[label] || STATUS_TONE.Unknown}`,
         hasRunOutput: hasExisting && instance.runnerPresent,
     };
 };
@@ -540,13 +539,13 @@ const versionNode = (member, instance, text, extraClass = '') => {
     if (!version) return span({class: `text-gray-500 ${extraClass}`}, 'none');
     const desired = instance.deployedVersion || member.deployedVersion || '';
     const mismatched = Boolean(desired) && version !== desired;
-    const color = mismatched ? 'text-orange-400' : 'text-gray-300';
+    const color = mismatched ? 'dep-ver-drift' : 'dep-ver';
     const title = mismatched ? `Instance ${version}; desired ${desired}` : version;
     const href = versionHref(member, instance);
     const cls = `font-mono ${color} truncate min-w-0 ${extraClass}`;
     if (href) {
         return a({
-            class: `${cls} underline hover:text-white`,
+            class: `${cls} dep-ver`,
             href,
             target: "_blank",
             rel: "noopener noreferrer",
@@ -582,17 +581,8 @@ const COLUMN_DEFS = [
 const INSPECTOR_MIN = 340;
 const INSPECTOR_MAX = 760;
 
-const thBase = "sticky top-0 z-[1] bg-surface px-2 py-1.5 text-left text-[10.5px] font-semibold uppercase " +
-    "tracking-wider whitespace-nowrap text-gray-500 shadow-[inset_0_-1px_0_#374151]";
-const tdBase = "border-b border-gray-800/60 border-r border-r-gray-800/30 last:border-r-0 px-2 py-[3px] " +
-    "align-middle overflow-hidden text-[13px]";
-
-const miniTh = (text, extra = "") => th(
-    {class: `border-b border-gray-700/70 border-r border-r-gray-800/40 last:border-r-0 bg-gray-950/40 px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-gray-500 ${extra}`},
-    text);
-const miniTd = (attrs, ...children) => td(
-    {...attrs, class: `border-b border-gray-800/50 border-r border-r-gray-800/30 last:border-r-0 px-2 py-[3px] whitespace-nowrap overflow-hidden ${attrs.class || ''}`},
-    ...children);
+const miniTh = (text, extra = "") => th({class: `dep-mini-th ${extra}`}, text);
+const miniTd = (attrs, ...children) => td({...attrs, class: `dep-mini-td ${attrs.class || ''}`}, ...children);
 
 // The page owns no deployment editor: hooks.onUpdate(row, rawConfig) opens
 // the editor for ordinary deployment rows (system group rows keep their own
@@ -776,17 +766,11 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         .sort((a, b) => ((a.id === 0) - (b.id === 0)) || (a.id - b.id));
 
     const visibleSpaces = () => orderedSpaces().filter((s) => !hiddenSpaces.val.has(Number(s.id)));
-    const spacesDirty = () => !(hiddenSpaces.val.size === 1 && hiddenSpaces.val.has(OPENDEPLOY_SPACE_ID));
 
     const visibleStates = () => RUN_STATES.filter((s) => !hiddenStates.val.has(s.key));
     const statesDirty = () => hiddenStates.val.size !== DEFAULT_HIDDEN_STATES.size
         || [...hiddenStates.val].some((key) => !DEFAULT_HIDDEN_STATES.has(key));
     const stateDot = (state) => span({class: `inline-block w-[7px] h-[7px] rounded-full flex-none ${state.dot}`});
-
-    const spaceDot = (spaceId) => span({
-        class: "inline-block w-[7px] h-[7px] rounded-full flex-none",
-        style: `background:${spaceHue(spaceId)}`,
-    });
 
     const toggleCollapsed = (spaceId) => {
         const next = new Set(collapsedSpaces.val);
@@ -817,7 +801,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         const groupSpan = (g, i, stacked) => {
             const view = instanceStatusView(g.first.member, g.first.instance);
             const attrs = {
-                class: `flex items-center ${stacked ? 'gap-1.5' : 'gap-1'} min-w-0 ${view.style.text}` +
+                class: `flex items-center ${stacked ? 'gap-1.5' : 'gap-1'} min-w-0 ${view.tone}` +
                     (view.hasRunOutput ? ' cursor-pointer hover:brightness-125' : ''),
             };
             if (!row.isSystemGroup && total === 1) attrs["data-testid"] = `deployment-runner-status-${row.name}`;
@@ -826,7 +810,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                 attrs.onclick = (e) => { e.stopPropagation(); onShowRunOutput(g.first.member); };
             }
             return span(attrs,
-                span({class: `inline-block w-1.5 h-1.5 rounded-full flex-none ${view.style.dot}`}),
+                span({class: "dep-dot"}),
                 span({class: "truncate"}, labels[i]));
         };
         if (oneLineFits(labels, UI_CHAR_PX, DOT_PX, usablePx("status"))) {
@@ -864,7 +848,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
             const version = g.first.instance.prepareVersion || '';
             return button({
                 type: "button",
-                class: `${PREPARE_TEXT[phase.tone]} hover:brightness-125 underline cursor-pointer p-0 truncate text-left min-w-0`,
+                class: `dep-prep dep-prep-${phase.tone} hover:brightness-125 cursor-pointer p-0 truncate text-left min-w-0`,
                 title: `${version ? shortVersion(version) + ' ' : ''}${phase.label} — view prepare output`,
                 ...(testID ? {"data-testid": testID} : {}),
                 onclick: (e) => { e.stopPropagation(); onShowPrepareOutput(g.first.member); },
@@ -880,8 +864,8 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         const nodes = [...new Set(subInstances(row).map((s) => s.node).filter(Boolean))];
         if (nodes.length === 0) return span({class: "text-gray-500"}, '-');
         return nodes.length === 1
-            ? span({class: "truncate text-gray-300"}, nodes[0])
-            : span({class: "truncate text-gray-300", title: nodes.join(", ")}, `${nodes.length} nodes`);
+            ? span({class: "dep-nodes"}, nodes[0])
+            : span({class: "dep-nodes", title: nodes.join(", ")}, `${nodes.length} nodes`);
     };
 
     const restartsCell = (row) => {
@@ -895,7 +879,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
             total > 0
                 ? button({
                     type: "button",
-                    class: "cursor-pointer p-0 text-gray-300 underline hover:text-white",
+                    class: "dep-hot cursor-pointer p-0",
                     title: "View run report",
                     "data-testid": `deployment-restarts-open-${row.name}`,
                     onclick: (e) => {
@@ -921,21 +905,21 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         const audit = latestAudit(row);
         return tr(
             {
-                class: () => `cursor-default ${selectedRowId.val === row.id ? "bg-brand/15" : "hover:bg-gray-700/35"}`,
+                class: () => `dep-row ${selectedRowId.val === row.id ? "dep-row-selected" : ""}`,
                 onclick: () => select(row.id),
                 "data-testid": `deployment-row-${row.name}`,
             },
-            td({class: `${tdBase} whitespace-nowrap`},
-                span({class: "truncate font-medium text-white"}, row.name || `#${row.id}`)),
-            td({class: `${tdBase} whitespace-nowrap`}, nodesCell(row)),
-            td({class: tdBase}, statusCell(row)),
-            td({class: tdBase}, versionCell(row)),
-            td({class: tdBase}, prepareCell(row)),
-            td({class: `${tdBase}`, "data-testid": `deployment-restarts-${row.name}`}, restartsCell(row)),
-            td({class: `${tdBase} whitespace-nowrap text-gray-400`}, () => resolveUserDisplayName(audit.by) || 'unknown'),
-            td({class: `${tdBase} whitespace-nowrap text-gray-500`, title: formatDateTime(audit.at, "")},
+            td({class: `dep-td whitespace-nowrap`},
+                span({class: "dep-name"}, row.name || `#${row.id}`)),
+            td({class: `dep-td whitespace-nowrap`}, nodesCell(row)),
+            td({class: "dep-td"}, statusCell(row)),
+            td({class: "dep-td"}, versionCell(row)),
+            td({class: "dep-td"}, prepareCell(row)),
+            td({class: "dep-td", "data-testid": `deployment-restarts-${row.name}`}, restartsCell(row)),
+            td({class: `dep-td whitespace-nowrap text-gray-400`}, () => resolveUserDisplayName(audit.by) || 'unknown'),
+            td({class: `dep-td whitespace-nowrap text-gray-500`, title: formatDateTime(audit.at, "")},
                 formatDateTime(audit.at, "-")),
-            td({class: `${tdBase} px-1 text-right whitespace-nowrap`},
+            td({class: `dep-td px-1 text-right whitespace-nowrap`},
                 button({
                     type: "button",
                     title: `Update ${row.name}`,
@@ -952,9 +936,9 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
     };
 
     const spaceBandRow = (space, count, collapsed) => tr(
-        {class: "cursor-default bg-gray-950/30 hover:bg-gray-700/35", onclick: () => toggleCollapsed(space.id)},
-        td({class: "border-b border-gray-800/80 px-2 py-1", colSpan: COLUMN_DEFS.length},
-            span({class: "flex items-center gap-1.5 font-mono text-[13px]"},
+        {class: "dep-band band-bg", onclick: () => toggleCollapsed(space.id)},
+        td({colSpan: COLUMN_DEFS.length},
+            div({class: "band-label"},
                 button({
                     type: "button",
                     "aria-label": collapsed ? `Expand ${spaceLabelOf(space)}` : `Collapse ${spaceLabelOf(space)}`,
@@ -962,8 +946,9 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                     onclick: (e) => { e.stopPropagation(); toggleCollapsed(space.id); },
                 }, caretRightIcon({class: `w-[11px] h-[11px] transition-transform ${collapsed ? "" : "rotate-90"}`})),
                 spaceDot(space.id),
-                span({class: "font-semibold text-gray-100"}, spaceLabelOf(space)),
-                span({class: "text-[10.5px] text-gray-500"}, String(count)))),
+                span({class: "band-title"}, spaceLabelOf(space)),
+                span({class: "band-count"}, String(count)),
+                span({class: "band-rule"}))),
     );
 
     const fitColumns = (avail, keepKey = null) => {
@@ -1030,7 +1015,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
             onmousedown: (e) => startColResize(e, c.key, c.min),
             onkeydown: (e) => nudgeColWidth(e, c.key, c.min),
         });
-        return th({class: thBase}, c.label, grip);
+        return th({class: "dep-th col-head"}, c.label, grip);
     };
 
     const deploymentTable = () => {
@@ -1068,8 +1053,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         "aria-haspopup": "true",
         "aria-expanded": () => String(openMenu.val === menu),
         "aria-label": ariaLabel,
-        class: "inline-flex h-[30px] items-center gap-1.5 rounded border border-gray-600 px-2 text-xs " +
-            "text-gray-400 hover:bg-surface-hover hover:text-gray-100 transition-colors cursor-pointer",
+        class: "dep-filter",
         onclick: (e) => {
             e.stopPropagation();
             openMenu.val = openMenu.val === menu ? null : menu;
@@ -1077,46 +1061,27 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
     }, () => span({class: "inline-flex items-center gap-1.5"}, ...label()));
 
     const menuShell = (...children) => div({
-        class: "absolute top-full left-0 z-30 mt-1.5 min-w-52 rounded-md border border-gray-600 bg-surface p-1 shadow-2xl flex flex-col",
+        class: "menu dep-menu",
         onclick: (e) => e.stopPropagation(),
     }, ...children);
 
     const menuRow = (attrs, onclick, ...children) => button({
         type: "button",
         ...attrs,
-        class: "flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-gray-200 hover:bg-surface-hover cursor-pointer",
+        class: "menu-item",
         onclick,
     }, ...children);
 
     const menuCheck = (on) => checkIcon({class: `w-3.5 h-3.5 flex-none text-brand ${on ? "" : "invisible"}`});
 
-    const toggleSpace = (id) => {
-        const next = new Set(hiddenSpaces.val);
-        next.has(id) ? next.delete(id) : next.add(id);
-        hiddenSpaces.val = next;
-        saveHiddenSpaces(next);
-    };
-
-    const spacesMenu = () => menuShell(
-        ...orderedSpaces().map((space) => menuRow(
-            {
-                role: "menuitemcheckbox",
-                "aria-checked": String(!hiddenSpaces.val.has(Number(space.id))),
-            },
-            () => toggleSpace(Number(space.id)),
-            menuCheck(!hiddenSpaces.val.has(Number(space.id))),
-            spaceDot(space.id),
-            span({class: "font-mono"}, spaceLabelOf(space)),
-        )),
-        ...(spacesDirty() ? [
-            div({class: "my-1 border-t border-gray-700"}),
-            menuRow({}, () => {
-                const next = new Set([OPENDEPLOY_SPACE_ID]);
-                hiddenSpaces.val = next;
-                saveHiddenSpaces(next);
-            }, closeIcon({class: "w-3.5 h-3.5 flex-none text-brand"}), "Reset to default"),
-        ] : []),
-    );
+    const spaceFilter = spacesFilter({
+        hiddenS: hiddenSpaces,
+        spaces: orderedSpaces,
+        defaultHidden: new Set([OPENDEPLOY_SPACE_ID]),
+        onChange: saveHiddenSpaces,
+        buttonClass: "dep-filter",
+        testid: "deployments-space-filter",
+    });
 
     const setHiddenStates = (next) => {
         hiddenStates.val = next;
@@ -1153,7 +1118,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
     };
 
     const toolbar = () => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        {class: "page-toolbar dep-page-toolbar gap-2 classic:py-2"},
         div({class: "relative"},
             searchIcon({class: "pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500"}),
             input({
@@ -1164,17 +1129,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                 value: search,
                 oninput: (e) => { search.val = e.target.value; },
             })),
-        span({class: "relative inline-flex"},
-            filterButton({
-                menu: "spaces",
-                ariaLabel: "Filter spaces",
-                label: () => [
-                    span({class: "inline-flex items-center gap-1"}, ...visibleSpaces().map((s) => spaceDot(s.id))),
-                    `${visibleSpaces().length} space${visibleSpaces().length === 1 ? "" : "s"}`,
-                    chevronDownIcon({class: "w-3 h-3"}),
-                ],
-            }),
-            () => openMenu.val === "spaces" ? spacesMenu() : ""),
+        spaceFilter,
         span({class: "relative inline-flex"},
             filterButton({
                 menu: "states",
@@ -1203,7 +1158,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         button({
             type: "button",
             "data-testid": "add-deployment-button",
-            class: "toolbar-button",
+            class: "toolbar-button dep-add",
             onclick: openCreateOverlay,
         }, plusIcon({class: "w-3.5 h-3.5"}), "Add deployment"),
     );
@@ -1224,9 +1179,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         }, () => done.val ? checkIcon({class: "w-3 h-3 text-green-400"}) : copyIcon({class: "w-3 h-3"}));
     };
 
-    const factTh = "w-[92px] border-b border-gray-800/60 px-2 py-1 text-left align-baseline text-[10px] font-semibold uppercase tracking-wide text-gray-500";
-    const factTd = "border-b border-gray-800/60 px-2 py-1 align-baseline text-xs text-gray-300 break-all";
-    const factRow = (label, ...value) => tr(th({class: factTh, scope: "row"}, label), td({class: factTd}, ...value));
+    const factRow = (label, ...value) => tr(th({class: "dep-fact-th", scope: "row"}, label), td({class: "dep-fact-td"}, ...value));
 
     const factsTable = (row) => {
         const nodes = [...new Set(subInstances(row).map((s) => s.node).filter(Boolean))];
@@ -1272,7 +1225,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                 const view = instanceStatusView(sub.member, sub.instance);
                 const phase = preparePhaseView(sub.instance);
                 return tr(
-                    {class: "hover:bg-gray-700/35"},
+                    {class: "dep-mini-row"},
                     miniTd({class: "font-mono text-gray-500"}, String(sub.instance.instanceId || '-')),
                     miniTd({class: "font-mono text-gray-300"},
                         span({class: "flex items-center gap-1.5 min-w-0"},
@@ -1280,7 +1233,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                             sub.isPrimaryNode ? span({class: "text-[9px] uppercase tracking-wide text-gray-500"}, 'primary') : '')),
                     miniTd({},
                         span({
-                            class: `flex items-center gap-1.5 ${view.style.text}` +
+                            class: `flex items-center gap-1.5 ${view.tone}` +
                                 (view.hasRunOutput ? ' cursor-pointer hover:brightness-125' : ''),
                             "data-testid": `deployment-runner-status-${sub.testSuffix}`,
                             ...(view.hasRunOutput ? {
@@ -1288,7 +1241,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                                 onclick: () => onShowRunOutput(sub.member),
                             } : {}),
                         },
-                            span({class: `inline-block w-1.5 h-1.5 rounded-full flex-none ${view.style.dot}`}),
+                            span({class: "dep-dot"}),
                             span({class: "truncate"}, view.label))),
                     miniTd({"data-testid": `deployment-version-${sub.testSuffix}`},
                         versionNode(sub.member, sub.instance, sub.instance.existingVersion ? shortVersion(sub.instance.existingVersion) : 'none')),
@@ -1296,7 +1249,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                         phase
                             ? button({
                                 type: "button",
-                                class: `${PREPARE_TEXT[phase.tone]} hover:brightness-125 underline cursor-pointer p-0 truncate text-left min-w-0`,
+                                class: `dep-prep dep-prep-${phase.tone} hover:brightness-125 cursor-pointer p-0 truncate text-left min-w-0`,
                                 "data-testid": `deployment-prepare-status-${sub.testSuffix}`,
                                 title: `${sub.instance.prepareVersion ? shortVersion(sub.instance.prepareVersion) + ' ' : ''}${phase.label} — view prepare output`,
                                 onclick: () => onShowPrepareOutput(sub.member),
@@ -1306,7 +1259,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                         (sub.instance.numberOfRestarts || 0) > 0
                             ? button({
                                 type: "button",
-                                class: "cursor-pointer p-0 tabular-nums text-gray-300 underline hover:text-white",
+                                class: "dep-hot cursor-pointer p-0 tabular-nums",
                                 title: "View run report",
                                 "data-testid": `instance-rst-open-${sub.testSuffix}`,
                                 onclick: () => onShowRunReport(sub.member, sub.instance),
@@ -1317,17 +1270,17 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         );
     };
 
-    const sectionLabel = (text) => p({class: "px-2 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, text);
+    const sectionLabel = (text, first = false) => p({class: `dep-section ${first ? "" : "dep-section-break"}`}, text);
 
-    const inspectorActionButton = (text, onclick, cls = "bg-gray-700 text-gray-200 hover:bg-gray-600") => button({
+    const inspectorActionButton = (text, onclick, cls = "") => button({
         type: "button",
-        class: `text-xs px-2.5 py-1.5 rounded-md font-medium transition-colors cursor-pointer whitespace-nowrap ${cls}`,
+        class: `dep-btn text-xs px-2.5 py-1.5 whitespace-nowrap ${cls}`,
         onclick,
     }, text);
 
     const detailsTab = (row) => [
         div({class: "app-scroll flex-1 min-h-0 overflow-y-auto"},
-            sectionLabel("Overview"),
+            sectionLabel("Overview", true),
             factsTable(row),
             sectionLabel(`Instances · ${subInstances(row).length}`),
             div({class: "px-2 pb-2"}, instancesTable(row)),
@@ -1335,8 +1288,8 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                 sectionLabel("Network policies"),
                 div({class: "px-2 pb-2"}, deploymentNetworkPolicies(row.id, row.spaceId)),
             ])),
-        div({class: "flex flex-none flex-wrap gap-1.5 border-t border-gray-800 px-3 py-2.5"},
-            inspectorActionButton("Update", () => onUpdate(row), "bg-brand text-white hover:bg-blue-600"),
+        div({class: "dep-hr flex flex-none flex-wrap gap-1.5 border-t px-3 py-2.5"},
+            inspectorActionButton("Update", () => onUpdate(row), "dep-btn-primary"),
             ...(row.isSystemGroup ? [] : [
                 ...(row.desiredRunning ? [inspectorActionButton("Restart", () => onRestart(row))] : []),
                 inspectorActionButton("Fork", () => onFork(row)),
@@ -1346,7 +1299,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                     inspectorActionButton("Reset build store", () => onResetNixStore(row)),
                 ] : []),
                 ...(row.canDelete ? [
-                    inspectorActionButton("Delete", () => onDelete(row), "bg-gray-700 text-gray-200 hover:bg-red-600 hover:text-white"),
+                    inspectorActionButton("Delete", () => onDelete(row), "dep-btn-delete"),
                 ] : []),
             ])),
     ];
@@ -1365,7 +1318,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
             ? historyMemberId.val
             : row.members[0].id;
         return [
-            div({class: "flex flex-none flex-wrap items-center gap-1 border-b border-gray-800 px-2 py-1.5"},
+            div({class: "dep-hr flex flex-none flex-wrap items-center gap-1 border-b px-2 py-1.5"},
                 ...row.members.map((member) => button({
                     type: "button",
                     class: `rounded px-2 py-0.5 text-[11px] cursor-pointer transition-colors ${member.id === memberId
@@ -1414,7 +1367,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         if (!row) return '';
         return div(
             {
-                class: "relative flex h-full flex-none flex-col border-l border-gray-700 bg-gray-950/35",
+                class: "dep-inspector",
                 style: `width:${inspectorWidth.rawVal}px`,
                 "data-testid": "deployment-inspector",
             },
@@ -1424,8 +1377,8 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                 "aria-label": "Resize inspector",
                 onmousedown: startInspectorResize,
             }),
-            div({class: "flex flex-none items-center gap-2 border-b border-gray-800 py-2.5 pl-3 pr-2"},
-                span({class: "min-w-0 truncate font-mono text-sm text-white"}, row.name),
+            div({class: "dep-hr flex flex-none items-center gap-2 border-b py-2.5 pl-3 pr-2"},
+                span({class: "min-w-0 truncate font-mono text-sm text-white slate:font-sans slate:font-semibold"}, row.name),
                 span({class: "inline-flex items-center gap-1.5 font-mono text-[11px] text-gray-400"},
                     spaceDot(row.spaceId), row.spaceName),
                 div({class: "flex-1"}),
@@ -1436,7 +1389,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                     class: "inline-flex h-6 w-6 flex-none items-center justify-center rounded text-gray-500 hover:text-gray-100 hover:bg-white/10 transition-colors cursor-pointer",
                     onclick: closeInspector,
                 }, closeIcon({class: "w-3.5 h-3.5"}))),
-            div({class: "flex flex-none border-b border-gray-800"},
+            div({class: "dep-hr flex flex-none border-b"},
                 inspectorTabButton("details", "Details"),
                 inspectorTabButton("history", "History")),
             div({class: "flex min-h-0 flex-1 flex-col"},

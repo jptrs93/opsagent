@@ -76,10 +76,10 @@ export function evictNodeOverlay({machine, pinned, evict, close}) {
                     ? p({class: "text-sm text-red-400"}, loadError.val)
                     : exposureSummary(exposure.val),
             !blocked ? '' : div(
-                {class: "rounded border border-amber-600/60 bg-amber-900/20 p-3 flex flex-col gap-2", "data-testid": "node-evict-warning"},
-                p({class: "text-sm text-amber-200"},
+                {class: "rounded border border-amber-600/60 bg-amber-900/20 p-3 flex flex-col gap-2 slate:rounded-md slate:border-amber-500/30 slate:bg-amber-500/[0.07] graphite:border-[#d8b36a]/35 graphite:bg-[#d8b36a]/[0.06]", "data-testid": "node-evict-warning"},
+                p({class: "text-sm text-amber-200 graphite:text-[#d8b36a]"},
                     `${pinned.length} deployment${pinned.length === 1 ? '' : 's'} still target${pinned.length === 1 ? 's' : ''} this node. Evicting stops ${pinned.length === 1 ? 'it' : 'them'} and leaves ${pinned.length === 1 ? 'it' : 'them'} pinned to the evicted node until you move ${pinned.length === 1 ? 'it' : 'them'}.`),
-                ul({class: "text-xs text-amber-100 pl-4 list-disc"},
+                ul({class: "text-xs text-amber-100 pl-4 list-disc graphite:text-gray-200"},
                     ...pinned.map(row => li(`${row.config.deployment.name} (#${row.config.deployment.id})`))),
                 label({class: "flex items-center gap-2 text-sm text-gray-200 cursor-pointer"},
                     input({type: "checkbox", "data-testid": "node-evict-force", checked: () => force.val, onchange: e => { force.val = e.target.checked; }}),

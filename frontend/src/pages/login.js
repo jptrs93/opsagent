@@ -2,7 +2,7 @@ import van from "vanjs-core";
 import {navigate} from "../lib/router.js";
 import {spinnerButton} from "../components/spinnerbutton.js";
 import {caTrustHelp} from "../components/caTrustHelp.js";
-import {authButtonBase, authButtonClass, authCard, authLinkClass, divider, fieldGroup, fieldInput, fieldRow, footerBand, footerText, notice, revealToggle, transportRow, withIcon} from "../components/authCard.js";
+import {authButtonBase, authButtonClass, authCard, authSecondaryButtonClass, authLinkClass, divider, fieldGroup, fieldInput, fieldRow, footerBand, footerText, notice, revealToggle, transportRow, withIcon} from "../components/authCard.js";
 import {capi} from "../capi/index.js";
 import {setLoginFromResponse} from "../state/login.js";
 import {authMethodsS, loadAuthMethods} from "../state/authMethods.js";
@@ -27,12 +27,12 @@ export function loginPage() {
     // drops bindings on DOM that stays disconnected for about a second, so
     // anything constructed up front and mounted after discovery would lose
     // its spinner and disabled state.
-    const passkeySection = (available) => {
+    const passkeySection = (available, secondary = false) => {
         if (!available) {
-            return p({class: "text-center text-sm text-gray-500"}, "Passkeys are not enabled on this server.");
+            return p({class: "auth-hint text-center text-sm"}, "Passkeys are not enabled on this server.");
         }
         if (!browserSupportsPasskeys()) {
-            return p({class: "rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2 text-center text-sm text-gray-400"}, "This browser does not support passkeys.");
+            return p({class: "auth-aside px-3 py-2 text-center text-sm"}, "This browser does not support passkeys.");
         }
         const signIn = async () => {
             busy.val = true;
@@ -58,7 +58,7 @@ export function loginPage() {
             }
         };
         const button = spinnerButton(withIcon(keyRoundIcon({class: "h-4 w-4"}), "Sign in with passkey"), signIn,
-            authButtonClass, 'button', () => busy.val, {base: authButtonBase});
+            secondary ? authSecondaryButtonClass : authButtonClass, 'button', () => busy.val, {base: authButtonBase});
         button.dataset.testid = "login-passkey-button";
         return button;
     };
@@ -113,24 +113,24 @@ export function loginPage() {
         const methods = authMethodsS.val;
         if (methods.status === 'loading') {
             return div({class: "flex animate-pulse flex-col gap-4"},
-                div({class: "h-[86px] rounded-lg border border-gray-700 bg-gray-900/40"}), div({class: "h-10 rounded-lg bg-gray-800/70"}), div({class: "h-10 rounded-lg bg-gray-800/70"}));
+                div({class: "auth-skeleton-fields h-[86px]"}), div({class: "auth-skeleton h-10"}), div({class: "auth-skeleton h-10"}));
         }
         if (methods.status === 'error') {
             return div(
                 {class: "flex flex-col gap-4"},
                 notice("warning", "login-methods-error",
                     "Could not load the available sign-in methods: ", span({class: "font-mono text-xs"}, methods.error), " ",
-                    button({type: "button", class: "cursor-pointer underline decoration-amber-200/40 underline-offset-2 hover:text-amber-100", onclick: () => loadAuthMethods()}, "Retry")),
+                    button({type: "button", class: "auth-retry cursor-pointer underline underline-offset-2", onclick: () => loadAuthMethods()}, "Retry")),
                 passwordForm(),
             );
         }
         if (methods.requirePasskey) {
             return div({class: "flex flex-col gap-3"},
                 passkeySection(methods.passkeyLoginEnabled),
-                p({class: "text-center text-xs text-gray-500", "data-testid": "login-passkey-required"}, "This cluster requires passkey sign-in."));
+                p({class: "auth-hint text-center text-xs", "data-testid": "login-passkey-required"}, "This cluster requires passkey sign-in."));
         }
         if (!methods.passkeyLoginEnabled) return passwordForm();
-        return div({class: "flex flex-col gap-5"}, passwordForm(), divider("or"), passkeySection(true));
+        return div({class: "flex flex-col gap-5"}, passwordForm(), divider("or"), passkeySection(true, true));
     };
 
     return authCard({

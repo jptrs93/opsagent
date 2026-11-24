@@ -16,12 +16,13 @@ const generatePassword = () => {
     return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 };
 
-const caption = (text) => span({class: "pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, text);
-const heading = (title, hint) => div({class: "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-gray-800 pb-1"},
+const caption = (text) => span({class: "pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 slate:text-[11px] slate:font-medium slate:normal-case slate:tracking-normal slate:text-gray-400"}, text);
+const heading = (title, hint) => div({class: "access-section-head"},
     span({class: "text-xs font-semibold text-gray-200"}, title),
-    hint ? span({class: "text-[11px] text-gray-500"}, hint) : "");
-const block = (...rows) => div({class: "divide-y divide-gray-800 rounded-md border border-gray-700/60 bg-gray-950/30"}, ...rows);
-const row = (label, ...children) => div({class: "grid gap-2 px-3 py-2.5 sm:grid-cols-[8rem_1fr] sm:items-start"},
+    hint ? span({class: "text-[11px] text-gray-500"}, hint) : "",
+    span({class: "access-section-rule"}));
+const block = (...rows) => div({class: "access-block"}, ...rows);
+const row = (label, ...children) => div({class: "grid gap-2 px-3 py-2.5 sm:grid-cols-[8rem_1fr] sm:items-start graphite:px-0 graphite:py-2"},
     caption(label),
     div({class: "flex min-w-0 flex-col gap-1.5"}, ...children));
 const value = (text) => span({class: "text-sm text-gray-200"}, text);
@@ -30,7 +31,7 @@ const tag = (text, cls) => span({class: `shrink-0 rounded px-1.5 py-0.5 text-[10
 
 const buttonBase = "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium";
 const primaryClass = "bg-brand text-white hover:bg-blue-600";
-const secondaryClass = "border border-gray-600 text-gray-200 hover:bg-surface-hover";
+const secondaryClass = "border border-gray-600 text-gray-200 hover:bg-surface-hover slate:border-transparent slate:bg-white/[0.06] slate:hover:bg-white/10";
 const actionButton = (text, onClick, {primary = false, disabledWhen, title, testid} = {}) => {
     const b = spinnerButton(text, onClick, primary ? primaryClass : secondaryClass, "button", disabledWhen, {base: buttonBase});
     if (title) b.title = title;
@@ -124,7 +125,7 @@ export function accountPanel({self, users, grants, templates, spaces, spaceNames
 
     const passkeyRow = (passkey) => {
         const last = me().passkeys.length === 1 && !me().hasPassword;
-        return div({class: "flex items-center gap-3 rounded-md border border-gray-800 bg-gray-950/40 px-3 py-2", "data-testid": `account-passkey-${passkey.id}`},
+        return div({class: "access-inset flex items-center gap-3 rounded-md border px-3 py-2", "data-testid": `account-passkey-${passkey.id}`},
             fingerprintIcon({class: "h-4 w-4 flex-none text-gray-400"}),
             div({class: "min-w-0 flex-1"},
                 div({class: "truncate text-sm text-gray-200"}, passkey.label || "Passkey"),
@@ -137,7 +138,7 @@ export function accountPanel({self, users, grants, templates, spaces, spaceNames
                     type: "button",
                     title: "Remove passkey",
                     "aria-label": `Remove ${passkey.label || "passkey"}`,
-                    class: "inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-gray-500 hover:bg-surface hover:text-red-400",
+                    class: "inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-gray-500 hover:bg-surface slate:hover:bg-white/[0.06] graphite:hover:bg-white/[0.06] hover:text-red-400",
                     onclick: () => run(() => actions.removePasskey({id: passkey.id}), "Passkey removed."),
                 }, closeIcon({class: "h-3.5 w-3.5"})));
     };
@@ -178,10 +179,9 @@ export function accountPanel({self, users, grants, templates, spaces, spaceNames
     const accessChip = (grant) => {
         const chip = describeGrant(grant, templatesById(), spaceNames());
         const el = span(
-            {class: `inline-flex items-center gap-1.5 rounded border px-1.5 py-px text-[11px] transition-colors ` +
-                (chip.template ? "border-blue-500/30 bg-blue-500/10 text-gray-300 hover:border-blue-400/60" : "border-gray-700 bg-gray-950/40 text-gray-400 hover:border-blue-400/60")},
-            span({class: `font-medium ${chip.template ? "text-blue-300" : "text-gray-200"}`}, chip.label),
-            chip.detail ? span({class: "text-gray-400"}, chip.template ? `(${chip.detail})` : chip.detail) : "");
+            {class: `access-chip ${chip.template ? "access-chip-role" : "access-chip-direct"}`},
+            span({class: "access-chip-label"}, chip.label),
+            chip.detail ? span({class: "access-chip-detail"}, chip.template ? `(${chip.detail})` : chip.detail) : "");
         const subject = () => grantSubject(grant, {templatesById: templatesById(), spaceNames: spaceNames(), spaces: spaces()});
         return explainable(el, (open) => renderExplainer(subject(), open), {width: () => explainerWidth(subject()), label: `Explain ${chip.label}`});
     };
@@ -222,7 +222,7 @@ export function accountPanel({self, users, grants, templates, spaces, spaceNames
         };
         return div(
             {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", onkeydown: (e) => { if (e.key === "Escape") { e.preventDefault(); close(); } }},
-            div({class: "card flex w-full max-w-md flex-col gap-4 shadow-2xl", role: "dialog", "aria-modal": "true", "aria-label": needsCurrent ? "Change password" : "Set a password", "data-testid": "account-password-dialog"},
+            div({class: "dialog access-dialog flex w-full max-w-md flex-col gap-4 p-4", role: "dialog", "aria-modal": "true", "aria-label": needsCurrent ? "Change password" : "Set a password", "data-testid": "account-password-dialog"},
                 div({class: "flex items-center justify-between gap-4"},
                     h2({class: "text-base font-semibold"}, needsCurrent ? "Change password" : "Set a password"),
                     button({type: "button", title: "Close", "aria-label": "Close", class: "inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-gray-500 hover:bg-surface-hover hover:text-gray-100", onclick: close}, closeIcon({class: "h-3.5 w-3.5"}))),
@@ -252,7 +252,7 @@ export function accountPanel({self, users, grants, templates, spaces, spaceNames
     return div({class: "app-scroll flex h-full min-h-0 flex-col overflow-y-auto", "data-testid": "account-panel"},
         div({class: "flex w-full max-w-3xl flex-col gap-6 px-4 py-4"},
             div({class: "flex items-center gap-3"},
-                span({class: "flex h-9 w-9 items-center justify-center rounded-full border border-gray-700 bg-gray-900 text-gray-300"}, keyRoundIcon({class: "h-4 w-4"})),
+                span({class: "flex h-9 w-9 items-center justify-center rounded-full border border-gray-700 bg-gray-900 text-gray-300 slate:border-line slate:bg-white/[0.04] graphite:border-line graphite:bg-frame"}, keyRoundIcon({class: "h-4 w-4"})),
                 div({class: "min-w-0"},
                     div({class: "flex items-center gap-2"},
                         h2({class: "truncate text-base font-semibold text-white"}, () => displayName(me())),

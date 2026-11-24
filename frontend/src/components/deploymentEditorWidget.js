@@ -211,7 +211,7 @@ export function deploymentEditorWidget(opts) {
     const submitButton = spinnerButton(
         mode === 'create' ? 'Create' : 'Update deployment',
         doSubmit,
-        'h-[30px] border border-blue-400/45 bg-blue-500/15 text-xs text-blue-100 hover:border-blue-300/70 hover:bg-blue-500/30 hover:text-blue-50',
+        'editor-submit h-[30px] border text-xs',
         'button',
         () => Boolean(invalidReason()),
         {base: 'rounded-md px-3 font-medium', disabledClass: 'opacity-45 cursor-not-allowed'},
@@ -233,7 +233,7 @@ export function deploymentEditorWidget(opts) {
         ? button({
             type: 'button',
             'data-testid': 'update-deployment-restart',
-            class: 'inline-flex h-[30px] items-center rounded-md border border-gray-700 bg-gray-900 px-3 text-xs font-medium text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-gray-900 cursor-pointer',
+            class: 'editor-fbtn inline-flex h-[30px] items-center rounded-md border px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer',
             disabled: () => Boolean(restartDisabledReason()),
             title: () => restartDisabledReason(),
             onclick: () => {
@@ -281,7 +281,7 @@ export function deploymentEditorWidget(opts) {
     const codeAvailable = () => (mode === 'create' || deploymentRow?.runnerType === 'container')
         && stateValue(nodesLoaded) !== false;
     const codeHost = div(
-        {class: 'flex h-full min-h-0 min-w-0 flex-1 items-center justify-center bg-gray-950'},
+        {class: 'editor-code flex h-full min-h-0 min-w-0 flex-1 items-center justify-center'},
         p({class: 'text-xs text-gray-500'}, 'Loading code editor...'),
     );
     const ensureCodeWidget = async () => {
@@ -352,8 +352,8 @@ export function deploymentEditorWidget(opts) {
     return div(
         {
             class: pageLayout
-                ? 'bg-gray-900 flex h-full w-full flex-col overflow-hidden'
-                : 'bg-gray-900 border border-gray-600 rounded-lg shadow-[0_28px_90px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden',
+                ? 'editor-root flex h-full w-full flex-col overflow-hidden'
+                : 'editor-root border border-gray-600 rounded-lg shadow-[0_28px_90px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden',
             'data-testid': mode === 'create' ? 'create-deployment-dialog' : 'update-deployment-dialog',
             style: () => pageLayout
                 ? ''
@@ -371,7 +371,7 @@ export function deploymentEditorWidget(opts) {
             ),
         ),
         () => errorMsg.val
-            ? div({class: 'bg-gray-950/80 px-4 pt-2'}, p({class: 'text-xs text-red-400'}, errorMsg.val))
+            ? div({class: 'editor-error'}, p({class: 'text-xs text-red-400'}, errorMsg.val))
             : '',
         editorFooter({
             mode,
@@ -395,14 +395,12 @@ function editorModeToggle(args) {
         'aria-selected': () => String(args.editorMode.val === mode),
         disabled: () => mode === 'code' && !args.codeAvailable(),
         title: () => mode === 'code' && !args.codeAvailable() ? 'Code editing is unavailable until configuration data is loaded' : '',
-        class: () => args.editorMode.val === mode
-            ? 'rounded-md bg-gray-700 px-2.5 py-1 text-[11px] font-medium text-gray-100 shadow-sm cursor-pointer'
-            : 'rounded-md px-2.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-800 hover:text-gray-200 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed',
+        class: 'editor-mode-btn',
         onclick: () => args.selectEditorMode(mode),
     }, label);
 
     return div(
-        {class: 'flex shrink-0 rounded-lg bg-black/20 p-0.5', role: 'tablist', 'aria-label': 'Configuration editor mode'},
+        {class: 'editor-mode flex shrink-0', role: 'tablist', 'aria-label': 'Configuration editor mode'},
         modeButton('UI', 'ui'),
         modeButton('Code', 'code'),
     );
@@ -410,7 +408,7 @@ function editorModeToggle(args) {
 
 function editorFooter(args) {
     return div(
-        {class: 'flex shrink-0 items-center justify-between gap-3 bg-gray-950/90 px-4 py-2.5'},
+        {class: 'editor-footer flex shrink-0 items-center justify-between gap-3'},
         div(
             {class: 'flex min-w-0 items-center gap-3'},
             args.modeToggle,
@@ -421,7 +419,7 @@ function editorFooter(args) {
             {class: 'flex min-w-0 items-center justify-end gap-3'},
             () => args.invalidReason()
                 ? p({
-                    class: 'truncate text-xs text-amber-300',
+                    class: 'editor-attention truncate text-xs',
                     'data-testid': args.mode === 'create' ? 'create-validation-reason' : 'update-validation-reason',
                 }, args.invalidReason())
                 : '',
@@ -434,7 +432,7 @@ function editorFooter(args) {
 
 function cancelButton(onCancel) {
     return button({
-        class: 'text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5',
+        class: 'editor-cancel cursor-pointer',
         onclick: onCancel,
         type: 'button',
     }, 'Cancel');

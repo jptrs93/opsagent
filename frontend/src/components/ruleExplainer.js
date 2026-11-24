@@ -90,7 +90,7 @@ const layer = () => {
     const open = openS.val;
     if (!open) { popoverEl = null; return ""; }
     const el = div({
-        class: "app-scroll fixed z-40 flex flex-col overflow-y-auto overscroll-contain rounded-md border border-gray-600 bg-surface text-xs shadow-2xl shadow-black/60",
+        class: "access-explainer app-scroll fixed z-40 flex flex-col overflow-y-auto overscroll-contain rounded-md border border-gray-600 text-xs shadow-2xl shadow-black/60 slate:rounded-lg slate:border-[#2a3443]",
         role: "dialog",
         "aria-label": "Rule explanation",
         "data-testid": "rule-explainer",
@@ -348,8 +348,8 @@ const key = (deny, hasArg) => div(
 // two badges, Users and Agents. A role or a role grant gets one tab per rule;
 // a grant's rules show the bound values.
 const TOKEN_CLASS = {
-    on: "border-blue-500/40 bg-blue-500/15 text-blue-200",
-    off: "border-gray-800 text-gray-600",
+    on: "access-token-on",
+    off: "access-token-off",
 };
 
 const tokens = (list) => !list ? "" : div(
@@ -362,7 +362,7 @@ const tokens = (list) => !list ? "" : div(
 
 const section = (key, label, ...body) => div(
     {class: "flex flex-col gap-1", "data-testid": `definition-${key}`},
-    span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, label),
+    span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500 slate:text-[11px] slate:font-medium slate:normal-case slate:tracking-normal slate:text-gray-400"}, label),
     ...body,
 );
 
@@ -389,14 +389,13 @@ const sessionsSection = (def) => section("sessions", "Sessions",
     tokens([{name: "Users", state: def.users ? "on" : "off"}, {name: "Agents", state: def.agents ? "on" : "off"}]));
 
 const ruleTabs = (count, active) => div(
-    {class: "flex flex-wrap items-end gap-0.5 border-b border-gray-800 px-2 pt-1", role: "tablist", "aria-label": "Rules"},
+    {class: "access-subtabs", role: "tablist", "aria-label": "Rules"},
     ...Array.from({length: count}, (_, i) => button({
         type: "button",
         role: "tab",
         "aria-selected": () => String(active.val === i),
         "data-testid": `rule-tab-${i + 1}`,
-        class: () => `-mb-px border-b-2 px-2 py-1 text-[11px] cursor-pointer transition-colors ${active.val === i
-            ? "border-brand text-gray-100" : "border-transparent text-gray-400 hover:text-gray-200"}`,
+        class: "access-subtab",
         onclick: (e) => { e.stopPropagation(); active.val = i; },
     }, `Rule ${i + 1}`)),
 );
@@ -406,14 +405,14 @@ const DEFINITION_WIDTH = 248;
 // paneTitle heads each half of the card so the split reads as two things:
 // the rule's definition and the access it produces.
 const paneTitle = (text) => div(
-    {class: "flex-none border-b border-gray-800 bg-gray-950/50 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-gray-400"},
+    {class: "access-pane-title"},
     text);
 
 const definitionPane = (subject) => {
     const active = van.state(0);
     const define = (rule) => ruleDefinition(rule, {spaceNames: subject.spaceNames, spaces: subject.spaces, argNames: subject.argNames, bindings: subject.bindings});
     return div(
-        {class: "flex flex-none flex-col border-r border-gray-700 bg-gray-950/25", style: `width:${DEFINITION_WIDTH}px`, "data-testid": "rule-definition"},
+        {class: "access-definition flex flex-none flex-col border-r", style: `width:${DEFINITION_WIDTH}px`, "data-testid": "rule-definition"},
         paneTitle("Definition"),
         subject.rules.length > 1 ? ruleTabs(subject.rules.length, active) : "",
         () => {
@@ -446,16 +445,14 @@ const leadLine = (tab) => {
 };
 
 const spaceTabs = (m, active) => div(
-    {class: "flex flex-wrap items-end gap-0.5 border-b border-gray-800 px-2 pt-1", role: "tablist", "aria-label": "Spaces"},
+    {class: "access-subtabs", role: "tablist", "aria-label": "Spaces"},
     ...m.tabs.map((t) => button({
         type: "button",
         role: "tab",
         "aria-selected": () => String(active.val === t.key),
         "data-testid": `matrix-tab-${t.key}`,
         title: t.lead ? `${t.lead} ${t.subtitle}` : t.subtitle,
-        class: () => `-mb-px border-b-2 px-2 py-1 text-[11px] cursor-pointer transition-colors ${t.key === "arg" ? "font-mono" : ""} ${active.val === t.key
-            ? (t.system ? "border-amber-400/70 text-gray-100" : "border-brand text-gray-100")
-            : "border-transparent text-gray-400 hover:text-gray-200"}`,
+        class: `access-subtab ${t.key === "arg" ? "font-mono" : ""} ${t.system ? "access-subtab-system" : ""}`,
         onclick: (e) => { e.stopPropagation(); active.val = t.key; },
     }, t.label)),
 );
@@ -472,7 +469,7 @@ export const renderExplainer = (subject, open) => {
     const hasArg = m.tabs.some((t) => Object.values(mergeGrid(t.grid).cells).some((c) => c.state === "arg"));
     return div(
         {class: "flex flex-col"},
-        div({class: "flex items-center gap-3 border-b border-gray-800 px-3 py-1.5"},
+        div({class: "access-explainer-line flex items-center gap-3 border-b px-3 py-1.5"},
             p({class: "min-w-0 flex-1 truncate leading-snug text-gray-200", "data-testid": "explainer-title"}, subject.subtitle || ""),
             closeButton()),
         div({class: "flex min-h-0"},
@@ -495,7 +492,7 @@ export const renderExplainer = (subject, open) => {
                 // The System tabs describe the space under the key rather than
                 // above the table, where the lead line (if any) stays.
                 () => current()?.system
-                    ? p({class: "border-t border-gray-800 px-3 py-2 text-[10px] leading-snug text-gray-500", "data-testid": "system-note"}, current().subtitle)
+                    ? p({class: "access-explainer-line border-t px-3 py-2 text-[10px] leading-snug text-gray-500", "data-testid": "system-note"}, current().subtitle)
                     : "")),
     );
 };
