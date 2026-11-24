@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/goutil/ptru"
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/domainpolicy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
@@ -244,6 +246,14 @@ func requireSpaceUnused(ctx context.Context, q *pq.Queries, id uint64) error {
 		rows, err := q.ListNetworkPolicies(ctx)
 		return countWhere(rows, func(r *pq.NetworkPolicyEvent) bool {
 			return policyPeerIsSpace(r.Value.Source, id) || policyPeerIsSpace(r.Value.Destination, id)
+		}), err
+	}); err != nil {
+		return err
+	}
+	if err := countIn("domain policy", "domain policies", func() (int, error) {
+		rows, err := q.ListSpaceDomainPolicies(ctx)
+		return countWhere(rows, func(r *pq.SpaceDomainPolicyEvent) bool {
+			return slices.Contains(domainpolicy.NamedSpaces(&r.Value.Rule), id)
 		}), err
 	}); err != nil {
 		return err

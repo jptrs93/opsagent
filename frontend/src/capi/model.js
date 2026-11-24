@@ -1230,6 +1230,7 @@
  * @property {number} [authzGrantTemplate]
  * @property {number} [authzGrant]
  * @property {number} [authzGlobalRule]
+ * @property {number} [spaceDomainPolicy]
  */
 /**
  * @typedef {Object} AuthzEntityRefTarget
@@ -1781,6 +1782,65 @@
  * @property {number} id
  */
 /**
+ * @typedef {Object} SpaceDomainPolicy
+ * @property {number} id
+ * @property {string} name
+ * @property {boolean} disabled
+ * @property {SpaceDomainRule} rule
+ */
+/**
+ * @typedef {Object} SpaceDomainRule
+ * @property {SpaceDomainEffect} effect
+ * @property {SpaceDomainSelector} selector
+ */
+/**
+ * @typedef {Object} SpaceDomainAllow
+ */
+/**
+ * @typedef {Object} SpaceDomainDeny
+ */
+/**
+ * @typedef {Object} SpaceDomainEffectValueOneof
+ * @property {SpaceDomainAllow} [allow]
+ * @property {SpaceDomainDeny} [deny]
+ */
+/**
+ * @typedef {Object} SpaceDomainEffect
+ * @property {SpaceDomainEffectValueOneof} value
+ */
+/**
+ * @typedef {Object} SpaceDomainSelector
+ * @property {AuthzSpaceSelector} spaces
+ * @property {DomainSelector} domains
+ */
+/**
+ * @typedef {Object} DomainSelector
+ * @property {DomainList} exactDomains
+ * @property {DomainList} allDomainsExcluding
+ */
+/**
+ * @typedef {Object} DomainList
+ * @property {string[]} values
+ */
+/**
+ * @typedef {Object} SpaceDomainPolicyCreateRequest
+ * @property {string} name
+ * @property {boolean} disabled
+ * @property {SpaceDomainRule} rule
+ */
+/**
+ * @typedef {Object} SpaceDomainPolicyUpdateRequest
+ * @property {number} id
+ * @property {number} expectedSeq
+ * @property {string} name
+ * @property {boolean} disabled
+ * @property {SpaceDomainRule} rule
+ */
+/**
+ * @typedef {Object} SpaceDomainPolicyDeleteRequest
+ * @property {number} id
+ */
+/**
  * @typedef {Object} GithubCredentials
  * @property {string} token
  * @property {Date} changedAt
@@ -2127,6 +2187,7 @@
  * @property {UserSession} [userSession]
  * @property {NixStoreReset} [nixStoreReset]
  * @property {SecretKeyslot} [secretKeyslot]
+ * @property {SpaceDomainPolicy} [spaceDomainPolicy]
  */
 /**
  * @typedef {Object} CoreEntity
@@ -16008,7 +16069,7 @@ export function decodeAuthzEntityRef(buffer) {
  */
 export function writeAuthzEntityRefTarget(message, writer) {
     if (message.value !== undefined && message.value !== null) {
-        const selected = [message.value.space, message.value.deployment, message.value.secret, message.value.config, message.value.asset, message.value.node, message.value.systemConfig, message.value.user, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule].filter((v) => v !== undefined && v !== null).length;
+        const selected = [message.value.space, message.value.deployment, message.value.secret, message.value.config, message.value.asset, message.value.node, message.value.systemConfig, message.value.user, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.spaceDomainPolicy].filter((v) => v !== undefined && v !== null).length;
         if (selected !== 1) {
             throw new Error("AuthzEntityRefTarget.value: expected exactly one alternative, got " + selected);
         }
@@ -16044,6 +16105,9 @@ export function writeAuthzEntityRefTarget(message, writer) {
         }
         if (message.value.authzGlobalRule !== undefined && message.value.authzGlobalRule !== null) {
             writer.uint32(tag(11, WIRE.VARINT)).uint64(Math.trunc(message.value.authzGlobalRule));
+        }
+        if (message.value.spaceDomainPolicy !== undefined && message.value.spaceDomainPolicy !== null) {
+            writer.uint32(tag(12, WIRE.VARINT)).uint64(Math.trunc(message.value.spaceDomainPolicy));
         }
     } else {
         throw new Error("AuthzEntityRefTarget.value: expected exactly one alternative, got none");
@@ -16115,6 +16179,10 @@ function decodeAuthzEntityRefTargetMessage(reader, length) {
             }
             case 11: {
                 message.value = { authzGlobalRule: readInt64(reader, "uint64") };
+                break;
+            }
+            case 12: {
+                message.value = { spaceDomainPolicy: readInt64(reader, "uint64") };
                 break;
             }
             default:
@@ -22711,6 +22779,731 @@ export function decodeNetworkPolicyDeleteRequest(buffer) {
 
 
 /**
+ * @param {SpaceDomainPolicy} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainPolicy(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.disabled === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.disabled);
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeSpaceDomainRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {SpaceDomainPolicy} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainPolicy(message) {
+    const writer = Writer.create();
+    writeSpaceDomainPolicy(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainPolicy}
+ */
+function decodeSpaceDomainPolicyMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", disabled: false, rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.disabled = reader.bool();
+                break;
+            }
+            case 4: {
+                message.rule = decodeSpaceDomainRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainPolicy}
+ */
+export function decodeSpaceDomainPolicy(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainPolicyMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDomainRule} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainRule(message, writer) {
+    if (message.effect !== undefined && message.effect !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeSpaceDomainEffect(message.effect, writer);
+        writer.ldelim();
+    }
+    if (message.selector !== undefined && message.selector !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeSpaceDomainSelector(message.selector, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {SpaceDomainRule} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainRule(message) {
+    const writer = Writer.create();
+    writeSpaceDomainRule(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainRule}
+ */
+function decodeSpaceDomainRuleMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {effect: undefined, selector: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.effect = decodeSpaceDomainEffectMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.selector = decodeSpaceDomainSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainRule}
+ */
+export function decodeSpaceDomainRule(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainRuleMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDomainAllow} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainAllow(message, writer) {
+}
+
+
+/**
+ * @param {SpaceDomainAllow} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainAllow(message) {
+    const writer = Writer.create();
+    writeSpaceDomainAllow(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainAllow}
+ */
+function decodeSpaceDomainAllowMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainAllow}
+ */
+export function decodeSpaceDomainAllow(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainAllowMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDomainDeny} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainDeny(message, writer) {
+}
+
+
+/**
+ * @param {SpaceDomainDeny} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainDeny(message) {
+    const writer = Writer.create();
+    writeSpaceDomainDeny(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainDeny}
+ */
+function decodeSpaceDomainDenyMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainDeny}
+ */
+export function decodeSpaceDomainDeny(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainDenyMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDomainEffect} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainEffect(message, writer) {
+    if (message.value !== undefined && message.value !== null) {
+        const selected = [message.value.allow, message.value.deny].filter((v) => v !== undefined && v !== null).length;
+        if (selected !== 1) {
+            throw new Error("SpaceDomainEffect.value: expected exactly one alternative, got " + selected);
+        }
+        if (message.value.allow !== undefined && message.value.allow !== null) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeSpaceDomainAllow(message.value.allow, writer);
+            writer.ldelim();
+        }
+        if (message.value.deny !== undefined && message.value.deny !== null) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeSpaceDomainDeny(message.value.deny, writer);
+            writer.ldelim();
+        }
+    } else {
+        throw new Error("SpaceDomainEffect.value: expected exactly one alternative, got none");
+    }
+}
+
+
+/**
+ * @param {SpaceDomainEffect} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainEffect(message) {
+    const writer = Writer.create();
+    writeSpaceDomainEffect(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainEffect}
+ */
+function decodeSpaceDomainEffectMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {value: {} };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.value = { allow: decodeSpaceDomainAllowMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 2: {
+                message.value = { deny: decodeSpaceDomainDenyMessage(reader, reader.uint32()) };
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainEffect}
+ */
+export function decodeSpaceDomainEffect(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainEffectMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDomainSelector} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainSelector(message, writer) {
+    if (message.spaces !== undefined && message.spaces !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeAuthzSpaceSelector(message.spaces, writer);
+        writer.ldelim();
+    }
+    if (message.domains !== undefined && message.domains !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDomainSelector(message.domains, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {SpaceDomainSelector} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainSelector(message) {
+    const writer = Writer.create();
+    writeSpaceDomainSelector(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainSelector}
+ */
+function decodeSpaceDomainSelectorMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {spaces: undefined, domains: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.spaces = decodeAuthzSpaceSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.domains = decodeDomainSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainSelector}
+ */
+export function decodeSpaceDomainSelector(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainSelectorMessage(reader);
+}
+
+
+
+/**
+ * @param {DomainSelector} message
+ * @param {Writer} writer
+ */
+export function writeDomainSelector(message, writer) {
+    if (message.exactDomains !== undefined && message.exactDomains !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeDomainList(message.exactDomains, writer);
+        writer.ldelim();
+    }
+    if (message.allDomainsExcluding !== undefined && message.allDomainsExcluding !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeDomainList(message.allDomainsExcluding, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {DomainSelector} message
+ * @returns {Uint8Array}
+ */
+export function encodeDomainSelector(message) {
+    const writer = Writer.create();
+    writeDomainSelector(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DomainSelector}
+ */
+function decodeDomainSelectorMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {exactDomains: undefined, allDomainsExcluding: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.exactDomains = decodeDomainListMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.allDomainsExcluding = decodeDomainListMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DomainSelector}
+ */
+export function decodeDomainSelector(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDomainSelectorMessage(reader);
+}
+
+
+
+/**
+ * @param {DomainList} message
+ * @param {Writer} writer
+ */
+export function writeDomainList(message, writer) {
+    if (message.values && message.values.length > 0) {
+        for (const item of message.values) {
+            writer.uint32(tag(1, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {DomainList} message
+ * @returns {Uint8Array}
+ */
+export function encodeDomainList(message) {
+    const writer = Writer.create();
+    writeDomainList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DomainList}
+ */
+function decodeDomainListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {values: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.values.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DomainList}
+ */
+export function decodeDomainList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDomainListMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDomainPolicyCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainPolicyCreateRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.disabled === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.disabled);
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeSpaceDomainRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {SpaceDomainPolicyCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainPolicyCreateRequest(message) {
+    const writer = Writer.create();
+    writeSpaceDomainPolicyCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainPolicyCreateRequest}
+ */
+function decodeSpaceDomainPolicyCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", disabled: false, rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.disabled = reader.bool();
+                break;
+            }
+            case 3: {
+                message.rule = decodeSpaceDomainRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainPolicyCreateRequest}
+ */
+export function decodeSpaceDomainPolicyCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainPolicyCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDomainPolicyUpdateRequest} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainPolicyUpdateRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+    if (message.expectedSeq !== undefined && message.expectedSeq !== null && message.expectedSeq !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.expectedSeq));
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.disabled === true) {
+        writer.uint32(tag(4, WIRE.VARINT)).bool(message.disabled);
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeSpaceDomainRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {SpaceDomainPolicyUpdateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainPolicyUpdateRequest(message) {
+    const writer = Writer.create();
+    writeSpaceDomainPolicyUpdateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainPolicyUpdateRequest}
+ */
+function decodeSpaceDomainPolicyUpdateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, expectedSeq: 0, name: "", disabled: false, rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.expectedSeq = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.name = reader.string();
+                break;
+            }
+            case 4: {
+                message.disabled = reader.bool();
+                break;
+            }
+            case 5: {
+                message.rule = decodeSpaceDomainRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainPolicyUpdateRequest}
+ */
+export function decodeSpaceDomainPolicyUpdateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainPolicyUpdateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {SpaceDomainPolicyDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeSpaceDomainPolicyDeleteRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+}
+
+
+/**
+ * @param {SpaceDomainPolicyDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeSpaceDomainPolicyDeleteRequest(message) {
+    const writer = Writer.create();
+    writeSpaceDomainPolicyDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {SpaceDomainPolicyDeleteRequest}
+ */
+function decodeSpaceDomainPolicyDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {SpaceDomainPolicyDeleteRequest}
+ */
+export function decodeSpaceDomainPolicyDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeSpaceDomainPolicyDeleteRequestMessage(reader);
+}
+
+
+
+/**
  * @param {GithubCredentials} message
  * @param {Writer} writer
  */
@@ -26499,7 +27292,7 @@ export function decodeCoreSnapshot(buffer) {
  */
 export function writeCoreEntity(message, writer) {
     if (message.value !== undefined && message.value !== null) {
-        const selected = [message.value.deployment, message.value.scheduledInstance, message.value.node, message.value.secret, message.value.config, message.value.asset, message.value.networkPolicy, message.value.space, message.value.user, message.value.valueDirectory, message.value.assetDirectory, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.systemConfig, message.value.scheduledInstanceStatus, message.value.nodeStatus, message.value.agentSession, message.value.userSession, message.value.nixStoreReset, message.value.secretKeyslot].filter((v) => v !== undefined && v !== null).length;
+        const selected = [message.value.deployment, message.value.scheduledInstance, message.value.node, message.value.secret, message.value.config, message.value.asset, message.value.networkPolicy, message.value.space, message.value.user, message.value.valueDirectory, message.value.assetDirectory, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.systemConfig, message.value.scheduledInstanceStatus, message.value.nodeStatus, message.value.agentSession, message.value.userSession, message.value.nixStoreReset, message.value.secretKeyslot, message.value.spaceDomainPolicy].filter((v) => v !== undefined && v !== null).length;
         if (selected !== 1) {
             throw new Error("CoreEntity.value: expected exactly one alternative, got " + selected);
         }
@@ -26606,6 +27399,11 @@ export function writeCoreEntity(message, writer) {
         if (message.value.secretKeyslot !== undefined && message.value.secretKeyslot !== null) {
             writer.uint32(tag(21, WIRE.LDELIM)).fork();
             writeSecretKeyslot(message.value.secretKeyslot, writer);
+            writer.ldelim();
+        }
+        if (message.value.spaceDomainPolicy !== undefined && message.value.spaceDomainPolicy !== null) {
+            writer.uint32(tag(22, WIRE.LDELIM)).fork();
+            writeSpaceDomainPolicy(message.value.spaceDomainPolicy, writer);
             writer.ldelim();
         }
     } else {
@@ -26718,6 +27516,10 @@ function decodeCoreEntityMessage(reader, length) {
             }
             case 21: {
                 message.value = { secretKeyslot: decodeSecretKeyslotMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 22: {
+                message.value = { spaceDomainPolicy: decodeSpaceDomainPolicyMessage(reader, reader.uint32()) };
                 break;
             }
             default:

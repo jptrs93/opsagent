@@ -11,6 +11,7 @@ import {
     spacesS,
     userConfigsS,
 } from "../state/deployments.js";
+import {domainPoliciesPage} from "./domainPolicies.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 
@@ -50,7 +51,7 @@ const smallBtn = (text, onclick, cls, disabledWhen) => button({
     onclick: async (e) => { if (disabledWhen && disabledWhen()) return; await onclick(e); },
 }, text);
 
-export function spacesPage() {
+function spacesTab() {
     const error = van.state(null);
     const search = van.state("");
     const mutatingID = van.state(0);
@@ -321,5 +322,38 @@ export function spacesPage() {
             `Error: ${error.val}`) : "",
         tableArea,
         deleteOverlay,
+    );
+}
+
+// The Spaces page: the spaces themselves, and the policies on which of them
+// may publish which ingress hostnames.
+export function spacesPage() {
+    const tab = van.state("spaces");
+
+    const tabButton = (key, text) => button(
+        {
+            type: "button",
+            role: "tab",
+            "data-testid": `spaces-tab-${key}`,
+            "aria-selected": () => String(tab.val === key),
+            class: () => `-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${tab.val === key
+                ? "border-brand text-gray-100"
+                : "border-transparent text-gray-400 hover:text-gray-200"}`,
+            onclick: () => tab.val = key,
+        },
+        text,
+    );
+
+    return div(
+        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        div(
+            {class: "flex flex-none items-end gap-1 border-b border-gray-800 bg-gray-950/40 px-2 pt-1", role: "tablist"},
+            tabButton("spaces", "Spaces"),
+            tabButton("domain-policies", "Domain policies"),
+        ),
+        div(
+            {class: "flex-1 min-h-0 flex flex-col overflow-hidden"},
+            () => tab.val === "spaces" ? spacesTab() : domainPoliciesPage(),
+        ),
     );
 }

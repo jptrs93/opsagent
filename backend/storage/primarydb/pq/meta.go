@@ -60,6 +60,7 @@ var metaQueries = map[apigen.CoreEntityType]string{
 	apigen.CoreEntityType_CORE_ENTITY_CONFIG:                    `SELECT created_time, seq, event_time, author, 0, 0, value_version FROM configs WHERE id = ?`,
 	apigen.CoreEntityType_CORE_ENTITY_ASSET:                     `SELECT created_time, seq, event_time, author, 0, 0, value_version FROM assets WHERE id = ?`,
 	apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY:            `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM network_policies WHERE id = ?`,
+	apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY:       `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM space_domain_policies WHERE id = ?`,
 	apigen.CoreEntityType_CORE_ENTITY_SPACE:                     `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM spaces WHERE id = ?`,
 	apigen.CoreEntityType_CORE_ENTITY_USER:                      `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM users WHERE id = ?`,
 	apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY:           `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM value_directories WHERE id = ?`,

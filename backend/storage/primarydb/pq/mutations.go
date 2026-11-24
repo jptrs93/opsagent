@@ -115,6 +115,11 @@ func NetworkPolicyMutation(meta EventMeta, id uint64, p apigen.NetworkPolicy) Mu
 	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, ID: id, Entity: entityOf(apigen.CoreEntityValueOneof{NetworkPolicy: &p})}
 }
 
+func SpaceDomainPolicyMutation(meta EventMeta, id uint64, p apigen.SpaceDomainPolicy) Mutation {
+	p.ID = id
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY, ID: id, Entity: entityOf(apigen.CoreEntityValueOneof{SpaceDomainPolicy: &p})}
+}
+
 func SpaceMutation(meta EventMeta, space apigen.Space) Mutation {
 	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_SPACE, ID: space.ID, Entity: entityOf(apigen.CoreEntityValueOneof{Space: &space})}
 }
@@ -250,5 +255,7 @@ func StampEntityID(e *apigen.CoreEntity, id uint64) {
 		v.NixStoreReset.ID = id
 	case v.SecretKeyslot != nil:
 		v.SecretKeyslot.ID = id
+	case v.SpaceDomainPolicy != nil:
+		v.SpaceDomainPolicy.ID = id
 	}
 }

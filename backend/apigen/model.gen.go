@@ -162,16 +162,17 @@ const (
 type AuthzEntityKind int32
 
 const (
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_UNSPECIFIED AuthzEntityKind = 0
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_SPACE       AuthzEntityKind = 1
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT  AuthzEntityKind = 2
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET      AuthzEntityKind = 3
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_CONFIG      AuthzEntityKind = 4
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_ASSET       AuthzEntityKind = 5
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_NODE        AuthzEntityKind = 6
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_CLUSTER     AuthzEntityKind = 7
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_USER        AuthzEntityKind = 8
-	AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS      AuthzEntityKind = 9
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_UNSPECIFIED   AuthzEntityKind = 0
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_SPACE         AuthzEntityKind = 1
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_DEPLOYMENT    AuthzEntityKind = 2
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_SECRET        AuthzEntityKind = 3
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_CONFIG        AuthzEntityKind = 4
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_ASSET         AuthzEntityKind = 5
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_NODE          AuthzEntityKind = 6
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_CLUSTER       AuthzEntityKind = 7
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_USER          AuthzEntityKind = 8
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS        AuthzEntityKind = 9
+	AuthzEntityKind_AUTHZ_ENTITY_KIND_DOMAIN_POLICY AuthzEntityKind = 10
 )
 
 type AuthzArgumentKind int32
@@ -262,6 +263,7 @@ const (
 	CoreEntityType_CORE_ENTITY_USER_SESSION              CoreEntityType = 19
 	CoreEntityType_CORE_ENTITY_NIX_STORE_RESET           CoreEntityType = 20
 	CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT            CoreEntityType = 21
+	CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY       CoreEntityType = 22
 )
 
 type AccessPolicyType int32
@@ -2324,6 +2326,77 @@ type NetworkPolicyDeleteRequest struct {
 	ID            uint64 `json:"id"`
 }
 
+// SpaceDomainPolicy is one global rule on which spaces may publish which
+// ingress hostnames. Enabled denies are checked first, then enabled allows;
+// a hostname no allow covers is refused.
+type SpaceDomainPolicy struct {
+	unknownFields []byte
+	ID            uint64          `json:"id"`
+	Name          string          `json:"name,omitempty"`
+	Disabled      bool            `json:"disabled"`
+	Rule          SpaceDomainRule `json:"rule"`
+}
+
+type SpaceDomainRule struct {
+	unknownFields []byte
+	Effect        SpaceDomainEffect   `json:"effect"`
+	Selector      SpaceDomainSelector `json:"selector"`
+}
+
+type SpaceDomainAllow struct {
+	unknownFields []byte
+}
+
+type SpaceDomainDeny struct {
+	unknownFields []byte
+}
+
+type SpaceDomainEffect struct {
+	unknownFields []byte
+	Value         SpaceDomainEffectValueOneof `json:"value"`
+}
+
+type SpaceDomainSelector struct {
+	unknownFields []byte
+	Spaces        AuthzSpaceSelector `json:"spaces"`
+	Domains       DomainSelector     `json:"domains"`
+}
+
+// DomainSelector is a selector position like the authz ones: exactly one of
+// the two lists is set. A value is a hostname, or "*." and a hostname for
+// every name below it at any depth.
+type DomainSelector struct {
+	unknownFields       []byte
+	ExactDomains        Maybe[DomainList] `json:"exact_domains,omitzero"`
+	AllDomainsExcluding Maybe[DomainList] `json:"all_domains_excluding,omitzero"`
+}
+
+type DomainList struct {
+	unknownFields []byte
+	Values        []string `json:"values,omitempty"`
+}
+
+type SpaceDomainPolicyCreateRequest struct {
+	unknownFields []byte
+	Name          string          `json:"name,omitempty"`
+	Disabled      bool            `json:"disabled"`
+	Rule          SpaceDomainRule `json:"rule"`
+}
+
+type SpaceDomainPolicyUpdateRequest struct {
+	unknownFields []byte
+	ID            uint64          `json:"id"`
+	ExpectedSeq   int64           `json:"expected_seq"`
+	Name          string          `json:"name,omitempty"`
+	Disabled      bool            `json:"disabled"`
+	Rule          SpaceDomainRule `json:"rule"`
+}
+
+type SpaceDomainPolicyDeleteRequest struct {
+	unknownFields []byte
+	ID            uint64 `json:"id"`
+}
+
 type GithubCredentials struct {
 	unknownFields []byte
 	Token         string    `json:"token,omitempty"`
@@ -3381,6 +3454,7 @@ type AuthzEntityRefTargetValueOneof struct {
 	AuthzGrantTemplate *uint64 `json:"authz_grant_template,omitempty"`
 	AuthzGrant         *uint64 `json:"authz_grant,omitempty"`
 	AuthzGlobalRule    *uint64 `json:"authz_global_rule,omitempty"`
+	SpaceDomainPolicy  *uint64 `json:"space_domain_policy,omitempty"`
 }
 
 func (v AuthzEntityRefTargetValueOneof) MarshalJSON() ([]byte, error) {
@@ -3423,6 +3497,9 @@ func (v AuthzEntityRefTargetValueOneof) Validate() error {
 		selected++
 	}
 	if v.AuthzGlobalRule != nil {
+		selected++
+	}
+	if v.SpaceDomainPolicy != nil {
 		selected++
 	}
 	if selected != 1 {
@@ -3737,6 +3814,42 @@ func (v NetworkPolicyPeerTargetValueOneof) Validate() error {
 	return nil
 }
 
+type SpaceDomainEffectValueOneof struct {
+	Allow *SpaceDomainAllow `json:"allow,omitempty"`
+	Deny  *SpaceDomainDeny  `json:"deny,omitempty"`
+}
+
+func (v SpaceDomainEffectValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Allow != nil {
+		if err := v.Allow.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Deny != nil {
+		if err := v.Deny.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue SpaceDomainEffectValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v SpaceDomainEffectValueOneof) Validate() error {
+	selected := 0
+	if v.Allow != nil {
+		selected++
+	}
+	if v.Deny != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
 type StringSettingValueValueOneof struct {
 	Literal   *string    `json:"literal,omitempty"`
 	ConfigRef *ConfigRef `json:"config_ref,omitempty"`
@@ -3866,6 +3979,7 @@ type CoreEntityValueOneof struct {
 	UserSession             *UserSession             `json:"user_session,omitempty"`
 	NixStoreReset           *NixStoreReset           `json:"nix_store_reset,omitempty"`
 	SecretKeyslot           *SecretKeyslot           `json:"secret_keyslot,omitempty"`
+	SpaceDomainPolicy       *SpaceDomainPolicy       `json:"space_domain_policy,omitempty"`
 }
 
 func (v CoreEntityValueOneof) MarshalJSON() ([]byte, error) {
@@ -3977,6 +4091,11 @@ func (v CoreEntityValueOneof) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 	}
+	if v.SpaceDomainPolicy != nil {
+		if err := v.SpaceDomainPolicy.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	type jsonValue CoreEntityValueOneof
 	return json.Marshal(jsonValue(v))
 }
@@ -4043,6 +4162,9 @@ func (v CoreEntityValueOneof) Validate() error {
 		selected++
 	}
 	if v.SecretKeyslot != nil {
+		selected++
+	}
+	if v.SpaceDomainPolicy != nil {
 		selected++
 	}
 	if selected != 1 {

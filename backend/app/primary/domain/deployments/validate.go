@@ -440,21 +440,7 @@ func ingressHostPort(port apigen.Maybe[uint32]) uint32 {
 }
 
 func ingressHostname(value string) (string, bool) {
-	hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
-	if hostname == "" || len(hostname) > 253 {
-		return "", false
-	}
-	for _, label := range strings.Split(hostname, ".") {
-		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return "", false
-		}
-		for _, char := range label {
-			if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '-' {
-				return "", false
-			}
-		}
-	}
-	return hostname, true
+	return network.CanonicalHostname(value)
 }
 
 type portForwardKey struct {

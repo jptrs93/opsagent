@@ -10,6 +10,7 @@ import {
     describeGrant,
     describeSelector,
     entityRef,
+    entityTypePlural,
     exactSelector,
     formatRef,
     formatRule,
@@ -88,6 +89,9 @@ test("entity refs format, parse, and resolve their target", () => {
     assert.deepEqual(parseEntityRefs("4 7", refTargetForEntityType(2)), [entityRef("deployment", 4), entityRef("deployment", 7)]);
     assert.equal(refTargetForEntityType(9), null);
     assert.equal(refTargetForEntityType(7).key, "systemConfig");
+    assert.equal(formatRef(entityRef("spaceDomainPolicy", 3)), "domain_policy#3");
+    assert.deepEqual(parseEntityRefs("domain_policy#3"), [entityRef("spaceDomainPolicy", 3)]);
+    assert.equal(refTargetForEntityType(10).key, "spaceDomainPolicy");
 });
 
 test("positionValueName resolves each vocabulary", () => {
@@ -96,6 +100,8 @@ test("positionValueName resolves each vocabulary", () => {
     assert.equal(positionValueName("permissions", 8, SPACES), "use_host_network");
     assert.equal(positionValueName("permissions", 9, SPACES), "use_privileged_ports");
     assert.equal(positionValueName("entityTypes", 2, SPACES), "deployment");
+    assert.equal(positionValueName("entityTypes", 10, SPACES), "domain_policy");
+    assert.deepEqual(["secret", "access", "domain_policy"].map(entityTypePlural), ["secrets", "access", "domain_policies"]);
     assert.equal(positionValueName("spaces", 3, SPACES), "staging");
     assert.equal(positionValueName("spaces", 9, SPACES), "9");
     assert.equal(positionValueName("entityRefs", entityRef("secret", 42), SPACES), "secret#42");

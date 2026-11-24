@@ -128,5 +128,7 @@
 
 <p>On the primary, the Web UI already holds port 443 on its own address. A route that would land exactly there is rejected when you save; a route for every address simply skips it. Two deployments cannot publish the same hostname on the same node and port, even on different addresses: the proxy routes by hostname alone. The second save tells you so.</p>
 
+<p>A save is also refused when the deployment's space is not allowed the hostname. Which space may publish which hostname is set by the cluster's <a href="{base}/reference/domain-policy/">domain policies</a>; a new cluster allows every space every hostname.</p>
+
 <p>Field by field detail is in the <a href="{base}/reference/deployment/#ingress">network.ingress reference</a>, and the routing design is in <a href="{base}/design/networking/#ingress">Networking</a>.</p>
 </section>

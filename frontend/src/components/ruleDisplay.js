@@ -1,5 +1,5 @@
 import van from "vanjs-core";
-import {formatRef, formatRule, formatSelector, positionValueName, readSelector, ruleEffect} from "../lib/authz.js";
+import {entityTypePlural, formatRef, formatRule, formatSelector, positionValueName, readSelector, ruleEffect} from "../lib/authz.js";
 
 const {div, span} = van.tags;
 
@@ -127,10 +127,7 @@ const spacesChip = (sel, {spaceNames, argNames, titles = true} = {}) => {
 // Resource types render as their plural noun alone — "secrets", never
 // "secret type" — so the phrase reads as the set of things the rule touches.
 const typeSingular = (v, spaceNames) => positionValueName("entityTypes", v, spaceNames);
-const typePlural = (v, spaceNames) => {
-    const singular = typeSingular(v, spaceNames);
-    return singular === "access" ? singular : `${singular}s`;
-};
+const typePlural = (v, spaceNames) => entityTypePlural(typeSingular(v, spaceNames));
 
 // Uncollapsed per-selector ladders, used only when the instances × resources
 // pair cannot be collapsed (see entitiesChip).

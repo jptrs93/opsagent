@@ -291,6 +291,8 @@ func (v *streamVisibility) entityVisible(t apigen.CoreEntityType, id uint64, e *
 		return p.AuthzGrant != nil && (p.AuthzGrant.UserID == v.userID() || h.canAccess(ctx, vView, eAccess, 0, 0))
 	case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE:
 		return h.canAccess(ctx, vView, eAccess, 0, 0)
+	case apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY:
+		return h.canAccess(ctx, vView, eDomain, 0, id)
 	case apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG, apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET:
 		return h.canAccess(ctx, vView, eCluster, 0, 0)
 	case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS:

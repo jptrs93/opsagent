@@ -119,6 +119,9 @@ import {
   encodeSecretSetRequest,
   encodeSecretUnlockRequest,
   encodeSpaceDeleteRequest,
+  encodeSpaceDomainPolicyCreateRequest,
+  encodeSpaceDomainPolicyDeleteRequest,
+  encodeSpaceDomainPolicyUpdateRequest,
   encodeSpaceSetRequest,
   encodeUserCreateRequest,
   encodeUserLinkRequest,
@@ -1146,6 +1149,45 @@ export class Capi {
    */
   async postV1NetworkPoliciesDelete(payload, options = {}) {
     const response = await this.#request("/v1/network-policies/delete", { method: 'POST', body: encodeNetworkPolicyDeleteRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {SpaceDomainPolicyCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<CoreWriteUpdate>}
+   */
+  async postV1SpaceDomainPoliciesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/space-domain-policies/create", { method: 'POST', body: encodeSpaceDomainPolicyCreateRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SpaceDomainPolicyUpdateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<CoreWriteUpdate>}
+   */
+  async postV1SpaceDomainPoliciesUpdate(payload, options = {}) {
+    const response = await this.#request("/v1/space-domain-policies/update", { method: 'POST', body: encodeSpaceDomainPolicyUpdateRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {SpaceDomainPolicyDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<void>}
+   */
+  async postV1SpaceDomainPoliciesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/space-domain-policies/delete", { method: 'POST', body: encodeSpaceDomainPolicyDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }

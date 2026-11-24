@@ -8,6 +8,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/spacedomainpolicies"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
@@ -19,6 +20,14 @@ func ensureTestNode(store *state.Service, name, identifier string) *nodes.Node {
 	sum := h.Sum32()
 	addr := netip.AddrFrom4([4]byte{10, byte(sum >> 16), byte(sum >> 8), byte(sum)})
 	return nodes.EnsurePrimaryNode(store, name, identifier, addr, "")
+}
+
+// seedDefaultDomainPolicy gives a bare test store what New seeds at startup.
+func seedDefaultDomainPolicy(t *testing.T, store *state.Service) {
+	t.Helper()
+	if err := spacedomainpolicies.SeedDefault(store); err != nil {
+		t.Fatalf("seeding the default domain policy: %v", err)
+	}
 }
 
 func allowEffect(delegationAllowed bool) apigen.AuthzEffect {

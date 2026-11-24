@@ -1554,6 +1554,68 @@ func (c *ApiServerCapi) PostV1NetworkPoliciesDelete(ctx context.Context, req *Ne
 	return nil
 }
 
+func (c *ApiServerCapi) PostV1SpaceDomainPoliciesCreate(ctx context.Context, req *SpaceDomainPolicyCreateRequest) (*CoreWriteUpdate, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SpaceDomainPoliciesCreate request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/space-domain-policies/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeCoreWriteUpdate(body)
+}
+
+func (c *ApiServerCapi) PostV1SpaceDomainPoliciesUpdate(ctx context.Context, req *SpaceDomainPolicyUpdateRequest) (*CoreWriteUpdate, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1SpaceDomainPoliciesUpdate request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/space-domain-policies/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeCoreWriteUpdate(body)
+}
+
+func (c *ApiServerCapi) PostV1SpaceDomainPoliciesDelete(ctx context.Context, req *SpaceDomainPolicyDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1SpaceDomainPoliciesDelete request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/space-domain-policies/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
 func (c *ApiServerCapi) PostV1SecretsCreate(ctx context.Context, req *SecretCreateRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1SecretsCreate request is nil")

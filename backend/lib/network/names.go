@@ -88,3 +88,23 @@ func allDigits(s string) bool {
 	}
 	return true
 }
+
+// CanonicalHostname lower-cases a DNS hostname and drops its trailing dot,
+// refusing anything that is not letters, digits and inner hyphens per label.
+func CanonicalHostname(value string) (string, bool) {
+	hostname := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(value)), ".")
+	if hostname == "" || len(hostname) > 253 {
+		return "", false
+	}
+	for _, label := range strings.Split(hostname, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", false
+		}
+		for _, char := range label {
+			if (char < 'a' || char > 'z') && (char < '0' || char > '9') && char != '-' {
+				return "", false
+			}
+		}
+	}
+	return hostname, true
+}

@@ -36,6 +36,7 @@ The dashboard uses a split-pane layout:
 - `components/sidebar.js` — left sidebar: the header, the grouped nav, and a footer row with the deployments stream status and a sign-out icon button. The nav renders from the model in `components/nav.js`: four groups ordered by how often an operator visits them — Workloads (Deployments, Secrets / Configs, Assets, Jobs, Policies, Charts), Observability (Logs, Metrics, Dashboards, Alerts), IAM (Users & roles, Sessions, Approvals), Cluster (Spaces, Nodes, Settings). Items marked `future` in the model do not exist yet: the sidebar tags them "soon" and `pages/planned.js` renders each as a single centred "planned future feature" message. A `badge` key on an item names a pending count the dashboard can pass in (`sidebar(activePage, {badges})`); nothing supplies one yet.
 - Groups show their title only when collapsed. An open group has a slim chevron handle (its uppercase title fades in on hover) and a hairline separates it from the next group; collapsing it replaces the handle with the title row, which is what you click to reopen. Collapsed groups are remembered in `localStorage` (`opsagent_sidebar_collapsed_groups`), navigating to a page inside a collapsed group opens it, and a collapsed group shows the sum of its items' pending badges so an inbox is never hidden. Test ids: `nav-<page key>` on items, `nav-group-<group key>` on headers (with `aria-expanded`), `nav-sign-out` on the footer button.
 - `pages/policies.js` — the Policies page: one page for every cross-space exception, a tab per resource kind. Network is `pages/networkPolicies.js` unchanged (page key `policies`, tab test ids `policies-tab-<kind>`); Secrets is planned.
+- `pages/spaces.js` — the Spaces page, with the same tab bar: Spaces (the space list) and Domain policies (`pages/domainPolicies.js`). Tab test ids `spaces-tab-spaces` and `spaces-tab-domain-policies`.
 - The main pane is split horizontally with a draggable divider (width persisted to `localStorage`). The right-hand pane shows the deployment history sidebar when a card action opens one.
 - The active page is tracked via a `van.state` value. Clicking a sidebar item swaps the main content.
 
@@ -82,7 +83,10 @@ entries whose `valueVersion` changed; nodes, instances, network policies,
 and grants keep the latest entity wrapped with the commit's `seq`,
 `eventTime`, and `author`; spaces, users, directories, sessions, rule
 templates, and global rules are plain latest-entity maps; the system config
-is the latest entity plus its `seq`. Observed statuses merge by their nanosecond
+is the latest entity plus its `seq`, and space domain policies are a
+latest-entity map that keeps the `seq` too, derived in id order as
+`spaceDomainPoliciesS`. Entity types the browser does not fold (nix store
+resets, secret keyslots) are skipped. Observed statuses merge by their nanosecond
 `updatedAt` (the generated Date's `epochNanoseconds`), not by seq. A status may
 precede its parent inside one message, so orphans are swept once the message
 has folded rather than refused on arrival. Tombstones clear the visible entry
@@ -112,7 +116,8 @@ visibility change replaces the map with the fresh snapshot's live grants.
 
 Concurrency tokens: every write that guards against a concurrent change
 (`/v1/deployments/update`, delete, evict, enrollment accept, network policy
-update, and the referencing-deployment lists of secret and config sets) sends
+update, space domain policy update, and the referencing-deployment lists of
+secret and config sets) sends
 `expectedSeq`, the `seq` of the entity's last mutation as the page held it.
 Reveal is by `{secretId, version}` and asset content by `asset_id` plus
 `version`.
@@ -144,6 +149,14 @@ Reveal is by `{secretId, version}` and asset content by `asset_id` plus
 - **Replication** shows `backupStatusS`: the status badge and a sentence, tiles for local and remote TXID, lag, and last successful sync, then the pending-assets notice and any database or asset error. The tab's dot mirrors the badge tone. The fixture in `fixtures/nodes-redesign/` mounts the page over an in-memory node API.
 
 Deployment node selectors render `Node.operator.name` and submit the node's entity id in `scheduling.dedicated_nodes`.
+
+### Spaces (`pages/spaces.js` and `pages/domainPolicies.js`)
+- Two tabs. **Spaces** is the space list with its add and delete dialogs.
+- **Domain policies** lists `spaceDomainPoliciesS` in id order: an allow or deny badge, the name, the spaces and the domains the rule covers, and an enable switch. A disabled row is muted and tagged "off". The row grid stacks under a container query, so the same markup serves the narrow layout. Above the list sit a "Check a hostname" helper (a space and a hostname, answered from the visible policies), one line on evaluation order and wildcards, and an amber notice while an enabled allow covers every space and every domain and there is more than one user space.
+- The editor dialog takes a name, the effect, a spaces position (these spaces, or all except; `_system` is offered only when the policy already names it), a domains position (these domains, or all except; one per line or comma separated) and Enabled. It shows the rule as a sentence and keeps Save disabled while the draft has a problem. An exact list must not be empty; an empty "all except" list means all.
+- The switch is not optimistic: it sends the whole policy with `disabled` flipped and `expectedSeq`, and moves when the stream delivers the update. A refused toggle, save or delete shows the server's `displayErr` unchanged next to the control, which is where the "would leave published hostnames without permission" refusal appears.
+- The model is `lib/domainPolicies.js`, pure and unit tested: the effect and selector shapes, the summaries, domain validation (`canonicalDomain`, `parseDomains`), `decide` (the server's order: enabled denies, then enabled allows), the draft and the three request payloads.
+- Test ids: `domain-policy-row-<id>`, `domain-policy-toggle-<id>`, `domain-policy-edit-<id>`, `domain-policy-delete-<id>`, `domain-policy-add`, `domain-policy-editor`, `domain-policy-save`, `domain-policy-delete-confirm`, `domain-policy-error`. The fixture in `fixtures/domain-policies/` (`pnpm run dev:domain-policies`) mounts the page over an in-memory API that refuses what the server refuses.
 
 ### Settings (`pages/settings.js`)
 - One flush surface in the explorer pages' style: a toolbar on the 30px baseline (a search box that filters rows by label or section title, and once anything is dirty an amber "Unsaved changes" count with Reset and Save changes), a status line (the one line of help, or an amber warning when the cluster settings changed elsewhere while the draft is dirty), then one dense table per group — Web UI, Authentication, Cluster, Repository credentials, Backup, Secrets recovery — with the group name in a merged cell down the left, centred beside its rows, and a single rule centred in the gap between one group and the next; nothing collapses and there are no lines between rows. Columns are label, source, value. Rows are `tr`s with `data-testid="setting-row-<KEY>"`. Rows a bool hides (the HTTP listen without HTTP, the backup S3 fields without backups, the separate large-asset S3 fields) stay mounted under `hidden` so a typed draft survives; a group whose rows a search leaves empty hides with them, and the first group still showing carries no rule above it.

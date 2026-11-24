@@ -94,8 +94,9 @@ in the approving operator's spaces except:
   host access, and space moves. An administrator can explicitly delegate these
   permissions. Managed volumes and asset mounts do not require `use_host_mounts`.
 - **The cluster itself.** Node management, enrollment, cluster settings,
-  access rules and grants, config export, Nix store resets, and OpenDeploy's
-  own internal deployments all live at the cluster level (space `0`) and
+  access rules and grants, domain policies, config export, Nix store resets,
+  and OpenDeploy's own internal deployments all live at the cluster level
+  (space `0`) and
   default to human-only — either invisible to you or `403`. Nodes are the
   exception on the read side: the state snapshot (section 4) includes every
   node that hosts a space you can see, so you can place deployments.
@@ -140,8 +141,8 @@ numbers in JSON: 1 `deployment`, 2 `scheduled_instance`, 3 `node`,
 10 `value_directory`, 11 `asset_directory`, 12 `authz_grant_template`,
 13 `authz_grant`, 14 `authz_global_rule`, 15 `system_config`,
 16 `scheduled_instance_status`, 17 `node_status`, 18 `agent_session`,
-19 `user_session`, 20 `nix_store_reset`. Empty arrays and zero values may be
-omitted in JSON; treat missing fields as empty.
+19 `user_session`, 20 `nix_store_reset`, 22 `space_domain_policy`. Empty
+arrays and zero values may be omitted in JSON; treat missing fields as empty.
 
 `meta` holds the facts the server derives, never the payload: `created_time`
 and `updated_time` (epoch ms), `updated_seq`, `updated_actor` (0 = the
@@ -556,6 +557,44 @@ same space is rejected as redundant. Create and update return receipts.
 (a stale value is `409 network_policy_version_conflict`), plus the same
 fields; `/delete` takes `{"id": <id>}` and is destructive (section 10).
 
+### Domain policies
+
+Which space may publish which ingress hostname is decided by the cluster's
+domain policies, entity type 22. They are cluster-level and human-only by
+default: your snapshot normally holds none, and the write routes are `403`.
+What you will meet is the refusal. A deployment create, spec update, or space
+move whose `networking.ingress` names a hostname its space is not allowed is
+`403 ingress_domain_not_allowed`, and the message names the hostname and the
+deny that refused it, or says that no policy allows it. Choose a hostname the
+space is allowed, or ask the operator to change the policy. Do not work
+around it with another space.
+
+When your session does hold them, a policy is a name, a `disabled` flag, and a
+rule shaped like an access rule:
+
+```json
+{"name": "prod-names", "disabled": false,
+ "rule": {"effect": {"value": {"deny": {}}},
+          "selector": {"spaces": {"all_spaces_excluding": {"values": [3]}},
+                       "domains": {"exact_domains": {"values": ["example.com", "*.example.com"]}}}}}
+```
+
+`effect.value` is `allow` or `deny`. Each selector position sets exactly one
+list: `exact_…` covers the listed values, `all_…_excluding` covers everything
+else, and an empty excluding list covers everything. A domain is a hostname,
+or `*.` and a hostname for every name below it at any depth, which does not
+include the hostname itself. Enabled denies are checked first, then enabled
+allows, and a hostname no allow covers is refused.
+
+`/v1/space-domain-policies/create` takes `name`, `disabled`, and `rule`;
+`/update` takes the policy's `id`, its `meta.updated_seq` as `expected_seq`
+(a stale value is `409 space_domain_policy_version_conflict`), and the same
+three fields as a full replacement; `/delete` takes `{"id": <id>}`. Any of
+them is refused with `409 space_domain_policy_routes_in_use` when the change
+would leave a hostname some deployment already publishes without permission;
+the message lists them. A cluster starts with one policy,
+`default_ingress_domains`, which allows every space every hostname.
+
 ## 10. Rules that apply everywhere
 
 - **Destructive operations need explicit confirmation first.** Deleting a
@@ -607,6 +646,7 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 | `POST /v1/secrets/generate` | yes |
 | `POST /v1/spaces/update` `/delete` | yes |
 | `POST /v1/network-policies/create` `/update` `/delete` | yes |
+| `POST /v1/space-domain-policies/create` `/update` `/delete` | operator (cluster) |
 | `POST /v1/spaces/create` | operator |
 | `POST /v1/secrets/create` `/set` `/reveal` `/rename` `/move` `/delete` | operator (secret values) |
 | `POST /v1/secrets/unlock` `/rotate-recovery-code` | operator (cluster) |

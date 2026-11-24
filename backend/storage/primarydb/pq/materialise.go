@@ -39,6 +39,7 @@ var reducedTypes = []apigen.CoreEntityType{
 	apigen.CoreEntityType_CORE_ENTITY_SPACE,
 	apigen.CoreEntityType_CORE_ENTITY_USER,
 	apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY,
+	apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY,
 	apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE,
 	apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT,
 	apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE,
@@ -52,7 +53,7 @@ var reducedTypes = []apigen.CoreEntityType{
 var materialisedTables = []string{
 	"value_keys", "secret_versions", "secrets", "config_versions", "configs", "value_directories",
 	"asset_keys", "asset_versions", "assets", "asset_directories",
-	"spaces", "users", "network_policies", "authz_grant_templates", "authz_grants", "authz_global_rules",
+	"spaces", "users", "network_policies", "space_domain_policies", "authz_grant_templates", "authz_grants", "authz_global_rules",
 	"agent_sessions", "user_sessions", "nix_store_resets", "secret_keyslots", "system_config",
 	"deployments", "deployment_versions", "scheduled_instances", "scheduled_instance_status", "nodes", "node_status",
 }
@@ -235,6 +236,11 @@ func (q *Queries) reduce(ctx context.Context, env rowEnvelope, m *apigen.CoreMut
 			return q.deleteNetworkPolicyRow(ctx, id)
 		}
 		err = q.reduceNetworkPolicy(ctx, env, meta, id, v.NetworkPolicy)
+	case apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY:
+		if deleted {
+			return q.deleteSpaceDomainPolicyRow(ctx, id)
+		}
+		err = q.reduceSpaceDomainPolicy(ctx, env, meta, id, v.SpaceDomainPolicy)
 	case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE:
 		if deleted {
 			return q.deleteAuthzGrantTemplateRow(ctx, id)

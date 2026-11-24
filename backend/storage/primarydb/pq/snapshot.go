@@ -210,6 +210,14 @@ func (q *Queries) snapshotOf(ctx context.Context, t apigen.CoreEntityType) ([]*a
 		for _, e := range rows {
 			out = append(out, entry(t, e.NetworkPolicyID, NetworkPolicyMutation(EventMeta{}, e.NetworkPolicyID, e.Value).Entity, rowMeta(e.CreatedTime, e.Seq, e.EventTime, e.Author)))
 		}
+	case apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY:
+		rows, err := q.ListSpaceDomainPolicies(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, e := range rows {
+			out = append(out, entry(t, e.SpaceDomainPolicyID, SpaceDomainPolicyMutation(EventMeta{}, e.SpaceDomainPolicyID, e.Value).Entity, rowMeta(e.CreatedTime, e.Seq, e.EventTime, e.Author)))
+		}
 	case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE:
 		rows, err := q.ListAuthzGrantTemplates(ctx)
 		if err != nil {

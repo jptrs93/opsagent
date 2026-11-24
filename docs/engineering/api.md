@@ -169,7 +169,7 @@ of `create`, `update`, or `delete`, each with `entity_type` (`CoreEntityType`)
 and `entity_id`; create and update carry the entity in a `CoreEntity`, whose
 field numbers equal the type enum. Every identity payload carries its own
 `id` (`Deployment`, `Node`, `Secret`, `Config`, `Asset`, `NetworkPolicy`,
-`AuthzGrantTemplate`, `AuthzGrant`, `AuthzGlobalRule`, `ScheduledInstance`,
+`SpaceDomainPolicy`, `AuthzGrantTemplate`, `AuthzGrant`, `AuthzGlobalRule`, `ScheduledInstance`,
 `Space`, `User`, the directories, and the sessions); the mutation's `entity_id` is a copy
 of it kept for routing, since a delete has no payload, and the server stamps
 the payload id from the row id wherever it builds or replays a mutation
@@ -221,7 +221,8 @@ included, to the snapshot of tables rebuilt from the log.
 
 Every write endpoint that returns an entity returns a `CoreWriteUpdate`:
 deployment create and update; node rename, allowed spaces, drain, and
-evict; network policy create and update; secret create, set, generate,
+evict; network policy create and update; space domain policy create and
+update; secret create, set, generate,
 rename, and move; config create, set, rename, and move; asset upload, rename,
 and move; and the access control creates and update. The update carries the
 mutation for the entity the call addressed under the `seq`, `time`, and
@@ -406,6 +407,7 @@ beside its reader), the one place that maps a payload to columns. Their
 writers return mutations only (`pq.SecretMutation(meta, id, secret)`,
 `pq.SpaceMutation(meta, space)`, `pq.UserMutation(meta, user)`,
 `pq.NetworkPolicyMutation(meta, id, policy)`,
+`pq.SpaceDomainPolicyMutation(meta, id, policy)`,
 `pq.AuthzGrantTemplateMutation(meta, template)`, `pq.AuthzGrantMutation(meta,
 id, grant)`, `pq.AuthzGlobalRuleMutation(meta, rule)`,
 `pq.DeleteMutation(meta, type, id)`, ...), allocate ids through
@@ -435,10 +437,10 @@ with that version's value; the newest entry's meta carries the identity
 row's envelope and `created_time`, older entries the envelope of their
 version row. Shape for the latest-only
 reduced types: one row per live entity keyed by its id (`spaces`, `users`,
-`network_policies`, `authz_grant_templates`, `authz_grants`,
+`network_policies`, `space_domain_policies`, `authz_grant_templates`, `authz_grants`,
 `authz_global_rules`) holding the payload's facts as columns (a document
 blob where the payload nests one: the `UserAuthentication`, the
-`NetworkPolicy`, the `AuthzGrantTemplateSpec`, `AuthzGrantSource`,
+`NetworkPolicy`, the `SpaceDomainPolicy`, the `AuthzGrantTemplateSpec`, `AuthzGrantSource`,
 `AuthzRule`) plus `created_time` and the envelope `seq`,
 `event_time`, `author` of the last write; the payloads carry no author, so
 the row's `author` is the envelope actor of the write that produced it. The
@@ -446,7 +448,8 @@ snapshot emits each as one entry. `GetSpace`, `GetUserRow`, `GetNetworkPolicy`,
 `GetAuthzGrantTemplate`, `GetAuthzGrant`, and `GetAuthzGlobalRule` return
 `sql.ErrNoRows` for a deleted entity; a writer that needs the history
 (`seedGlobalRule`, which must not re-seed a rule an operator deleted) asks
-the log (`AuthzGlobalRuleNameEverLogged`). `pq.NetworkPolicyEvent` is the
+the log (`AuthzGlobalRuleNameEverLogged`; `SpaceDomainPolicyNameEverLogged`
+does the same for the seeded default domain policy). `pq.NetworkPolicyEvent` is the
 backend's row view of a live policy, the envelope of its last write (`seq`,
 `author`, `event_time`, `created_time`) plus the payload; `AuthzGrantEvent`
 is gone.

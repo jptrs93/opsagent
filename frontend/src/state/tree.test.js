@@ -3,10 +3,11 @@ import test from 'node:test';
 import {applyMessage, createTree, observedClock, resetTree, written} from './tree.js';
 
 const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SECRET = 4, CONFIG = 5, NETWORK_POLICY = 7, SPACE = 8, AUTHZ_GRANT_TEMPLATE = 12, AUTHZ_GRANT = 13,
-    SYSTEM_CONFIG = 15, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, AGENT_SESSION = 18, USER_SESSION = 19;
+    SYSTEM_CONFIG = 15, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, AGENT_SESSION = 18, USER_SESSION = 19, NIX_STORE_RESET = 20, SPACE_DOMAIN_POLICY = 22;
 const fields = {[DEPLOYMENT]: 'deployment', [SCHEDULED_INSTANCE]: 'scheduledInstance', [NODE]: 'node', [SECRET]: 'secret', [CONFIG]: 'config',
     [NETWORK_POLICY]: 'networkPolicy', [SPACE]: 'space', [AUTHZ_GRANT_TEMPLATE]: 'authzGrantTemplate', [AUTHZ_GRANT]: 'authzGrant', [SYSTEM_CONFIG]: 'systemConfig',
-    [SCHEDULED_INSTANCE_STATUS]: 'scheduledInstanceStatus', [NODE_STATUS]: 'nodeStatus', [AGENT_SESSION]: 'agentSession', [USER_SESSION]: 'userSession'};
+    [SCHEDULED_INSTANCE_STATUS]: 'scheduledInstanceStatus', [NODE_STATUS]: 'nodeStatus', [AGENT_SESSION]: 'agentSession', [USER_SESSION]: 'userSession',
+    [NIX_STORE_RESET]: 'nixStoreReset', [SPACE_DOMAIN_POLICY]: 'spaceDomainPolicy'};
 
 const coreEntity = (type, entity) => ({value: {[fields[type]]: entity}});
 export const create = (type, id, entity, meta) => ({value: {create: {entityType: type, entityId: id, entity: coreEntity(type, entity), ...(meta ? {meta} : {})}}});
@@ -136,9 +137,28 @@ test('a deployment delete keeps live pins as a tombstone until finalization, the
 
 test('deletes remove histories, events, and documents', () => {
     const tree = createTree();
-    applyMessage(tree, message([event(1, [create(SECRET, 2, {}, {valueVersion: 1}), create(NETWORK_POLICY, 3, {action: 1}), create(SPACE, 4, {id: 4}), create(NODE, 1, {}), create(NODE_STATUS, 1, {nodeId: 1, updatedAt: new Date(5), isConnected: true})])]));
-    applyMessage(tree, message([event(2, [remove(SECRET, 2), remove(NETWORK_POLICY, 3), remove(SPACE, 4), remove(NODE, 1)])]));
-    assert.equal(tree.secrets.size + tree.networkPolicies.size + tree.spaces.size + tree.nodes.size + tree.nodeStatuses.size + tree.nodeStatusClocks.size, 0);
+    applyMessage(tree, message([event(1, [create(SECRET, 2, {}, {valueVersion: 1}), create(NETWORK_POLICY, 3, {action: 1}), create(SPACE_DOMAIN_POLICY, 5, {id: 5, name: 'p'}), create(SPACE, 4, {id: 4}), create(NODE, 1, {}), create(NODE_STATUS, 1, {nodeId: 1, updatedAt: new Date(5), isConnected: true})])]));
+    applyMessage(tree, message([event(2, [remove(SECRET, 2), remove(NETWORK_POLICY, 3), remove(SPACE_DOMAIN_POLICY, 5), remove(SPACE, 4), remove(NODE, 1)])]));
+    assert.equal(tree.secrets.size + tree.networkPolicies.size + tree.spaceDomainPolicies.size + tree.spaces.size + tree.nodes.size + tree.nodeStatuses.size + tree.nodeStatusClocks.size, 0);
+});
+
+test('space domain policies keep the latest entity under the seq of its last write', () => {
+    const tree = createTree();
+    const policy = disabled => ({id: 5, name: 'prod-only', disabled, rule: {effect: {value: {deny: {}}}}});
+    assert.deepEqual([...applyMessage(tree, message([event(4, [create(SPACE_DOMAIN_POLICY, 5, policy(false))])]))], ['spaceDomainPolicies']);
+    applyMessage(tree, message([event(6, [update(SPACE_DOMAIN_POLICY, 5, policy(true))])]));
+    assert.deepEqual(tree.spaceDomainPolicies.get(5), {spaceDomainPolicyId: 5, seq: 6, value: policy(true)});
+    const reconnected = createTree();
+    applyMessage(reconnected, snapshot(9, [entry(SPACE_DOMAIN_POLICY, 5, policy(true), {updatedSeq: 6})]));
+    assert.deepEqual(reconnected.spaceDomainPolicies, tree.spaceDomainPolicies);
+});
+
+test('entity types the browser does not fold are skipped', () => {
+    const tree = createTree();
+    const changed = applyMessage(tree, message([event(3, [create(NIX_STORE_RESET, 1, {id: 1}), remove(NIX_STORE_RESET, 1)])]));
+    assert.equal(changed.size, 0);
+    assert.equal(tree.seq, 3);
+    assert.doesNotThrow(() => applyMessage(tree, snapshot(4, [entry(NIX_STORE_RESET, 1, {id: 1}, {updatedSeq: 4})])));
 });
 
 test('late observed statuses for pruned instances do not create orphan state', () => {

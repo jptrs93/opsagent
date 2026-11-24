@@ -465,6 +465,7 @@ func TestDeploymentCreatePersistsInitialStoppedWorkloadState(t *testing.T) {
 func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := ensureTestNode(store, "primary", "primary")
+	seedDefaultDomainPolicy(t, store)
 	h := &Handler{SystemConfig: testConfigService(t, store), Store: store, Queries: store.Queries(), NodeID: primary.ID}
 	ingress := func(hostname string) apigen.NetworkingConfig {
 		return apigen.NetworkingConfig{
@@ -514,6 +515,7 @@ func TestDeploymentCreateRejectsIngressClaimsAlreadyUsedOnNode(t *testing.T) {
 func TestDeploymentCreateAllowsPrimaryIngressAndRejectsOverlap(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	primary := ensureTestNode(store, "primary", "primary")
+	seedDefaultDomainPolicy(t, store)
 	nodes.ReportNode(store, "primary", apigen.NodeReported{Identifier: "primary", HostAddresses: []apigen.IpAddress{erru.Must(apigen.ParseAddr("203.0.113.10"))}})
 	h := &Handler{SystemConfig: testConfigService(t, store), Store: store, Queries: store.Queries(), NodeID: primary.ID}
 	settings := h.SystemConfig.Snapshot().Settings
