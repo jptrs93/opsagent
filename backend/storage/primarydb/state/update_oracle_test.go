@@ -17,6 +17,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/domainpolicy"
+	"github.com/jptrs93/opsagent/backend/lib/nodeaccess"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -324,6 +325,7 @@ var oracleTypes = []apigen.CoreEntityType{
 	apigen.CoreEntityType_CORE_ENTITY_SECRET, apigen.CoreEntityType_CORE_ENTITY_CONFIG, apigen.CoreEntityType_CORE_ENTITY_ASSET,
 	apigen.CoreEntityType_CORE_ENTITY_VALUE_DIRECTORY, apigen.CoreEntityType_CORE_ENTITY_ASSET_DIRECTORY,
 	apigen.CoreEntityType_CORE_ENTITY_NETWORK_POLICY, apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY,
+	apigen.CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY,
 	apigen.CoreEntityType_CORE_ENTITY_SPACE, apigen.CoreEntityType_CORE_ENTITY_USER,
 	apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE,
 	apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION, apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET,
@@ -386,6 +388,9 @@ func assertFoldMatchesLiveTables(t *testing.T, s *Service, fold foldState) {
 	}
 	for _, e := range erru.Must(q.ListSpaceDomainPolicies(ctx)) {
 		put(apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY, e.SpaceDomainPolicyID, entity(pq.SpaceDomainPolicyMutation(pq.EventMeta{}, e.SpaceDomainPolicyID, e.Value)))
+	}
+	for _, e := range erru.Must(q.ListNodeAccessPolicies(ctx)) {
+		put(apigen.CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY, e.NodeAccessPolicyID, entity(pq.NodeAccessPolicyMutation(pq.EventMeta{}, e.NodeAccessPolicyID, e.Value)))
 	}
 	for _, sp := range erru.Must(q.ListSpaces(ctx)) {
 		put(apigen.CoreEntityType_CORE_ENTITY_SPACE, sp.ID, entity(pq.SpaceMutation(pq.EventMeta{}, sp)))
@@ -491,6 +496,34 @@ func createSpaceDomainPolicyForTest(s *Service, name string, author int64) uint6
 		return pq.NewUpdate(pq.SpaceDomainPolicyMutation(meta, id, policy)), nil
 	}))
 	return id
+}
+
+func createNodeAccessPolicyForTest(s *Service, name string, author int64) uint64 {
+	ctx := context.Background()
+	var id uint64
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
+		var err error
+		id, err = q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY)
+		if err != nil {
+			return nil, err
+		}
+		policy := nodeaccess.Builtins()[1]
+		policy.Name, policy.Builtin = name, apigen.NodeAccessBuiltin_NODE_ACCESS_BUILTIN_NONE
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), Author: author, EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
+		return pq.NewUpdate(pq.NodeAccessPolicyMutation(meta, id, policy)), nil
+	}))
+	return id
+}
+
+func deleteNodeAccessPolicyForTest(s *Service, id uint64) {
+	ctx := context.Background()
+	erru.Must(0, s.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*WriteUpdate, error) {
+		if _, err := q.GetNodeAccessPolicy(ctx, id); err != nil {
+			return nil, err
+		}
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli()}
+		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY, id)), nil
+	}))
 }
 
 func deleteSpaceDomainPolicyForTest(s *Service, id uint64) {
@@ -683,6 +716,8 @@ func seedEquivalenceScenario(t *testing.T, s *Service) equivalenceScenario {
 	deleteNetworkPolicyForTest(s, createNetworkPolicyForTest(s, 2))
 	createSpaceDomainPolicyForTest(s, "kept", 1)
 	deleteSpaceDomainPolicyForTest(s, createSpaceDomainPolicyForTest(s, "gone", 2))
+	createNodeAccessPolicyForTest(s, "kept", 1)
+	deleteNodeAccessPolicyForTest(s, createNodeAccessPolicyForTest(s, "gone", 2))
 	createSpaceForTest(s, "kept")
 	deleteSpaceForTest(s, createSpaceForTest(s, "gone").ID)
 	createUserForTest(s, "alice")

@@ -39,6 +39,7 @@ export const networkPoliciesS = van.state([]);
 // Space domain policy rows carry the seq of their last write, the
 // expectedSeq of an update.
 export const spaceDomainPoliciesS = van.state([]);
+export const nodeAccessPoliciesS = van.state([]);
 // ingressDiagnosticsS arrives as a full snapshot whenever the primary
 // re-renders the cluster network map: per-deployment ingress warnings.
 export const ingressDiagnosticsS = van.state([]);
@@ -77,10 +78,11 @@ export const expandValueVersionRefs = metas => (metas || []).flatMap(meta => (me
 })));
 
 const memberStatus = status => status >= 4 && status <= 7;
-export const nodeViewModel = event => ({
+const runSpacesByNode = tree => new Map((tree.nodeAccess?.items || []).map(item => [Number(item.nodeId), (item.runDeploymentSpaces || []).map(Number)]));
+export const nodeViewModel = (event, runSpaces) => ({
     id: event.nodeId, seq: event.seq,
     name: event.value.operator?.name || '', identifier: event.value.reported?.identifier || '',
-    roles: event.value.operator?.roles || [], allowedSpaces: event.value.operator?.allowedSpaces || [],
+    roles: event.value.operator?.roles || [], allowedSpaces: runSpaces?.get(event.nodeId) || [],
     enrolledAt: new Date(event.value.operator?.enrolledTime || 0),
     status: event.value.status, enrollmentRequestedAt: event.value.enrollmentRequestedAt,
     draining: event.value.status === 6, evicted: event.value.status === 8, eventTime: event.eventTime || 0,
@@ -114,12 +116,14 @@ export function publishDerived(tree, changed) {
     const any = (...names) => names.some(name => changed.has(name));
     seqS.val = tree.seq;
     if (any('deployments', 'scheduledInstances', 'instanceStatuses')) deploymentsS.val = deriveDeploymentRows(tree);
-    if (any('nodes', 'nodeStatuses')) {
+    if (any('nodes', 'nodeStatuses', 'nodeAccess')) {
         const events = [...tree.nodes.values()];
-        nodesS.val = sortByName(events.filter(e => memberStatus(e.value.status)).map(nodeViewModel));
+        const runSpaces = runSpacesByNode(tree);
+        const withAccess = event => nodeViewModel(event, runSpaces);
+        nodesS.val = sortByName(events.filter(e => memberStatus(e.value.status)).map(withAccess));
         nodeStatusesS.val = [...tree.nodeStatuses.values()];
         enrollmentsS.val = deriveEnrollments(tree);
-        machinesS.val = [...nodesS.val, ...sortByName(events.filter(e => e.value.status === 8).map(nodeViewModel))].map(node => {
+        machinesS.val = [...nodesS.val, ...sortByName(events.filter(e => e.value.status === 8).map(withAccess))].map(node => {
             const status = node.evicted ? {} : tree.nodeStatuses.get(node.id) || {};
             return {...node, isPrimary: node.roles.includes(0), connected: status.isConnected === true, connectedAt: status.lastConnectedAt,
                 runtimeVersions: status.runtimeVersions || '', opendeployVersion: status.opendeployVersion || ''};
@@ -135,6 +139,7 @@ export function publishDerived(tree, changed) {
     if (any('valueDirectories')) valueDirectoriesS.val = sortByName([...tree.valueDirectories.values()]);
     if (any('assetDirectories')) assetDirectoriesS.val = sortAssets([...tree.assetDirectories.values()]);
     if (any('networkPolicies')) networkPoliciesS.val = [...tree.networkPolicies.values()].map(e => ({...e.value, id: e.networkPolicyId, seq: e.seq})).sort((a, b) => a.id - b.id);
+    if (any('nodeAccessPolicies')) nodeAccessPoliciesS.val = [...tree.nodeAccessPolicies.values()].map(e => ({...e.value, id: e.nodeAccessPolicyId, seq: e.seq})).sort((a, b) => a.id - b.id);
     if (any('spaceDomainPolicies')) spaceDomainPoliciesS.val = [...tree.spaceDomainPolicies.values()].map(e => ({...e.value, id: e.spaceDomainPolicyId, seq: e.seq})).sort((a, b) => a.id - b.id);
     if (any('authzGrants')) authzGrantsS.val = [...tree.authzGrants.values()].map(authzGrantViewModel).sort((a, b) => a.id - b.id);
     if (any('authzGrantTemplates')) authzTemplatesS.val = [...tree.authzGrantTemplates.values()].sort((a, b) => a.id - b.id);

@@ -1,10 +1,13 @@
 import {DATASETS as ACCESS} from "/fixtures/users-redesign/mock.js";
 import {allDomainsExcluding, allowEffect, denyEffect, exactDomains} from "/src/lib/domainPolicies.js";
+import {exactNodes, runPermission} from "/src/lib/nodeAccessPolicies.js";
+import {builtinPolicies, runSpaces} from "/fixtures/nodeAccess.js";
 
 export const T = {
     DEPLOYMENT: 1, SCHEDULED_INSTANCE: 2, NODE: 3, SECRET: 4, CONFIG: 5, ASSET: 6, NETWORK_POLICY: 7, SPACE: 8, USER: 9,
     VALUE_DIRECTORY: 10, ASSET_DIRECTORY: 11, AUTHZ_GRANT_TEMPLATE: 12, AUTHZ_GRANT: 13, AUTHZ_GLOBAL_RULE: 14, SYSTEM_CONFIG: 15,
     SCHEDULED_INSTANCE_STATUS: 16, NODE_STATUS: 17, AGENT_SESSION: 18, USER_SESSION: 19, SPACE_DOMAIN_POLICY: 22,
+    NODE_ACCESS_POLICY: 23,
 };
 
 export const SIGNED_IN_USER = 1;
@@ -159,14 +162,14 @@ export function buildDataset(now = Date.now()) {
     const nodes = [
         {id: NODE.primary, name: "primary", identifier: "7c1f0a6e-3b2d-4e8f-9a01-5d6c7b8e9f10", roles: [0], ula: "fd7a:115c:a1e0::1", host: [v4(10, 0, 0, 11), v4(203, 0, 113, 4), v6("2001:db8::11")], remote: "10.0.0.11", connectedAgo: 18 * DAY, enrolled: 120 * DAY},
         {id: NODE.a, name: "worker-a", identifier: "a19b4f02-5ca3-4ad2-9b61-ee0d1c2a3b44", roles: [1], ula: "fd7a:115c:a1e0::2", host: [v4(10, 0, 0, 12)], remote: "10.0.0.12", connectedAgo: 12 * DAY, enrolled: 110 * DAY},
-        {id: NODE.b, name: "worker-b", identifier: "b7e2c813-1d4f-4a8e-a0c2-9f3b7d1e5c66", roles: [1], ula: "fd7a:115c:a1e0::3", host: [v4(10, 0, 0, 13), v4(203, 0, 113, 6)], remote: "10.0.0.13", connectedAgo: 2 * HOUR, enrolled: 95 * DAY, spaces: [0, 1, 2]},
+        {id: NODE.b, name: "worker-b", identifier: "b7e2c813-1d4f-4a8e-a0c2-9f3b7d1e5c66", roles: [1], ula: "fd7a:115c:a1e0::3", host: [v4(10, 0, 0, 13), v4(203, 0, 113, 6)], remote: "10.0.0.13", connectedAgo: 2 * HOUR, enrolled: 95 * DAY},
         {id: NODE.c, name: "worker-c", identifier: "c4d9e1f0-8b2a-4c6d-b3e7-1a5f9c8d2e77", roles: [1], ula: "fd7a:115c:a1e0::4", host: [v4(10, 0, 0, 14)], remote: "10.0.0.14", connectedAgo: 5 * DAY, enrolled: 60 * DAY, status: 6, version: "v0.0.620", runtime: "containerd 2.0.3, runc 1.2.5"},
-        {id: NODE.edge, name: "edge-1", identifier: "d8f3a7b2-6e1c-4f9a-8d2b-3c7e1f5a9b88", roles: [1], ula: "fd7a:115c:a1e0::5", host: [v4(198, 51, 100, 20)], remote: "198.51.100.20", connectedAgo: 9 * DAY, enrolled: 40 * DAY, connected: false, spaces: [0, 1, 4]},
+        {id: NODE.edge, name: "edge-1", identifier: "d8f3a7b2-6e1c-4f9a-8d2b-3c7e1f5a9b88", roles: [1], ula: "fd7a:115c:a1e0::5", host: [v4(198, 51, 100, 20)], remote: "198.51.100.20", connectedAgo: 9 * DAY, enrolled: 40 * DAY, connected: false},
     ];
     nodes.forEach((n, i) => {
         put(T.NODE, n.id, {
             id: n.id, status: n.status || 4,
-            operator: {name: n.name, roles: n.roles, allowedSpaces: n.spaces || [0, 1, 2, 3, 4], enrolledTime: new Date(ago(n.enrolled))},
+            operator: {name: n.name, roles: n.roles, enrolledTime: new Date(ago(n.enrolled))},
             reported: {identifier: n.identifier, underlayAddress: v6(n.ula), wgPublicKey: WG_KEYS[i], hostAddresses: n.host},
         }, {actor: 1, at: ago(n.enrolled)});
         const connected = n.connected !== false;
@@ -178,12 +181,12 @@ export function buildDataset(now = Date.now()) {
     });
     put(T.NODE, NODE.evicted, {
         id: NODE.evicted, status: 8,
-        operator: {name: "old-worker", roles: [1], allowedSpaces: [0, 1, 2], enrolledTime: new Date(ago(200 * DAY))},
+        operator: {name: "old-worker", roles: [1], enrolledTime: new Date(ago(200 * DAY))},
         reported: {identifier: "e2a6c4d8-0f3b-4e7a-9c1d-5b8f2a6e4c99", underlayAddress: v6("fd7a:115c:a1e0::7"), wgPublicKey: WG_KEYS[6], hostAddresses: [v4(10, 0, 0, 9)]},
     }, {actor: 1, at: ago(20 * DAY)});
     put(T.NODE, NODE.pending, {
         id: NODE.pending, status: 1, enrollmentRequestedAt: new Date(ago(6 * MIN)),
-        operator: {name: "", roles: [1], allowedSpaces: []},
+        operator: {name: "", roles: [1]},
         reported: {identifier: "f5b1d9e3-2c7a-4b8f-a6e0-4d9c3b7f1a00", underlayAddress: v6("fd7a:115c:a1e0::6"), wgPublicKey: WG_KEYS[5], hostAddresses: [v4(10, 0, 0, 17)]},
     }, {actor: 0, at: ago(6 * MIN)});
     put(T.NODE_STATUS, NODE.pending, {
@@ -418,6 +421,17 @@ export function buildDataset(now = Date.now()) {
     domainPolicy(2, "example_com_is_prod", denyEffect(), {allSpacesExcluding: {values: [SPACE.prod]}}, exactDomains(["example.com", "*.example.com"]), false, 1, 40);
     domainPolicy(3, "staging_previews", allowEffect(), {exactSpaces: {values: [SPACE.staging]}}, exactDomains(["*.preview.example.net"]), true, 3, 9);
 
+    const nodeAccessPolicies = [
+        ...builtinPolicies(),
+        {id: 3, name: "no_staging_on_worker_b", disabled: false, builtin: 0, nodes: exactNodes([NODE.b]),
+            rule: {effect: denyEffect(), selector: {permissions: runPermission(), spaces: {exactSpaces: {values: [SPACE.staging]}}}}},
+        {id: 4, name: "edge_global_and_dev", disabled: false, builtin: 0, nodes: exactNodes([NODE.edge]),
+            rule: {effect: denyEffect(), selector: {permissions: runPermission(), spaces: {allSpacesExcluding: {values: [SPACE.global, SPACE.dev]}}}}},
+        {id: 5, name: "no_dev_on_primary", disabled: true, builtin: 0, nodes: exactNodes([NODE.primary]),
+            rule: {effect: denyEffect(), selector: {permissions: runPermission(), spaces: {exactSpaces: {values: [SPACE.dev]}}}}},
+    ];
+    for (const policy of nodeAccessPolicies) put(T.NODE_ACCESS_POLICY, policy.id, policy, {actor: policy.builtin ? 0 : 1, at: ago((policy.builtin ? 120 : 30) * DAY)});
+
     // --- sessions -------------------------------------------------------------
     const chromeMac = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
     const safariIphone = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1";
@@ -461,6 +475,8 @@ export function buildDataset(now = Date.now()) {
         },
         secretsStatus: {unlocked: true, recoveryConfigured: true},
         ingressDiagnostics: {items: [{deploymentId: 8, message: "hostname staging.example.com is refused for space staging by space domain policy example_com_is_prod"}]},
+        nodeAccess: {items: [...nodes.map((n) => n.id), NODE.evicted, NODE.pending].map((nodeId) =>
+            ({nodeId, runDeploymentSpaces: runSpaces(nodeAccessPolicies, nodeId, Object.values(SPACE))}))},
     };
 
     const deleted = [

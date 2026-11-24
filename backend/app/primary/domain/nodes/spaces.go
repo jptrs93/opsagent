@@ -18,6 +18,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/domainpolicy"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
+	"github.com/jptrs93/opsagent/backend/lib/nodeaccess"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
@@ -112,13 +113,7 @@ func CreateSpace(store *state.Service, name string, author int64) (*apigen.Space
 		meta := spaceMeta(seq, time.Now().UnixMilli(), author)
 		meta.EventType = apigen.AuthzVerb_AUTHZ_VERB_CREATE
 		space = &apigen.Space{ID: id, Name: name}
-		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, meta.EventTime, func(spaces []uint64) []uint64 { return append(spaces, space.ID) })
-		if err != nil {
-			return nil, err
-		}
-		update := pq.NewUpdate(pq.SpaceMutation(meta, *space))
-		pq.AppendMutations(update, nodes...)
-		return update, nil
+		return pq.NewUpdate(pq.SpaceMutation(meta, *space)), nil
 	})
 	return space, err
 }
@@ -171,21 +166,7 @@ func DeleteSpace(store *state.Service, id uint64, author int64) error {
 			return nil, err
 		}
 		meta := spaceMeta(seq, time.Now().UnixMilli(), author)
-		nodes, err := updateAllNodeAllowedSpaces(ctx, q, seq, meta.EventTime, func(spaces []uint64) []uint64 {
-			out := spaces[:0:0]
-			for _, space := range spaces {
-				if space != id {
-					out = append(out, space)
-				}
-			}
-			return out
-		})
-		if err != nil {
-			return nil, err
-		}
-		update := pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_SPACE, id))
-		pq.AppendMutations(update, nodes...)
-		return update, nil
+		return pq.NewUpdate(pq.DeleteMutation(meta, apigen.CoreEntityType_CORE_ENTITY_SPACE, id)), nil
 	})
 }
 
@@ -254,6 +235,14 @@ func requireSpaceUnused(ctx context.Context, q *pq.Queries, id uint64) error {
 		rows, err := q.ListSpaceDomainPolicies(ctx)
 		return countWhere(rows, func(r *pq.SpaceDomainPolicyEvent) bool {
 			return slices.Contains(domainpolicy.NamedSpaces(&r.Value.Rule), id)
+		}), err
+	}); err != nil {
+		return err
+	}
+	if err := countIn("node access policy", "node access policies", func() (int, error) {
+		rows, err := q.ListNodeAccessPolicies(ctx)
+		return countWhere(rows, func(r *pq.NodeAccessPolicyEvent) bool {
+			return slices.Contains(nodeaccess.NamedSpaces(&r.Value), id)
 		}), err
 	}); err != nil {
 		return err

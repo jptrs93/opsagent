@@ -2,9 +2,12 @@
 // into the real state stores (machinesS, enrollmentsS, backupStatusS, spacesS,
 // systemConfigS, deploymentsS) and installMockApi() replaces the node
 // endpoints on the generated capi object with functions that mutate those
-// stores, so rename, allowed spaces, drain, evict and enrollment accept all
-// work end to end and the tables update live.
-import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, spacesS, systemConfigS, userConfigRefsS} from "/src/state/deployments.js";
+// stores, so rename, node access policies, drain, evict and enrollment accept
+// all work end to end and the tables update live. A node's allowedSpaces is
+// derived from the policies, as the server derives it.
+import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, nodeAccessPoliciesS, spacesS, systemConfigS, userConfigRefsS} from "/src/state/deployments.js";
+import {denyEffect, exactNodes, runPermission} from "/src/lib/nodeAccessPolicies.js";
+import {builtinPolicies, runSpaces, writePolicies} from "/fixtures/nodeAccess.js";
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const fail = (status, code, message) => Object.assign(new Error(message), {status, code});
@@ -31,7 +34,7 @@ const KEYS = [
 const node = (id, name, identifier, overrides = {}) => ({
     id, seq: 100 + id,
     name, identifier,
-    roles: [], allowedSpaces: [0, 1, 2, 3],
+    roles: [], allowedSpaces: [],
     enrolledAt: ago(40 * DAY),
     status: 4, enrollmentRequestedAt: null,
     draining: false, evicted: false, eventTime: 0,
@@ -117,7 +120,7 @@ export const DATASETS = {
             }),
             node(2, "worker-a", "a19b4f02-5ca3-4ad2-9b61-ee0d1c2a3b44", {connectedAt: ago(12 * DAY)}),
             node(3, "worker-b", "b7e2c813-1d4f-4a8e-a0c2-9f3b7d1e5c66", {
-                allowedSpaces: [0, 3], connectedAt: ago(2 * HOUR),
+                connectedAt: ago(2 * HOUR),
                 hostAddresses: ["10.0.0.13", "203.0.113.6"],
             }),
             node(4, "worker-c", "c4d9e1f0-8b2a-4c6d-b3e7-1a5f9c8d2e77", {
@@ -126,7 +129,6 @@ export const DATASETS = {
             }),
             node(5, "edge-1", "d8f3a7b2-6e1c-4f9a-8d2b-3c7e1f5a9b88", {
                 connected: false, connectedAt: ago(9 * DAY), hostAddresses: ["198.51.100.20"],
-                allowedSpaces: [0, 1, 2],
             }),
             evictedNode(6, "old-worker", "e2a6c4d8-0f3b-4e7a-9c1d-5b8f2a6e4c99", ago(20 * DAY)),
         ],
@@ -157,7 +159,6 @@ export const DATASETS = {
                 const extra = (n) => Array.from({length: n}, (_, k) => `203.0.113.${id * 4 + k}`);
                 return node(id, names[i], `${(0x1000 + id * 7919).toString(16)}b2c4-${id}e7f-4a1c-9d3b-${String(id).padStart(12, "0")}`, {
                     hostAddresses: [`10.0.0.${10 + id}`, ...extra(i % 4)],
-                    allowedSpaces: i % 3 === 0 ? [0, 1, 2, 3, 4, 5, 6] : i % 3 === 1 ? [0, 3, 4] : [0, 1, 5, 6],
                     connected: i !== 6 && i !== 9,
                     draining: i === 4, status: i === 4 ? 6 : 4,
                     connectedAt: ago((i + 1) * 7 * HOUR),
@@ -216,10 +217,26 @@ export const DATASETS = {
     }),
 };
 
+const onlySpaces = (id, name, nodeIds, spaceIds, disabled = false) => ({
+    id, seq: 40 + id, name, disabled, builtin: 0, nodes: exactNodes(nodeIds),
+    rule: {effect: denyEffect(), selector: {permissions: runPermission(), spaces: {allSpacesExcluding: {values: spaceIds}}}},
+});
+
+const POLICIES = {
+    typical: () => [onlySpaces(3, "worker_b_is_staging_only", [3], [2]), onlySpaces(4, "edge_no_prod", [5], [1, 2]), onlySpaces(5, "worker_c_is_prod_only", [4], [3], true)],
+    busy: () => [onlySpaces(3, "primary_runs_no_workloads", [1], []), onlySpaces(4, "edge_pool", [4, 7, 10], [1, 5, 6], true)],
+};
+
+const withAccess = (machines) => {
+    const spaceIds = spacesS.val.map((s) => Number(s.id));
+    return machines.map((m) => ({...m, allowedSpaces: m.evicted ? [] : runSpaces(nodeAccessPoliciesS.val, m.id, spaceIds)}));
+};
+
 export function populate(name) {
     const data = (DATASETS[name] || DATASETS.typical)();
     spacesS.val = data.spaces;
-    machinesS.val = data.machines;
+    nodeAccessPoliciesS.val = [...builtinPolicies().map((p) => ({...p, seq: 1})), ...(POLICIES[name] || (() => []))()];
+    machinesS.val = withAccess(data.machines);
     enrollmentsS.val = data.enrollments;
     deploymentsS.val = data.deployments;
     backupStatusS.val = data.backup;
@@ -242,6 +259,18 @@ export function installMockApi(capi, {delayMs = 300} = {}) {
         machinesS.val = machinesS.val.map((m) => m === machine ? next : m);
         return next;
     };
+    let policySeq = 100;
+    const refuse = (status, displayErr) => Object.assign(new Error(displayErr), {status, apiErr: {displayErr}});
+    const writeNodeAccess = (write) => {
+        const spaceNames = new Map(spacesS.val.map((s) => [Number(s.id), s.name]));
+        const placements = deploymentsS.val.map(({config}) => {
+            const nodeId = Number(config.deployment.scheduling?.placement?.value?.dedicatedNodes?.nodes?.[0] || 0);
+            const spaceId = Number(config.deployment.spaceId || 0);
+            return {deployment: config.deployment.name, spaceId, nodeId, space: spaceNames.get(spaceId), node: machinesS.val.find((m) => m.id === nodeId)?.name};
+        }).filter((d) => d.nodeId);
+        nodeAccessPoliciesS.val = writePolicies(nodeAccessPoliciesS.val, write, placements, refuse).sort((a, b) => a.id - b.id);
+        machinesS.val = withAccess(machinesS.val);
+    };
     Object.assign(capi, {
         // The login state starts the real event stream; a stream that never
         // yields keeps it quiet instead of retrying against the dev server.
@@ -260,10 +289,22 @@ export function installMockApi(capi, {delayMs = 300} = {}) {
             }
             return replace(find(identifier), {name});
         },
-        async postV1NodesAllowedSpaces({identifier, spaceIds}) {
+        async postV1NodeAccessPoliciesCreate({name, disabled, nodes, rule}) {
             await delay(delayMs);
-            const ids = new Set([0, ...(spaceIds || []).map(Number)]);
-            return replace(find(identifier), {allowedSpaces: [...ids].sort((a, b) => a - b)});
+            const id = nodeAccessPoliciesS.val.reduce((max, p) => Math.max(max, p.id), 0) + 1;
+            writeNodeAccess({op: "create", id, policy: {id, seq: ++policySeq, name, disabled: Boolean(disabled), builtin: 0, nodes, rule}});
+            return {};
+        },
+        async postV1NodeAccessPoliciesUpdate({id, expectedSeq, name, disabled, nodes, rule}) {
+            await delay(delayMs);
+            const current = nodeAccessPoliciesS.val.find((p) => p.id === Number(id));
+            if (current && expectedSeq && Number(expectedSeq) !== current.seq) throw refuse(409, "Node access policy was modified concurrently");
+            writeNodeAccess({op: "update", id: Number(id), policy: {id: Number(id), seq: ++policySeq, name, disabled: Boolean(disabled), nodes, rule}});
+            return {};
+        },
+        async postV1NodeAccessPoliciesDelete({id}) {
+            await delay(delayMs);
+            writeNodeAccess({op: "delete", id: Number(id)});
         },
         async postV1NodesDrain({identifier, draining}) {
             await delay(delayMs);
@@ -303,11 +344,10 @@ export function installMockApi(capi, {delayMs = 300} = {}) {
             if (!nodeName?.trim()) throw fail(400, "invalid_name", "a node needs a name");
             if (machinesS.val.some((m) => !m.evicted && m.name === nodeName)) throw fail(409, "duplicate_name", `a node named ${nodeName} already exists`);
             enrollmentsS.val = enrollmentsS.val.filter((e) => e !== req);
-            machinesS.val = [...machinesS.val, node(req.id || nextNodeId(), nodeName, req.requestingMachineId, {
+            machinesS.val = withAccess([...machinesS.val, node(req.id || nextNodeId(), nodeName, req.requestingMachineId, {
                 enrolledAt: new Date(), connectedAt: new Date(), opendeployVersion: req.opendeployVersion,
                 addresses: [`fd7a:115c:a1e0::${req.id}`], hostAddresses: req.hostAddresses,
-                allowedSpaces: spacesS.val.map((s) => Number(s.id)),
-            })];
+            })]);
             return {};
         },
     });

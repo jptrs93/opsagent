@@ -2,7 +2,6 @@ package webuihandler
 
 import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
-	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"net/http"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
@@ -139,27 +138,4 @@ func (h *Handler) spaceVisible(ctx apigen.Context, spaceID uint64) bool {
 		return false
 	}
 	return h.Authz.SpaceVisible(ctx.User.ID, spaceID, ctx.Delegated)
-}
-
-// nodeVisible reports whether the caller may see a node: an explicit node:view
-// grant, or — derived — the node hosts any space the caller can see, so a
-// space-limited operator can pick placement targets without a cluster-level
-// grant. Space 0 is skipped: every node allows it as an invariant, so counting
-// it would not narrow anything.
-func (h *Handler) nodeVisible(ctx apigen.Context, nodeID uint64, allowedSpaces []uint64) bool {
-	if h.canAccess(ctx, vView, eNode, 0, nodeID) {
-		return true
-	}
-	if h.Authz == nil {
-		return true
-	}
-	for _, spaceID := range allowedSpaces {
-		if spaceID == internaldeploy.SpaceID {
-			continue
-		}
-		if h.spaceVisible(ctx, spaceID) {
-			return true
-		}
-	}
-	return false
 }

@@ -124,7 +124,7 @@ export function deploymentEditorWidget(opts) {
 
     if (mode === 'create' && !opts.fork) {
         // A blank create starts with a usable identity: a placeholder name
-        // and the first visible space/node pair the allow list permits.
+        // and the first visible space/node pair the node access permits.
         // Without such a pair the form stays on the global space with no
         // node, which the HCL renders as a placeholder node reference.
         if (!form.name.val) form.name.val = placeholderDeploymentName();
@@ -135,7 +135,7 @@ export function deploymentEditorWidget(opts) {
         }
     }
     if (mode === 'create' && !form.nodeId.val) {
-        // A lone node whose allow list has not arrived yet is still the only
+        // A lone node whose node access has not arrived yet is still the only
         // possible choice.
         const nodeList = (stateValue(nodes) || []).filter(node => Number(node?.id || 0));
         if (nodeList.length === 1) form.nodeId.val = nodeList[0].id;

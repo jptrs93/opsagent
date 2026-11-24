@@ -128,7 +128,6 @@ type ApiServerHandler interface {
 	PostV1DeploymentsPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	PostV1ReposValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
 	PostV1NodesRename(Context, *NodeRenameRequest) (*CoreWriteUpdate, error)
-	PostV1NodesAllowedSpaces(Context, *NodeAllowedSpacesRequest) (*CoreWriteUpdate, error)
 	PostV1NodesDrain(Context, *NodeDrainRequest) (*CoreWriteUpdate, error)
 	PostV1NodesEvict(Context, *NodeEvictRequest) (*CoreWriteUpdate, error)
 	PostV1NodesExposure(Context, *NodeExposureRequest) (*NodeExposure, error)
@@ -144,6 +143,9 @@ type ApiServerHandler interface {
 	PostV1SpaceDomainPoliciesCreate(Context, *SpaceDomainPolicyCreateRequest) (*CoreWriteUpdate, error)
 	PostV1SpaceDomainPoliciesUpdate(Context, *SpaceDomainPolicyUpdateRequest) (*CoreWriteUpdate, error)
 	PostV1SpaceDomainPoliciesDelete(Context, *SpaceDomainPolicyDeleteRequest) error
+	PostV1NodeAccessPoliciesCreate(Context, *NodeAccessPolicyCreateRequest) (*CoreWriteUpdate, error)
+	PostV1NodeAccessPoliciesUpdate(Context, *NodeAccessPolicyUpdateRequest) (*CoreWriteUpdate, error)
+	PostV1NodeAccessPoliciesDelete(Context, *NodeAccessPolicyDeleteRequest) error
 	PostV1SecretsCreate(Context, *SecretCreateRequest) (*CoreWriteUpdate, error)
 	PostV1SecretsSet(Context, *SecretSetRequest) (*CoreWriteUpdate, error)
 	PostV1SecretsGenerate(Context, *SecretGenerateRequest) (*CoreWriteUpdate, error)
@@ -1019,21 +1021,6 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/nodes/rename", buildHandlerFunc(config, verifyAuth, postV1NodesRenameAccessPolicy, postAuthHandlerPostV1NodesRename, compressionModeAuto, false))
-	postV1NodesAllowedSpacesAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
-	postAuthHandlerPostV1NodesAllowedSpaces := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
-		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeAllowedSpacesRequest)
-		if err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		if err := req.Validate(); err != nil {
-			HandleReqErr(authCtx, err, r, w)
-			return
-		}
-		res, err := h.PostV1NodesAllowedSpaces(authCtx, req)
-		Respond(authCtx, r, w, res, err)
-	}
-	m.HandleFunc("POST /v1/nodes/allowed-spaces", buildHandlerFunc(config, verifyAuth, postV1NodesAllowedSpacesAccessPolicy, postAuthHandlerPostV1NodesAllowedSpaces, compressionModeAuto, false))
 	postV1NodesDrainAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1NodesDrain := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeDrainRequest)
@@ -1253,6 +1240,55 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		w.WriteHeader(http.StatusNoContent)
 	}
 	m.HandleFunc("POST /v1/space-domain-policies/delete", buildHandlerFunc(config, verifyAuth, postV1SpaceDomainPoliciesDeleteAccessPolicy, postAuthHandlerPostV1SpaceDomainPoliciesDelete, compressionModeAuto, false))
+	postV1NodeAccessPoliciesCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1NodeAccessPoliciesCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeAccessPolicyCreateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1NodeAccessPoliciesCreate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/node-access-policies/create", buildHandlerFunc(config, verifyAuth, postV1NodeAccessPoliciesCreateAccessPolicy, postAuthHandlerPostV1NodeAccessPoliciesCreate, compressionModeAuto, false))
+	postV1NodeAccessPoliciesUpdateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1NodeAccessPoliciesUpdate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeAccessPolicyUpdateRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1NodeAccessPoliciesUpdate(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/node-access-policies/update", buildHandlerFunc(config, verifyAuth, postV1NodeAccessPoliciesUpdateAccessPolicy, postAuthHandlerPostV1NodeAccessPoliciesUpdate, compressionModeAuto, false))
+	postV1NodeAccessPoliciesDeleteAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1NodeAccessPoliciesDelete := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeAccessPolicyDeleteRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		err = h.PostV1NodeAccessPoliciesDelete(authCtx, req)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+	m.HandleFunc("POST /v1/node-access-policies/delete", buildHandlerFunc(config, verifyAuth, postV1NodeAccessPoliciesDeleteAccessPolicy, postAuthHandlerPostV1NodeAccessPoliciesDelete, compressionModeAuto, false))
 	postV1SecretsCreateAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1SecretsCreate := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeSecretCreateRequest)

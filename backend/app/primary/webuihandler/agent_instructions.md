@@ -94,12 +94,12 @@ in the approving operator's spaces except:
   host access, and space moves. An administrator can explicitly delegate these
   permissions. Managed volumes and asset mounts do not require `use_host_mounts`.
 - **The cluster itself.** Node management, enrollment, cluster settings,
-  access rules and grants, domain policies, config export, Nix store resets,
-  and OpenDeploy's own internal deployments all live at the cluster level
-  (space `0`) and
+  access rules and grants, domain policies, node access policies, config
+  export, Nix store resets, and OpenDeploy's own internal deployments all
+  live at the cluster level (space `0`) and
   default to human-only — either invisible to you or `403`. Nodes are the
   exception on the read side: the state snapshot (section 4) includes every
-  node that hosts a space you can see, so you can place deployments.
+  node that may run a space you can see, so you can place deployments.
 
 An administrator writing custom rules is free to decide otherwise, in either
 direction: your session may hold more than this list (including log access) or
@@ -141,8 +141,9 @@ numbers in JSON: 1 `deployment`, 2 `scheduled_instance`, 3 `node`,
 10 `value_directory`, 11 `asset_directory`, 12 `authz_grant_template`,
 13 `authz_grant`, 14 `authz_global_rule`, 15 `system_config`,
 16 `scheduled_instance_status`, 17 `node_status`, 18 `agent_session`,
-19 `user_session`, 20 `nix_store_reset`, 22 `space_domain_policy`. Empty
-arrays and zero values may be omitted in JSON; treat missing fields as empty.
+19 `user_session`, 20 `nix_store_reset`, 22 `space_domain_policy`,
+23 `node_access_policy`. Empty arrays and zero values may be omitted in
+JSON; treat missing fields as empty.
 
 `meta` holds the facts the server derives, never the payload: `created_time`
 and `updated_time` (epoch ms), `updated_seq`, `updated_actor` (0 = the
@@ -180,10 +181,14 @@ A config adds `value` in plaintext; an asset has `fs.key`, `sha256`,
 `size_bytes`, and `storage_key`.
 
 **Nodes** are entity type 3: `id`, `status` (4 is a normal member),
-`operator` (`name`, `roles`, `allowed_spaces`, `enrolled_time`), and
+`operator` (`name`, `roles`, `enrolled_time`), and
 `reported` (`identifier`, `underlay_address`, `wg_public_key`,
 `host_addresses`). Placement uses the node's `entity_id`, not the display
-name. Enrollment acceptance (operator-only) sends the `updated_seq` of the node
+name. Which spaces a node may run is not on the node: the same message
+carries `node_access`, `{"items": [{"node_id": 2, "run_deployment_spaces":
+[1, 3]}]}`, with one item per node you can see listing the spaces you can
+see that it may run. Place a deployment only on a node whose item lists the
+deployment's space. Space `0` is never listed; every node runs it. Enrollment acceptance (operator-only) sends the `updated_seq` of the node
 entry you reviewed as `expected_seq` (0 skips the check).
 
 Per deployment:
@@ -595,6 +600,52 @@ would leave a hostname some deployment already publishes without permission;
 the message lists them. A cluster starts with one policy,
 `default_ingress_domains`, which allows every space every hostname.
 
+### Node access policies
+
+Which node may run which space's deployments is decided by the cluster's
+node access policies, entity type 23. They are cluster-level and human-only
+by default: your snapshot normally holds none, and the write routes are
+`403` or `404`. What you read is their outcome, `node_access` (section 4),
+and what you may meet is the refusal. A deployment create, or a move to
+another space, on a node that may not run the space is
+`409 node_space_not_allowed`, and the message names the node, the space, and
+the deny that refused it, or says that no policy allows it. Choose a node
+that `node_access` lists for the space, or ask the operator to change the
+policy. Do not work around it with another space.
+
+When your session does hold them, a policy is a name, a `disabled` flag, a
+`builtin` marker, the `nodes` it covers, and a rule shaped like an access
+rule:
+
+```json
+{"name": "edge_runs_edge_only", "disabled": false, "builtin": 0,
+ "nodes": {"exact_nodes": {"values": [5]}},
+ "rule": {"effect": {"value": {"deny": {}}},
+          "selector": {"permissions": {"exact_permissions": {"values": [1]}},
+                       "spaces": {"all_spaces_excluding": {"values": [4]}}}}}
+```
+
+`effect.value` is `allow` or `deny`. `nodes` and each selector position set
+exactly one list: `exact_…` covers the listed values, `all_…_excluding`
+covers everything else, and an empty excluding list covers everything.
+Permission `1` is running deployments, the only node permission. Enabled
+denies are checked first, then enabled allows, and what no allow covers is
+refused. Space `0` is allowed before any policy is read.
+
+A cluster holds two built-ins: `system_everywhere` (`builtin` 1, every node
+runs space `0`, always enabled) and `all_spaces_everywhere` (`builtin` 2,
+every node runs every space, may be disabled). Neither can be edited or
+deleted.
+
+`/v1/node-access-policies/create` takes `name`, `disabled`, `nodes`, and
+`rule`; `/update` takes the policy's `id`, its `meta.updated_seq` as
+`expected_seq` (a stale value is `409 node_access_policy_version_conflict`),
+and the same four fields as a full replacement; `/delete` takes
+`{"id": <id>}`. Any of them is refused with
+`409 node_access_policy_placements_in_use` when the change would leave a
+deployment, running or stopped, on a node that may no longer run it; the
+message lists them.
+
 ## 10. Rules that apply everywhere
 
 - **Destructive operations need explicit confirmation first.** Deleting a
@@ -650,7 +701,8 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 | `POST /v1/spaces/create` | operator |
 | `POST /v1/secrets/create` `/set` `/reveal` `/rename` `/move` `/delete` | operator (secret values) |
 | `POST /v1/secrets/unlock` `/rotate-recovery-code` | operator (cluster) |
-| `POST /v1/nodes/rename` `/allowed-spaces` `/drain` `/evict`, `/v1/nodes/enrollments/*` | operator (cluster) |
+| `POST /v1/nodes/rename` `/drain` `/evict`, `/v1/nodes/enrollments/*` | operator (cluster) |
+| `POST /v1/node-access-policies/create` `/update` `/delete` | operator (cluster) |
 | `POST /v1/cluster-settings/get` `/update`, `/v1/nix-store/reset` | operator (cluster) |
 | `POST /v1/access/grant-templates/*` `/grants/*` `/global-rules/*` | operator (cluster) |
 

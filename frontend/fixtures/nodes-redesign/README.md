@@ -6,8 +6,8 @@
 > `docs/engineering/frontend.md` (Nodes).
 
 Nothing of the page is forked. It reads the real stores (`machinesS`,
-`enrollmentsS`, `backupStatusS`, `spacesS`, `systemConfigS`, `deploymentsS`)
-and calls the real `capi` methods.
+`nodeAccessPoliciesS`, `enrollmentsS`, `backupStatusS`, `spacesS`,
+`systemConfigS`, `deploymentsS`) and calls the real `capi` methods.
 
 Run from `frontend/`:
 
@@ -21,21 +21,28 @@ persists in the URL hash, so `#data=busy` opens that state directly.
 
 ## Layout
 
-A tab strip in the Users & roles style with three pinned tabs:
+A tab strip in the Users & roles style with four pinned tabs:
 
 - **Nodes** — one dense row per enrolled node: name (with a `primary` tag),
   status dot and word (`draining` replaces the word, the dot keeps the
   connection state), cluster address, host addresses (`unknown` when the
-  node could not enumerate them), allowed spaces, agent version, runtime
+  node could not enumerate them), the spaces it may run, agent version, runtime
   versions, connected since. Lists collapse to a count (`3
   addresses`, `2 spaces`, `all`) and every cell truncates with an ellipsis;
   the full value rides on the cell's title. Clicking a row opens the
   inspector on the right (resizable, close with × or by clicking the row
   again): editable name, identifier, timestamps, every address with a copy
-  button, the full transport key, agent and runtime versions, the
-  allowed-spaces editor, and
+  button, the full transport key, agent and runtime versions, the spaces
+  the node may run (read-only, with a link to the Access policies tab), and
   Drain / Evict for secondaries. Evicted nodes are hidden behind the
   `Evicted (n)` toggle in the toolbar and render muted at the bottom.
+- **Access policies** — the node access policies: one row per policy with
+  its effect, name, nodes, spaces and an enable switch. The two built-ins
+  carry a `built-in` tag and have no Edit or Delete; the switch of
+  `system_everywhere` is locked on. The toolbar checks one node against one
+  space and names the deny that refuses it. Add and Edit open a dialog with
+  the name, the effect, the nodes and spaces as "these" or "all except"
+  chips, the enabled box and the sentence the policy reads as.
 - **Enrollments** — the pending requests table (request id and machine id,
   remote IP, agent version, requested, accept-as name and button; Enter in
   the name field accepts) and, under its own band, the secondary install
@@ -46,18 +53,23 @@ A tab strip in the Users & roles style with three pinned tabs:
   tone. Not-configured shows a short pointer to Settings.
 
 `mock.js` writes the datasets into the stores and replaces
-`getV1NodesEnrollmentsInfo`, `postV1NodesRename`, `postV1NodesAllowedSpaces`,
-`postV1NodesDrain`, `postV1NodesExposure`, `postV1NodesEvict` and
-`postV1NodesEnrollmentsAccept` with in-memory versions (with the backend's
-refusals: duplicate names, the primary, stale `expected_seq`, pinned
-deployments without force), so rename, spaces, drain, the real evict dialog
-and accepting an enrollment all work end to end and the tables update live.
+`getV1NodesEnrollmentsInfo`, `postV1NodesRename`, the three
+`postV1NodeAccessPolicies*` methods, `postV1NodesDrain`,
+`postV1NodesExposure`, `postV1NodesEvict` and `postV1NodesEnrollmentsAccept`
+with in-memory versions (with the backend's refusals: duplicate names, the
+primary, stale `expected_seq`, pinned deployments without force, a policy
+write that would leave a placed deployment on a node that may no longer run
+it, an edit of a built-in), so rename, policies, drain, the real evict
+dialog and accepting an enrollment all work end to end and the tables update
+live. Each node's Spaces value is derived from the policies, as the server
+derives it; disabling `all_spaces_everywhere` in `typical` is the quick way
+to see a refusal.
 
 ## Scenarios
 
 - `typical` — primary plus four secondaries (one draining, one disconnected,
-  one with a narrowed space list), one evicted node, one pending enrollment,
-  backups in sync.
+  two narrowed by a deny policy, one more deny switched off), one evicted
+  node, one pending enrollment, backups in sync.
 - `busy` — twelve live nodes with several host addresses each, two evicted,
   three pending enrollments, backups catching up with assets moving to S3.
 - `empty` — a fresh install: the primary alone, nothing pending, backups not
@@ -71,6 +83,5 @@ and accepting an enrollment all work end to end and the tables update live.
 - With the inspector open the runtime column truncates to
   `containerd 2.0.4 · runc …`; shortening the label to the versions alone
   (`2.0.4 / 1.2.6`) would fit everywhere.
-- The inspector rebuilds on every store update, so an allowed-spaces edit in
-  progress survives (its draft lives at page level) but a rename error
-  message does not.
+- The inspector rebuilds on every store update, so a rename error message
+  does not survive one.

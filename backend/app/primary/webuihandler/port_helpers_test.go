@@ -1,15 +1,19 @@
 package webuihandler
 
 import (
+	"context"
 	"hash/fnv"
 	"net/netip"
+	"path/filepath"
 	"testing"
 
+	"github.com/jptrs93/goutil/erru"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/spacedomainpolicies"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
+	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state/statetest"
 )
@@ -239,4 +243,15 @@ func testConfigService(t *testing.T, store *state.Service) *systemconfig.Service
 		t.Fatalf("systemconfig.InitializeService: %v", err)
 	}
 	return configService
+}
+
+func liveNodes(q *pq.Queries) nodes.LiveState {
+	return erru.Must(nodes.ReadLiveState(context.Background(), q))
+}
+
+func newNodeSpacesHandler(t *testing.T) (*Handler, *nodes.Node) {
+	t.Helper()
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	node := ensureTestNode(store, "primary", "primary-id")
+	return &Handler{SystemConfig: testConfigService(t, store), Store: store, Queries: store.Queries()}, node
 }

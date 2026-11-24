@@ -186,7 +186,7 @@ func TestRenameNodePreservesIdentifier(t *testing.T) {
 	}
 }
 
-func TestSpaceAndNodeChangesPublishTogether(t *testing.T) {
+func TestSpaceCreateWritesNoNode(t *testing.T) {
 	s := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	defer s.Close()
 	EnsurePrimaryNode(s, "one", "one", testUnderlay, "")
@@ -201,13 +201,7 @@ func TestSpaceAndNodeChangesPublishTogether(t *testing.T) {
 	update := <-sub
 	statetest.AssertUpdateMatchesRows(t, s, update)
 	spaces := mutationsOf(update, apigen.CoreEntityType_CORE_ENTITY_SPACE)
-	nodeMutations := mutationsOf(update, apigen.CoreEntityType_CORE_ENTITY_NODE)
-	if update.Seq != before+1 || len(spaces) != 1 || spaces[0].EntityID() != space.ID || len(nodeMutations) != 2 {
+	if update.Seq != before+1 || len(spaces) != 1 || spaces[0].EntityID() != space.ID || len(update.Mutations) != 1 {
 		t.Fatalf("space transaction: %+v", update)
-	}
-	for _, m := range nodeMutations {
-		if erru.Must(s.Queries().GetNodeRowByID(context.Background(), m.EntityID())).Event.Seq != update.Seq {
-			t.Fatal("node used separate seq")
-		}
 	}
 }

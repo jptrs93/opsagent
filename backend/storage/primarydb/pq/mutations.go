@@ -120,6 +120,11 @@ func SpaceDomainPolicyMutation(meta EventMeta, id uint64, p apigen.SpaceDomainPo
 	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY, ID: id, Entity: entityOf(apigen.CoreEntityValueOneof{SpaceDomainPolicy: &p})}
 }
 
+func NodeAccessPolicyMutation(meta EventMeta, id uint64, p apigen.NodeAccessPolicy) Mutation {
+	p.ID = id
+	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY, ID: id, Entity: entityOf(apigen.CoreEntityValueOneof{NodeAccessPolicy: &p})}
+}
+
 func SpaceMutation(meta EventMeta, space apigen.Space) Mutation {
 	return Mutation{EventMeta: meta, Type: apigen.CoreEntityType_CORE_ENTITY_SPACE, ID: space.ID, Entity: entityOf(apigen.CoreEntityValueOneof{Space: &space})}
 }
@@ -257,5 +262,7 @@ func StampEntityID(e *apigen.CoreEntity, id uint64) {
 		v.SecretKeyslot.ID = id
 	case v.SpaceDomainPolicy != nil:
 		v.SpaceDomainPolicy.ID = id
+	case v.NodeAccessPolicy != nil:
+		v.NodeAccessPolicy.ID = id
 	}
 }

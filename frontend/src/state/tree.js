@@ -6,13 +6,14 @@ export const DELETE = 3;
 
 export const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SECRET = 4, CONFIG = 5, ASSET = 6, NETWORK_POLICY = 7, SPACE = 8, USER = 9,
     VALUE_DIRECTORY = 10, ASSET_DIRECTORY = 11, AUTHZ_GRANT_TEMPLATE = 12, AUTHZ_GRANT = 13, AUTHZ_GLOBAL_RULE = 14, SYSTEM_CONFIG = 15,
-    SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, AGENT_SESSION = 18, USER_SESSION = 19, SPACE_DOMAIN_POLICY = 22;
+    SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, AGENT_SESSION = 18, USER_SESSION = 19, SPACE_DOMAIN_POLICY = 22,
+    NODE_ACCESS_POLICY = 23;
 
 const fields = [undefined, 'deployment', 'scheduledInstance', 'node', 'secret', 'config', 'asset', 'networkPolicy', 'space', 'user',
     'valueDirectory', 'assetDirectory', 'authzGrantTemplate', 'authzGrant', 'authzGlobalRule', 'systemConfig',
     'scheduledInstanceStatus', 'nodeStatus', 'agentSession', 'userSession',
     // 20 (nix store reset) and 21 (secret keyslot) are not folded here.
-    undefined, undefined, 'spaceDomainPolicy'];
+    undefined, undefined, 'spaceDomainPolicy', 'nodeAccessPolicy'];
 const entityOf = (entity, type) => entity?.value?.[fields[type]];
 
 const documents = {
@@ -21,9 +22,9 @@ const documents = {
     [AGENT_SESSION]: 'agentSessions', [USER_SESSION]: 'userSessions',
 };
 const histories = {[SECRET]: ['secrets', 'secretId'], [CONFIG]: ['configs', 'configId'], [ASSET]: ['assets', 'assetId']};
-const sidecars = ['secretsStatus', 'backupStatus', 'ingressDiagnostics'];
+const sidecars = ['secretsStatus', 'backupStatus', 'ingressDiagnostics', 'nodeAccess'];
 const maps = ['deployments', 'scheduledInstances', 'instanceStatuses', 'nodes', 'nodeStatuses', 'secrets', 'configs', 'assets',
-    'networkPolicies', 'spaceDomainPolicies', 'authzGrants', ...Object.values(documents)];
+    'networkPolicies', 'spaceDomainPolicies', 'nodeAccessPolicies', 'authzGrants', ...Object.values(documents)];
 
 export const createTree = () => ({
     seq: 0,
@@ -116,6 +117,11 @@ const reducers = {
         if (op === DELETE) tree.spaceDomainPolicies.delete(id);
         else tree.spaceDomainPolicies.set(id, {spaceDomainPolicyId: id, seq: env.seq, value: entity});
         return 'spaceDomainPolicies';
+    },
+    [NODE_ACCESS_POLICY](tree, op, id, entity, env) {
+        if (op === DELETE) tree.nodeAccessPolicies.delete(id);
+        else tree.nodeAccessPolicies.set(id, {nodeAccessPolicyId: id, seq: env.seq, value: entity});
+        return 'nodeAccessPolicies';
     },
     [AUTHZ_GRANT](tree, op, id, entity, env, meta) {
         if (op === DELETE) tree.authzGrants.delete(id);

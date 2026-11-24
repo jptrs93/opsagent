@@ -341,10 +341,11 @@ func TestEnforcementDerivedNodeVisibility(t *testing.T) {
 
 	node := ensureTestNode(h.Store, "secondary", "secondary-id")
 
-	// A new node allows every space, so the space-limited operator sees it
-	// through the derived path — no node:view grant exists below cluster_admin.
+	// The default policy lets a new node run every space, so the space-limited
+	// operator sees it through the derived path — no node:view grant exists
+	// below cluster_admin.
 	if nodes := visibleOpening(t, h, spaceop)[apigen.CoreEntityType_CORE_ENTITY_NODE]; len(nodes) != 1 || nodes[node.ID] == nil {
-		t.Fatalf("space-limited operator should see the node via its allowed spaces, got %+v", nodes)
+		t.Fatalf("space-limited operator should see the node via the spaces it may run, got %+v", nodes)
 	}
 	agent := enforceCtx(2, true)
 	if nodes := visibleOpening(t, h, agent)[apigen.CoreEntityType_CORE_ENTITY_NODE]; len(nodes) != 1 {
@@ -358,8 +359,10 @@ func TestEnforcementDerivedNodeVisibility(t *testing.T) {
 	}
 
 	// Narrowing the node to staging removes it from the operator's world.
-	if _, err := h.nodesAllowedSpaces(admin, &apigen.NodeAllowedSpacesRequest{Identifier: "secondary-id", SpaceIds: []uint64{staging.ID}}); err != nil {
-		t.Fatalf("narrow allowed spaces: %v", err)
+	if _, err := h.PostV1NodeAccessPoliciesCreate(admin, &apigen.NodeAccessPolicyCreateRequest{
+		Name: "staging only", Nodes: exactNodes(node.ID), Rule: nodeAccessRule(true, allSpacesBut(staging.ID)),
+	}); err != nil {
+		t.Fatalf("narrow the node to staging: %v", err)
 	}
 	narrowed := visibleOpening(t, h, spaceop)
 	if nodes := narrowed[apigen.CoreEntityType_CORE_ENTITY_NODE]; len(nodes) != 0 {

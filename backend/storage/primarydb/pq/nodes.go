@@ -39,7 +39,7 @@ type CurrentNode struct {
 	Status apigen.NodeStatus
 }
 
-const nodeCurrentColumns = `n.id, n.name, n.identifier, n.status, n.roles, n.allowed_spaces, n.enrolled_time, n.enrollment_requested_at,
+const nodeCurrentColumns = `n.id, n.name, n.identifier, n.status, n.roles, n.enrolled_time, n.enrollment_requested_at,
 	n.underlay_address, n.wg_public_key, n.host_addresses, n.host_addresses_unknown, n.created_time, n.seq, n.event_time, n.author,
 	COALESCE(ns.updated_at, 0), COALESCE(ns.is_connected, 0), COALESCE(ns.last_connected_at, 0), COALESCE(ns.opendeploy_version, ''), COALESCE(ns.remote_address, ''), COALESCE(ns.runtime_versions, '')`
 
@@ -48,9 +48,9 @@ const nodeCurrentFrom = `FROM nodes n LEFT JOIN node_status ns ON ns.node_id = n
 func scanCurrentNode(row scanner) (CurrentNode, error) {
 	var r CurrentNode
 	e, st := &r.Event, &r.Status
-	var roles, allowed, hosts, underlay string
+	var roles, hosts, underlay string
 	var status, enrolledTime, requestedAt, hostsUnknown, updatedAt, connected, connectedAt int64
-	if err := row.Scan(&e.NodeID, &e.Value.Operator.Name, &e.Value.Reported.Identifier, &status, &roles, &allowed, &enrolledTime, &requestedAt,
+	if err := row.Scan(&e.NodeID, &e.Value.Operator.Name, &e.Value.Reported.Identifier, &status, &roles, &enrolledTime, &requestedAt,
 		&underlay, &e.Value.Reported.WgPublicKey, &hosts, &hostsUnknown, &e.CreatedTime, &e.Seq, &e.EventTime, &e.Author,
 		&updatedAt, &connected, &connectedAt, &st.OpendeployVersion, &st.RemoteAddress, &st.RuntimeVersions); err != nil {
 		return r, err
@@ -60,7 +60,7 @@ func scanCurrentNode(row scanner) (CurrentNode, error) {
 	e.Value.Operator.EnrolledTime = millisToTime(enrolledTime)
 	e.Value.EnrollmentRequestedAt = millisToTime(requestedAt)
 	e.Value.Reported.UnderlayAddress = addressColumn(underlay)
-	decodeNodeLists(e, roles, allowed, hosts)
+	decodeNodeLists(e, roles, hosts)
 	e.Value.Reported.HostAddressesUnknown = hostsUnknown != 0
 	st.NodeID = e.NodeID
 	st.IsConnected = connected != 0
@@ -84,7 +84,7 @@ func addressText(a apigen.IpAddress) string {
 	return a.String()
 }
 
-func decodeNodeLists(e *NodeEvent, roles, allowed, hosts string) {
+func decodeNodeLists(e *NodeEvent, roles, hosts string) {
 	_ = json.Unmarshal([]byte(roles), &e.Value.Operator.Roles)
 	var hostList []string
 	_ = json.Unmarshal([]byte(hosts), &hostList)
@@ -94,21 +94,6 @@ func decodeNodeLists(e *NodeEvent, roles, allowed, hosts string) {
 			e.Value.Reported.HostAddresses = append(e.Value.Reported.HostAddresses, addr)
 		}
 	}
-	var spaces []uint64
-	_ = json.Unmarshal([]byte(allowed), &spaces)
-	e.Value.Operator.AllowedSpaces = normaliseAllowedSpaces(spaces)
-}
-
-func normaliseAllowedSpaces(spaces []uint64) []uint64 {
-	out := []uint64{0}
-	seen := map[uint64]bool{0: true}
-	for _, id := range spaces {
-		if !seen[id] {
-			out = append(out, id)
-			seen[id] = true
-		}
-	}
-	return out
 }
 
 func jsonList[T any](items []T) string {
@@ -175,23 +160,13 @@ func (q *Queries) NextEnrollmentRequestedAt(ctx context.Context, nodeID uint64, 
 }
 
 // NewNode allocates a node id and returns the node as the create write will
-// materialise it: created now, author system, allowed every space. Nothing is
-// written.
+// materialise it: created now, author system. Nothing is written.
 func (q *Queries) NewNode(ctx context.Context, seq, now int64, node apigen.Node) (CurrentNode, error) {
 	id, err := q.NextEntityID(ctx, apigen.CoreEntityType_CORE_ENTITY_NODE)
 	if err != nil {
 		return CurrentNode{}, err
 	}
-	spaces, err := q.ListSpaces(ctx)
-	if err != nil {
-		return CurrentNode{}, err
-	}
-	allowed := make([]uint64, 0, len(spaces))
-	for _, sp := range spaces {
-		allowed = append(allowed, sp.ID)
-	}
 	node.ID = id
-	node.Operator.AllowedSpaces = normaliseAllowedSpaces(allowed)
 	return CurrentNode{
 		Event:  NodeEvent{NodeID: id, Seq: seq, CreatedTime: now, EventTime: now, Value: node},
 		Status: apigen.NodeStatus{NodeID: id},
@@ -256,15 +231,15 @@ func (q *Queries) reduceNode(ctx context.Context, env rowEnvelope, meta *apigen.
 	if n == nil {
 		return fmt.Errorf("payload has no node")
 	}
-	return q.upsert(ctx, meta, `INSERT INTO nodes (id, name, identifier, status, roles, allowed_spaces, enrolled_time, enrollment_requested_at,
+	return q.upsert(ctx, meta, `INSERT INTO nodes (id, name, identifier, status, roles, enrolled_time, enrollment_requested_at,
   underlay_address, wg_public_key, host_addresses, host_addresses_unknown, created_time, seq, event_time, author)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET name = excluded.name, identifier = excluded.identifier, status = excluded.status, roles = excluded.roles,
-  allowed_spaces = excluded.allowed_spaces, enrolled_time = excluded.enrolled_time, enrollment_requested_at = excluded.enrollment_requested_at,
+  enrolled_time = excluded.enrolled_time, enrollment_requested_at = excluded.enrollment_requested_at,
   underlay_address = excluded.underlay_address, wg_public_key = excluded.wg_public_key, host_addresses = excluded.host_addresses,
   host_addresses_unknown = excluded.host_addresses_unknown, seq = excluded.seq, event_time = excluded.event_time, author = excluded.author
 RETURNING created_time`,
-		id, n.Operator.Name, n.Reported.Identifier, int64(n.Status), jsonList(n.Operator.Roles), jsonList(n.Operator.AllowedSpaces),
+		id, n.Operator.Name, n.Reported.Identifier, int64(n.Status), jsonList(n.Operator.Roles),
 		timeToMillis(n.Operator.EnrolledTime), timeToMillis(n.EnrollmentRequestedAt),
 		addressText(n.Reported.UnderlayAddress), n.Reported.WgPublicKey, hostAddressesJSON(n.Reported.HostAddresses), boolToInt(n.Reported.HostAddressesUnknown), env.EventTime,
 		env.Seq, env.EventTime, env.Author)

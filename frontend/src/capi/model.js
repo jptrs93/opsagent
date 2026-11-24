@@ -1231,6 +1231,7 @@
  * @property {number} [authzGrant]
  * @property {number} [authzGlobalRule]
  * @property {number} [spaceDomainPolicy]
+ * @property {number} [nodeAccessPolicy]
  */
 /**
  * @typedef {Object} AuthzEntityRefTarget
@@ -1499,7 +1500,6 @@
  * @typedef {Object} NodeOperator
  * @property {string} name
  * @property {number[]} roles
- * @property {number[]} allowedSpaces
  * @property {Date} enrolledTime
  */
 /**
@@ -1539,11 +1539,6 @@
  * @typedef {Object} NodeRenameRequest
  * @property {string} identifier
  * @property {string} name
- */
-/**
- * @typedef {Object} NodeAllowedSpacesRequest
- * @property {string} identifier
- * @property {number[]} spaceIds
  */
 /**
  * @typedef {Object} NodeDrainRequest
@@ -1838,6 +1833,87 @@
  */
 /**
  * @typedef {Object} SpaceDomainPolicyDeleteRequest
+ * @property {number} id
+ */
+/**
+ * @typedef {Object} NodeAccessPolicy
+ * @property {number} id
+ * @property {string} name
+ * @property {boolean} disabled
+ * @property {number} builtin
+ * @property {NodeSelector} nodes
+ * @property {NodeAccessRule} rule
+ */
+/**
+ * @typedef {Object} NodeAccessRule
+ * @property {NodeAccessEffect} effect
+ * @property {NodeAccessSelector} selector
+ */
+/**
+ * @typedef {Object} NodeAccessAllow
+ */
+/**
+ * @typedef {Object} NodeAccessDeny
+ */
+/**
+ * @typedef {Object} NodeAccessEffectValueOneof
+ * @property {NodeAccessAllow} [allow]
+ * @property {NodeAccessDeny} [deny]
+ */
+/**
+ * @typedef {Object} NodeAccessEffect
+ * @property {NodeAccessEffectValueOneof} value
+ */
+/**
+ * @typedef {Object} NodeAccessSelector
+ * @property {NodePermissionSelector} permissions
+ * @property {AuthzSpaceSelector} spaces
+ */
+/**
+ * @typedef {Object} NodeSelector
+ * @property {NodeIdList} exactNodes
+ * @property {NodeIdList} allNodesExcluding
+ */
+/**
+ * @typedef {Object} NodeIdList
+ * @property {number[]} values
+ */
+/**
+ * @typedef {Object} NodePermissionSelector
+ * @property {NodePermissionList} exactPermissions
+ * @property {NodePermissionList} allPermissionsExcluding
+ */
+/**
+ * @typedef {Object} NodePermissionList
+ * @property {number[]} values
+ */
+/**
+ * @typedef {Object} NodeAccess
+ * @property {number} nodeId
+ * @property {number[]} runDeploymentSpaces
+ */
+/**
+ * @typedef {Object} NodeAccessList
+ * @property {NodeAccess[]} items
+ */
+/**
+ * @typedef {Object} NodeAccessPolicyCreateRequest
+ * @property {string} name
+ * @property {boolean} disabled
+ * @property {NodeSelector} nodes
+ * @property {NodeAccessRule} rule
+ */
+/**
+ * @typedef {Object} NodeAccessPolicyUpdateRequest
+ * @property {number} id
+ * @property {number} expectedSeq
+ * @property {string} name
+ * @property {boolean} disabled
+ * @property {NodeSelector} nodes
+ * @property {NodeAccessRule} rule
+ */
+/**
+ * @typedef {Object} NodeAccessPolicyDeleteRequest
  * @property {number} id
  */
 /**
@@ -2188,6 +2264,7 @@
  * @property {NixStoreReset} [nixStoreReset]
  * @property {SecretKeyslot} [secretKeyslot]
  * @property {SpaceDomainPolicy} [spaceDomainPolicy]
+ * @property {NodeAccessPolicy} [nodeAccessPolicy]
  */
 /**
  * @typedef {Object} CoreEntity
@@ -2206,6 +2283,7 @@
  * @property {IngressDiagnosticList} ingressDiagnostics
  * @property {SecretsStatusResponse} secretsStatus
  * @property {number} seq
+ * @property {NodeAccessList} nodeAccess
  */
 /**
  * @typedef {Object} AccessPolicy
@@ -16069,7 +16147,7 @@ export function decodeAuthzEntityRef(buffer) {
  */
 export function writeAuthzEntityRefTarget(message, writer) {
     if (message.value !== undefined && message.value !== null) {
-        const selected = [message.value.space, message.value.deployment, message.value.secret, message.value.config, message.value.asset, message.value.node, message.value.systemConfig, message.value.user, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.spaceDomainPolicy].filter((v) => v !== undefined && v !== null).length;
+        const selected = [message.value.space, message.value.deployment, message.value.secret, message.value.config, message.value.asset, message.value.node, message.value.systemConfig, message.value.user, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.spaceDomainPolicy, message.value.nodeAccessPolicy].filter((v) => v !== undefined && v !== null).length;
         if (selected !== 1) {
             throw new Error("AuthzEntityRefTarget.value: expected exactly one alternative, got " + selected);
         }
@@ -16108,6 +16186,9 @@ export function writeAuthzEntityRefTarget(message, writer) {
         }
         if (message.value.spaceDomainPolicy !== undefined && message.value.spaceDomainPolicy !== null) {
             writer.uint32(tag(12, WIRE.VARINT)).uint64(Math.trunc(message.value.spaceDomainPolicy));
+        }
+        if (message.value.nodeAccessPolicy !== undefined && message.value.nodeAccessPolicy !== null) {
+            writer.uint32(tag(13, WIRE.VARINT)).uint64(Math.trunc(message.value.nodeAccessPolicy));
         }
     } else {
         throw new Error("AuthzEntityRefTarget.value: expected exactly one alternative, got none");
@@ -16183,6 +16264,10 @@ function decodeAuthzEntityRefTargetMessage(reader, length) {
             }
             case 12: {
                 message.value = { spaceDomainPolicy: readInt64(reader, "uint64") };
+                break;
+            }
+            case 13: {
+                message.value = { nodeAccessPolicy: readInt64(reader, "uint64") };
                 break;
             }
             default:
@@ -19360,15 +19445,6 @@ export function writeNodeOperator(message, writer) {
             writer.uint32(tag(2, WIRE.LDELIM)).bytes(packedWriter.finish());
         }
     }
-    if (message.allowedSpaces) {
-        const packedWriter = Writer.create();
-        for (const item of message.allowedSpaces) {
-            packedWriter.uint64(item);
-        }
-        if (packedWriter.len > 0) {
-            writer.uint32(tag(3, WIRE.LDELIM)).bytes(packedWriter.finish());
-        }
-    }
     if (message.enrolledTime !== undefined && message.enrolledTime !== null) {
         writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.enrolledTime.getTime()));
     }
@@ -19393,7 +19469,7 @@ export function encodeNodeOperator(message) {
  */
 function decodeNodeOperatorMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {name: "", roles: [], allowedSpaces: [], enrolledTime: undefined };
+    const message = {name: "", roles: [], enrolledTime: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -19405,13 +19481,6 @@ function decodeNodeOperatorMessage(reader, length) {
                 const end2 = reader.uint32() + reader.pos;
                 while (reader.pos < end2) {
                     message.roles.push(reader.int32());
-                }
-                break;
-            }
-            case 3: {
-                const end2 = reader.uint32() + reader.pos;
-                while (reader.pos < end2) {
-                    message.allowedSpaces.push(readInt64(reader, "uint64"));
                 }
                 break;
             }
@@ -19848,78 +19917,6 @@ function decodeNodeRenameRequestMessage(reader, length) {
 export function decodeNodeRenameRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeNodeRenameRequestMessage(reader);
-}
-
-
-
-/**
- * @param {NodeAllowedSpacesRequest} message
- * @param {Writer} writer
- */
-export function writeNodeAllowedSpacesRequest(message, writer) {
-    if (message.identifier !== undefined && message.identifier !== null && message.identifier !== "") {
-        writer.uint32(tag(1, WIRE.LDELIM)).string(message.identifier);
-    }
-    if (message.spaceIds) {
-        const packedWriter = Writer.create();
-        for (const item of message.spaceIds) {
-            packedWriter.uint64(item);
-        }
-        if (packedWriter.len > 0) {
-            writer.uint32(tag(2, WIRE.LDELIM)).bytes(packedWriter.finish());
-        }
-    }
-}
-
-
-/**
- * @param {NodeAllowedSpacesRequest} message
- * @returns {Uint8Array}
- */
-export function encodeNodeAllowedSpacesRequest(message) {
-    const writer = Writer.create();
-    writeNodeAllowedSpacesRequest(message, writer);
-    return writer.finish();
-}
-
-
-/**
- * @param {Reader} reader
- * @param {number} [length]
- * @returns {NodeAllowedSpacesRequest}
- */
-function decodeNodeAllowedSpacesRequestMessage(reader, length) {
-    const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {identifier: "", spaceIds: [] };
-    while (reader.pos < end) {
-        const tag = reader.uint32();
-        switch (tag >>> 3) {
-            case 1: {
-                message.identifier = reader.string();
-                break;
-            }
-            case 2: {
-                const end2 = reader.uint32() + reader.pos;
-                while (reader.pos < end2) {
-                    message.spaceIds.push(readInt64(reader, "uint64"));
-                }
-                break;
-            }
-            default:
-                reader.skipType(tag & 7);
-        }
-    }
-    return message;
-}
-
-
-/**
- * @param {ArrayBuffer} buffer
- * @returns {NodeAllowedSpacesRequest}
- */
-export function decodeNodeAllowedSpacesRequest(buffer) {
-    const reader = Reader.create(new Uint8Array(buffer));
-    return decodeNodeAllowedSpacesRequestMessage(reader);
 }
 
 
@@ -23499,6 +23496,1036 @@ function decodeSpaceDomainPolicyDeleteRequestMessage(reader, length) {
 export function decodeSpaceDomainPolicyDeleteRequest(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeSpaceDomainPolicyDeleteRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessPolicy} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessPolicy(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.disabled === true) {
+        writer.uint32(tag(3, WIRE.VARINT)).bool(message.disabled);
+    }
+    if (message.builtin !== undefined && message.builtin !== null && message.builtin !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int32(message.builtin);
+    }
+    if (message.nodes !== undefined && message.nodes !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeNodeSelector(message.nodes, writer);
+        writer.ldelim();
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeNodeAccessRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodeAccessPolicy} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessPolicy(message) {
+    const writer = Writer.create();
+    writeNodeAccessPolicy(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessPolicy}
+ */
+function decodeNodeAccessPolicyMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, name: "", disabled: false, builtin: 0, nodes: undefined, rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.name = reader.string();
+                break;
+            }
+            case 3: {
+                message.disabled = reader.bool();
+                break;
+            }
+            case 4: {
+                message.builtin = reader.int32();
+                break;
+            }
+            case 5: {
+                message.nodes = decodeNodeSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.rule = decodeNodeAccessRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessPolicy}
+ */
+export function decodeNodeAccessPolicy(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessPolicyMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessRule} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessRule(message, writer) {
+    if (message.effect !== undefined && message.effect !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNodeAccessEffect(message.effect, writer);
+        writer.ldelim();
+    }
+    if (message.selector !== undefined && message.selector !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeNodeAccessSelector(message.selector, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodeAccessRule} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessRule(message) {
+    const writer = Writer.create();
+    writeNodeAccessRule(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessRule}
+ */
+function decodeNodeAccessRuleMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {effect: undefined, selector: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.effect = decodeNodeAccessEffectMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.selector = decodeNodeAccessSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessRule}
+ */
+export function decodeNodeAccessRule(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessRuleMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessAllow} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessAllow(message, writer) {
+}
+
+
+/**
+ * @param {NodeAccessAllow} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessAllow(message) {
+    const writer = Writer.create();
+    writeNodeAccessAllow(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessAllow}
+ */
+function decodeNodeAccessAllowMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessAllow}
+ */
+export function decodeNodeAccessAllow(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessAllowMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessDeny} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessDeny(message, writer) {
+}
+
+
+/**
+ * @param {NodeAccessDeny} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessDeny(message) {
+    const writer = Writer.create();
+    writeNodeAccessDeny(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessDeny}
+ */
+function decodeNodeAccessDenyMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessDeny}
+ */
+export function decodeNodeAccessDeny(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessDenyMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessEffect} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessEffect(message, writer) {
+    if (message.value !== undefined && message.value !== null) {
+        const selected = [message.value.allow, message.value.deny].filter((v) => v !== undefined && v !== null).length;
+        if (selected !== 1) {
+            throw new Error("NodeAccessEffect.value: expected exactly one alternative, got " + selected);
+        }
+        if (message.value.allow !== undefined && message.value.allow !== null) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeNodeAccessAllow(message.value.allow, writer);
+            writer.ldelim();
+        }
+        if (message.value.deny !== undefined && message.value.deny !== null) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeNodeAccessDeny(message.value.deny, writer);
+            writer.ldelim();
+        }
+    } else {
+        throw new Error("NodeAccessEffect.value: expected exactly one alternative, got none");
+    }
+}
+
+
+/**
+ * @param {NodeAccessEffect} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessEffect(message) {
+    const writer = Writer.create();
+    writeNodeAccessEffect(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessEffect}
+ */
+function decodeNodeAccessEffectMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {value: {} };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.value = { allow: decodeNodeAccessAllowMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 2: {
+                message.value = { deny: decodeNodeAccessDenyMessage(reader, reader.uint32()) };
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessEffect}
+ */
+export function decodeNodeAccessEffect(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessEffectMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessSelector} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessSelector(message, writer) {
+    if (message.permissions !== undefined && message.permissions !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNodePermissionSelector(message.permissions, writer);
+        writer.ldelim();
+    }
+    if (message.spaces !== undefined && message.spaces !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeAuthzSpaceSelector(message.spaces, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodeAccessSelector} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessSelector(message) {
+    const writer = Writer.create();
+    writeNodeAccessSelector(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessSelector}
+ */
+function decodeNodeAccessSelectorMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {permissions: undefined, spaces: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.permissions = decodeNodePermissionSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.spaces = decodeAuthzSpaceSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessSelector}
+ */
+export function decodeNodeAccessSelector(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessSelectorMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeSelector} message
+ * @param {Writer} writer
+ */
+export function writeNodeSelector(message, writer) {
+    if (message.exactNodes !== undefined && message.exactNodes !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNodeIdList(message.exactNodes, writer);
+        writer.ldelim();
+    }
+    if (message.allNodesExcluding !== undefined && message.allNodesExcluding !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeNodeIdList(message.allNodesExcluding, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodeSelector} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeSelector(message) {
+    const writer = Writer.create();
+    writeNodeSelector(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeSelector}
+ */
+function decodeNodeSelectorMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {exactNodes: undefined, allNodesExcluding: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.exactNodes = decodeNodeIdListMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.allNodesExcluding = decodeNodeIdListMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeSelector}
+ */
+export function decodeNodeSelector(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeSelectorMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeIdList} message
+ * @param {Writer} writer
+ */
+export function writeNodeIdList(message, writer) {
+    if (message.values) {
+        const packedWriter = Writer.create();
+        for (const item of message.values) {
+            packedWriter.uint64(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(1, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {NodeIdList} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeIdList(message) {
+    const writer = Writer.create();
+    writeNodeIdList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeIdList}
+ */
+function decodeNodeIdListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {values: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.values.push(readInt64(reader, "uint64"));
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeIdList}
+ */
+export function decodeNodeIdList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeIdListMessage(reader);
+}
+
+
+
+/**
+ * @param {NodePermissionSelector} message
+ * @param {Writer} writer
+ */
+export function writeNodePermissionSelector(message, writer) {
+    if (message.exactPermissions !== undefined && message.exactPermissions !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNodePermissionList(message.exactPermissions, writer);
+        writer.ldelim();
+    }
+    if (message.allPermissionsExcluding !== undefined && message.allPermissionsExcluding !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeNodePermissionList(message.allPermissionsExcluding, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodePermissionSelector} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodePermissionSelector(message) {
+    const writer = Writer.create();
+    writeNodePermissionSelector(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodePermissionSelector}
+ */
+function decodeNodePermissionSelectorMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {exactPermissions: undefined, allPermissionsExcluding: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.exactPermissions = decodeNodePermissionListMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.allPermissionsExcluding = decodeNodePermissionListMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodePermissionSelector}
+ */
+export function decodeNodePermissionSelector(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodePermissionSelectorMessage(reader);
+}
+
+
+
+/**
+ * @param {NodePermissionList} message
+ * @param {Writer} writer
+ */
+export function writeNodePermissionList(message, writer) {
+    if (message.values) {
+        const packedWriter = Writer.create();
+        for (const item of message.values) {
+            packedWriter.int32(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(1, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {NodePermissionList} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodePermissionList(message) {
+    const writer = Writer.create();
+    writeNodePermissionList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodePermissionList}
+ */
+function decodeNodePermissionListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {values: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.values.push(reader.int32());
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodePermissionList}
+ */
+export function decodeNodePermissionList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodePermissionListMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccess} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccess(message, writer) {
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.nodeId));
+    }
+    if (message.runDeploymentSpaces) {
+        const packedWriter = Writer.create();
+        for (const item of message.runDeploymentSpaces) {
+            packedWriter.uint64(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(2, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {NodeAccess} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccess(message) {
+    const writer = Writer.create();
+    writeNodeAccess(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccess}
+ */
+function decodeNodeAccessMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {nodeId: 0, runDeploymentSpaces: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.nodeId = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.runDeploymentSpaces.push(readInt64(reader, "uint64"));
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccess}
+ */
+export function decodeNodeAccess(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessList} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessList(message, writer) {
+    if (message.items && message.items.length > 0) {
+        for (const item of message.items) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeNodeAccess(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NodeAccessList} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessList(message) {
+    const writer = Writer.create();
+    writeNodeAccessList(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessList}
+ */
+function decodeNodeAccessListMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {items: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.items.push(decodeNodeAccessMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessList}
+ */
+export function decodeNodeAccessList(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessListMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessPolicyCreateRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessPolicyCreateRequest(message, writer) {
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.disabled === true) {
+        writer.uint32(tag(2, WIRE.VARINT)).bool(message.disabled);
+    }
+    if (message.nodes !== undefined && message.nodes !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeNodeSelector(message.nodes, writer);
+        writer.ldelim();
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeNodeAccessRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodeAccessPolicyCreateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessPolicyCreateRequest(message) {
+    const writer = Writer.create();
+    writeNodeAccessPolicyCreateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessPolicyCreateRequest}
+ */
+function decodeNodeAccessPolicyCreateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {name: "", disabled: false, nodes: undefined, rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.name = reader.string();
+                break;
+            }
+            case 2: {
+                message.disabled = reader.bool();
+                break;
+            }
+            case 3: {
+                message.nodes = decodeNodeSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.rule = decodeNodeAccessRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessPolicyCreateRequest}
+ */
+export function decodeNodeAccessPolicyCreateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessPolicyCreateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessPolicyUpdateRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessPolicyUpdateRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+    if (message.expectedSeq !== undefined && message.expectedSeq !== null && message.expectedSeq !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.expectedSeq));
+    }
+    if (message.name !== undefined && message.name !== null && message.name !== "") {
+        writer.uint32(tag(3, WIRE.LDELIM)).string(message.name);
+    }
+    if (message.disabled === true) {
+        writer.uint32(tag(4, WIRE.VARINT)).bool(message.disabled);
+    }
+    if (message.nodes !== undefined && message.nodes !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeNodeSelector(message.nodes, writer);
+        writer.ldelim();
+    }
+    if (message.rule !== undefined && message.rule !== null) {
+        writer.uint32(tag(6, WIRE.LDELIM)).fork();
+        writeNodeAccessRule(message.rule, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodeAccessPolicyUpdateRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessPolicyUpdateRequest(message) {
+    const writer = Writer.create();
+    writeNodeAccessPolicyUpdateRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessPolicyUpdateRequest}
+ */
+function decodeNodeAccessPolicyUpdateRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, expectedSeq: 0, name: "", disabled: false, nodes: undefined, rule: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.expectedSeq = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.name = reader.string();
+                break;
+            }
+            case 4: {
+                message.disabled = reader.bool();
+                break;
+            }
+            case 5: {
+                message.nodes = decodeNodeSelectorMessage(reader, reader.uint32());
+                break;
+            }
+            case 6: {
+                message.rule = decodeNodeAccessRuleMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessPolicyUpdateRequest}
+ */
+export function decodeNodeAccessPolicyUpdateRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessPolicyUpdateRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeAccessPolicyDeleteRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeAccessPolicyDeleteRequest(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+}
+
+
+/**
+ * @param {NodeAccessPolicyDeleteRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeAccessPolicyDeleteRequest(message) {
+    const writer = Writer.create();
+    writeNodeAccessPolicyDeleteRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeAccessPolicyDeleteRequest}
+ */
+function decodeNodeAccessPolicyDeleteRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeAccessPolicyDeleteRequest}
+ */
+export function decodeNodeAccessPolicyDeleteRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeAccessPolicyDeleteRequestMessage(reader);
 }
 
 
@@ -27292,7 +28319,7 @@ export function decodeCoreSnapshot(buffer) {
  */
 export function writeCoreEntity(message, writer) {
     if (message.value !== undefined && message.value !== null) {
-        const selected = [message.value.deployment, message.value.scheduledInstance, message.value.node, message.value.secret, message.value.config, message.value.asset, message.value.networkPolicy, message.value.space, message.value.user, message.value.valueDirectory, message.value.assetDirectory, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.systemConfig, message.value.scheduledInstanceStatus, message.value.nodeStatus, message.value.agentSession, message.value.userSession, message.value.nixStoreReset, message.value.secretKeyslot, message.value.spaceDomainPolicy].filter((v) => v !== undefined && v !== null).length;
+        const selected = [message.value.deployment, message.value.scheduledInstance, message.value.node, message.value.secret, message.value.config, message.value.asset, message.value.networkPolicy, message.value.space, message.value.user, message.value.valueDirectory, message.value.assetDirectory, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.systemConfig, message.value.scheduledInstanceStatus, message.value.nodeStatus, message.value.agentSession, message.value.userSession, message.value.nixStoreReset, message.value.secretKeyslot, message.value.spaceDomainPolicy, message.value.nodeAccessPolicy].filter((v) => v !== undefined && v !== null).length;
         if (selected !== 1) {
             throw new Error("CoreEntity.value: expected exactly one alternative, got " + selected);
         }
@@ -27404,6 +28431,11 @@ export function writeCoreEntity(message, writer) {
         if (message.value.spaceDomainPolicy !== undefined && message.value.spaceDomainPolicy !== null) {
             writer.uint32(tag(22, WIRE.LDELIM)).fork();
             writeSpaceDomainPolicy(message.value.spaceDomainPolicy, writer);
+            writer.ldelim();
+        }
+        if (message.value.nodeAccessPolicy !== undefined && message.value.nodeAccessPolicy !== null) {
+            writer.uint32(tag(23, WIRE.LDELIM)).fork();
+            writeNodeAccessPolicy(message.value.nodeAccessPolicy, writer);
             writer.ldelim();
         }
     } else {
@@ -27522,6 +28554,10 @@ function decodeCoreEntityMessage(reader, length) {
                 message.value = { spaceDomainPolicy: decodeSpaceDomainPolicyMessage(reader, reader.uint32()) };
                 break;
             }
+            case 23: {
+                message.value = { nodeAccessPolicy: decodeNodeAccessPolicyMessage(reader, reader.uint32()) };
+                break;
+            }
             default:
                 reader.skipType(tag & 7);
         }
@@ -27631,6 +28667,11 @@ export function writeEventStreamMsg(message, writer) {
     if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
         writer.uint32(tag(8, WIRE.VARINT)).int64(Math.trunc(message.seq));
     }
+    if (message.nodeAccess !== undefined && message.nodeAccess !== null) {
+        writer.uint32(tag(9, WIRE.LDELIM)).fork();
+        writeNodeAccessList(message.nodeAccess, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -27652,7 +28693,7 @@ export function encodeEventStreamMsg(message) {
  */
 function decodeEventStreamMsgMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {events: [], snapshot: undefined, synced: false, heartbeat: false, backupStatus: undefined, ingressDiagnostics: undefined, secretsStatus: undefined, seq: 0 };
+    const message = {events: [], snapshot: undefined, synced: false, heartbeat: false, backupStatus: undefined, ingressDiagnostics: undefined, secretsStatus: undefined, seq: 0, nodeAccess: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -27686,6 +28727,10 @@ function decodeEventStreamMsgMessage(reader, length) {
             }
             case 8: {
                 message.seq = readInt64(reader, "int64");
+                break;
+            }
+            case 9: {
+                message.nodeAccess = decodeNodeAccessListMessage(reader, reader.uint32());
                 break;
             }
             default:

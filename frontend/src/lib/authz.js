@@ -76,6 +76,7 @@ export const REF_TARGETS = [
     {key: "authzGrantTemplate", name: "role", entityType: 9},
     {key: "authzGrant", name: "grant", entityType: 9},
     {key: "authzGlobalRule", name: "global_rule", entityType: 9},
+    {key: "nodeAccessPolicy", name: "node_access_policy", entityType: 9},
     {key: "spaceDomainPolicy", name: "domain_policy", entityType: 10},
 ];
 

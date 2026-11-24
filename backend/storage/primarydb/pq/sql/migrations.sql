@@ -19,3 +19,7 @@ ALTER TABLE users ADD COLUMN activated_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE user_sessions ADD COLUMN redeemed_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE user_sessions ADD COLUMN opened_by INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE user_sessions ADD COLUMN issued_by INTEGER NOT NULL DEFAULT 0;
+
+-- 2026-11-25: node access policies replace the per-node list of allowed
+-- spaces. The lists are not converted.
+ALTER TABLE nodes DROP COLUMN allowed_spaces;

@@ -140,8 +140,8 @@ See [auth.md](auth.md) for the access-control model these routes manage.
 `/v1/global/event-stream` is the browser's state feed. The request
 (`EventStreamRequest`) carries nothing a client has to remember: the old
 `after_seq` tag is reserved, and there is no replay. The first message
-carries the sidecars (secrets status; backup status and ingress diagnostics
-only for cluster viewers). The second is the opening message: `synced`,
+carries the sidecars (secrets status; node access; backup status and ingress
+diagnostics only for cluster viewers). The second is the opening message: `synced`,
 `seq`, and `snapshot`, a `CoreSnapshot{seq, entities}` of everything the
 viewer may see, which the client folds into an empty tree. After that every
 commit with something visible arrives as one message with its `events` and
@@ -169,7 +169,7 @@ of `create`, `update`, or `delete`, each with `entity_type` (`CoreEntityType`)
 and `entity_id`; create and update carry the entity in a `CoreEntity`, whose
 field numbers equal the type enum. Every identity payload carries its own
 `id` (`Deployment`, `Node`, `Secret`, `Config`, `Asset`, `NetworkPolicy`,
-`SpaceDomainPolicy`, `AuthzGrantTemplate`, `AuthzGrant`, `AuthzGlobalRule`, `ScheduledInstance`,
+`SpaceDomainPolicy`, `NodeAccessPolicy`, `AuthzGrantTemplate`, `AuthzGrant`, `AuthzGlobalRule`, `ScheduledInstance`,
 `Space`, `User`, the directories, and the sessions); the mutation's `entity_id` is a copy
 of it kept for routing, since a delete has no payload, and the server stamps
 the payload id from the row id wherever it builds or replays a mutation
@@ -220,9 +220,9 @@ included, to the snapshot of tables rebuilt from the log.
 #### Write responses
 
 Every write endpoint that returns an entity returns a `CoreWriteUpdate`:
-deployment create and update; node rename, allowed spaces, drain, and
+deployment create and update; node rename, drain, and
 evict; network policy create and update; space domain policy create and
-update; secret create, set, generate,
+update; node access policy create and update; secret create, set, generate,
 rename, and move; config create, set, rename, and move; asset upload, rename,
 and move; and the access control creates and update. The update carries the
 mutation for the entity the call addressed under the `seq`, `time`, and
@@ -358,6 +358,16 @@ that component's value. The stream sends the sidecars in its first message,
 before the snapshot; a fresh snapshot on an open connection preserves the
 client's sidecars unless a replacement is present.
 
+Node access is the one sidecar derived from core state. `NodeAccessList`
+holds, for every node the viewer may see, the visible spaces the node may
+run under the [node access policies](../product/deployments.md#node-access-policies),
+without the `_system` space, which every node runs. It exists because the
+policies themselves are gated by `access:view` while anyone who places a
+deployment needs their outcome. The stream computes it per connection and
+attaches it to the message that changed it: to the event message of a commit
+that writes a node, and to the fresh snapshot that follows a policy, space,
+or grant change. A value equal to the last one sent is left out.
+
 Agent sessions and user sessions are core collections, not sidecars. Every
 create, approval, token claim, status change, and revocation is a commit that
 stamps the row's `global_seq` and publishes the session's latest document as
@@ -408,6 +418,7 @@ writers return mutations only (`pq.SecretMutation(meta, id, secret)`,
 `pq.SpaceMutation(meta, space)`, `pq.UserMutation(meta, user)`,
 `pq.NetworkPolicyMutation(meta, id, policy)`,
 `pq.SpaceDomainPolicyMutation(meta, id, policy)`,
+`pq.NodeAccessPolicyMutation(meta, id, policy)`,
 `pq.AuthzGrantTemplateMutation(meta, template)`, `pq.AuthzGrantMutation(meta,
 id, grant)`, `pq.AuthzGlobalRuleMutation(meta, rule)`,
 `pq.DeleteMutation(meta, type, id)`, ...), allocate ids through
@@ -437,10 +448,10 @@ with that version's value; the newest entry's meta carries the identity
 row's envelope and `created_time`, older entries the envelope of their
 version row. Shape for the latest-only
 reduced types: one row per live entity keyed by its id (`spaces`, `users`,
-`network_policies`, `space_domain_policies`, `authz_grant_templates`, `authz_grants`,
+`network_policies`, `space_domain_policies`, `node_access_policies`, `authz_grant_templates`, `authz_grants`,
 `authz_global_rules`) holding the payload's facts as columns (a document
 blob where the payload nests one: the `UserAuthentication`, the
-`NetworkPolicy`, the `SpaceDomainPolicy`, the `AuthzGrantTemplateSpec`, `AuthzGrantSource`,
+`NetworkPolicy`, the `SpaceDomainPolicy`, the `NodeAccessPolicy`, the `AuthzGrantTemplateSpec`, `AuthzGrantSource`,
 `AuthzRule`) plus `created_time` and the envelope `seq`,
 `event_time`, `author` of the last write; the payloads carry no author, so
 the row's `author` is the envelope actor of the write that produced it. The
@@ -477,7 +488,7 @@ log alone replays each entity's history.
 #### Nodes, deployments, and instances
 
 `nodes` is one row per node keyed by its entity id (`NextEntityID`), with
-the operator and reported facts as columns (`roles`, `allowed_spaces`, and
+the operator and reported facts as columns (`roles` and
 `host_addresses` as JSON lists, `underlay_address`, `wg_public_key`,
 `host_addresses_unknown`, `enrollment_requested_at`, `enrolled_time`,
 `created_time`) and `identifier` unique. `CurrentNode` is the row joined
@@ -608,7 +619,7 @@ routing wrapper.
 
 The handler filters each update by the connection's current permissions
 (`visibility.go`): it observes every mutation's identity (deployment to space,
-instance to deployment, node to allowed spaces, value to space, policy, grant
+instance to deployment, value to space, policy, grant
 to user) whether or not it is visible, forwards the creates and updates the
 viewer may see, and forwards a delete only when it sent that entity. In a
 snapshot an entity's entries stand or fall together: its newest entry
@@ -616,7 +627,7 @@ decides, so a value moved out of the viewer's space ships
 none of its history and one moved in ships all of it, and the deleted
 entries of a pinned deployment count as never sent. A grant
 mutation for the connected user, any template, global rule, space, or node
-allow-list change, an entity space move, a network policy whose visibility
+access policy change, an entity space move, a network policy whose visibility
 flips, or a delete of a grant it never saw schedules a fresh snapshot on
 the open connection after a 200 ms debounce; updates arriving during the
 debounce are skipped because the snapshot supersedes them. Overflow closes the browser
@@ -677,7 +688,6 @@ OpenDeploy self-updates go through plain `/v1/deployments/update` calls, one per
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
 | POST | `/v1/nodes/rename` | `NodeRenameRequest` | `CoreWriteUpdate` | ANY_OF default |
-| POST | `/v1/nodes/allowed-spaces` | `NodeAllowedSpacesRequest` | `CoreWriteUpdate` | ANY_OF default |
 | POST | `/v1/nodes/drain` | `NodeDrainRequest` | `CoreWriteUpdate` | ANY_OF default |
 | POST | `/v1/nodes/evict` | `NodeEvictRequest` | `CoreWriteUpdate` | ANY_OF default |
 | POST | `/v1/nodes/exposure` | `NodeExposureRequest` | `NodeExposure` | ANY_OF default |
@@ -685,7 +695,15 @@ OpenDeploy self-updates go through plain `/v1/deployments/update` calls, one per
 | POST | `/v1/nodes/enrollments/list` | — | `EnrollmentRequestList` | ANY_OF default |
 | POST | `/v1/nodes/enrollments/accept` | `EnrollmentAcceptRequest` | `EnrollmentRequestStatus` | ANY_OF default |
 
-Deployment placement is constrained by each node's allowed-spaces list; `/v1/nodes/allowed-spaces` replaces it wholesale and is rejected if it would strip a space out from under deployments already running on that node. See [Deployments](../product/deployments.md) for the policy.
+Which node may run which space's deployments is decided by the node access policies, not by the node entity. A node's visibility for a space-limited viewer follows from them (`nodeVisibleIn` in `webuihandler/node_access.go`).
+
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| POST | `/v1/node-access-policies/create` | `NodeAccessPolicyCreateRequest` | `CoreWriteUpdate` | ANY_OF full |
+| POST | `/v1/node-access-policies/update` | `NodeAccessPolicyUpdateRequest` | `CoreWriteUpdate` | ANY_OF full |
+| POST | `/v1/node-access-policies/delete` | `NodeAccessPolicyDeleteRequest` | — | ANY_OF full |
+
+All three need the matching verb on the `access` kind. Update takes the policy's `meta.updated_seq` as `expected_seq` and replaces the whole policy; on a built-in it may only change `disabled`, and `system_everywhere` stays enabled. Each is refused with `409 node_access_policy_placements_in_use` when the result would leave a placed deployment on a node that may no longer run it. `POST /v1/nodes/allowed-spaces` was removed with the per-node list. See [Deployments](../product/deployments.md#node-access-policies) for the model.
 
 `/v1/nodes/drain` (`node:update`) toggles a secondary between `NORMAL` and `DRAINING`. Draining is a placement cordon only: the node stays a member, its workloads keep running, and creating a deployment on it or moving a running workload onto it is rejected with `node_draining` (`409 Conflict`). Updates to a deployment already on the node that leave its workload stopped still go through.
 

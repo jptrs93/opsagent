@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createTree, applyMessage} from './tree.js';
 import {deriveDeploymentRows} from './deploymentMerge.js';
-import {deriveEnrollments, configViewModel, authzGrantViewModel, nodeViewModel, publishDerived, spaceDomainPoliciesS} from './derive.js';
+import {deriveEnrollments, configViewModel, authzGrantViewModel, machinesS, nodeAccessPoliciesS, nodesS, nodeViewModel, publishDerived, spaceDomainPoliciesS} from './derive.js';
 
-const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, SPACE_DOMAIN_POLICY = 22;
+const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, SPACE_DOMAIN_POLICY = 22, NODE_ACCESS_POLICY = 23;
 const fields = {[DEPLOYMENT]: 'deployment', [SCHEDULED_INSTANCE]: 'scheduledInstance', [NODE]: 'node', [SCHEDULED_INSTANCE_STATUS]: 'scheduledInstanceStatus', [NODE_STATUS]: 'nodeStatus',
-    [SPACE_DOMAIN_POLICY]: 'spaceDomainPolicy'};
+    [SPACE_DOMAIN_POLICY]: 'spaceDomainPolicy', [NODE_ACCESS_POLICY]: 'nodeAccessPolicy'};
 const create = (type, id, entity, meta) => ({value: {create: {entityType: type, entityId: id, entity: {value: {[fields[type]]: entity}}, ...(meta ? {meta} : {})}}});
 const deployment = version => ({spec: {workload: {value: {container: {version: `sha-${version}`}}}}});
 const deploymentMeta = version => ({version, specVersion: version});
@@ -133,4 +133,28 @@ test('space domain policies derive in id order with the seq an update expects', 
         {id: 1, seq: 5, name: 'default_ingress_domains', disabled: false, rule},
         {id: 2, seq: 6, name: 'prod-only', disabled: true, rule},
     ]);
+});
+
+test('node access policies derive in id order with the seq an update expects', () => {
+    const policy = (id, name, builtin = 0) => ({id, name, disabled: false, builtin, nodes: {allNodesExcluding: {values: []}}});
+    const tree = createTree();
+    const changed = applyMessage(tree, {seq: 5, events: [
+        {seq: 5, time: 5000, mutations: [create(NODE_ACCESS_POLICY, 3, policy(3, 'edge is prod only')), create(NODE_ACCESS_POLICY, 2, policy(2, 'all_spaces_everywhere', 2))]},
+    ]});
+    publishDerived(tree, changed);
+    assert.deepEqual(nodeAccessPoliciesS.val.map(p => [p.id, p.seq, p.name, p.builtin]), [[2, 5, 'all_spaces_everywhere', 2], [3, 5, 'edge is prod only', 0]]);
+});
+
+test('the spaces a node may run come from the node access sidecar, not the node', () => {
+    const tree = createTree();
+    const node = identifier => ({status: 4, operator: {name: identifier}, reported: {identifier}});
+    let changed = applyMessage(tree, {seq: 1, events: [{seq: 1, time: 100, mutations: [create(NODE, 1, node('a')), create(NODE, 2, node('b'))]}],
+        nodeAccess: {items: [{nodeId: 1, runDeploymentSpaces: [1, 2]}, {nodeId: 2, runDeploymentSpaces: [2]}]}});
+    publishDerived(tree, changed);
+    assert.deepEqual(nodesS.val.map(n => n.allowedSpaces), [[1, 2], [2]]);
+    assert.deepEqual(machinesS.val.map(n => n.allowedSpaces), [[1, 2], [2]]);
+
+    changed = applyMessage(tree, {nodeAccess: {items: [{nodeId: 1, runDeploymentSpaces: [1]}]}});
+    publishDerived(tree, changed);
+    assert.deepEqual(nodesS.val.map(n => n.allowedSpaces), [[1], []]);
 });

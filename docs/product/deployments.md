@@ -305,17 +305,37 @@ Each deployment has an integer `id` (primary key) assigned when it is created vi
 
 Deleting a deployment releases its human-readable identity tuple and removes its volumes from its node. It retains the ID, configuration history, status history, logs, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
-### Node space policy
+### Node access policies
 
-Each node carries an `allowed_spaces` list, and a deployment cannot be placed on a node that does not allow its space. Enforced in `validateNodeAllowsSpace`, called from the only two places a (node, space) pair can arise: `PostV1DeploymentsCreate` and the `assigned_space` kind of `PostV1DeploymentsUpdate`. There is no third — no update kind carries a node field, so a deployment never moves nodes after creation.
+Which node may run which space's deployments is decided by the cluster's node access policies (`NodeAccessPolicy`, core entity 23, added on 2026-11-25). A node is an identity, like a user, and a policy gives the nodes it selects one rule. The rule has the shape of an access rule: an effect (`allow` or `deny`) and a selector with a `permissions` position and a `spaces` position. Each position, and the policy's `nodes`, is either an exact list or an all-excluding list; an empty all-excluding list covers everything.
 
-**The policy defaults fully open and only ever narrows deliberately.** A new node is inserted allowing every space that exists at the time, and creating a space opens it on every existing node (`AllowSpaceOnAllNodes`). Without that second half the list would be a snapshot taken at enrolment, and the first deployment into a newly created space would fail on every node with nothing to explain why. Deleting a space strips it from every list, so ids of spaces that no longer exist do not accumulate.
+```
+NodeAccessPolicy { id, name, disabled, builtin, nodes: NodeSelector, rule: NodeAccessRule }
+NodeAccessRule   { effect: allow | deny, selector: { permissions, spaces } }
+```
 
-**The _system space (space 0) is always allowed.** `normalizeAllowedSpaces` unions it back in on every read and every write, so a bad migration, a hand-edited database, or a future writer cannot produce a node that refuses internal deployments — and no caller has to remember to include it. The UI shows it ticked and locked rather than as a choice that silently would not take.
+There is one node permission, `run_deployments`. The permissions position exists so that a node can later be given other things to do without a new entity. The evaluator is `lib/nodeaccess`, separate from the user access evaluator: `Decide(policies, node, permission, space)` checks the enabled denies first, then the enabled allows, and refuses what no allow covers. A disabled policy takes no part.
 
-`POST /v1/nodes/allowed-spaces` replaces a node's list, keyed by node identifier to match `POST /v1/nodes/rename`. It rejects a list naming a space that does not exist, and rejects a narrowing that would strip a space out from under deployments already on that node — the same shape as refusing to delete a space with live deployments. So the stored policy can never contradict what is running.
+A deployment cannot be placed on a node that may not run its space. `validateNodeAllowsSpace` enforces it in the only two places a node and space pair can arise: `PostV1DeploymentsCreate` and the `assigned_space` kind of `PostV1DeploymentsUpdate`. No update kind carries a node field, so a deployment never moves nodes after creation. The refusal is `409 node_space_not_allowed` and its message names the node, the space, and the deny that refused it, or says that no policy allows it.
 
-When the allow list shipped, existing installs were backfilled with every space that existed at the time (that migration has since been swept); a node created today starts out allowing every space, so the policy binds only where an operator has deliberately narrowed it.
+A policy write cannot contradict what is placed. Creating, updating, enabling, disabling, or deleting a policy runs under the write lock and is refused with `409 node_access_policy_placements_in_use` when the resulting policies would leave a live deployment, stopped ones included, on a node that may no longer run it. The message lists the deployments. To take a space off a node, move or delete its deployments there first, then change the policy. A write is also refused when it names a space or a node that does not exist, or reuses a name. Deleting a space is refused while a policy names it.
+
+Every cluster holds two built-in policies. Neither can be edited or deleted.
+
+| Name | Says | Can be disabled |
+| --- | --- | --- |
+| `system_everywhere` | every node may run the `_system` space | no |
+| `all_spaces_everywhere` | every node may run every space | yes |
+
+`all_spaces_everywhere` keeps a cluster open by default: a new node runs every space, and a new space runs on every node. Narrow a node by adding a deny, for example "node `edge-1` may not run all spaces except `edge`", or disable the built-in and add the allows the cluster needs.
+
+The `_system` space is allowed before any policy is read. `Decide` returns allowed for `run_deployments` in space 0, so no deny and no disabled built-in can stop a node from running OpenDeploy's own deployments. `system_everywhere` states this rule where an operator can see it.
+
+A fresh database receives the built-ins in its first write. An existing database receives them at startup from `nodeaccesspolicies.EnsureBuiltins`, which also restores a built-in whose stored definition differs and keeps whether `all_spaces_everywhere` is enabled.
+
+The policies are gated by the `access` entity kind in space 0. A user without `access:view` receives no policies, so the server derives what each viewer needs: the `node_access` sidecar of the event stream lists, for every node the viewer may see, the visible spaces the node may run. The Nodes page's Spaces column, the node inspector, and the deployment form's node list read it. See [api.md](../engineering/api.md).
+
+Node access policies replace the per-node `allowed_spaces` list. The lists were not converted; see the 2026-11-25 entry in `upgrade_log.md`.
 
 ### Recovering a deleted deployment
 

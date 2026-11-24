@@ -16074,7 +16074,7 @@ func mergeAuthzEntityRef(b []byte, m *AuthzEntityRef) (*AuthzEntityRef, error) {
 }
 
 func (m AuthzEntityRefTarget) IsZero() bool {
-	return (m.Value.Space == nil && m.Value.Deployment == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.Node == nil && m.Value.SystemConfig == nil && m.Value.User == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SpaceDomainPolicy == nil) &&
+	return (m.Value.Space == nil && m.Value.Deployment == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.Node == nil && m.Value.SystemConfig == nil && m.Value.User == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SpaceDomainPolicy == nil && m.Value.NodeAccessPolicy == nil) &&
 		len(m.unknownFields) == 0
 }
 
@@ -16143,6 +16143,10 @@ func (m *AuthzEntityRefTarget) encodeUnchecked() []byte {
 	{
 		value := m.Value.SpaceDomainPolicy
 		b = AppendUint64FieldOpt(b, value, 12)
+	}
+	{
+		value := m.Value.NodeAccessPolicy
+		b = AppendUint64FieldOpt(b, value, 13)
 	}
 	return append(b, m.unknownFields...)
 }
@@ -16250,6 +16254,13 @@ func mergeAuthzEntityRefTarget(b []byte, m *AuthzEntityRefTarget) (*AuthzEntityR
 			b, value, err = ConsumeVarUint64Opt(b, typ)
 			if err == nil {
 				m.Value = AuthzEntityRefTargetValueOneof{SpaceDomainPolicy: value}
+			}
+		case 13:
+			var value *uint64
+			value = m.Value.NodeAccessPolicy
+			b, value, err = ConsumeVarUint64Opt(b, typ)
+			if err == nil {
+				m.Value = AuthzEntityRefTargetValueOneof{NodeAccessPolicy: value}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -20254,7 +20265,6 @@ func mergeNode(b []byte, m *Node) (*Node, error) {
 func (m NodeOperator) IsZero() bool {
 	return m.Name == "" &&
 		len(m.Roles) == 0 &&
-		len(m.AllowedSpaces) == 0 &&
 		m.EnrolledTime.IsZero() &&
 		len(m.unknownFields) == 0
 }
@@ -20286,7 +20296,6 @@ func (m *NodeOperator) encodeUnchecked() []byte {
 		b = AppendTag(b, 2, BytesType)
 		b = AppendBytes(b, packed)
 	}
-	b = AppendRepeatedCompact(b, m.AllowedSpaces, 3, AppendCompactDecorator(AppendUint64Compact))
 	{
 		if m.EnrolledTime.Present {
 			v := m.EnrolledTime.Value
@@ -20328,12 +20337,6 @@ func mergeNodeOperator(b []byte, m *NodeOperator) (*NodeOperator, error) {
 				for _, raw := range values {
 					m.Roles = append(m.Roles, NodeRole(raw))
 				}
-			}
-		case 3:
-			var items []uint64
-			b, items, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarUint64)
-			if err == nil {
-				m.AllowedSpaces = append(m.AllowedSpaces, items...)
 			}
 		case 4:
 			var value *time.Time
@@ -20771,72 +20774,6 @@ func mergeNodeRenameRequest(b []byte, m *NodeRenameRequest) (*NodeRenameRequest,
 			b, m.Identifier, err = ConsumeString(b, typ)
 		case 2:
 			b, m.Name, err = ConsumeString(b, typ)
-		default:
-			b, err = SkipFieldValue(b, num, typ)
-			if err == nil {
-				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
-			}
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	return m, nil
-}
-
-// Encode panics if validation fails. Use EncodeChecked for untrusted values.
-func (m *NodeAllowedSpacesRequest) Encode() []byte {
-	b, err := m.EncodeChecked()
-	if err != nil {
-		panic(err)
-	}
-	return b
-}
-
-func (m *NodeAllowedSpacesRequest) EncodeChecked() ([]byte, error) {
-	if err := m.Validate(); err != nil {
-		return nil, err
-	}
-	return m.encodeUnchecked(), nil
-}
-
-func (m *NodeAllowedSpacesRequest) encodeUnchecked() []byte {
-	var b []byte
-	b = AppendStringField(b, m.Identifier, 1)
-	b = AppendRepeatedCompact(b, m.SpaceIds, 2, AppendCompactDecorator(AppendUint64Compact))
-	return append(b, m.unknownFields...)
-}
-
-func (m *NodeAllowedSpacesRequest) UnknownFields() []byte {
-	return append([]byte(nil), m.unknownFields...)
-}
-
-func DecodeNodeAllowedSpacesRequest(b []byte) (*NodeAllowedSpacesRequest, error) {
-	return mergeNodeAllowedSpacesRequest(b, nil)
-}
-
-func mergeNodeAllowedSpacesRequest(b []byte, m *NodeAllowedSpacesRequest) (*NodeAllowedSpacesRequest, error) {
-	if m == nil {
-		m = new(NodeAllowedSpacesRequest)
-	}
-	var num Number
-	var typ Type
-	var err error
-	for len(b) > 0 {
-		original := b
-		b, num, typ, err = ConsumeTag(b)
-		if err != nil {
-			return nil, err
-		}
-		switch num {
-		case 1:
-			b, m.Identifier, err = ConsumeString(b, typ)
-		case 2:
-			var items []uint64
-			b, items, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarUint64)
-			if err == nil {
-				m.SpaceIds = append(m.SpaceIds, items...)
-			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {
@@ -24799,6 +24736,1305 @@ func DecodeSpaceDomainPolicyDeleteRequest(b []byte) (*SpaceDomainPolicyDeleteReq
 func mergeSpaceDomainPolicyDeleteRequest(b []byte, m *SpaceDomainPolicyDeleteRequest) (*SpaceDomainPolicyDeleteRequest, error) {
 	if m == nil {
 		m = new(SpaceDomainPolicyDeleteRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessPolicy) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessPolicy) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessPolicy) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Disabled, 3)
+	b = AppendInt32Field(b, int32(m.Builtin), 4)
+	{
+		value := &m.Nodes
+		if value != nil {
+			b = AppendTag(b, 5, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Rule
+		if value != nil {
+			b = AppendTag(b, 6, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessPolicy) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeAccessPolicy(b []byte) (*NodeAccessPolicy, error) {
+	return mergeNodeAccessPolicy(b, nil)
+}
+
+func mergeNodeAccessPolicy(b []byte, m *NodeAccessPolicy) (*NodeAccessPolicy, error) {
+	if m == nil {
+		m = new(NodeAccessPolicy)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Disabled, err = ConsumeBool(b, typ)
+		case 4:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.Builtin = NodeAccessBuiltin(raw)
+			}
+		case 5:
+			var value *NodeSelector
+			value = &m.Nodes
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeSelector
+				item, err = mergeNodeSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Nodes = *value
+			}
+		case 6:
+			var value *NodeAccessRule
+			value = &m.Rule
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessRule
+				item, err = mergeNodeAccessRule(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Rule = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m NodeAccessRule) IsZero() bool {
+	return m.Effect.IsZero() &&
+		m.Selector.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessRule) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessRule) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessRule) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Effect
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Selector
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessRule) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeAccessRule(b []byte) (*NodeAccessRule, error) {
+	return mergeNodeAccessRule(b, nil)
+}
+
+func mergeNodeAccessRule(b []byte, m *NodeAccessRule) (*NodeAccessRule, error) {
+	if m == nil {
+		m = new(NodeAccessRule)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *NodeAccessEffect
+			value = &m.Effect
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessEffect
+				item, err = mergeNodeAccessEffect(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Effect = *value
+			}
+		case 2:
+			var value *NodeAccessSelector
+			value = &m.Selector
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessSelector
+				item, err = mergeNodeAccessSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Selector = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessAllow) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessAllow) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessAllow) encodeUnchecked() []byte {
+	var b []byte
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessAllow) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeAccessAllow(b []byte) (*NodeAccessAllow, error) {
+	return mergeNodeAccessAllow(b, nil)
+}
+
+func mergeNodeAccessAllow(b []byte, m *NodeAccessAllow) (*NodeAccessAllow, error) {
+	if m == nil {
+		m = new(NodeAccessAllow)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessDeny) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessDeny) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessDeny) encodeUnchecked() []byte {
+	var b []byte
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessDeny) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeAccessDeny(b []byte) (*NodeAccessDeny, error) {
+	return mergeNodeAccessDeny(b, nil)
+}
+
+func mergeNodeAccessDeny(b []byte, m *NodeAccessDeny) (*NodeAccessDeny, error) {
+	if m == nil {
+		m = new(NodeAccessDeny)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m NodeAccessEffect) IsZero() bool {
+	return (m.Value.Allow == nil && m.Value.Deny == nil) &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessEffect) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessEffect) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessEffect) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := m.Value.Allow
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Value.Deny
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessEffect) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeAccessEffect(b []byte) (*NodeAccessEffect, error) {
+	return mergeNodeAccessEffect(b, nil)
+}
+
+func mergeNodeAccessEffect(b []byte, m *NodeAccessEffect) (*NodeAccessEffect, error) {
+	if m == nil {
+		m = new(NodeAccessEffect)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *NodeAccessAllow
+			value = m.Value.Allow
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessAllow
+				item, err = mergeNodeAccessAllow(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = NodeAccessEffectValueOneof{Allow: value}
+			}
+		case 2:
+			var value *NodeAccessDeny
+			value = m.Value.Deny
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessDeny
+				item, err = mergeNodeAccessDeny(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = NodeAccessEffectValueOneof{Deny: value}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m NodeAccessSelector) IsZero() bool {
+	return m.Permissions.IsZero() &&
+		m.Spaces.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessSelector) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessSelector) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessSelector) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Permissions
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Spaces
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessSelector) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeAccessSelector(b []byte) (*NodeAccessSelector, error) {
+	return mergeNodeAccessSelector(b, nil)
+}
+
+func mergeNodeAccessSelector(b []byte, m *NodeAccessSelector) (*NodeAccessSelector, error) {
+	if m == nil {
+		m = new(NodeAccessSelector)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *NodePermissionSelector
+			value = &m.Permissions
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodePermissionSelector
+				item, err = mergeNodePermissionSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Permissions = *value
+			}
+		case 2:
+			var value *AuthzSpaceSelector
+			value = &m.Spaces
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSpaceSelector
+				item, err = mergeAuthzSpaceSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Spaces = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m NodeSelector) IsZero() bool {
+	return m.ExactNodes.IsZero() &&
+		m.AllNodesExcluding.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeSelector) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeSelector) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeSelector) encodeUnchecked() []byte {
+	var b []byte
+	{
+		if m.ExactNodes.Present {
+			v := m.ExactNodes.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 1, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.AllNodesExcluding.Present {
+			v := m.AllNodesExcluding.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 2, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeSelector) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeSelector(b []byte) (*NodeSelector, error) {
+	return mergeNodeSelector(b, nil)
+}
+
+func mergeNodeSelector(b []byte, m *NodeSelector) (*NodeSelector, error) {
+	if m == nil {
+		m = new(NodeSelector)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *NodeIdList
+			if m.ExactNodes.Present {
+				v := m.ExactNodes.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeIdList
+				item, err = mergeNodeIdList(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.ExactNodes = Maybe[NodeIdList]{Value: *value, Present: true}
+			}
+		case 2:
+			var value *NodeIdList
+			if m.AllNodesExcluding.Present {
+				v := m.AllNodesExcluding.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeIdList
+				item, err = mergeNodeIdList(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.AllNodesExcluding = Maybe[NodeIdList]{Value: *value, Present: true}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeIdList) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeIdList) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeIdList) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendRepeatedCompact(b, m.Values, 1, AppendCompactDecorator(AppendUint64Compact))
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeIdList) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeIdList(b []byte) (*NodeIdList, error) {
+	return mergeNodeIdList(b, nil)
+}
+
+func mergeNodeIdList(b []byte, m *NodeIdList) (*NodeIdList, error) {
+	if m == nil {
+		m = new(NodeIdList)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var items []uint64
+			b, items, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarUint64)
+			if err == nil {
+				m.Values = append(m.Values, items...)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m NodePermissionSelector) IsZero() bool {
+	return m.ExactPermissions.IsZero() &&
+		m.AllPermissionsExcluding.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodePermissionSelector) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodePermissionSelector) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodePermissionSelector) encodeUnchecked() []byte {
+	var b []byte
+	{
+		if m.ExactPermissions.Present {
+			v := m.ExactPermissions.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 1, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.AllPermissionsExcluding.Present {
+			v := m.AllPermissionsExcluding.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 2, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodePermissionSelector) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodePermissionSelector(b []byte) (*NodePermissionSelector, error) {
+	return mergeNodePermissionSelector(b, nil)
+}
+
+func mergeNodePermissionSelector(b []byte, m *NodePermissionSelector) (*NodePermissionSelector, error) {
+	if m == nil {
+		m = new(NodePermissionSelector)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *NodePermissionList
+			if m.ExactPermissions.Present {
+				v := m.ExactPermissions.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodePermissionList
+				item, err = mergeNodePermissionList(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.ExactPermissions = Maybe[NodePermissionList]{Value: *value, Present: true}
+			}
+		case 2:
+			var value *NodePermissionList
+			if m.AllPermissionsExcluding.Present {
+				v := m.AllPermissionsExcluding.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodePermissionList
+				item, err = mergeNodePermissionList(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.AllPermissionsExcluding = Maybe[NodePermissionList]{Value: *value, Present: true}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodePermissionList) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodePermissionList) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodePermissionList) encodeUnchecked() []byte {
+	var b []byte
+	var packed []byte
+	for _, item := range m.Values {
+		packed = AppendInt32Compact(packed, int32(item))
+	}
+	if len(packed) > 0 {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, packed)
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodePermissionList) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodePermissionList(b []byte) (*NodePermissionList, error) {
+	return mergeNodePermissionList(b, nil)
+}
+
+func mergeNodePermissionList(b []byte, m *NodePermissionList) (*NodePermissionList, error) {
+	if m == nil {
+		m = new(NodePermissionList)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var values []int32
+			b, values, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarInt32)
+			if err == nil {
+				for _, raw := range values {
+					m.Values = append(m.Values, NodePermission(raw))
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccess) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccess) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccess) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.NodeID, 1)
+	b = AppendRepeatedCompact(b, m.RunDeploymentSpaces, 2, AppendCompactDecorator(AppendUint64Compact))
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccess) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeAccess(b []byte) (*NodeAccess, error) {
+	return mergeNodeAccess(b, nil)
+}
+
+func mergeNodeAccess(b []byte, m *NodeAccess) (*NodeAccess, error) {
+	if m == nil {
+		m = new(NodeAccess)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.NodeID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			var items []uint64
+			b, items, err = ConsumeRepeatedCompact(b, typ, VarintType, ConsumeVarUint64)
+			if err == nil {
+				m.RunDeploymentSpaces = append(m.RunDeploymentSpaces, items...)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessList) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessList) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessList) encodeUnchecked() []byte {
+	var b []byte
+	for _, item := range m.Items {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessList) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeAccessList(b []byte) (*NodeAccessList, error) {
+	return mergeNodeAccessList(b, nil)
+}
+
+func mergeNodeAccessList(b []byte, m *NodeAccessList) (*NodeAccessList, error) {
+	if m == nil {
+		m = new(NodeAccessList)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccess
+				item, err = DecodeNodeAccess(msgBytes)
+				if err == nil {
+					m.Items = append(m.Items, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessPolicyCreateRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessPolicyCreateRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessPolicyCreateRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendBoolField(b, m.Disabled, 2)
+	{
+		value := &m.Nodes
+		if value != nil {
+			b = AppendTag(b, 3, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Rule
+		if value != nil {
+			b = AppendTag(b, 4, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessPolicyCreateRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodeAccessPolicyCreateRequest(b []byte) (*NodeAccessPolicyCreateRequest, error) {
+	return mergeNodeAccessPolicyCreateRequest(b, nil)
+}
+
+func mergeNodeAccessPolicyCreateRequest(b []byte, m *NodeAccessPolicyCreateRequest) (*NodeAccessPolicyCreateRequest, error) {
+	if m == nil {
+		m = new(NodeAccessPolicyCreateRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Disabled, err = ConsumeBool(b, typ)
+		case 3:
+			var value *NodeSelector
+			value = &m.Nodes
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeSelector
+				item, err = mergeNodeSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Nodes = *value
+			}
+		case 4:
+			var value *NodeAccessRule
+			value = &m.Rule
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessRule
+				item, err = mergeNodeAccessRule(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Rule = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessPolicyUpdateRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessPolicyUpdateRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessPolicyUpdateRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	b = AppendInt64Field(b, m.ExpectedSeq, 2)
+	b = AppendStringField(b, m.Name, 3)
+	b = AppendBoolField(b, m.Disabled, 4)
+	{
+		value := &m.Nodes
+		if value != nil {
+			b = AppendTag(b, 5, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Rule
+		if value != nil {
+			b = AppendTag(b, 6, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessPolicyUpdateRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodeAccessPolicyUpdateRequest(b []byte) (*NodeAccessPolicyUpdateRequest, error) {
+	return mergeNodeAccessPolicyUpdateRequest(b, nil)
+}
+
+func mergeNodeAccessPolicyUpdateRequest(b []byte, m *NodeAccessPolicyUpdateRequest) (*NodeAccessPolicyUpdateRequest, error) {
+	if m == nil {
+		m = new(NodeAccessPolicyUpdateRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.ExpectedSeq, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 4:
+			b, m.Disabled, err = ConsumeBool(b, typ)
+		case 5:
+			var value *NodeSelector
+			value = &m.Nodes
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeSelector
+				item, err = mergeNodeSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Nodes = *value
+			}
+		case 6:
+			var value *NodeAccessRule
+			value = &m.Rule
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessRule
+				item, err = mergeNodeAccessRule(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Rule = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeAccessPolicyDeleteRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeAccessPolicyDeleteRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeAccessPolicyDeleteRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeAccessPolicyDeleteRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodeAccessPolicyDeleteRequest(b []byte) (*NodeAccessPolicyDeleteRequest, error) {
+	return mergeNodeAccessPolicyDeleteRequest(b, nil)
+}
+
+func mergeNodeAccessPolicyDeleteRequest(b []byte, m *NodeAccessPolicyDeleteRequest) (*NodeAccessPolicyDeleteRequest, error) {
+	if m == nil {
+		m = new(NodeAccessPolicyDeleteRequest)
 	}
 	var num Number
 	var typ Type
@@ -29964,7 +31200,7 @@ func mergeCoreSnapshot(b []byte, m *CoreSnapshot) (*CoreSnapshot, error) {
 }
 
 func (m CoreEntity) IsZero() bool {
-	return (m.Value.Deployment == nil && m.Value.ScheduledInstance == nil && m.Value.Node == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.NetworkPolicy == nil && m.Value.Space == nil && m.Value.User == nil && m.Value.ValueDirectory == nil && m.Value.AssetDirectory == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SystemConfig == nil && m.Value.ScheduledInstanceStatus == nil && m.Value.NodeStatus == nil && m.Value.AgentSession == nil && m.Value.UserSession == nil && m.Value.NixStoreReset == nil && m.Value.SecretKeyslot == nil && m.Value.SpaceDomainPolicy == nil) &&
+	return (m.Value.Deployment == nil && m.Value.ScheduledInstance == nil && m.Value.Node == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.NetworkPolicy == nil && m.Value.Space == nil && m.Value.User == nil && m.Value.ValueDirectory == nil && m.Value.AssetDirectory == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SystemConfig == nil && m.Value.ScheduledInstanceStatus == nil && m.Value.NodeStatus == nil && m.Value.AgentSession == nil && m.Value.UserSession == nil && m.Value.NixStoreReset == nil && m.Value.SecretKeyslot == nil && m.Value.SpaceDomainPolicy == nil && m.Value.NodeAccessPolicy == nil) &&
 		len(m.unknownFields) == 0
 }
 
@@ -30137,6 +31373,13 @@ func (m *CoreEntity) encodeUnchecked() []byte {
 		value := m.Value.SpaceDomainPolicy
 		if value != nil {
 			b = AppendTag(b, 22, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Value.NodeAccessPolicy
+		if value != nil {
+			b = AppendTag(b, 23, BytesType)
 			b = AppendBytes(b, value.encodeUnchecked())
 		}
 	}
@@ -30472,6 +31715,20 @@ func mergeCoreEntity(b []byte, m *CoreEntity) (*CoreEntity, error) {
 			if err == nil {
 				m.Value = CoreEntityValueOneof{SpaceDomainPolicy: value}
 			}
+		case 23:
+			var value *NodeAccessPolicy
+			value = m.Value.NodeAccessPolicy
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessPolicy
+				item, err = mergeNodeAccessPolicy(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = CoreEntityValueOneof{NodeAccessPolicy: value}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {
@@ -30604,6 +31861,16 @@ func (m *EventStreamMsg) encodeUnchecked() []byte {
 		}
 	}
 	b = AppendInt64Field(b, m.Seq, 8)
+	{
+		if m.NodeAccess.Present {
+			v := m.NodeAccess.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 9, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
 	return append(b, m.unknownFields...)
 }
 
@@ -30711,6 +31978,23 @@ func mergeEventStreamMsg(b []byte, m *EventStreamMsg) (*EventStreamMsg, error) {
 			}
 		case 8:
 			b, m.Seq, err = ConsumeVarInt64(b, typ)
+		case 9:
+			var value *NodeAccessList
+			if m.NodeAccess.Present {
+				v := m.NodeAccess.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeAccessList
+				item, err = mergeNodeAccessList(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeAccess = Maybe[NodeAccessList]{Value: *value, Present: true}
+			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {

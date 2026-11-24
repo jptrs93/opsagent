@@ -21,6 +21,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nixstores"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodeaccesspolicies"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/spacedomainpolicies"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
@@ -173,6 +174,9 @@ func New(staticFS fs.FS, nodeID uint64, deps Dependencies) (*Handler, error) {
 	}
 	if err := spacedomainpolicies.SeedDefault(deps.Store); err != nil {
 		return nil, fmt.Errorf("seeding the default domain policy: %w", err)
+	}
+	if err := nodeaccesspolicies.EnsureBuiltins(deps.Store); err != nil {
+		return nil, fmt.Errorf("ensuring the built-in node access policies: %w", err)
 	}
 	h := &Handler{
 		BackupStatus:  deps.BackupStatus,

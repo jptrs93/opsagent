@@ -76,6 +76,8 @@ func seedValueHistory(t *testing.T, s *Service) {
 	createNetworkPolicyForTest(s, 1)
 	deleteSpaceDomainPolicyForTest(s, createSpaceDomainPolicyForTest(s, "gone", 1))
 	createSpaceDomainPolicyForTest(s, "kept", 1)
+	deleteNodeAccessPolicyForTest(s, createNodeAccessPolicyForTest(s, "gone", 1))
+	createNodeAccessPolicyForTest(s, "kept", 1)
 	insertGrantTemplateForTest(t, s, "ops", 1)
 	deleteGrantForTest(t, s, insertGrantForTest(t, s, 1, 1, 10))
 	insertGrantForTest(t, s, 1, 1, 11)

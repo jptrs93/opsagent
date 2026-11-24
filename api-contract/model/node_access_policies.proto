@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+enum NodePermission {
+  NODE_PERMISSION_UNSPECIFIED = 0;
+  NODE_PERMISSION_RUN_DEPLOYMENTS = 1;  // run the deployments of the space
+}
+
+enum NodeAccessBuiltin {
+  NODE_ACCESS_BUILTIN_NONE = 0;
+  NODE_ACCESS_BUILTIN_SYSTEM = 1;   // every node runs the system space; always enabled
+  NODE_ACCESS_BUILTIN_DEFAULT = 2;  // every node runs every space; may be disabled
+}
+
+message NodeAccessPolicy {
+  uint64 id = 1 [(cp.js_type) = "number"];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 64}];
+  bool disabled = 3;
+  NodeAccessBuiltin builtin = 4 [(buf.validate.field).enum.defined_only = true];
+  NodeSelector nodes = 5 [(cp.go_value) = true];
+  NodeAccessRule rule = 6 [(cp.go_value) = true];
+}
+
+message NodeAccessRule {
+  NodeAccessEffect effect = 1 [(cp.go_value) = true];
+  NodeAccessSelector selector = 2 [(cp.go_value) = true];
+}
+
+message NodeAccessAllow {}
+
+message NodeAccessDeny {}
+
+message NodeAccessEffect {
+  oneof value {
+    option (buf.validate.oneof).required = true;
+    NodeAccessAllow allow = 1;
+    NodeAccessDeny deny = 2;
+  }
+}
+
+message NodeAccessSelector {
+  NodePermissionSelector permissions = 1 [(cp.go_value) = true];
+  AuthzSpaceSelector spaces = 2 [(cp.go_value) = true];
+}
+
+message NodeSelector {
+  NodeIdList exact_nodes = 1;
+  NodeIdList all_nodes_excluding = 2;
+}
+
+message NodeIdList {
+  repeated uint64 values = 1 [(cp.js_type) = "number"];
+}
+
+message NodePermissionSelector {
+  NodePermissionList exact_permissions = 1;
+  NodePermissionList all_permissions_excluding = 2;
+}
+
+message NodePermissionList {
+  repeated NodePermission values = 1 [(buf.validate.field).repeated.items.enum = {defined_only: true, not_in: [0]}];
+}
+
+message NodeAccess {
+  uint64 node_id = 1 [(cp.js_type) = "number"];
+  repeated uint64 run_deployment_spaces = 2 [(cp.js_type) = "number"];
+}
+
+message NodeAccessList {
+  repeated NodeAccess items = 1;
+}

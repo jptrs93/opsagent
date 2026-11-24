@@ -1,7 +1,7 @@
 // The Nodes page: a tab strip in the Users & roles style with Nodes (a dense
-// table and a right-hand inspector for the selected node), Enrollments
-// (pending requests and the secondary install command) and Replication (the
-// backup status). The fixture in fixtures/nodes-redesign mounts this page over
+// table and a right-hand inspector for the selected node), Access policies
+// (which nodes may run which spaces), Enrollments (pending requests and the
+// secondary install command) and Replication (the backup status). The fixture in fixtures/nodes-redesign mounts this page over
 // an in-memory node API.
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
@@ -9,15 +9,17 @@ import {inlineEditableInput} from "../components/inlineEditableInput.js";
 import {evictNodeOverlay, pinnedUserDeployments} from "../components/evictNodeOverlay.js";
 import {explorerBand} from "../components/sectionBand.js";
 import {tabButton, tabPanel, tabStrip} from "../components/tabs.js";
-import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
+import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, nodeAccessPoliciesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
 import {deploymentWorkload, isSelfDeployment, placementNodeId} from "../lib/deployment.js";
-import {allowedSpaceNames, editableSpaceIDs, isFixedSpace} from "../lib/nodeSpaces.js";
+import {allowedSpaceNames, runsEverySpace} from "../lib/nodeSpaces.js";
+import {nodeAccessPoliciesPage} from "./nodeAccessPolicies.js";
 import {formatDateTime} from "../lib/date.js";
 import {checkIcon, closeIcon, copyIcon, searchIcon} from "../lib/icons.js";
 
-const {button, code, col, colgroup, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;
+const {button, code, col, colgroup, div, input, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const NODES = "nodes";
+const ACCESS = "access";
 const ENROLLMENTS = "enrollments";
 const REPLICATION = "replication";
 const NODE_ENROLLMENT_REQUESTED = 1;
@@ -58,8 +60,7 @@ const listSummary = (items, noun) => {
 
 const spacesSummary = (machine) => {
     const names = allowedSpaceNames(machine, spacesS.val);
-    const total = (spacesS.val || []).length;
-    if (total && names.length >= total) return "all";
+    if (runsEverySpace(machine, spacesS.val)) return "all";
     if (names.length === 1) return names[0];
     return names.length === 0 ? "-" : `${names.length} spaces`;
 };
@@ -291,75 +292,22 @@ export function clusterPage() {
             () => error.val ? p({class: "text-xs text-red-400"}, error.val) : "");
     };
 
-    const spacesEditing = van.state(false);
-    const spacesDraft = van.state(new Set());
-    const spacesSaving = van.state(false);
-    const spacesError = van.state("");
-
-    const spacesEditor = (machine) => {
-        const save = async () => {
-            if (spacesSaving.val) return;
-            spacesSaving.val = true;
-            spacesError.val = "";
-            try {
-                await capi.postV1NodesAllowedSpaces({identifier: machine.identifier, spaceIds: Array.from(spacesDraft.val)});
-                spacesEditing.val = false;
-            } catch (e) {
-                spacesError.val = e.message || "Failed to update spaces";
-            } finally {
-                spacesSaving.val = false;
-            }
-        };
-        const toggle = (id, checked) => {
-            const next = new Set(spacesDraft.val);
-            if (checked) next.add(Number(id)); else next.delete(Number(id));
-            spacesDraft.val = next;
-        };
-        return div({class: "flex flex-col gap-1.5 rounded-md border border-gray-700 bg-gray-900/60 p-2 slate:border-line slate:bg-transparent graphite:border-line graphite:bg-transparent"},
-            ...[...(spacesS.val || [])].sort((a, b) => Number(a.id) - Number(b.id)).map((space) => {
-                const fixed = isFixedSpace(space.id);
-                return label({class: "flex items-center gap-2 text-xs text-gray-300"},
-                    input({
-                        type: "checkbox", class: "accent-blue-500",
-                        checked: () => fixed || spacesDraft.val.has(Number(space.id)),
-                        disabled: () => fixed || spacesSaving.val,
-                        onchange: (e) => toggle(space.id, e.target.checked),
-                    }),
-                    space.name || `space ${space.id}`,
-                    fixed ? span({class: "text-gray-600"}, "(always)") : "");
-            }),
-            div({class: "flex items-center gap-2 pt-1"},
-                button({
-                    type: "button", disabled: spacesSaving,
-                    class: () => `rounded-md bg-brand px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-600 ${spacesSaving.val ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
-                    onclick: save,
-                }, () => spacesSaving.val ? "Saving..." : "Save"),
-                button({
-                    type: "button",
-                    class: "rounded-md px-2 py-1 text-xs text-gray-400 hover:text-gray-100 cursor-pointer",
-                    onclick: () => { spacesEditing.val = false; },
-                }, "Cancel")),
-            () => spacesError.val ? p({class: "text-xs text-red-400"}, spacesError.val) : "");
-    };
-
     const spacesField = (machine) => {
         const names = allowedSpaceNames(machine, spacesS.val);
-        const total = (spacesS.val || []).length;
-        const all = total && names.length >= total;
-        return div({class: "flex flex-col gap-1.5"},
-            div({class: "flex flex-wrap items-center gap-1"},
-                ...(all ? [span({class: "text-gray-300"}, "all spaces")] : names.map((n) => span({class: "cluster-chip"}, n))),
+        return div({class: "flex flex-col gap-1"},
+            div({class: "flex flex-wrap items-center gap-1", "data-testid": "node-inspector-spaces"},
+                ...(runsEverySpace(machine, spacesS.val) ? [span({class: "text-gray-300"}, "all spaces")]
+                    : names.length ? names.map((n) => span({class: "cluster-chip"}, n))
+                        : [span({class: "text-gray-500"}, "none")])),
+            p({class: "text-[11px] text-gray-500"},
+                "Spaces whose deployments this node may run, as the ",
                 button({
                     type: "button",
-                    class: "ml-1 text-[11px] text-brand hover:text-blue-300 hover:underline cursor-pointer",
-                    "aria-label": `Edit allowed spaces for ${machine.identifier}`,
-                    onclick: () => {
-                        spacesDraft.val = new Set(editableSpaceIDs(machine));
-                        spacesError.val = "";
-                        spacesEditing.val = true;
-                    },
-                }, "Edit")),
-            () => spacesEditing.val ? spacesEditor(machine) : "");
+                    class: "text-brand hover:text-blue-300 hover:underline cursor-pointer",
+                    "data-testid": "node-inspector-access-policies",
+                    onclick: () => { activeTab.val = ACCESS; },
+                }, "access policies"),
+                " decide."));
     };
 
     const actionsRow = (machine) => {
@@ -446,7 +394,7 @@ export function clusterPage() {
                 kvRow("Runtime", machine.runtimeVersions
                     ? span({class: "font-mono"}, machine.runtimeVersions)
                     : span({class: "text-gray-500"}, "Not reported")),
-                kvRow("Allowed spaces", spacesField(machine))),
+                kvRow("Spaces", spacesField(machine))),
             machine.isPrimary ? "" : actionsRow(machine)];
     };
 
@@ -491,8 +439,6 @@ export function clusterPage() {
                 : div({class: "px-3 py-6 text-xs text-gray-500"}, "Select a node to see its details.");
         },
     );
-
-    van.derive(() => { if (selectedId.val === null) spacesEditing.val = false; });
 
     const nodesPanel = div(
         {class: "flex h-full min-h-0 flex-col", "data-testid": "nodes-tab-panel"},
@@ -585,6 +531,8 @@ export function clusterPage() {
                 div({class: "absolute right-2 top-2"}, copyButton(installCommand, {label: "Copy"}))));
     };
 
+    const accessPanel = nodeAccessPoliciesPage();
+
     const enrollmentsPanel = div(
         {class: "flex h-full min-h-0 flex-col", "data-testid": "enrollments-tab-panel"},
         div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"},
@@ -651,6 +599,7 @@ export function clusterPage() {
 
     const strip = tabStrip({label: "Nodes"},
         tabButton({id: NODES, activeTab, title: "Nodes", testid: `nodes-tab-${NODES}`, count: () => String(liveNodes().length)}),
+        tabButton({id: ACCESS, activeTab, title: "Access policies", testid: `nodes-tab-${ACCESS}`, count: () => String(nodeAccessPoliciesS.val.length)}),
         tabButton({id: ENROLLMENTS, activeTab, title: "Enrollments", testid: `nodes-tab-${ENROLLMENTS}`, count: () => String(pendingEnrollments().length)}),
         tabButton({id: REPLICATION, activeTab, title: "Replication", testid: `nodes-tab-${REPLICATION}`, trailing: replicationDot()}),
     );
@@ -662,6 +611,7 @@ export function clusterPage() {
         strip,
         div({class: "page-body"},
             panel(NODES, nodesPanel),
+            panel(ACCESS, accessPanel),
             panel(ENROLLMENTS, enrollmentsPanel),
             panel(REPLICATION, replicationPanel)),
         () => overlay.val || "",

@@ -1288,28 +1288,6 @@ func (c *ApiServerCapi) PostV1NodesRename(ctx context.Context, req *NodeRenameRe
 	return DecodeCoreWriteUpdate(body)
 }
 
-func (c *ApiServerCapi) PostV1NodesAllowedSpaces(ctx context.Context, req *NodeAllowedSpacesRequest) (*CoreWriteUpdate, error) {
-	if req == nil {
-		return nil, fmt.Errorf("PostV1NodesAllowedSpaces request is nil")
-	}
-	if err := req.Validate(); err != nil {
-		return nil, err
-	}
-	resp, err := c.do(ctx, "POST", "/v1/nodes/allowed-spaces", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, c.ErrorHandler(ctx, resp)
-	}
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	return DecodeCoreWriteUpdate(body)
-}
-
 func (c *ApiServerCapi) PostV1NodesDrain(ctx context.Context, req *NodeDrainRequest) (*CoreWriteUpdate, error) {
 	if req == nil {
 		return nil, fmt.Errorf("PostV1NodesDrain request is nil")
@@ -1606,6 +1584,68 @@ func (c *ApiServerCapi) PostV1SpaceDomainPoliciesDelete(ctx context.Context, req
 		return err
 	}
 	resp, err := c.do(ctx, "POST", "/v1/space-domain-policies/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return c.ErrorHandler(ctx, resp)
+	}
+	return nil
+}
+
+func (c *ApiServerCapi) PostV1NodeAccessPoliciesCreate(ctx context.Context, req *NodeAccessPolicyCreateRequest) (*CoreWriteUpdate, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NodeAccessPoliciesCreate request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/node-access-policies/create", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeCoreWriteUpdate(body)
+}
+
+func (c *ApiServerCapi) PostV1NodeAccessPoliciesUpdate(ctx context.Context, req *NodeAccessPolicyUpdateRequest) (*CoreWriteUpdate, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1NodeAccessPoliciesUpdate request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/node-access-policies/update", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeCoreWriteUpdate(body)
+}
+
+func (c *ApiServerCapi) PostV1NodeAccessPoliciesDelete(ctx context.Context, req *NodeAccessPolicyDeleteRequest) error {
+	if req == nil {
+		return fmt.Errorf("PostV1NodeAccessPoliciesDelete request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/node-access-policies/delete", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
 	if err != nil {
 		return err
 	}

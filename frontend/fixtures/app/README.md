@@ -56,7 +56,8 @@ Shots:
 - `logs`, `metrics` and `metrics-deployment` are Logs and Metrics.
 - `users`, `users-rules`, `users-you`, `sessions` and `sessions-user` are Users & roles and Sessions.
 - `spaces`, `spaces-domain`, `dialog-add-space` and `policies` are Spaces and network policies.
-- `cluster`, `cluster-inspector`, `cluster-enrollments` and `cluster-replication` are Nodes.
+- `cluster`, `cluster-inspector`, `cluster-access`, `dialog-node-access-policy`, `cluster-enrollments` and
+  `cluster-replication` are Nodes.
 - `settings` is Settings.
 - `shell-stream-card` (bottom-left crop) and `shell-theme-menu` are the sidebar footer.
 - `space-filter`, `space-filter-presets` and `space-filter-search` are the space filter open: plain, with
@@ -85,7 +86,7 @@ dev; five nodes (worker-c draining, edge-1 disconnected), a pending enrolment
 and an evicted node; about 15 deployments in different states plus the system
 deployments; secrets, configs and assets in folders with versions; six users
 (sam pending), roles, grants and global rules; agent and user sessions;
-network and domain policies; and backup, secrets and ingress status. Logs,
+network, domain and node access policies; and backup, secrets and ingress status. Logs,
 metrics, run reports, prepare output and version lists are generated.
 
 Asset content and uploads go through a patched `fetch` and `XMLHttpRequest`.

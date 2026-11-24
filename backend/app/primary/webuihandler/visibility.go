@@ -3,7 +3,6 @@ package webuihandler
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
@@ -65,7 +64,7 @@ type streamVisibility struct {
 	ctx                      apigen.Context
 	deployments              map[uint64]uint64
 	instances                map[uint64]uint64
-	nodes                    map[uint64][]uint64
+	nodeAccess               *nodeAccessView
 	secrets, configs, assets map[uint64]uint64
 	policies                 map[uint64]*apigen.NetworkPolicy
 	policyVisibility         map[uint64]bool
@@ -82,7 +81,7 @@ func newStreamVisibility(h *Handler, ctx apigen.Context) *streamVisibility {
 func (v *streamVisibility) reset() {
 	v.deployments = map[uint64]uint64{}
 	v.instances = map[uint64]uint64{}
-	v.nodes = map[uint64][]uint64{}
+	v.nodeAccess = nil
 	v.secrets = map[uint64]uint64{}
 	v.configs = map[uint64]uint64{}
 	v.assets = map[uint64]uint64{}
@@ -112,6 +111,18 @@ func (v *streamVisibility) deploymentVisible(id uint64) bool {
 	return v.h.canAccess(v.ctx, vView, eDeployment, space, id)
 }
 
+// nodeVisible reads the policies once per snapshot: a policy or space write
+// resets the stream, so what it read stays current until the next one.
+func (v *streamVisibility) nodeVisible(id uint64) bool {
+	if v.h.canAccess(v.ctx, vView, eNode, 0, id) || v.h.Authz == nil {
+		return true
+	}
+	if v.nodeAccess == nil {
+		v.nodeAccess = v.h.readNodeAccess()
+	}
+	return v.h.nodeVisibleIn(v.ctx, v.nodeAccess, id)
+}
+
 func (v *streamVisibility) instanceVisible(id uint64) bool {
 	deployment, ok := v.instances[id]
 	if !ok {
@@ -126,7 +137,7 @@ func (v *streamVisibility) instanceVisible(id uint64) bool {
 }
 
 // needsReset reports whether the commit can change what this viewer may see:
-// authorization changes, a space move, a node allowed-space change, or a
+// authorization changes, a space move, a node access policy change, or a
 // network policy whose visibility flips. The stream answers with the compacted
 // history rather than forwarding the commit.
 func (v *streamVisibility) needsReset(u *state.WriteUpdate) bool {
@@ -135,7 +146,8 @@ func (v *streamVisibility) needsReset(u *state.WriteUpdate) bool {
 		e := m.Entity()
 		id := m.EntityID()
 		switch m.Type() {
-		case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE, apigen.CoreEntityType_CORE_ENTITY_SPACE:
+		case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT_TEMPLATE, apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GLOBAL_RULE, apigen.CoreEntityType_CORE_ENTITY_SPACE,
+			apigen.CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY:
 			return true
 		case apigen.CoreEntityType_CORE_ENTITY_AUTHZ_GRANT:
 			if e != nil && e.Value.AuthzGrant != nil {
@@ -146,12 +158,6 @@ func (v *streamVisibility) needsReset(u *state.WriteUpdate) bool {
 			}
 			if user, ok := v.grants[id]; !ok || user == v.userID() {
 				return true
-			}
-		case apigen.CoreEntityType_CORE_ENTITY_NODE:
-			if e != nil && e.Value.Node != nil {
-				if old, ok := v.nodes[id]; ok && !slices.Equal(old, e.Value.Node.Operator.AllowedSpaces) {
-					return true
-				}
 			}
 		case apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT:
 			if e != nil && e.Value.Deployment != nil {
@@ -211,10 +217,6 @@ func (v *streamVisibility) observe(t apigen.CoreEntityType, id uint64, e *apigen
 		if e.Value.ScheduledInstance != nil {
 			v.instances[id] = e.Value.ScheduledInstance.Deployment.DeploymentID
 		}
-	case apigen.CoreEntityType_CORE_ENTITY_NODE:
-		if e.Value.Node != nil {
-			v.nodes[id] = e.Value.Node.Operator.AllowedSpaces
-		}
 	case apigen.CoreEntityType_CORE_ENTITY_SECRET:
 		if e.Value.Secret != nil {
 			v.secrets[id] = e.Value.Secret.SpaceID
@@ -268,7 +270,7 @@ func (v *streamVisibility) entityVisible(t apigen.CoreEntityType, id uint64, e *
 	case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE:
 		return p.ScheduledInstance != nil && v.deploymentVisible(p.ScheduledInstance.Deployment.DeploymentID)
 	case apigen.CoreEntityType_CORE_ENTITY_NODE:
-		return p.Node != nil && h.nodeVisible(ctx, id, p.Node.Operator.AllowedSpaces)
+		return p.Node != nil && v.nodeVisible(id)
 	case apigen.CoreEntityType_CORE_ENTITY_SECRET:
 		return p.Secret != nil && h.canAccess(ctx, vView, eSecret, p.Secret.SpaceID, id)
 	case apigen.CoreEntityType_CORE_ENTITY_CONFIG:
@@ -293,12 +295,14 @@ func (v *streamVisibility) entityVisible(t apigen.CoreEntityType, id uint64, e *
 		return h.canAccess(ctx, vView, eAccess, 0, 0)
 	case apigen.CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY:
 		return h.canAccess(ctx, vView, eDomain, 0, id)
+	case apigen.CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY:
+		return h.canAccess(ctx, vView, eAccess, 0, id)
 	case apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG, apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET:
 		return h.canAccess(ctx, vView, eCluster, 0, 0)
 	case apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS:
 		return v.instanceVisible(id)
 	case apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS:
-		return h.nodeVisible(ctx, id, v.nodes[id])
+		return v.nodeVisible(id)
 	// Sessions are owner-only: they reach the browser that holds them and no
 	// one else, except a link, which its issuer also sees.
 	case apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION:

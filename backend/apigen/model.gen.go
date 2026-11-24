@@ -238,6 +238,21 @@ const (
 	NetProtocol_NET_PROTOCOL_UDP         NetProtocol = 2
 )
 
+type NodePermission int32
+
+const (
+	NodePermission_NODE_PERMISSION_UNSPECIFIED     NodePermission = 0
+	NodePermission_NODE_PERMISSION_RUN_DEPLOYMENTS NodePermission = 1
+)
+
+type NodeAccessBuiltin int32
+
+const (
+	NodeAccessBuiltin_NODE_ACCESS_BUILTIN_NONE    NodeAccessBuiltin = 0
+	NodeAccessBuiltin_NODE_ACCESS_BUILTIN_SYSTEM  NodeAccessBuiltin = 1
+	NodeAccessBuiltin_NODE_ACCESS_BUILTIN_DEFAULT NodeAccessBuiltin = 2
+)
+
 type CoreEntityType int32
 
 const (
@@ -264,6 +279,7 @@ const (
 	CoreEntityType_CORE_ENTITY_NIX_STORE_RESET           CoreEntityType = 20
 	CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT            CoreEntityType = 21
 	CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY       CoreEntityType = 22
+	CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY        CoreEntityType = 23
 )
 
 type AccessPolicyType int32
@@ -1973,7 +1989,6 @@ type NodeOperator struct {
 	unknownFields []byte
 	Name          string           `json:"name,omitempty"`
 	Roles         []NodeRole       `json:"roles,omitempty"`
-	AllowedSpaces []uint64         `json:"allowed_spaces,omitempty"`
 	EnrolledTime  Maybe[time.Time] `json:"enrolled_time,omitzero"`
 }
 
@@ -2018,12 +2033,6 @@ type NodeRenameRequest struct {
 	unknownFields []byte
 	Identifier    string `json:"identifier,omitempty"`
 	Name          string `json:"name,omitempty"`
-}
-
-type NodeAllowedSpacesRequest struct {
-	unknownFields []byte
-	Identifier    string   `json:"identifier,omitempty"`
-	SpaceIds      []uint64 `json:"space_ids,omitempty"`
 }
 
 type NodeDrainRequest struct {
@@ -2393,6 +2402,97 @@ type SpaceDomainPolicyUpdateRequest struct {
 }
 
 type SpaceDomainPolicyDeleteRequest struct {
+	unknownFields []byte
+	ID            uint64 `json:"id"`
+}
+
+type NodeAccessPolicy struct {
+	unknownFields []byte
+	ID            uint64            `json:"id"`
+	Name          string            `json:"name,omitempty"`
+	Disabled      bool              `json:"disabled"`
+	Builtin       NodeAccessBuiltin `json:"builtin"`
+	Nodes         NodeSelector      `json:"nodes"`
+	Rule          NodeAccessRule    `json:"rule"`
+}
+
+type NodeAccessRule struct {
+	unknownFields []byte
+	Effect        NodeAccessEffect   `json:"effect"`
+	Selector      NodeAccessSelector `json:"selector"`
+}
+
+type NodeAccessAllow struct {
+	unknownFields []byte
+}
+
+type NodeAccessDeny struct {
+	unknownFields []byte
+}
+
+type NodeAccessEffect struct {
+	unknownFields []byte
+	Value         NodeAccessEffectValueOneof `json:"value"`
+}
+
+type NodeAccessSelector struct {
+	unknownFields []byte
+	Permissions   NodePermissionSelector `json:"permissions"`
+	Spaces        AuthzSpaceSelector     `json:"spaces"`
+}
+
+type NodeSelector struct {
+	unknownFields     []byte
+	ExactNodes        Maybe[NodeIdList] `json:"exact_nodes,omitzero"`
+	AllNodesExcluding Maybe[NodeIdList] `json:"all_nodes_excluding,omitzero"`
+}
+
+type NodeIdList struct {
+	unknownFields []byte
+	Values        []uint64 `json:"values,omitempty"`
+}
+
+type NodePermissionSelector struct {
+	unknownFields           []byte
+	ExactPermissions        Maybe[NodePermissionList] `json:"exact_permissions,omitzero"`
+	AllPermissionsExcluding Maybe[NodePermissionList] `json:"all_permissions_excluding,omitzero"`
+}
+
+type NodePermissionList struct {
+	unknownFields []byte
+	Values        []NodePermission `json:"values,omitempty"`
+}
+
+type NodeAccess struct {
+	unknownFields       []byte
+	NodeID              uint64   `json:"node_id"`
+	RunDeploymentSpaces []uint64 `json:"run_deployment_spaces,omitempty"`
+}
+
+type NodeAccessList struct {
+	unknownFields []byte
+	Items         []NodeAccess `json:"items,omitempty"`
+}
+
+type NodeAccessPolicyCreateRequest struct {
+	unknownFields []byte
+	Name          string         `json:"name,omitempty"`
+	Disabled      bool           `json:"disabled"`
+	Nodes         NodeSelector   `json:"nodes"`
+	Rule          NodeAccessRule `json:"rule"`
+}
+
+type NodeAccessPolicyUpdateRequest struct {
+	unknownFields []byte
+	ID            uint64         `json:"id"`
+	ExpectedSeq   int64          `json:"expected_seq"`
+	Name          string         `json:"name,omitempty"`
+	Disabled      bool           `json:"disabled"`
+	Nodes         NodeSelector   `json:"nodes"`
+	Rule          NodeAccessRule `json:"rule"`
+}
+
+type NodeAccessPolicyDeleteRequest struct {
 	unknownFields []byte
 	ID            uint64 `json:"id"`
 }
@@ -2815,6 +2915,7 @@ type EventStreamMsg struct {
 	IngressDiagnostics Maybe[IngressDiagnosticList] `json:"ingress_diagnostics,omitzero"`
 	SecretsStatus      Maybe[SecretsStatusResponse] `json:"secrets_status,omitzero"`
 	Seq                int64                        `json:"seq"`
+	NodeAccess         Maybe[NodeAccessList]        `json:"node_access,omitzero"`
 }
 
 type AccessPolicy struct {
@@ -3455,6 +3556,7 @@ type AuthzEntityRefTargetValueOneof struct {
 	AuthzGrant         *uint64 `json:"authz_grant,omitempty"`
 	AuthzGlobalRule    *uint64 `json:"authz_global_rule,omitempty"`
 	SpaceDomainPolicy  *uint64 `json:"space_domain_policy,omitempty"`
+	NodeAccessPolicy   *uint64 `json:"node_access_policy,omitempty"`
 }
 
 func (v AuthzEntityRefTargetValueOneof) MarshalJSON() ([]byte, error) {
@@ -3500,6 +3602,9 @@ func (v AuthzEntityRefTargetValueOneof) Validate() error {
 		selected++
 	}
 	if v.SpaceDomainPolicy != nil {
+		selected++
+	}
+	if v.NodeAccessPolicy != nil {
 		selected++
 	}
 	if selected != 1 {
@@ -3850,6 +3955,42 @@ func (v SpaceDomainEffectValueOneof) Validate() error {
 	return nil
 }
 
+type NodeAccessEffectValueOneof struct {
+	Allow *NodeAccessAllow `json:"allow,omitempty"`
+	Deny  *NodeAccessDeny  `json:"deny,omitempty"`
+}
+
+func (v NodeAccessEffectValueOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Allow != nil {
+		if err := v.Allow.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.Deny != nil {
+		if err := v.Deny.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue NodeAccessEffectValueOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v NodeAccessEffectValueOneof) Validate() error {
+	selected := 0
+	if v.Allow != nil {
+		selected++
+	}
+	if v.Deny != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
 type StringSettingValueValueOneof struct {
 	Literal   *string    `json:"literal,omitempty"`
 	ConfigRef *ConfigRef `json:"config_ref,omitempty"`
@@ -3980,6 +4121,7 @@ type CoreEntityValueOneof struct {
 	NixStoreReset           *NixStoreReset           `json:"nix_store_reset,omitempty"`
 	SecretKeyslot           *SecretKeyslot           `json:"secret_keyslot,omitempty"`
 	SpaceDomainPolicy       *SpaceDomainPolicy       `json:"space_domain_policy,omitempty"`
+	NodeAccessPolicy        *NodeAccessPolicy        `json:"node_access_policy,omitempty"`
 }
 
 func (v CoreEntityValueOneof) MarshalJSON() ([]byte, error) {
@@ -4096,6 +4238,11 @@ func (v CoreEntityValueOneof) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 	}
+	if v.NodeAccessPolicy != nil {
+		if err := v.NodeAccessPolicy.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	type jsonValue CoreEntityValueOneof
 	return json.Marshal(jsonValue(v))
 }
@@ -4165,6 +4312,9 @@ func (v CoreEntityValueOneof) Validate() error {
 		selected++
 	}
 	if v.SpaceDomainPolicy != nil {
+		selected++
+	}
+	if v.NodeAccessPolicy != nil {
 		selected++
 	}
 	if selected != 1 {

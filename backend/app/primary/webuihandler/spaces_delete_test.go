@@ -2,6 +2,7 @@ package webuihandler
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,7 +123,7 @@ func TestSpaceDeleteIsRefusedWhileInUse(t *testing.T) {
 	}
 }
 
-func TestSpaceDeleteRemovesAnEmptySpaceFromNodeAllowLists(t *testing.T) {
+func TestSpaceDeleteRemovesAnEmptySpace(t *testing.T) {
 	h, staging := newEnforcementTestHandler(t)
 	node := ensureTestNode(h.Store, "primary", "primary-id")
 	admin := enforceCtx(1, false)
@@ -130,8 +131,8 @@ func TestSpaceDeleteRemovesAnEmptySpaceFromNodeAllowLists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSpace: %v", err)
 	}
-	if !nodeAllowsSpaceForTest(h, node.ID, space.ID) {
-		t.Fatal("a new space is not open on the node")
+	if got := runSpacesByNode(h.nodeAccessList(admin))[node.ID]; !slices.Contains(got, space.ID) {
+		t.Fatalf("a new space is not open on the node: it runs %v", got)
 	}
 
 	// A grant that names only another space does not stand in the way.
@@ -141,8 +142,8 @@ func TestSpaceDeleteRemovesAnEmptySpaceFromNodeAllowLists(t *testing.T) {
 	if err := h.PostV1SpacesDelete(admin, &apigen.SpaceDeleteRequest{ID: space.ID}); err != nil {
 		t.Fatalf("delete empty space: %v", err)
 	}
-	if nodeAllowsSpaceForTest(h, node.ID, space.ID) {
-		t.Fatal("the deleted space is still on the node's allow list")
+	if got := runSpacesByNode(h.nodeAccessList(admin))[node.ID]; slices.Contains(got, space.ID) {
+		t.Fatalf("the deleted space is still listed for the node: it runs %v", got)
 	}
 	if err := h.PostV1SpacesDelete(admin, &apigen.SpaceDeleteRequest{ID: space.ID}); !errors.Is(err, SpaceNotFoundErr) {
 		t.Fatalf("second delete err = %v, want SpaceNotFoundErr", err)

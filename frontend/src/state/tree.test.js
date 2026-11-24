@@ -3,11 +3,11 @@ import test from 'node:test';
 import {applyMessage, createTree, observedClock, resetTree, written} from './tree.js';
 
 const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SECRET = 4, CONFIG = 5, NETWORK_POLICY = 7, SPACE = 8, AUTHZ_GRANT_TEMPLATE = 12, AUTHZ_GRANT = 13,
-    SYSTEM_CONFIG = 15, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, AGENT_SESSION = 18, USER_SESSION = 19, NIX_STORE_RESET = 20, SPACE_DOMAIN_POLICY = 22;
+    SYSTEM_CONFIG = 15, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, AGENT_SESSION = 18, USER_SESSION = 19, NIX_STORE_RESET = 20, SPACE_DOMAIN_POLICY = 22, NODE_ACCESS_POLICY = 23;
 const fields = {[DEPLOYMENT]: 'deployment', [SCHEDULED_INSTANCE]: 'scheduledInstance', [NODE]: 'node', [SECRET]: 'secret', [CONFIG]: 'config',
     [NETWORK_POLICY]: 'networkPolicy', [SPACE]: 'space', [AUTHZ_GRANT_TEMPLATE]: 'authzGrantTemplate', [AUTHZ_GRANT]: 'authzGrant', [SYSTEM_CONFIG]: 'systemConfig',
     [SCHEDULED_INSTANCE_STATUS]: 'scheduledInstanceStatus', [NODE_STATUS]: 'nodeStatus', [AGENT_SESSION]: 'agentSession', [USER_SESSION]: 'userSession',
-    [NIX_STORE_RESET]: 'nixStoreReset', [SPACE_DOMAIN_POLICY]: 'spaceDomainPolicy'};
+    [NIX_STORE_RESET]: 'nixStoreReset', [SPACE_DOMAIN_POLICY]: 'spaceDomainPolicy', [NODE_ACCESS_POLICY]: 'nodeAccessPolicy'};
 
 const coreEntity = (type, entity) => ({value: {[fields[type]]: entity}});
 export const create = (type, id, entity, meta) => ({value: {create: {entityType: type, entityId: id, entity: coreEntity(type, entity), ...(meta ? {meta} : {})}}});
@@ -151,6 +151,32 @@ test('space domain policies keep the latest entity under the seq of its last wri
     const reconnected = createTree();
     applyMessage(reconnected, snapshot(9, [entry(SPACE_DOMAIN_POLICY, 5, policy(true), {updatedSeq: 6})]));
     assert.deepEqual(reconnected.spaceDomainPolicies, tree.spaceDomainPolicies);
+});
+
+test('node access policies keep the latest entity under the seq of its last write', () => {
+    const tree = createTree();
+    const policy = disabled => ({id: 2, name: 'all_spaces_everywhere', disabled, builtin: 2, nodes: {allNodesExcluding: {values: []}}});
+    assert.deepEqual([...applyMessage(tree, message([event(4, [create(NODE_ACCESS_POLICY, 2, policy(false))])]))], ['nodeAccessPolicies']);
+    applyMessage(tree, message([event(6, [update(NODE_ACCESS_POLICY, 2, policy(true))])]));
+    assert.deepEqual(tree.nodeAccessPolicies.get(2), {nodeAccessPolicyId: 2, seq: 6, value: policy(true)});
+    const reconnected = createTree();
+    applyMessage(reconnected, snapshot(9, [entry(NODE_ACCESS_POLICY, 2, policy(true), {updatedSeq: 6})]));
+    assert.deepEqual(reconnected.nodeAccessPolicies, tree.nodeAccessPolicies);
+    applyMessage(tree, message([event(7, [remove(NODE_ACCESS_POLICY, 2)])]));
+    assert.equal(tree.nodeAccessPolicies.size, 0);
+});
+
+test('the node access sidecar replaces the held one and survives a snapshot', () => {
+    const tree = createTree();
+    const first = {items: [{nodeId: 1, runDeploymentSpaces: [1, 2]}]};
+    assert.deepEqual([...applyMessage(tree, {nodeAccess: first})], ['nodeAccess']);
+    assert.equal(tree.nodeAccess, first);
+    applyMessage(tree, snapshot(3, []));
+    assert.equal(tree.nodeAccess, first);
+    const next = {items: [{nodeId: 1, runDeploymentSpaces: [1]}]};
+    const changed = applyMessage(tree, {...snapshot(4, []), nodeAccess: next});
+    assert.equal(tree.nodeAccess, next);
+    assert.equal(changed.has('nodeAccess'), true);
 });
 
 test('entity types the browser does not fold are skipped', () => {

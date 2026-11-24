@@ -27,7 +27,7 @@ export const ENTITY_GLOSS = {
     node: "nodes",
     cluster: "cluster settings, backup and export",
     user: "the user roster: adding users and issuing their sign-in links",
-    access: "roles, grants and global rules",
+    access: "roles, grants, global rules and node access policies",
     domain_policy: "space domain policies: which spaces may publish which ingress hostnames",
 };
 
@@ -68,10 +68,10 @@ export const PAIR_GLOSS = {
     "cluster:view": "read cluster settings and the exported config",
     "user:create": "add users and issue their enrol and recovery links; both also need create on access",
     "user:view": "see the user roster",
-    "access:create": "make roles, grants and global rules",
-    "access:update": "edit roles",
-    "access:delete": "delete roles, grants and global rules",
-    "access:view": "list roles, grants and global rules",
+    "access:create": "make roles, grants, global rules and node access policies",
+    "access:update": "edit roles and node access policies",
+    "access:delete": "delete roles, grants, global rules and node access policies",
+    "access:view": "list roles, grants, global rules and node access policies",
     "domain_policy:create": "make space domain policies",
     "domain_policy:update": "edit, enable and disable space domain policies",
     "domain_policy:delete": "delete space domain policies",

@@ -100,7 +100,9 @@ import {
   encodeNetworkPolicyDeleteRequest,
   encodeNetworkPolicyUpdateRequest,
   encodeNixStoreResetRequest,
-  encodeNodeAllowedSpacesRequest,
+  encodeNodeAccessPolicyCreateRequest,
+  encodeNodeAccessPolicyDeleteRequest,
+  encodeNodeAccessPolicyUpdateRequest,
   encodeNodeDrainRequest,
   encodeNodeEvictRequest,
   encodeNodeExposureRequest,
@@ -989,19 +991,6 @@ export class Capi {
   }
 
   /**
-   * @param {NodeAllowedSpacesRequest} payload
-   * @param {{ signal?: AbortSignal }} [options={}]
-   * @returns {Promise<CoreWriteUpdate>}
-   */
-  async postV1NodesAllowedSpaces(payload, options = {}) {
-    const response = await this.#request("/v1/nodes/allowed-spaces", { method: 'POST', body: encodeNodeAllowedSpacesRequest(payload), signal: options.signal });
-    if (!response.ok) {
-      return this.errorHandler(response);
-    }
-    return decodeCoreWriteUpdate(await response.arrayBuffer());
-  }
-
-  /**
    * @param {NodeDrainRequest} payload
    * @param {{ signal?: AbortSignal }} [options={}]
    * @returns {Promise<CoreWriteUpdate>}
@@ -1188,6 +1177,45 @@ export class Capi {
    */
   async postV1SpaceDomainPoliciesDelete(payload, options = {}) {
     const response = await this.#request("/v1/space-domain-policies/delete", { method: 'POST', body: encodeSpaceDomainPolicyDeleteRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    await response.arrayBuffer();
+  }
+
+  /**
+   * @param {NodeAccessPolicyCreateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<CoreWriteUpdate>}
+   */
+  async postV1NodeAccessPoliciesCreate(payload, options = {}) {
+    const response = await this.#request("/v1/node-access-policies/create", { method: 'POST', body: encodeNodeAccessPolicyCreateRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeAccessPolicyUpdateRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<CoreWriteUpdate>}
+   */
+  async postV1NodeAccessPoliciesUpdate(payload, options = {}) {
+    const response = await this.#request("/v1/node-access-policies/update", { method: 'POST', body: encodeNodeAccessPolicyUpdateRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeCoreWriteUpdate(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeAccessPolicyDeleteRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<void>}
+   */
+  async postV1NodeAccessPoliciesDelete(payload, options = {}) {
+    const response = await this.#request("/v1/node-access-policies/delete", { method: 'POST', body: encodeNodeAccessPolicyDeleteRequest(payload), signal: options.signal });
     if (!response.ok) {
       return this.errorHandler(response);
     }

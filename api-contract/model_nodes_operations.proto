@@ -13,11 +13,6 @@ message NodeRenameRequest {
   string name = 2;
 }
 
-message NodeAllowedSpacesRequest {
-  string identifier = 1;
-  repeated uint64 space_ids = 2 [(cp.js_type) = "number"];
-}
-
 message NodeDrainRequest {
   string identifier = 1;
   bool draining = 2;

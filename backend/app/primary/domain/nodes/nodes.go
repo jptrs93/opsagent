@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/state"
 	"net/netip"
 	"slices"
@@ -40,7 +39,6 @@ type Node struct {
 	WGPublicKey           string
 	CreatedAt             time.Time
 	EnrolledAt            time.Time
-	AllowedSpaces         []uint64
 	HostAddresses         []apigen.IpAddress
 }
 
@@ -52,20 +50,6 @@ func isMemberStatus(status apigen.NodeLifecycleStatus) bool {
 	}
 	return false
 }
-func normalizeAllowedSpaces(spaces []uint64) []uint64 {
-	seen := map[uint64]struct{}{internaldeploy.SpaceID: {}}
-	out := []uint64{internaldeploy.SpaceID}
-	for _, id := range spaces {
-		if _, dup := seen[id]; dup {
-			continue
-		}
-		seen[id] = struct{}{}
-		out = append(out, id)
-	}
-	slices.Sort(out)
-	return out
-}
-
 func EnsurePrimaryNode(store *state.Service, name, identifier string, underlay netip.Addr, wgPublicKey string) *Node {
 	ctx := context.Background()
 	_, err := store.Queries().GetNodeRowByIdentifier(ctx, identifier)
@@ -104,7 +88,6 @@ type nodeEventSpec struct {
 	RolesJSON             string
 	UnderlayAddress       netip.Addr
 	WGPublicKey           string
-	AllowedSpacesJSON     string
 }
 
 func nodeEventSpecOf(row pq.CurrentNode) nodeEventSpec {
@@ -117,7 +100,6 @@ func nodeEventSpecOf(row pq.CurrentNode) nodeEventSpec {
 		RolesJSON:             nodeRolesJSON(row.Event.Value.Operator.Roles),
 		UnderlayAddress:       row.Event.Value.Reported.UnderlayAddress.Addr(),
 		WGPublicKey:           row.Event.Value.Reported.WgPublicKey,
-		AllowedSpacesJSON:     allowedSpacesJSON(row.Event.Value.Operator.AllowedSpaces),
 	}
 }
 
@@ -156,7 +138,7 @@ func appendNodeVersion(seq, now int64, current pq.CurrentNode, author int64, mut
 	e.Seq, e.EventTime, e.Author = seq, now, author
 	e.Value.EnrollmentRequestedAt = millisToMaybe(spec.EnrollmentRequestedAt)
 	e.Value.Status = spec.Status
-	e.Value.Operator = apigen.NodeOperator{Name: spec.Name, EnrolledTime: millisToMaybe(spec.EnrolledTime), Roles: parseRoles(spec.RolesJSON), AllowedSpaces: parseAllowedSpaces(spec.AllowedSpacesJSON)}
+	e.Value.Operator = apigen.NodeOperator{Name: spec.Name, EnrolledTime: millisToMaybe(spec.EnrolledTime), Roles: parseRoles(spec.RolesJSON)}
 	e.Value.Reported = apigen.NodeReported{Identifier: current.Event.Value.Reported.Identifier, UnderlayAddress: apigen.AddrOf(spec.UnderlayAddress), WgPublicKey: spec.WGPublicKey, HostAddresses: parseAddressList(spec.HostAddressesJSON)}
 	return next, true
 }
@@ -311,47 +293,6 @@ func RenameNode(store *state.Service, identifier, name string) (*pq.NodeEvent, e
 	}
 	return &row.Event, nil
 }
-func SetNodeAllowedSpaces(store *state.Service, identifier string, spaces []uint64) (*pq.NodeEvent, error) {
-	ctx := context.Background()
-	allowed := allowedSpacesJSON(spaces)
-	var row pq.CurrentNode
-	err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
-		current, err := q.GetNodeRowByIdentifier(ctx, identifier)
-		if err != nil {
-			return nil, err
-		}
-		var applied bool
-		row, applied = appendNodeVersion(seq, time.Now().UnixMilli(), current, 0, func(spec *nodeEventSpec) { spec.AllowedSpacesJSON = allowed })
-		if !applied {
-			return nil, nil
-		}
-		return pq.NewUpdate(pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event)), nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &row.Event, nil
-}
-
-func updateAllNodeAllowedSpaces(ctx context.Context, q *pq.Queries, seq, now int64, fn func([]uint64) []uint64) ([]pq.Mutation, error) {
-	rows, err := q.ListNodeRows(ctx, pq.AllNodeStatuses)
-	if err != nil {
-		return nil, err
-	}
-	var events []pq.Mutation
-	for _, current := range rows {
-		if current.Event.Value.Status == apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED {
-			continue
-		}
-		row, changed := appendNodeVersion(seq, now, current, 0, func(spec *nodeEventSpec) {
-			spec.AllowedSpacesJSON = allowedSpacesJSON(fn(parseAllowedSpaces(allowedSpacesJSON(current.Event.Value.Operator.AllowedSpaces))))
-		})
-		if changed {
-			events = append(events, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, &row.Event))
-		}
-	}
-	return events, nil
-}
 func UpdateNodeObservedMeta(store *state.Service, identifier, remoteAddress, opendeployVersion, runtimeVersions string) {
 	ctx := context.Background()
 	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
@@ -391,7 +332,7 @@ func nodeRowToNode(r pq.CurrentNode) *Node {
 		Seq: e.Seq, Author: e.Author, EventTime: e.EventTime,
 		EnrollmentRequestedAt: maybeToMillis(e.Value.EnrollmentRequestedAt), ID: e.NodeID, Name: e.Value.Operator.Name, Identifier: e.Value.Reported.Identifier,
 		Status: e.Value.Status, Roles: e.Value.Operator.Roles, UnderlayAddress: e.Value.Reported.UnderlayAddress, WGPublicKey: e.Value.Reported.WgPublicKey,
-		CreatedAt: time.UnixMilli(e.CreatedTime), EnrolledAt: e.Value.Operator.EnrolledTime.Value, AllowedSpaces: e.Value.Operator.AllowedSpaces,
+		CreatedAt: time.UnixMilli(e.CreatedTime), EnrolledAt: e.Value.Operator.EnrolledTime.Value,
 		HostAddresses: e.Value.Reported.HostAddresses,
 	}
 }
@@ -409,19 +350,6 @@ func nodeAddressesJSON(addresses []apigen.IpAddress) string {
 		}
 	}
 	b := erru.Must(json.Marshal(out))
-	return string(b)
-}
-
-func parseAllowedSpaces(s string) []uint64 {
-	var spaces []uint64
-	if err := json.Unmarshal([]byte(s), &spaces); err != nil {
-		return normalizeAllowedSpaces(nil)
-	}
-	return normalizeAllowedSpaces(spaces)
-}
-
-func allowedSpacesJSON(spaces []uint64) string {
-	b := erru.Must(json.Marshal(normalizeAllowedSpaces(spaces)))
 	return string(b)
 }
 
