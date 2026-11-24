@@ -12,6 +12,7 @@ import {
     userConfigsS,
 } from "../state/deployments.js";
 import {domainPoliciesPage} from "./domainPolicies.js";
+import {tabButton, tabStrip} from "../components/tabs.js";
 
 const { div, h2, p, span, input, button, table, thead, tbody, tr, th, td, colgroup, col } = van.tags;
 
@@ -194,7 +195,7 @@ function spacesTab() {
         const id = Number(space.id);
         const deletable = !isDefaultSpace(space);
         return tr(
-            {class: "border-b border-gray-800 last:border-0 align-middle", "data-testid": `space-row-${id}`},
+            {class: "data-row align-middle classic:border-gray-800 classic:last:border-0 classic:hover:bg-transparent", "data-testid": `space-row-${id}`},
             td({class: "py-1 pr-3 min-w-0"}, spaceNameEditor(space)),
             countCell(countDeployments(deploymentsS.val, id)),
             countCell(countDistinct(secretMetasS.val, id, (item) => item.key)),
@@ -208,7 +209,7 @@ function spacesTab() {
                         "aria-label": deletable ? `Delete space ${space.name || id}` : "Built-in spaces cannot be deleted",
                         disabled: () => !deletable || Boolean(mutatingID.val),
                         class: () => `inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 ` +
-                            `hover:bg-surface hover:text-red-400 transition-colors ${!deletable || mutatingID.val
+                            `hover:bg-surface hover:text-red-400 slate:hover:bg-white/5 graphite:hover:bg-white/5 transition-colors ${!deletable || mutatingID.val
                                 ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
                         onclick: () => requestDelete(space),
                     }, trashIcon()),
@@ -217,9 +218,9 @@ function spacesTab() {
     };
 
     const addSpaceRow = () => addingSpace.val ? div(
-        {class: "flex flex-none flex-col gap-2 border-b border-gray-700 px-3 py-2 sm:flex-row sm:items-center"},
+        {class: "flex flex-none flex-col gap-2 border-b border-gray-700 px-3 py-2 sm:flex-row sm:items-center slate:border-line graphite:border-line"},
         input({
-            class: "text-input max-w-md",
+            class: "text-input cluster-add-input max-w-md",
             placeholder: "New space name",
             disabled: creating,
             value: newSpaceName,
@@ -233,15 +234,15 @@ function spacesTab() {
             spinnerButton("Save", createSpace,
                 "text-xs px-3 py-1 rounded-md font-medium bg-brand text-white hover:bg-blue-600 whitespace-nowrap",
                 "button", () => creating.val || !newSpaceName.val.trim()),
-            smallBtn("Discard", cancelCreate, "bg-gray-700 text-gray-200 hover:bg-gray-600", () => creating.val),
+            smallBtn("Discard", cancelCreate, "bg-gray-700 text-gray-200 hover:bg-gray-600 slate:bg-white/[0.06] slate:hover:bg-white/10 graphite:bg-transparent graphite:text-gray-300 graphite:ring-1 graphite:ring-inset graphite:ring-line graphite:hover:bg-white/[0.04]", () => creating.val),
         ),
     ) : "";
 
     const headerCell = (text, cls = "pr-3") => th(
-        {class: `py-1.5 ${cls} text-[10px] font-semibold uppercase tracking-wider`}, text);
+        {class: `col-head py-1.5 ${cls} classic:text-[10px] slate:h-7 slate:py-0 graphite:h-6 graphite:py-0`}, text);
 
     const toolbar = () => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        {class: "page-toolbar cluster-toolbar gap-2 classic:py-2"},
         input({
             class: "text-input search-input toolbar-input",
             type: "search",
@@ -270,7 +271,7 @@ function spacesTab() {
                 return p({class: "px-4 py-3 text-gray-400 text-sm"},
                     search.val.trim() ? "No spaces match your search." : "No spaces yet. Click Add space.");
             }
-            return div({class: "pl-4 pr-2"}, table(
+            return div({class: "pl-4 pr-2 slate:px-3 graphite:px-3"}, table(
                 {class: "w-full table-fixed text-[13px]"},
                 colgroup(
                     col({style: "width:40%"}),
@@ -280,8 +281,8 @@ function spacesTab() {
                     col({style: "width:12%"}),
                     col({style: "width:11%"}),
                 ),
-                thead(tr({class: "text-left text-gray-500 border-b border-gray-800"},
-                    headerCell("Name"),
+                thead(tr({class: "text-left border-b border-gray-800 slate:border-line graphite:border-0"},
+                    headerCell("Name", "pr-3 slate:pl-2 graphite:pl-2"),
                     headerCell("Deployments"),
                     headerCell("Secrets"),
                     headerCell("Configs"),
@@ -312,9 +313,7 @@ function spacesTab() {
     };
 
     return div(
-        // bg-surface: like the assets and secrets explorers, the page is one
-        // flush surface running to the window and sidebar edges.
-        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        {class: "h-full min-h-0 flex flex-col overflow-hidden"},
         toolbar(),
         addSpaceRow,
         () => error.val ? p(
@@ -330,29 +329,14 @@ function spacesTab() {
 export function spacesPage() {
     const tab = van.state("spaces");
 
-    const tabButton = (key, text) => button(
-        {
-            type: "button",
-            role: "tab",
-            "data-testid": `spaces-tab-${key}`,
-            "aria-selected": () => String(tab.val === key),
-            class: () => `-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium cursor-pointer transition-colors ${tab.val === key
-                ? "border-brand text-gray-100"
-                : "border-transparent text-gray-400 hover:text-gray-200"}`,
-            onclick: () => tab.val = key,
-        },
-        text,
-    );
-
     return div(
-        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
-        div(
-            {class: "flex flex-none items-end gap-1 border-b border-gray-800 bg-gray-950/40 px-2 pt-1", role: "tablist"},
-            tabButton("spaces", "Spaces"),
-            tabButton("domain-policies", "Domain policies"),
+        {class: "page"},
+        tabStrip({label: "Spaces"},
+            tabButton({id: "spaces", activeTab: tab, title: "Spaces", testid: "spaces-tab-spaces"}),
+            tabButton({id: "domain-policies", activeTab: tab, title: "Domain policies", testid: "spaces-tab-domain-policies"}),
         ),
         div(
-            {class: "flex-1 min-h-0 flex flex-col overflow-hidden"},
+            {class: "page-body flex flex-col overflow-hidden"},
             () => tab.val === "spaces" ? spacesTab() : domainPoliciesPage(),
         ),
     );

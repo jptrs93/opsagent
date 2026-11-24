@@ -40,7 +40,7 @@ const withTestId = (el, testId) => { el.setAttribute("data-testid", testId); ret
 // spinnerButton at the size of the small button beside it.
 const actionButton = (text, onclick, cls, disabledWhen, testId) => withTestId(
     spinnerButton(text, onclick, `text-xs whitespace-nowrap ${cls}`, "button", disabledWhen, {base: "rounded-md px-3 py-1 font-medium"}), testId);
-const fieldLabel = (text) => span({class: "text-[10px] uppercase tracking-wider text-gray-500"}, text);
+const fieldLabel = (text) => span({class: "text-[10px] uppercase tracking-wider text-gray-500 slate:text-[11px] slate:font-medium slate:normal-case slate:tracking-normal"}, text);
 
 const smallBtn = (text, onclick, disabledWhen, testId) => button({
     type: "button",
@@ -113,7 +113,7 @@ export function domainPoliciesPage() {
     };
 
     const toolbar = () => div(
-        {class: "flex flex-none flex-wrap items-center gap-2 border-b border-gray-700 px-2 py-2"},
+        {class: "page-toolbar cluster-toolbar gap-2 classic:py-2"},
         span({class: "text-xs text-gray-400"}, "Check a hostname"),
         () => select({
             class: "input h-[30px] max-w-40 text-xs",
@@ -141,13 +141,13 @@ export function domainPoliciesPage() {
     );
 
     const explainer = () => p(
-        {class: "flex-none border-b border-gray-800 px-3 py-1.5 text-xs text-gray-500"},
+        {class: "flex-none border-b border-gray-800 px-3 py-1.5 text-xs text-gray-500 slate:border-0 slate:pb-2 slate:pt-0 graphite:border-0 graphite:pt-2"},
         "Denies are checked first, then allows; a hostname no enabled allow covers is refused. ",
         mono("*.example.com"), " covers every name below ", mono("example.com"), ", not ", mono("example.com"), " itself.",
     );
 
     const openNotice = () => openToEverySpace(spaceDomainPoliciesS.val, spacesS.val) ? div(
-        {class: "flex flex-none items-start gap-1.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200",
+        {class: "flex flex-none items-start gap-1.5 border-b border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-200 slate:border-y slate:border-amber-500/20 slate:bg-amber-500/[0.07] graphite:border-y graphite:border-[#d8b36a]/25 graphite:bg-[#d8b36a]/[0.06] graphite:text-[#d8b36a]",
             "data-testid": "domain-policy-open-notice"},
         infoIcon({class: "mt-px h-3.5 w-3.5 flex-none"}),
         "Any space can publish any hostname that no deny covers. Add a deny for the hostnames that belong to one space.",
@@ -184,7 +184,7 @@ export function domainPoliciesPage() {
         const off = policy.disabled;
         const tone = off ? "text-gray-500" : "text-gray-300";
         return div(
-            {class: `grid ${ROW_COLS} items-center border-b border-gray-800 py-2 last:border-0 @3xl:py-1.5`, "data-testid": `domain-policy-row-${policy.id}`},
+            {class: `data-row grid ${ROW_COLS} items-center py-2 @3xl:py-1 classic:border-gray-800 classic:last:border-0 classic:hover:bg-transparent classic:@3xl:py-1.5`, "data-testid": `domain-policy-row-${policy.id}`},
             div({class: "flex min-w-0 items-center gap-2"},
                 effectBadge(isDeny(policy.rule), off),
                 span({class: `truncate ${off ? "text-gray-500" : "text-gray-200"}`, title: policy.name}, policy.name),
@@ -221,7 +221,7 @@ export function domainPoliciesPage() {
         );
     };
 
-    const headerCell = (text, cls = "") => span({class: `text-[10px] font-semibold uppercase tracking-wider text-gray-500 ${cls}`}, text);
+    const headerCell = (text, cls = "") => span({class: `col-head classic:text-[10px] ${cls}`}, text);
 
     // The container query sits on the scroller, not the page, so the fixed
     // overlays below are never positioned against it.
@@ -233,8 +233,8 @@ export function domainPoliciesPage() {
                     "No domain policies visible. Managing them needs the domain_policy permission.");
             }
             const names = spaceNames();
-            return div({class: "pl-4 pr-2 text-[13px]"},
-                div({class: `hidden @3xl:grid ${ROW_COLS} border-b border-gray-800 py-1.5`},
+            return div({class: "pl-4 pr-2 text-[13px] slate:px-3 graphite:px-3"},
+                div({class: `hidden @3xl:grid ${ROW_COLS} items-center border-b border-gray-800 py-1.5 slate:h-7 slate:border-line slate:py-0 graphite:h-6 graphite:border-0 graphite:py-0`},
                     headerCell("Policy"), headerCell("Spaces"), headerCell("Domains"), headerCell("Enabled", "pl-1")),
                 ...list.map((policy) => policyRow(policy, names)));
         });
@@ -310,14 +310,14 @@ export function domainPoliciesPage() {
         return div(
             {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
             div({
-                class: "flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden rounded-[0.3rem] border border-gray-700 bg-surface shadow-2xl",
+                class: "dialog flex max-h-[88vh] w-full max-w-xl flex-col overflow-hidden classic:rounded-[0.3rem] classic:border-gray-700 classic:bg-surface",
                 role: "dialog",
                 "aria-modal": "true",
                 "aria-label": policy ? `Edit domain policy ${policy.name}` : "Add domain policy",
                 "data-testid": "domain-policy-editor",
                 onkeydown: (e) => { if (e.key === "Escape") close(); },
             },
-                div({class: "flex-none border-b border-gray-800 px-4 py-3"},
+                div({class: "flex-none border-b border-gray-800 px-4 py-3 slate:border-line graphite:border-line"},
                     h2({class: "truncate text-base font-semibold"}, policy ? `Edit domain policy ${policy.name}` : "Add domain policy")),
                 div({class: "app-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4"},
                     field("Name", nameInput),
@@ -355,9 +355,9 @@ export function domainPoliciesPage() {
                         }),
                         "Enabled"),
                     field("Reads as", div(
-                        {class: "break-words rounded-md border border-gray-800 bg-gray-950/40 px-3 py-2 text-xs text-gray-300", "data-testid": "domain-policy-preview"},
+                        {class: "break-words rounded-md border border-gray-800 bg-gray-950/40 px-3 py-2 text-xs text-gray-300 slate:border-line slate:bg-field graphite:border-line", "data-testid": "domain-policy-preview"},
                         () => ruleSentence(draftRule(draft()), spaceNames())))),
-                div({class: "flex flex-none flex-col gap-2 border-t border-gray-800 px-4 py-3"},
+                div({class: "flex flex-none flex-col gap-2 border-t border-gray-800 px-4 py-3 slate:border-line graphite:border-line"},
                     () => error.val ? p({class: "break-words text-sm text-red-400", "data-testid": "domain-policy-error"}, error.val) : "",
                     div({class: "flex items-center justify-end gap-2"},
                         span({class: "min-w-0 flex-1 break-words text-xs text-gray-500", "data-testid": "domain-policy-problem"},
@@ -406,7 +406,7 @@ export function domainPoliciesPage() {
     };
 
     return div(
-        {class: "h-full min-h-0 flex flex-col overflow-hidden bg-surface"},
+        {class: "h-full min-h-0 flex flex-col overflow-hidden"},
         toolbar(),
         explainer(),
         openNotice,

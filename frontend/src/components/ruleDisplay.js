@@ -26,9 +26,9 @@ const tierNodes = (t) => typeof t === "string" ? [t] : t.nodes;
 
 // Specific item names (space names, type names, verbs, resource ids) are
 // accented so they stand out from the surrounding phrasing.
-const nameSpan = (text) => span({class: "text-blue-300"}, text);
+const nameSpan = (text) => span({class: "access-rule-name"}, text);
 const nameList = (names) => names.flatMap((n, i) => i ? [", ", nameSpan(n)] : [nameSpan(n)]);
-const argSpan = (argName) => span({class: "text-amber-300"}, "${" + argName + "}");
+const argSpan = (argName) => span({class: "access-rule-arg"}, "${" + argName + "}");
 
 // The intersected selector chips read as set expressions: an explicit list of
 // two or more values is braced and union-joined ("{ nodes ∪ users }"), a
@@ -269,7 +269,7 @@ const delegationChip = (delegationAllowed, titles = true) => chip(
     delegationAllowed ? ["user + agents"] : ["user only"],
     {
         title: titles ? `delegation ${delegationAllowed ? "allowed" : "not allowed"}` : "",
-        chipClass: delegationAllowed ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
+        chipClass: delegationAllowed ? "access-rule-flag-on" : "access-rule-flag-off",
     },
 );
 
@@ -282,7 +282,7 @@ const delegatedOnlyChip = (delegatedOnly, titles = true) => chip(
         : ["everyone"],
     {
         title: !titles ? "" : delegatedOnly ? "denies delegated agent sessions only" : "denies everyone",
-        chipClass: delegatedOnly ? "bg-teal-950/40 text-teal-300" : "text-gray-500",
+        chipClass: delegatedOnly ? "access-rule-flag-on" : "access-rule-flag-off",
     },
 );
 
@@ -301,8 +301,7 @@ const chipRow = (title, ...items) => {
     const chips = items.filter((it) => it.el);
     const separators = items.filter((it) => !it.el);
     const pill = div({
-        class: "flex w-fit max-w-full min-w-0 items-stretch overflow-hidden rounded-md " +
-            "border border-gray-700 bg-gray-950/40",
+        class: "access-rule-pill flex w-fit max-w-full min-w-0 items-stretch overflow-hidden rounded-md",
         ...(title ? {title} : {}),
     }, ...items.map((it) => it.el || it));
     // The available width is read from a full-width wrapper, not from the pill:

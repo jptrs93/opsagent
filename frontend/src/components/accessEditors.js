@@ -124,7 +124,7 @@ const MENU_DROP_SPACE = 330;
 const menuShell = (trigger, ...children) => {
     const el = div({
         class: "app-scroll fixed z-[60] flex w-max min-w-48 max-w-80 flex-col overflow-y-auto " +
-            "rounded-md border border-gray-600 bg-surface p-1 shadow-2xl",
+            "access-menu rounded-md border border-gray-600 p-1 shadow-2xl slate:border-[#2a3443] graphite:border-[#3a3e46]",
         onclick: (e) => e.stopPropagation(),
     }, ...children);
     const rect = trigger.getBoundingClientRect();
@@ -150,7 +150,7 @@ const menuRow = (onclick, ...children) => button({
 const menuCheck = (on) => checkIcon({class: `w-3.5 h-3.5 flex-none text-brand ${on ? "" : "invisible"}`});
 const menuDivider = () => div({class: "my-1 border-t border-gray-700"});
 
-const fieldLabel = (text) => span({class: "text-[10px] uppercase tracking-wider text-gray-500"}, text);
+const fieldLabel = (text) => span({class: "text-[10px] uppercase tracking-wider text-gray-500 slate:text-[11px] slate:font-medium slate:normal-case slate:tracking-normal slate:text-gray-400"}, text);
 
 const positionEditor = ({st, label, allowArgument, spaces, spaceNames, openMenu, menuKey}) => {
     const options = () => positionOptions(st.kind, spaces());
@@ -232,19 +232,19 @@ const toggleEditor = ({label, state, onText, offText, title}) => div({class: "fl
 // of the rule underneath in the same chip form the tables use, so what the
 // dialog shows while editing matches what the page shows afterwards.
 const ruleEditorCard = ({heading, positions, toggle, preview, onRemove, removeLabel}) => div(
-    {class: "flex flex-col gap-3 rounded-md border border-gray-700/60 bg-gray-950/30 p-3"},
+    {class: "access-card flex flex-col gap-3 p-3"},
     div({class: "flex items-center gap-2"},
-        span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, heading),
+        span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500 slate:text-[11px] slate:font-medium slate:normal-case slate:tracking-normal slate:text-gray-400"}, heading),
         div({class: "flex-1"}),
         onRemove ? button({
             type: "button",
             title: "Remove rule",
             "aria-label": removeLabel,
-            class: "inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-surface hover:text-red-400 cursor-pointer",
+            class: "inline-flex h-6 w-6 items-center justify-center rounded text-gray-500 hover:bg-surface slate:hover:bg-white/[0.06] graphite:hover:bg-white/[0.06] hover:text-red-400 cursor-pointer",
             onclick: onRemove,
         }, closeIcon({class: "w-3.5 h-3.5"})) : ""),
     div({class: "flex flex-wrap items-end gap-2"}, ...positions, toggle),
-    div({class: "border-t border-gray-800 pt-2"}, preview),
+    div({class: "access-dialog-line border-t pt-2"}, preview),
 );
 
 const ruleEditorRow = ({rs, index, heading, menuPrefix, allowArgument, spaces, spaceNames, openMenu, onRemove}) => ruleEditorCard({
@@ -275,13 +275,12 @@ const ruleEditorRow = ({rs, index, heading, menuPrefix, allowArgument, spaces, s
 // menus have somewhere to drop.
 const overlayShell = ({title, subtitle, body, actions, backdrop}) => div(
     {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-    div({class: "flex w-full max-w-5xl max-h-[88vh] min-h-[min(88vh,34rem)] flex-col overflow-hidden " +
-            "rounded-[0.3rem] border border-gray-700 bg-surface shadow-2xl"},
-        div({class: "flex-none border-b border-gray-800 px-4 py-3"},
+    div({class: "dialog access-dialog flex w-full max-w-5xl max-h-[88vh] min-h-[min(88vh,34rem)] flex-col overflow-hidden"},
+        div({class: "access-dialog-line flex-none border-b px-4 py-3"},
             h2({class: "text-base font-semibold"}, title),
             subtitle ? p({class: "mt-1 text-sm text-gray-400"}, subtitle) : ""),
         div({class: "app-scroll flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4"}, ...body),
-        div({class: "flex flex-none flex-col gap-2 border-t border-gray-800 px-4 py-3"}, ...actions),
+        div({class: "access-dialog-line flex flex-none flex-col gap-2 border-t px-4 py-3"}, ...actions),
         backdrop || ""),
 );
 
@@ -416,7 +415,7 @@ const bindingValueChips = (kind, valuesState, spaces, spaceNames) => {
 };
 
 const previewPanel = (label, ...children) => div(
-    {class: "flex flex-col gap-1.5 rounded-md border border-gray-800 bg-gray-950/40 px-3 py-2"},
+    {class: "access-inset flex flex-col gap-1.5 rounded-md border px-3 py-2"},
     fieldLabel(label),
     ...children,
 );
@@ -475,7 +474,7 @@ export function grantEditor({templates, spaces, spaceNames, openMenu, menuPrefix
                 div({class: "flex items-center gap-3"},
                     fieldLabel("Role"),
                     select({
-                        class: "input min-w-56",
+                        class: "input min-w-56 text-sm",
                         onchange: (e) => { templateId.val = Number(e.target.value); },
                     }, ...usable().map((t) => option({value: t.id, selected: Number(t.id) === Number(templateId.val)}, t.name)))),
                 () => {

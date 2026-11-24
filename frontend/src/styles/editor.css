@@ -1,0 +1,597 @@
+@layer components {
+    :root {
+        --editor-bg: #161e2d;
+        --editor-gutter-bg: #121927;
+        --editor-gutter-text: #4f5a6c;
+        --editor-gutter-line: #1f2937;
+        --editor-gutter-active: #9ca3af;
+        --editor-text: #e2e8f0;
+        --editor-caret: #93c5fd;
+        --editor-scroll-thumb: #3f4a5c;
+        --editor-scroll-thumb-hover: #566275;
+        --editor-active-line: rgba(148, 163, 184, 0.07);
+        --editor-selection: #27446f;
+        --editor-bracket-bg: rgba(96, 165, 250, 0.18);
+        --editor-bracket-line: rgba(96, 165, 250, 0.45);
+        --editor-fold: #6b7280;
+        --editor-fold-bg: #1f2937;
+        --editor-fold-border: #374151;
+        --editor-fold-text: #9ca3af;
+        --editor-tooltip-bg: #1f2937;
+        --editor-tooltip-border: #4b5563;
+        --editor-tooltip-text: #e5e7eb;
+        --editor-tooltip-radius: 0;
+        --editor-completion-bg: #1d4ed8;
+        --editor-completion-text: #ffffff;
+        --editor-error: #f87171;
+        --editor-warning: #fbbf24;
+        --editor-diagnostic-error: #d11;
+        --editor-diagnostic-warning: orange;
+        --editor-block: #c4b5fd;
+        --editor-property: #7dd3fc;
+        --editor-string: #86efac;
+        --editor-number: #fdba74;
+        --editor-bool: #f0abfc;
+        --editor-comment: #6b7280;
+        --editor-reference: #f9a8d4;
+        --editor-symbol: #fde68a;
+        --editor-punctuation: #8b95a7;
+        --editor-invalid: #f87171;
+    }
+
+    :root[data-theme="slate"] {
+        --editor-bg: var(--color-surface);
+        --editor-gutter-bg: var(--color-surface);
+        --editor-gutter-text: #4f5b6e;
+        --editor-gutter-line: var(--color-line);
+        --editor-gutter-active: #aab2bf;
+        --editor-text: #e6e9ee;
+        --editor-caret: #7aa7ff;
+        --editor-scroll-thumb: #344154;
+        --editor-scroll-thumb-hover: #46556b;
+        --editor-active-line: rgba(255, 255, 255, 0.03);
+        --editor-selection: rgba(59, 130, 246, 0.28);
+        --editor-bracket-bg: rgba(59, 130, 246, 0.18);
+        --editor-bracket-line: rgba(122, 167, 255, 0.5);
+        --editor-fold: #6b7482;
+        --editor-fold-bg: #1b2431;
+        --editor-fold-border: #2a3443;
+        --editor-fold-text: #aab2bf;
+        --editor-tooltip-bg: #1b2431;
+        --editor-tooltip-border: #2a3443;
+        --editor-tooltip-text: #e6e9ee;
+        --editor-tooltip-radius: 6px;
+        --editor-completion-bg: #2b6ae6;
+        --editor-completion-text: #ffffff;
+        --editor-error: #f0716b;
+        --editor-warning: #e0a43a;
+        --editor-diagnostic-error: #f0716b;
+        --editor-diagnostic-warning: #e0a43a;
+        --editor-block: #b4a7f5;
+        --editor-property: #8cc8ec;
+        --editor-string: #5fcfc0;
+        --editor-number: #e3b27c;
+        --editor-bool: #e3b27c;
+        --editor-comment: #6b7482;
+        --editor-reference: #7fa6ff;
+        --editor-symbol: #a6e3d9;
+        --editor-punctuation: #7d8797;
+        --editor-invalid: #f0716b;
+    }
+
+    :root[data-theme="graphite"] {
+        --editor-bg: var(--color-surface);
+        --editor-gutter-bg: var(--color-surface);
+        --editor-gutter-text: #4d5158;
+        --editor-gutter-line: var(--color-line);
+        --editor-gutter-active: #b1b4ba;
+        --editor-text: #d4d6da;
+        --editor-caret: #8792ea;
+        --editor-scroll-thumb: #3d4149;
+        --editor-scroll-thumb-hover: #5a5f68;
+        --editor-active-line: rgba(255, 255, 255, 0.025);
+        --editor-selection: rgba(79, 91, 213, 0.32);
+        --editor-bracket-bg: rgba(79, 91, 213, 0.2);
+        --editor-bracket-line: rgba(135, 146, 234, 0.55);
+        --editor-fold: #6f747d;
+        --editor-fold-bg: #202328;
+        --editor-fold-border: #3a3e46;
+        --editor-fold-text: #b1b4ba;
+        --editor-tooltip-bg: #22252a;
+        --editor-tooltip-border: #3a3e46;
+        --editor-tooltip-text: #e7e8ea;
+        --editor-tooltip-radius: 4px;
+        --editor-completion-bg: #4f5bd5;
+        --editor-completion-text: #ffffff;
+        --editor-error: #f0716b;
+        --editor-warning: #d8b36a;
+        --editor-diagnostic-error: #f0716b;
+        --editor-diagnostic-warning: #d8b36a;
+        --editor-block: #8792ea;
+        --editor-property: #b1b4ba;
+        --editor-string: #e7e8ea;
+        --editor-number: #d8b36a;
+        --editor-bool: #d8b36a;
+        --editor-comment: #6a6e76;
+        --editor-reference: #a7b0f3;
+        --editor-symbol: #e7e8ea;
+        --editor-punctuation: #6f737b;
+        --editor-invalid: #f0716b;
+    }
+
+    .editor-section-title {
+        @apply whitespace-nowrap;
+    }
+
+    .editor-mode-btn {
+        @apply cursor-pointer px-2.5 py-1 text-[11px] font-medium disabled:cursor-not-allowed disabled:opacity-40;
+    }
+
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        .editor-root {
+            @apply bg-gray-900;
+        }
+
+        .editor-error {
+            @apply bg-gray-950/80 px-4 pt-2;
+        }
+
+        .editor-footer {
+            @apply bg-gray-950/90 px-4 py-2.5;
+        }
+
+        .editor-mode {
+            @apply rounded-lg bg-black/20 p-0.5;
+        }
+
+        .editor-mode-btn {
+            @apply rounded-md text-gray-500;
+        }
+
+        .editor-mode-btn[aria-selected="false"]:hover {
+            @apply bg-gray-800 text-gray-200;
+        }
+
+        .editor-mode-btn[aria-selected="true"] {
+            @apply bg-gray-700 text-gray-100 shadow-sm;
+        }
+
+        .editor-fbtn {
+            @apply border-gray-700 bg-gray-900 text-gray-200 hover:border-gray-600 hover:bg-gray-800 disabled:hover:bg-gray-900;
+        }
+
+        .editor-submit {
+            @apply border-blue-400/45 bg-blue-500/15 text-blue-100 hover:border-blue-300/70 hover:bg-blue-500/30 hover:text-blue-50;
+        }
+
+        .editor-cancel {
+            @apply px-3 py-1.5 text-sm text-gray-400 hover:text-gray-200;
+        }
+
+        .editor-popover {
+            @apply rounded-md border border-gray-700 bg-gray-900 shadow-[0_12px_40px_rgba(0,0,0,0.55)];
+        }
+
+        .editor-popover-rule {
+            @apply border-gray-800;
+        }
+
+        .editor-version-id {
+            @apply text-gray-100;
+        }
+
+        .editor-attention {
+            @apply text-amber-300;
+        }
+
+        .editor-code {
+            @apply bg-gray-950;
+        }
+
+        .editor-code-bar {
+            @apply bg-gray-900/90;
+        }
+
+        .editor-diag-row:nth-child(odd) {
+            @apply bg-black/15;
+        }
+
+        .editor-section-title {
+            @apply text-xs font-semibold tracking-wide text-blue-300 group-hover:text-blue-200;
+        }
+
+        .editor-section-rule {
+            @apply h-px flex-1 bg-gradient-to-r from-gray-600/80 to-transparent;
+        }
+
+        .editor-input,
+        .editor-cell {
+            @apply rounded-sm border border-gray-700 bg-gray-800 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand;
+        }
+
+        .editor-input {
+            @apply px-3 py-2;
+        }
+
+        .editor-pane {
+            @apply border-gray-700;
+        }
+
+        .editor-pane-head {
+            @apply bg-gray-950/90;
+        }
+
+        .editor-pane-title {
+            @apply text-sm font-semibold text-gray-200;
+        }
+
+        .editor-group {
+            @apply rounded-sm border-gray-700 bg-gray-900/40;
+        }
+
+        .editor-group-quiet {
+            @apply rounded-sm border-gray-800 bg-gray-900/40;
+        }
+
+        .editor-card {
+            @apply rounded-lg border-gray-700 bg-gray-900/60;
+        }
+
+        .editor-btn-sm {
+            @apply rounded-sm bg-gray-800 text-gray-200 hover:bg-gray-700;
+        }
+
+        .editor-hairline {
+            @apply border-gray-800;
+        }
+
+        .editor-th {
+            @apply font-normal;
+        }
+
+        .editor-colhead {
+            @apply text-[10px] font-medium uppercase tracking-wide text-gray-500;
+        }
+
+        .editor-env-cell {
+            @apply border-gray-700;
+        }
+
+        .editor-env-th {
+            @apply border-gray-700 bg-gray-900 font-medium;
+        }
+
+
+        .editor-ref-list {
+            @apply rounded-md border border-gray-700 bg-gray-900 shadow-xl;
+        }
+
+        .editor-ref-item {
+            @apply bg-gray-800 text-gray-200 hover:bg-gray-700;
+        }
+
+        .editor-ref-item[data-active="true"] {
+            @apply text-white;
+        }
+    }
+
+    :root[data-theme="slate"] {
+        .editor-root {
+            @apply bg-surface;
+        }
+
+        .editor-root input[type="checkbox"] {
+            accent-color: var(--color-brand);
+        }
+
+        .editor-root {
+            color-scheme: dark;
+        }
+
+        .editor-error {
+            @apply border-t border-line px-3 pt-2;
+        }
+
+        .editor-footer {
+            @apply border-t border-line px-3 py-2;
+        }
+
+        .editor-error + .editor-footer {
+            @apply border-t-0;
+        }
+
+        .editor-mode {
+            @apply rounded-md bg-white/[0.06] p-0.5;
+        }
+
+        .editor-mode-btn {
+            @apply rounded text-gray-400;
+        }
+
+        .editor-mode-btn[aria-selected="false"]:hover {
+            @apply text-gray-200;
+        }
+
+        .editor-mode-btn[aria-selected="true"] {
+            @apply bg-white/10 text-white;
+        }
+
+        .editor-fbtn {
+            @apply border-transparent bg-white/[0.06] text-gray-200 hover:bg-white/10 disabled:hover:bg-white/[0.06];
+        }
+
+        .editor-submit {
+            @apply border-transparent bg-brand text-white hover:bg-blue-600;
+        }
+
+        .editor-cancel {
+            @apply h-[30px] rounded-md px-3 text-xs text-gray-300 hover:bg-white/[0.06] hover:text-white;
+        }
+
+        .editor-popover {
+            @apply rounded-lg border border-[#2a3443] bg-raised shadow-[0_8px_24px_rgba(0,0,0,0.45)];
+        }
+
+        .editor-popover-rule {
+            @apply border-line;
+        }
+
+        .editor-version-id {
+            @apply text-[#5fcfc0];
+        }
+
+        .editor-attention {
+            @apply text-amber-300;
+        }
+
+        .editor-code {
+            @apply bg-surface;
+        }
+
+        .editor-code-bar {
+            @apply border-t border-line;
+        }
+
+        .editor-diag-row:nth-child(odd) {
+            @apply bg-white/[0.025];
+        }
+
+        .editor-section {
+            @apply border-t border-line pt-3;
+        }
+
+        .editor-section:first-child {
+            @apply border-t-0 pt-0;
+        }
+
+        .editor-section-title {
+            @apply text-xs font-semibold text-gray-100 group-hover:text-white;
+        }
+
+        .editor-section-rule {
+            @apply hidden;
+        }
+
+        .editor-subhead {
+            @apply border-t border-line pt-3;
+        }
+
+        .editor-input,
+        .editor-cell {
+            @apply rounded-md border border-[#2a3443] bg-field text-gray-100 focus:border-brand/60 focus:outline-none focus:ring-1 focus:ring-brand/60;
+        }
+
+        .editor-input {
+            @apply px-2.5 py-1.5;
+        }
+
+        .editor-pane {
+            @apply border-line;
+        }
+
+        .editor-pane-head {
+            @apply border-b border-line;
+        }
+
+        .editor-pane-title {
+            @apply text-[13px] font-semibold text-gray-100;
+        }
+
+        .editor-group,
+        .editor-group-quiet,
+        .editor-card {
+            @apply rounded-md border-line bg-transparent;
+        }
+
+        .editor-btn-sm {
+            @apply rounded-md bg-white/[0.06] text-gray-200 hover:bg-white/10;
+        }
+
+        .editor-hairline {
+            @apply border-line;
+        }
+
+        .editor-th {
+            @apply text-[11px] font-medium;
+        }
+
+        .editor-colhead {
+            @apply text-[11px] font-medium text-gray-500;
+        }
+
+        .editor-env-cell {
+            @apply border-line;
+        }
+
+        .editor-env-th {
+            @apply border-line bg-white/[0.03] text-[11px] font-medium;
+        }
+
+
+        .editor-ref-list {
+            @apply rounded-lg border border-[#2a3443] bg-raised p-1 shadow-[0_8px_24px_rgba(0,0,0,0.45)];
+        }
+
+        .editor-ref-item {
+            @apply rounded text-gray-200 hover:bg-white/5;
+        }
+
+        .editor-ref-item[data-active="true"] {
+            @apply bg-white/[0.08] text-white;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .editor-root {
+            @apply bg-surface;
+        }
+
+        .editor-root input[type="checkbox"] {
+            accent-color: var(--color-brand);
+        }
+
+        .editor-root {
+            color-scheme: dark;
+        }
+
+        .editor-error {
+            @apply border-t border-line px-3 pt-2;
+        }
+
+        .editor-footer {
+            @apply border-t border-line px-3 py-1.5;
+        }
+
+        .editor-error + .editor-footer {
+            @apply border-t-0;
+        }
+
+        .editor-mode {
+            @apply rounded-md border border-[#2f333a] p-0.5;
+        }
+
+        .editor-mode-btn {
+            @apply rounded-sm text-gray-500;
+        }
+
+        .editor-mode-btn[aria-selected="false"]:hover {
+            @apply text-gray-200;
+        }
+
+        .editor-mode-btn[aria-selected="true"] {
+            @apply bg-white/[0.08] text-gray-100;
+        }
+
+        .editor-fbtn {
+            @apply border-[#2f333a] bg-transparent text-gray-300 hover:border-gray-600 hover:bg-white/[0.04] disabled:hover:bg-transparent;
+        }
+
+        .editor-submit {
+            @apply border-transparent bg-brand text-white hover:bg-blue-600;
+        }
+
+        .editor-cancel {
+            @apply h-[30px] rounded-md px-3 text-xs text-gray-400 hover:bg-white/[0.05] hover:text-gray-100;
+        }
+
+        .editor-popover {
+            @apply rounded-md border border-gray-600 bg-raised shadow-[0_8px_24px_rgba(0,0,0,0.5)];
+        }
+
+        .editor-popover-rule {
+            @apply border-line;
+        }
+
+        .editor-version-id {
+            @apply text-gray-300;
+        }
+
+        .editor-attention {
+            @apply text-[#d8b36a];
+        }
+
+        .editor-code {
+            @apply bg-surface;
+        }
+
+        .editor-code-bar {
+            @apply border-t border-line;
+        }
+
+        .editor-diag-row:nth-child(odd) {
+            @apply bg-white/[0.025];
+        }
+
+        .editor-section-title {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider text-gray-500 group-hover:text-gray-300;
+        }
+
+        .editor-section-rule {
+            @apply h-px flex-1 bg-line;
+        }
+
+        .editor-input,
+        .editor-cell {
+            @apply rounded-md border border-[#2f333a] bg-field text-gray-100 focus:border-brand/70 focus:outline-none focus:ring-1 focus:ring-brand/70;
+        }
+
+        .editor-input {
+            @apply px-2.5 py-1.5;
+        }
+
+        .editor-pane {
+            @apply border-line;
+        }
+
+        .editor-pane-head {
+            @apply border-b border-line;
+        }
+
+        .editor-pane-title {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider text-gray-400;
+        }
+
+        .editor-group,
+        .editor-group-quiet,
+        .editor-card {
+            @apply rounded-md border-line bg-transparent;
+        }
+
+        .editor-btn-sm {
+            @apply rounded-md text-gray-300 ring-1 ring-inset ring-[#2f333a] hover:bg-white/[0.04] hover:text-gray-100;
+        }
+
+        .editor-hairline {
+            @apply border-line;
+        }
+
+        .editor-th {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider;
+        }
+
+        .editor-colhead {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .editor-env-cell {
+            @apply border-line;
+        }
+
+        .editor-env-th {
+            @apply border-line bg-frame text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+
+        .editor-ref-list {
+            @apply rounded-md border border-gray-600 bg-raised p-1 shadow-[0_8px_24px_rgba(0,0,0,0.5)];
+        }
+
+        .editor-ref-item {
+            @apply rounded-sm text-gray-200 hover:bg-white/5;
+        }
+
+        .editor-ref-item[data-active="true"] {
+            @apply bg-white/[0.07] text-white;
+        }
+    }
+}

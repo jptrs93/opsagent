@@ -6,16 +6,16 @@ export const LOG_LEVEL_OTHER = 'OTHER';
 export const LOG_LEVEL_NONE = '';
 export const LOG_LEVELS = [...LOG_NAMED_LEVELS, LOG_LEVEL_OTHER, LOG_LEVEL_NONE];
 
-// The four named fills were validated for CVD separation and contrast on this
-// surface (dataviz six-check validator); OTHER's violet sits between the teal
-// and gray it stacks against. Row/legend text stays on text tokens.
+// The colours are per theme in styles/logs.css: fill is a CSS colour for a
+// style attribute (never an SVG presentation attribute, which ignores var()),
+// text a class.
 const META = {
-    ERROR: {fill: '#c42121', text: 'text-red-400', label: 'ERROR'},
-    WARN: {fill: '#c67b04', text: 'text-amber-400', label: 'WARN'},
-    INFO: {fill: '#3b82f6', text: 'text-blue-400', label: 'INFO'},
-    DEBUG: {fill: '#0e9488', text: 'text-teal-500', label: 'DEBUG'},
-    [LOG_LEVEL_OTHER]: {fill: '#7c3aed', text: 'text-violet-400', label: 'OTHER'},
-    [LOG_LEVEL_NONE]: {fill: '#6b7280', text: 'text-gray-400', label: 'NONE'},
+    ERROR: {fill: 'var(--logs-fill-error)', text: 'logs-lvl-error', label: 'ERROR'},
+    WARN: {fill: 'var(--logs-fill-warn)', text: 'logs-lvl-warn', label: 'WARN'},
+    INFO: {fill: 'var(--logs-fill-info)', text: 'logs-lvl-info', label: 'INFO'},
+    DEBUG: {fill: 'var(--logs-fill-debug)', text: 'logs-lvl-debug', label: 'DEBUG'},
+    [LOG_LEVEL_OTHER]: {fill: 'var(--logs-fill-other)', text: 'logs-lvl-other', label: 'OTHER'},
+    [LOG_LEVEL_NONE]: {fill: 'var(--logs-fill-none)', text: 'logs-lvl-none', label: 'NONE'},
 };
 
 // logLevelBucket maps a record's parsed level onto its histogram bucket.

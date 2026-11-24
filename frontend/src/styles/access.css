@@ -1,0 +1,602 @@
+@layer components {
+    .access-table-wrap {
+        @apply min-w-0;
+    }
+
+    .access-head > th {
+        @apply py-1.5 pr-3;
+    }
+
+    .access-row {
+        @apply transition-colors;
+    }
+
+    .access-row > td {
+        @apply py-1.5 pr-3;
+    }
+
+    .access-toolbar-button {
+        @apply flex h-[30px] cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg border border-gray-600 px-3 text-xs
+        text-gray-300 transition-colors hover:bg-surface-hover;
+    }
+
+    .access-hint {
+        @apply flex flex-none items-center gap-1.5 px-3 text-[11px] text-gray-500;
+    }
+
+    .access-badge {
+        @apply shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide;
+    }
+
+    .access-badge-quiet {
+        @apply bg-gray-800 text-gray-500;
+    }
+
+    .access-chip {
+        @apply inline-flex items-center gap-1.5 rounded border px-1.5 py-px text-[11px] transition-colors hover:border-blue-400/60;
+    }
+
+    .access-chip-label {
+        @apply font-medium;
+    }
+
+    .access-chip-detail {
+        @apply text-gray-400;
+    }
+
+    .access-tag {
+        @apply rounded border px-1.5 py-px text-[11px] text-gray-300;
+    }
+
+    .access-add {
+        @apply inline-flex h-5 w-5 cursor-pointer items-center justify-center rounded border border-dashed text-gray-500
+        hover:border-gray-400 hover:text-gray-200;
+    }
+
+    .access-rule-pill {
+        @apply border;
+    }
+
+    .access-rule-name {
+        @apply text-blue-300;
+    }
+
+    .access-rule-arg {
+        @apply text-amber-300;
+    }
+
+    .access-rule-flag-on {
+        @apply text-teal-300;
+    }
+
+    .access-rule-flag-off {
+        @apply text-gray-500;
+    }
+
+    .access-pane-title {
+        @apply flex-none border-b px-3 py-1 text-gray-400;
+    }
+
+    .access-subtabs {
+        @apply flex flex-wrap items-end gap-0.5 px-2 pt-1;
+    }
+
+    .access-subtab {
+        @apply cursor-pointer px-2 py-1 text-[11px] text-gray-400 transition-colors hover:text-gray-200;
+    }
+
+    .access-subtab[aria-selected="true"] {
+        @apply text-gray-100;
+    }
+
+    .access-token-on {
+        @apply border-blue-500/40 bg-blue-500/15 text-blue-200;
+    }
+
+    .access-token-off {
+        @apply border-gray-800 text-gray-600;
+    }
+
+    .access-card {
+        @apply rounded-md border;
+    }
+
+    .access-section-head {
+        @apply flex flex-wrap items-baseline gap-x-2 gap-y-0.5;
+    }
+
+    .access-section-rule {
+        @apply hidden;
+    }
+
+    .access-status-dot {
+        @apply hidden;
+    }
+
+    .access-th {
+        @apply sticky top-0 z-[1] text-left;
+    }
+
+    .access-tr {
+        @apply transition-colors;
+    }
+
+    .access-code-block {
+        @apply flex min-h-0 flex-col overflow-hidden rounded-md border;
+        --access-code-bg: #1f2937;
+    }
+
+    .access-code-block-head {
+        @apply flex flex-none flex-wrap items-center gap-2 px-1.5 py-1 min-h-[30px];
+    }
+
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        .access-head {
+            @apply border-b border-gray-800 text-left text-gray-500;
+        }
+
+        .access-head > th {
+            @apply text-[10px];
+        }
+
+        .access-row {
+            @apply border-b border-gray-800 last:border-0;
+        }
+
+        .access-table-wrap {
+            @apply px-3;
+        }
+
+        .access-hint {
+            @apply py-1;
+        }
+
+        .access-chip-role {
+            @apply border-blue-500/30 bg-blue-500/10 text-gray-300;
+        }
+
+        .access-chip-role .access-chip-label {
+            @apply text-blue-300;
+        }
+
+        .access-chip-direct {
+            @apply border-gray-700 bg-gray-950/40 text-gray-400;
+        }
+
+        .access-chip-direct .access-chip-label {
+            @apply text-gray-200;
+        }
+
+        .access-tag {
+            @apply border-gray-700 bg-gray-950/40;
+        }
+
+        .access-add {
+            @apply border-gray-600;
+        }
+
+        .access-rule-pill {
+            @apply border-gray-700 bg-gray-950/40;
+        }
+
+        .access-rule-flag-on {
+            @apply bg-teal-950/40;
+        }
+
+        .access-explainer {
+            @apply bg-surface;
+        }
+
+        .access-explainer-line {
+            @apply border-gray-800;
+        }
+
+        .access-pane-title {
+            @apply border-gray-800 bg-gray-950/50 text-[10px] font-semibold uppercase tracking-wider;
+        }
+
+        .access-definition {
+            @apply border-gray-700 bg-gray-950/25;
+        }
+
+        .access-subtabs {
+            @apply border-b border-gray-800;
+        }
+
+        .access-subtab {
+            @apply -mb-px border-b-2 border-transparent;
+        }
+
+        .access-subtab[aria-selected="true"] {
+            @apply border-brand;
+        }
+
+        .access-subtab-system[aria-selected="true"] {
+            @apply border-amber-400/70;
+        }
+
+        .access-dialog {
+            @apply rounded-[0.3rem] border-gray-700 bg-surface;
+        }
+
+        .access-dialog-line {
+            @apply border-gray-800;
+        }
+
+        .access-card {
+            @apply border-gray-700/60 bg-gray-950/30;
+        }
+
+        .access-inset {
+            @apply border-gray-800 bg-gray-950/40;
+        }
+
+        .access-menu {
+            @apply bg-surface;
+        }
+
+        .access-section-head {
+            @apply border-b border-gray-800 pb-1;
+        }
+
+        .access-block {
+            @apply divide-y divide-gray-800 rounded-md border border-gray-700/60 bg-gray-950/30;
+        }
+
+        .access-th {
+            @apply border-r border-r-gray-800/40 bg-[#141b28] px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-gray-500 shadow-[inset_0_-1px_0_rgba(55,65,81,0.7)];
+        }
+
+        .access-th:last-child {
+            @apply border-r-0;
+        }
+
+        .access-td {
+            @apply border-b border-r border-b-gray-800/50 border-r-gray-800/30 px-2 py-[3px];
+        }
+
+        .access-td:last-child {
+            @apply border-r-0;
+        }
+
+        .access-tr:not(.access-tr-pending) {
+            @apply hover:bg-gray-800/40;
+        }
+
+        .access-tr-pending {
+            @apply bg-amber-500/5;
+        }
+
+        .access-code-block {
+            @apply border-gray-700/60 bg-gray-800;
+        }
+
+        .access-code-block-head {
+            @apply bg-gray-900;
+        }
+
+        .access-code-block-fallback {
+            @apply bg-gray-800;
+        }
+    }
+
+    :root[data-theme="slate"] {
+        .access-toolbar-button {
+            @apply rounded-md border-transparent bg-white/[0.06] text-gray-200 hover:bg-white/10;
+        }
+
+        .access-toolbar-primary {
+            @apply bg-brand font-medium text-white hover:bg-blue-600;
+        }
+
+        .access-head {
+            @apply border-b border-line;
+        }
+
+        .access-head > th {
+            @apply h-7 py-0;
+        }
+
+        .access-head > th:first-child,
+        .access-row > td:first-child {
+            @apply pl-3;
+        }
+
+        .access-head > th:last-child,
+        .access-row > td:last-child {
+            @apply pr-3;
+        }
+
+        .access-row {
+            @apply border-b border-[#1d2531] hover:bg-white/[0.03];
+        }
+
+        .access-hint {
+            @apply py-1.5;
+        }
+
+        .access-badge-quiet {
+            @apply bg-white/[0.06] text-gray-400;
+        }
+
+        .access-chip {
+            @apply border-white/10 text-gray-300;
+        }
+
+        .access-chip-role .access-chip-label {
+            @apply text-blue-300;
+        }
+
+        .access-chip-direct .access-chip-label {
+            @apply text-gray-200;
+        }
+
+        .access-tag {
+            @apply border-white/10;
+        }
+
+        .access-add {
+            @apply border-white/15;
+        }
+
+        .access-rule-pill {
+            @apply border-white/10;
+        }
+
+        .access-explainer {
+            @apply bg-raised;
+        }
+
+        .access-explainer-line,
+        .access-subtabs,
+        .access-dialog-line {
+            @apply border-line;
+        }
+
+        .access-pane-title {
+            @apply border-line text-[11px] font-medium;
+        }
+
+        .access-definition {
+            @apply border-line;
+        }
+
+        .access-subtabs {
+            @apply gap-1 pb-1.5 pt-1.5;
+        }
+
+        .access-subtab {
+            @apply rounded-md py-0.5 hover:bg-white/5;
+        }
+
+        .access-subtab[aria-selected="true"] {
+            @apply bg-white/10 text-white;
+        }
+
+        .access-subtab-system[aria-selected="true"] {
+            @apply bg-amber-400/10 text-amber-200;
+        }
+
+        .access-token-on {
+            @apply border-blue-400/30 bg-blue-400/10 text-blue-200;
+        }
+
+        .access-token-off {
+            @apply border-white/[0.06] text-gray-500;
+        }
+
+        .access-card,
+        .access-inset {
+            @apply border-line;
+        }
+
+        .access-menu {
+            @apply bg-raised;
+        }
+
+        .access-section-head {
+            @apply pb-0.5;
+        }
+
+        .access-block {
+            @apply divide-y divide-line rounded-md border border-line;
+        }
+
+        .access-th {
+            @apply h-7 bg-surface px-3 text-[11px] font-medium text-gray-500 shadow-[inset_0_-1px_0_var(--color-line)];
+        }
+
+        .access-td {
+            @apply border-b border-[#1d2531] px-3 py-1.5;
+        }
+
+        .access-tr:not(.access-tr-pending) {
+            @apply hover:bg-white/[0.03];
+        }
+
+        .access-tr-pending {
+            @apply bg-amber-400/[0.06];
+        }
+
+        .access-status-dot {
+            @apply inline-block;
+        }
+
+        .access-code-block {
+            @apply border-line bg-code;
+            --access-code-bg: var(--color-code);
+        }
+
+        .access-code-block-body {
+            @apply border-t border-line;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .access-toolbar-button {
+            @apply border-gray-700 text-gray-400 hover:bg-white/[0.04] hover:text-gray-200;
+        }
+
+        .access-toolbar-primary {
+            @apply border-transparent bg-brand font-medium text-white hover:bg-blue-600 hover:text-white;
+        }
+
+        .access-head > th {
+            @apply h-6 py-0 tracking-wider;
+        }
+
+        .access-head > th:first-child,
+        .access-row > td:first-child {
+            @apply pl-3;
+        }
+
+        .access-head > th:last-child,
+        .access-row > td:last-child {
+            @apply pr-3;
+        }
+
+        .access-row {
+            @apply hover:bg-white/[0.04];
+        }
+
+        .access-row > td {
+            @apply py-1;
+        }
+
+        .access-hint {
+            @apply py-1.5;
+        }
+
+        .access-badge-quiet {
+            @apply bg-transparent px-0 text-gray-500;
+        }
+
+        .access-chip {
+            @apply border-gray-700 text-gray-400;
+        }
+
+        .access-chip-role .access-chip-label {
+            @apply text-gray-100;
+        }
+
+        .access-chip-direct .access-chip-label {
+            @apply text-gray-300;
+        }
+
+        .access-tag {
+            @apply border-gray-700;
+        }
+
+        .access-add {
+            @apply border-gray-600;
+        }
+
+        .access-rule-pill {
+            @apply border-gray-700;
+        }
+
+        .access-rule-name {
+            @apply text-white;
+        }
+
+        .access-rule-arg {
+            @apply text-[#d8b36a];
+        }
+
+        .access-explainer {
+            @apply bg-raised;
+        }
+
+        .access-explainer-line,
+        .access-subtabs,
+        .access-dialog-line {
+            @apply border-line;
+        }
+
+        .access-pane-title {
+            @apply border-line text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .access-definition {
+            @apply border-line;
+        }
+
+        .access-subtabs {
+            @apply border-b;
+        }
+
+        .access-subtab {
+            @apply -mb-px border-b-2 border-transparent;
+        }
+
+        .access-subtab[aria-selected="true"] {
+            @apply border-brand;
+        }
+
+        .access-subtab-system[aria-selected="true"] {
+            @apply border-[#d8b36a];
+        }
+
+        .access-token-on {
+            @apply border-blue-400/35 bg-blue-500/15 text-blue-100;
+        }
+
+        .access-token-off {
+            @apply border-white/[0.06] text-gray-500;
+        }
+
+        .access-card,
+        .access-inset {
+            @apply border-line;
+        }
+
+        .access-menu {
+            @apply bg-raised;
+        }
+
+        .access-section-head {
+            @apply flex-nowrap items-center gap-2 pb-0.5;
+        }
+
+        .access-section-rule {
+            @apply block h-px min-w-4 flex-1 bg-line;
+        }
+
+        .access-th {
+            @apply h-6 bg-surface px-3 text-[10.5px] font-semibold uppercase tracking-wider text-gray-500;
+        }
+
+        .access-td {
+            @apply px-3 py-[5px];
+        }
+
+        .access-tr:not(.access-tr-pending) {
+            @apply hover:bg-white/[0.04];
+        }
+
+        .access-tr-pending {
+            @apply bg-[#d8b36a]/[0.06];
+        }
+
+        .access-status-dot {
+            @apply inline-block;
+        }
+
+        .access-status-ok {
+            @apply text-gray-300;
+        }
+
+        .access-code-block {
+            @apply border-line bg-code;
+            --access-code-bg: var(--color-code);
+        }
+
+        .access-code-block-head {
+            @apply bg-frame;
+        }
+
+        .access-code-block-body {
+            @apply border-t border-line;
+        }
+    }
+}

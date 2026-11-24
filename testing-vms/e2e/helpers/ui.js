@@ -2139,7 +2139,9 @@ async function showStoppedDeployments(page) {
 }
 
 async function showOpendeployDeployments(page) {
-  const filter = page.getByLabel('Filter spaces');
+  // Scoped to the Deployments page: the Metrics page stays mounted while hidden
+  // and has a space filter with the same label.
+  const filter = page.getByTestId('deployments-page').getByLabel('Filter spaces');
   if (await filter.count() === 0) return;
   await filter.click();
   const item = page.getByRole('menuitemcheckbox').filter({hasText: '_system'});

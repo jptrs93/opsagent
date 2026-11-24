@@ -1,4 +1,5 @@
-export const SERIES_COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#ef4444', '#a855f7', '#06b6d4', '#f472b6', '#84cc16', '#fb923c', '#2dd4bf'];
+export const SERIES_COLORS = Array.from({length: 8}, (_, i) => `var(--chart-series-${i + 1})`);
+const seriesColor = (slot) => SERIES_COLORS[slot % SERIES_COLORS.length];
 
 export const CHARTS = [
     {key: 'cpu', title: 'CPU', unit: 'cores', lines: [
@@ -61,16 +62,15 @@ export function buildChartData(resp, split) {
     for (const s of series) byRunField.set(`${runKey(s)}|${s.field}`, s);
     const stepSec = stepMs / 1000;
     const out = {};
-    let colorIdx = 0;
     for (const chart of CHARTS) {
         const lines = [];
-        for (const ln of chart.lines) {
+        for (const [lineIdx, ln] of chart.lines.entries()) {
             const scale = (ln.scale || 1) * (chart.perBucket ? stepSec : 1);
             if (split && runs.length > 1) {
-                for (const run of runs) {
+                for (const [runIdx, run] of runs.entries()) {
                     const s = byRunField.get(`${run.key}|${ln.field}`);
                     if (!s) continue;
-                    lines.push({label: `${ln.label} ${run.label}`, color: SERIES_COLORS[colorIdx++ % SERIES_COLORS.length], values: s.values.map(v => v * scale), field: ln.field});
+                    lines.push({label: `${ln.label} ${run.label}`, color: seriesColor(lineIdx * runs.length + runIdx), values: s.values.map(v => v * scale), field: ln.field});
                 }
                 continue;
             }
@@ -86,9 +86,8 @@ export function buildChartData(resp, split) {
                     values[b] = (Number.isFinite(values[b]) ? values[b] : 0) + v * scale;
                 }
             }
-            if (any) lines.push({label: ln.label, color: SERIES_COLORS[colorIdx++ % SERIES_COLORS.length], values, field: ln.field});
+            if (any) lines.push({label: ln.label, color: seriesColor(lineIdx), values, field: ln.field});
         }
-        colorIdx = 0;
         out[chart.key] = lines.length ? {startTs, stepMs, buckets, series: lines} : null;
     }
     return {charts: out, runs, buckets, stepMs, startTs};

@@ -110,7 +110,7 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
             },
             div(
                 {
-                    class: "w-full h-full max-w-5xl max-h-[85vh] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto",
+                    class: "explorer-sheet w-full h-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden pointer-events-auto",
                     role: "dialog",
                     "aria-modal": "true",
                     "aria-labelledby": "resource-value-title",
@@ -122,14 +122,14 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
                         ? h2({id: "resource-value-title", class: "text-base font-semibold"}, `Add ${type}`)
                         : h2({
                             id: "resource-value-title",
-                            class: `min-w-0 truncate font-mono text-sm font-normal ${type === "secret" ? "text-purple-300" : "text-blue-300"}`,
+                            class: `min-w-0 truncate font-mono text-sm font-normal ${type === "secret" ? "explorer-ico-secret" : "explorer-ico-config"}`,
                         }, name),
                     div({class: "flex shrink-0 items-center gap-3"},
                         creating ? "" : p({class: "text-xs text-gray-400 whitespace-nowrap"}, `Version ${version} created ${formatDate(createdAt)}.`),
                         div({class: "flex items-center gap-1"},
                             creating ? "" : button({
                                 type: "button",
-                                class: "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 cursor-pointer",
+                                class: "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-gray-100 cursor-pointer slate:hover:bg-white/[0.06] graphite:hover:bg-white/[0.06]",
                                 onclick: copyValue,
                                 title: () => copyFailed.val ? "Copy failed" : "Copy value",
                             }, () => copied.val ? checkIcon({class: "w-4 h-4 text-green-400"}) : copyIcon(), () => copied.val ? "Copied" : copyFailed.val ? "Copy failed" : "Copy"),
@@ -138,7 +138,7 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
                                 disabled: saving,
                                 title: "Close editor",
                                 "aria-label": "Close editor",
-                                class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
+                                class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface slate:hover:bg-white/[0.06] graphite:hover:bg-white/[0.06] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
                                 onclick: close,
                             }, closeIcon()),
                         ),
@@ -162,7 +162,7 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
                 type === "secret" ? secretGenerator({
                     onGenerate: generated => stagedValue.val = generated,
                     disabled: saving,
-                    className: "shrink-0 border-b border-gray-700 bg-gray-950/30 px-4 py-2",
+                    className: "explorer-sheet-band shrink-0 border-b border-gray-700 px-4 py-2",
                 }) : "",
                 lazyCodeEditor({
                     value: stagedValue,
@@ -199,14 +199,14 @@ export function valueOverlay({name = "", type, value = "", version = 0, createdA
                             disabled: saving,
                             class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val
                                 ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
-                                : "cursor-pointer bg-gray-700 text-gray-200 hover:bg-gray-600"}`,
+                                : "explorer-btn"}`,
                             onclick: close,
                         }, "Cancel") : () => editorState.isDirty() ? button({
                             type: "button",
                             disabled: saving,
                             class: () => `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${saving.val
                                 ? "cursor-not-allowed bg-gray-700 text-gray-400 opacity-50"
-                                : "cursor-pointer bg-gray-700 text-gray-200 hover:bg-gray-600"}`,
+                                : "explorer-btn"}`,
                             onclick: discardChanges,
                         }, "Discard changes") : "",
                         button({

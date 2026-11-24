@@ -42,17 +42,14 @@ export function enrolPage() {
     const stepStrip = () => {
         const current = step.val === "password" ? 0 : widget.val?.phase.val === "done" ? 2 : 1;
         const marker = (n, state) => span({
-            class: `flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] font-medium ${
-                state === "current" ? "border-brand/70 bg-brand/15 text-blue-100"
-                    : state === "done" ? "border-emerald-700/70 bg-emerald-950/40 text-emerald-300"
-                        : "border-gray-700 text-gray-500"}`,
+            class: `auth-step-marker auth-step-marker-${state} flex h-5 w-5 shrink-0 items-center justify-center text-[11px] font-medium`,
         }, state === "done" ? checkIcon({class: "h-3 w-3"}) : String(n));
         const item = (n, text) => {
             const state = n - 1 < current ? "done" : n - 1 === current ? "current" : "next";
-            return div({class: `flex items-center gap-2 text-xs ${state === "current" ? "text-gray-100" : "text-gray-500"}`}, marker(n, state), text);
+            return div({class: `auth-step auth-step-${state} flex items-center gap-2`}, marker(n, state), text);
         };
-        const rule = () => div({class: "h-px flex-1 bg-gray-700/80"});
-        return div({class: "flex items-center gap-3"}, item(1, "Master password"), rule(), item(2, "Enrol or recover"), rule(), item(3, "Done"));
+        const rule = () => div({class: "auth-step-rule h-px flex-1"});
+        return div({class: "auth-steps flex items-center gap-3"}, item(1, "Master password"), rule(), item(2, "Enrol or recover"), rule(), item(3, "Done"));
     };
 
     const passwordStep = () => {

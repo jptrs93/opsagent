@@ -52,7 +52,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
 
     const row = (config) => tr(
         {
-            class: "border-b border-gray-800 last:border-0",
+            class: "border-b border-gray-800 slate:border-line graphite:border-line last:border-0",
             "data-testid": `recently-deleted-row-${config.deployment.id}`,
         },
         td({class: "px-3 py-2 text-gray-200"},
@@ -69,7 +69,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
         td({class: "px-3 py-2 text-right"},
             button({
                 type: "button",
-                class: "text-xs px-3 py-1 rounded-md font-medium bg-blue-600 text-white hover:bg-blue-500 cursor-pointer",
+                class: "dep-btn dep-btn-blue text-xs px-3 py-1",
                 onclick: () => onFork(config),
             }, "Fork"),
         ),
@@ -85,7 +85,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
             {class: "w-full min-w-[46rem] text-sm"},
             thead(
                 tr(
-                    {class: "border-b border-gray-700 bg-gray-950 text-left text-xs uppercase tracking-wide text-gray-500"},
+                    {class: "dep-dialog-head text-left"},
                     headerCell("Deployment"),
                     headerCell("Space"),
                     headerCell("Node"),
@@ -110,12 +110,11 @@ export function recentlyDeletedOverlay(onFork, onClose) {
             },
             div(
                 {
-                    class: "pointer-events-auto w-full max-w-4xl max-h-[80vh] bg-gray-900 border border-gray-700 " +
-                        "rounded-xl shadow-2xl flex flex-col overflow-hidden",
+                    class: "dep-dialog pointer-events-auto w-full max-w-4xl max-h-[80vh]",
                     onclick: (e) => e.stopPropagation(),
                 },
                 div(
-                    {class: "flex items-start justify-between gap-4 border-b border-gray-700 px-4 py-3"},
+                    {class: "flex items-start justify-between gap-4 border-b border-gray-700 slate:border-line graphite:border-line px-4 py-3"},
                     div(
                         h2({id: "recently-deleted-title", class: "text-base font-semibold"}, "Recently deleted"),
                         p({class: "text-xs text-gray-400"},
@@ -124,7 +123,7 @@ export function recentlyDeletedOverlay(onFork, onClose) {
                     ),
                     button({
                         type: "button",
-                        class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 cursor-pointer",
+                        class: "dep-btn text-xs px-3 py-1",
                         onclick: onClose,
                     }, "Close"),
                 ),

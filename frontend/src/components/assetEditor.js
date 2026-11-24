@@ -29,7 +29,7 @@ function lazyCodeEditor(args) {
         .catch(error => { loadError.val = error.message || "Unable to load editor"; });
 
     return div(
-        {class: "flex-1 min-h-0"},
+        {class: "flex-1 min-h-0 overflow-hidden slate:rounded-md slate:border slate:border-line graphite:border graphite:border-line"},
         () => editor.val || p({class: "p-4 text-sm text-red-400"}, () => loadError.val || "Loading editor..."),
     );
 }
@@ -181,7 +181,7 @@ export function assetEditor({
             ),
         );
         if (binary.val) return textarea({
-            class: "min-h-0 flex-1 resize-none bg-gray-900 px-3 py-2 font-mono text-sm leading-[1.625] text-gray-100 outline-none",
+            class: "min-h-0 flex-1 resize-none bg-[var(--explorer-code-bg)] px-3 py-2 font-mono text-sm leading-[1.625] text-gray-100 outline-none slate:rounded-md slate:border slate:border-line graphite:border graphite:border-line",
             readOnly: true,
             spellcheck: "false",
             value: content,
@@ -220,7 +220,7 @@ export function assetEditor({
                 title: "Close editor",
                 "aria-label": "Close editor",
                 disabled: saving,
-                class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
+                class: "p-1.5 rounded text-gray-400 hover:text-gray-100 hover:bg-surface slate:hover:bg-white/[0.06] graphite:hover:bg-white/[0.06] transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50",
                 onclick: onClose,
             }, closeIcon()) : "",
         ),
@@ -266,7 +266,7 @@ export function assetEditorOverlay(args) {
                 },
                 assetEditor({
                     ...args,
-                    class: "h-full min-w-0 min-h-0 rounded-xl border border-gray-700 bg-gray-900 p-4 shadow-2xl flex flex-col gap-4 overflow-hidden",
+                    class: "explorer-sheet h-full min-w-0 min-h-0 p-4 flex flex-col gap-4 overflow-hidden",
                 }),
             ),
         ),

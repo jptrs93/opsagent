@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import "./state/theme.js";
 import {loginPage} from "./pages/login.js";
 import {enrolPage} from "./pages/enrol.js";
 import {enrolLandingPage} from "./pages/enrolLanding.js";

@@ -11,17 +11,28 @@ export function parseBytes(text) {
   return m ? Number(m[1]) * UNIT[m[2]] : NaN;
 }
 
+const overviewPanel = page => page.getByTestId('metrics-panel-overview');
+const visiblePanel = page => page.locator('[data-testid^="metrics-panel-"]:visible');
+
 export async function openMetricsPage(page) {
   await page.getByTestId('nav-metrics').click();
   await expect(page.getByTestId('metrics-page')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  await showMetricsOverview(page);
   await ensureAllSpacesVisible(page);
 }
 
+async function showMetricsOverview(page) {
+  const tab = page.getByTestId('metrics-tab-overview');
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  await expect(overviewPanel(page)).toBeVisible();
+}
+
 async function ensureAllSpacesVisible(page) {
-  const filter = page.getByTestId('metrics-space-filter');
+  const filter = overviewPanel(page).getByTestId('metrics-space-filter');
   await expect(filter).toBeVisible();
   await filter.click();
-  const rows = page.locator('[data-testid^="metrics-space-filter-row-"]');
+  const rows = overviewPanel(page).locator('[data-testid^="metrics-space-filter-row-"]');
   await expect(rows.first()).toBeVisible({timeout: LONG_UI_TIMEOUT});
   const count = await rows.count();
   for (let i = 0; i < count; i += 1) {
@@ -33,23 +44,22 @@ async function ensureAllSpacesVisible(page) {
 }
 
 export async function selectMetricsDeployment(page, name) {
-  const select = page.getByTestId('metrics-deployment-select');
-  if (!name) {
-    await select.selectOption('');
-    return;
-  }
-  let value = '';
+  await showMetricsOverview(page);
+  if (!name) return;
+  const row = overviewPanel(page).getByTestId(`metrics-overview-row-${name}`).first();
   await expect.poll(async () => {
-    const options = await select.locator('option').evaluateAll(nodes =>
-      nodes.map(o => ({value: o.value, text: o.textContent || ''})));
-    value = options.find(o => o.value && o.text.trim().endsWith(` / ${name}`))?.value || '';
-    return value;
-  }, {message: `expected metrics deployment option for ${name}`, timeout: LONG_UI_TIMEOUT}).not.toBe('');
-  await select.selectOption(value);
+    if (await row.count() > 0) return true;
+    await refreshMetrics(page);
+    return false;
+  }, {message: `expected metrics overview row for ${name}`, timeout: LONG_UI_TIMEOUT}).toBe(true);
+  const id = await row.getAttribute('data-deployment-id');
+  await row.click();
+  await expect(page.getByTestId(`metrics-tab-${id}`)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId(`metrics-panel-${id}`)).toBeVisible();
 }
 
 async function refreshMetrics(page) {
-  const button = page.getByTestId('metrics-refresh-button');
+  const button = visiblePanel(page).getByTestId('metrics-refresh-button');
   await expect(button).toBeEnabled({timeout: LONG_UI_TIMEOUT});
   await button.click();
 }
@@ -59,7 +69,7 @@ export async function expectMetricsOverviewRow(page, {name, minCpuCores = 0, min
   await selectMetricsDeployment(page, '');
   await expect.poll(async () => {
     await refreshMetrics(page);
-    const row = page.getByTestId(`metrics-overview-row-${name}`);
+    const row = overviewPanel(page).getByTestId(`metrics-overview-row-${name}`);
     if (await row.count() === 0) return 'row missing';
     const cells = await row.locator('td').allTextContents();
     const cpu = Number(cells[3]);
@@ -101,29 +111,30 @@ export async function expectMetricsCharts(page, {name, minCpuCores = 0, minMemBy
       return 'ok';
     }, {minCpuCores, minMemBytes, expectNetwork});
   }, {message: `expected charted metrics for ${name}`, timeout: METRICS_TIMEOUT, intervals: POLL_INTERVALS}).toBe('ok');
-  await expect(page.getByTestId('metrics-chart-cpu-svg').locator('path')).not.toHaveCount(0);
-  await expect(page.getByTestId('metrics-chart-mem-svg').locator('path')).not.toHaveCount(0);
+  await expect(visiblePanel(page).getByTestId('metrics-chart-cpu-svg').locator('path')).not.toHaveCount(0);
+  await expect(visiblePanel(page).getByTestId('metrics-chart-mem-svg').locator('path')).not.toHaveCount(0);
 }
 
 export async function expectMetricsControls(page, {name}) {
   await openMetricsPage(page);
   await selectMetricsDeployment(page, name);
-  const split = page.getByTestId('metrics-split-toggle');
+  const panel = visiblePanel(page);
+  const split = panel.getByTestId('metrics-split-toggle');
   await split.click();
   await expect(split).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => page.evaluate(() => (window.__metricsResult?.charts.cpu?.series || []).length), {timeout: LONG_UI_TIMEOUT}).toBeGreaterThan(0);
   await split.click();
   await expect(split).toHaveAttribute('aria-pressed', 'false');
 
-  await page.getByTestId('metrics-time-button').click();
-  await page.getByRole('button', {name: 'Last 5 minutes'}).click();
+  await panel.getByTestId('metrics-time-button').click();
+  await panel.getByRole('button', {name: 'Last 5 minutes'}).click();
   await expect.poll(async () => page.evaluate(() => {
     const r = window.__metricsResult;
     return r ? `${r.stepMs}:${r.buckets}` : '';
   }), {timeout: LONG_UI_TIMEOUT}).toMatch(/^10000:(3[01]|[12]\d|[1-9])$/);
-  await expect(page.getByTestId('metrics-status')).toContainText('step 10 s');
+  await expect(panel.getByTestId('metrics-status')).toContainText('step 10 s');
 
-  await page.getByTestId('metrics-time-button').click();
-  await page.getByRole('button', {name: 'Last hour'}).click();
+  await panel.getByTestId('metrics-time-button').click();
+  await panel.getByRole('button', {name: 'Last hour'}).click();
   await expect.poll(async () => page.evaluate(() => window.__metricsResult?.buckets || 0), {timeout: LONG_UI_TIMEOUT}).toBeGreaterThan(11);
 }

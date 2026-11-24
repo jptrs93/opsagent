@@ -42,7 +42,7 @@ export function prepareOutputOverlay(deploymentId, deploymentLabel, onClose) {
     void startStream();
 
     const outputPre = pre(
-        {"data-testid": "prepare-output-text", class: "app-scroll h-full w-full overflow-auto bg-gray-950 p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
+        {"data-testid": "prepare-output-text", class: "dep-code app-scroll h-full w-full overflow-auto p-4 text-xs font-mono whitespace-pre-wrap break-all leading-5 text-gray-200"},
         () => outputText.val || 'Waiting for prepare output...',
     );
 
@@ -56,17 +56,17 @@ export function prepareOutputOverlay(deploymentId, deploymentLabel, onClose) {
         div(
             {class: "fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6 pointer-events-none", "data-testid": "prepare-output-overlay"},
             div(
-                {class: "w-full h-full max-w-[1600px] max-h-[94vh] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl flex flex-col overflow-hidden pointer-events-auto", onclick: (e) => e.stopPropagation()},
+                {class: "dep-dialog w-full h-full max-w-[1600px] max-h-[94vh] pointer-events-auto", onclick: (e) => e.stopPropagation()},
                 div(
-                    {class: "flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-700"},
+                    {class: "flex items-center justify-between gap-4 px-4 py-3 border-b border-gray-700 slate:border-line graphite:border-line"},
                     div(
                         {class: "min-w-0"},
                         h2({class: "text-sm font-semibold text-gray-200 truncate"}, `Prepare output: ${deploymentLabel}`),
                         span({class: () => `text-xs ${done.val && status.val !== 'Stream ended' ? 'text-red-400' : 'text-gray-500'}`}, () => status.val),
                     ),
-                    button({class: "text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5", onclick: close}, "Close"),
+                    button({class: "text-sm text-gray-400 hover:text-gray-200 slate:hover:bg-white/5 graphite:hover:bg-white/5 rounded-md cursor-pointer px-3 py-1.5", onclick: close}, "Close"),
                 ),
-                div({class: "flex-1 min-h-0 bg-gray-950 overflow-hidden"}, outputPre),
+                div({class: "dep-code flex-1 min-h-0 overflow-hidden"}, outputPre),
             ),
         ),
     );

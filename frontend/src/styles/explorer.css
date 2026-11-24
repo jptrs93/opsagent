@@ -1,0 +1,523 @@
+@layer components {
+    :root {
+        --explorer-code-bg: #111827;
+        --explorer-code-fg: #f3f4f6;
+        --explorer-code-gutter: #6b7280;
+        --explorer-code-caret: #93c5fd;
+        --explorer-code-selection: #1e3a5f;
+        --explorer-code-thumb: #4b5563;
+        --explorer-code-key: #7dd3fc;
+        --explorer-code-string: #86efac;
+        --explorer-code-number: #c4b5fd;
+        --explorer-code-null: #fbbf24;
+        --explorer-code-comment: #6b7280;
+        --explorer-code-punct: #9ca3af;
+        --explorer-code-invalid: #f87171;
+    }
+
+    :root[data-theme="slate"] {
+        --explorer-code-bg: var(--color-code);
+        --explorer-code-fg: #e6e9ee;
+        --explorer-code-gutter: #5b6678;
+        --explorer-code-caret: #7aa7ff;
+        --explorer-code-selection: #233f6b;
+        --explorer-code-thumb: #344154;
+        --explorer-code-comment: #6b7586;
+        --explorer-code-punct: #8791a1;
+    }
+
+    :root[data-theme="graphite"] {
+        --explorer-code-bg: var(--color-code);
+        --explorer-code-fg: #e7e8ea;
+        --explorer-code-gutter: #5f636b;
+        --explorer-code-caret: #a7b0f3;
+        --explorer-code-selection: #33386a;
+        --explorer-code-thumb: #3d4149;
+        --explorer-code-key: #9cc4e4;
+        --explorer-code-string: #a6d6a8;
+        --explorer-code-number: #b9abe6;
+        --explorer-code-null: #d8b36a;
+        --explorer-code-comment: #6f747d;
+        --explorer-code-punct: #8f939b;
+        --explorer-code-invalid: #f0716b;
+    }
+
+    .explorer-filter {
+        @apply inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded px-2 text-xs transition-colors
+        hover:text-gray-100;
+    }
+
+    .explorer-menu {
+        @apply absolute left-0 top-full z-30 mt-1.5 flex min-w-52 flex-col;
+    }
+
+    .explorer-table {
+        --explorer-indent: 0.5rem;
+        @apply w-full table-fixed border-separate border-spacing-0;
+    }
+
+    .explorer-th {
+        @apply sticky top-0 z-[1] bg-surface px-2;
+    }
+
+    .explorer-th:first-child {
+        padding-left: var(--explorer-indent);
+    }
+
+    .explorer-td {
+        @apply overflow-hidden whitespace-nowrap px-2 text-gray-400;
+    }
+
+    .explorer-name {
+        @apply overflow-hidden whitespace-nowrap pr-2 font-mono;
+        padding-left: calc(var(--explorer-indent) + var(--depth, 0) * 1.15rem);
+    }
+
+    .explorer-band > td {
+        @apply p-0;
+    }
+
+    .explorer-band .band-label {
+        @apply cursor-default;
+    }
+
+    .explorer-band .band-title {
+        @apply min-w-0 truncate;
+    }
+
+    .explorer-row {
+        @apply cursor-default transition-colors;
+    }
+
+    .explorer-count {
+        @apply flex-none text-gray-500;
+    }
+
+    .explorer-pathbar {
+        @apply flex flex-none items-center gap-1.5 border-t px-3 py-1.5 font-mono text-[11px] text-gray-500;
+    }
+
+    .explorer-inspector {
+        @apply relative flex flex-none flex-col border-l;
+    }
+
+    .explorer-insp-head {
+        @apply flex flex-none flex-col gap-2 border-b py-2.5 pl-3 pr-9;
+    }
+
+    .explorer-insp-foot {
+        @apply flex flex-none flex-wrap gap-1.5 border-t px-3 py-2.5;
+    }
+
+    .explorer-kv-label {
+        @apply text-gray-500;
+    }
+
+    .explorer-kv-value {
+        @apply m-0 min-w-0 break-all text-xs;
+    }
+
+    .explorer-section {
+        @apply mt-1 text-gray-500;
+    }
+
+    .explorer-badge {
+        @apply inline-flex rounded-full px-2 py-0.5 text-[10.5px] font-semibold;
+    }
+
+    .explorer-btn {
+        @apply cursor-pointer whitespace-nowrap font-medium transition-colors;
+    }
+
+    .explorer-alert {
+        @apply flex flex-none flex-wrap items-center gap-3 px-3 py-2;
+    }
+
+    .explorer-sheet {
+        @apply border shadow-2xl;
+    }
+
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        .explorer-filter {
+            @apply border border-gray-600 text-gray-400 hover:bg-surface-hover;
+        }
+
+        .explorer-table {
+            @apply text-sm;
+        }
+
+        .explorer-th {
+            @apply py-1.5 shadow-[inset_0_-1px_0_#374151];
+        }
+
+        .explorer-td,
+        .explorer-name {
+            @apply border-b border-gray-800/80 py-1;
+        }
+
+        .explorer-name {
+            @apply text-[13px];
+        }
+
+        .explorer-band > td {
+            @apply border-b border-gray-800/80;
+        }
+
+        .explorer-row:not(.band-bg):hover {
+            @apply bg-gray-700/35;
+        }
+
+        .explorer-count {
+            @apply font-mono text-[10.5px];
+        }
+
+        .explorer-folder-icon {
+            @apply text-slate-400;
+        }
+
+        .explorer-ico-secret { @apply text-purple-300; }
+        .explorer-ico-config { @apply text-blue-300; }
+
+        .explorer-pathbar {
+            @apply border-gray-700 bg-gray-950/40;
+        }
+
+        .explorer-inspector {
+            @apply border-gray-700 bg-gray-950/35;
+        }
+
+        .explorer-insp-head {
+            @apply border-gray-800;
+        }
+
+        .explorer-insp-foot {
+            @apply border-gray-800;
+        }
+
+        .explorer-kv-label {
+            @apply text-[10.5px] font-semibold uppercase tracking-wide;
+        }
+
+        .explorer-kv-value {
+            @apply font-mono text-gray-300;
+        }
+
+        .explorer-section {
+            @apply text-[10.5px] font-semibold uppercase tracking-wide;
+        }
+
+        .explorer-badge-secret { @apply bg-purple-500/15 text-purple-300; }
+        .explorer-badge-config { @apply bg-blue-500/15 text-blue-300; }
+        .explorer-badge-asset { @apply bg-teal-500/15 text-teal-300; }
+        .explorer-badge-group { @apply bg-slate-500/15 text-slate-300; }
+
+        .explorer-btn { @apply bg-gray-700 text-gray-200 hover:bg-gray-600; }
+        .explorer-btn-primary { @apply bg-brand text-white hover:bg-blue-600; }
+        .explorer-btn-delete { @apply hover:bg-red-600 hover:text-white; }
+
+        .explorer-locked {
+            @apply border-b border-amber-500/30 bg-amber-500/10;
+        }
+
+        .explorer-locked-title {
+            @apply text-sm font-semibold text-amber-300;
+        }
+
+        .explorer-error {
+            @apply border-b border-red-500/30 bg-red-500/10 py-1.5;
+        }
+
+        .explorer-error-text {
+            @apply text-red-300;
+        }
+
+        .explorer-sheet {
+            @apply rounded-xl border-gray-700 bg-gray-900;
+        }
+
+        .explorer-sheet-band {
+            @apply bg-gray-950/30;
+        }
+
+        .explorer-sheet-thead {
+            @apply bg-gray-950;
+        }
+
+        .explorer-chip {
+            @apply border-gray-700 bg-gray-900/60;
+        }
+    }
+
+    :root[data-theme="slate"] {
+        .explorer-filter {
+            @apply rounded-md bg-white/[0.06] text-gray-300 hover:bg-white/10;
+        }
+
+        .explorer-table {
+            --explorer-indent: 0.75rem;
+            @apply text-xs;
+        }
+
+        .explorer-th {
+            @apply h-7 py-0;
+            box-shadow: inset 0 -1px 0 var(--color-line);
+        }
+
+        .explorer-td,
+        .explorer-name {
+            @apply h-7 border-b border-[#1d2531] py-0;
+        }
+
+        .explorer-name {
+            @apply text-xs;
+        }
+
+        .explorer-band > td {
+            @apply border-b border-[#1d2531];
+        }
+
+        .explorer-row:not(.band-bg):hover {
+            @apply bg-white/[0.03];
+        }
+
+        .explorer-count {
+            @apply text-[11px] tabular-nums;
+        }
+
+        .explorer-folder-icon {
+            @apply text-gray-500;
+        }
+
+        .explorer-ico-secret { @apply text-purple-300; }
+        .explorer-ico-config { @apply text-blue-300; }
+
+        .explorer-pathbar {
+            @apply border-line;
+        }
+
+        .explorer-inspector {
+            @apply border-line;
+        }
+
+        .explorer-insp-head {
+            @apply border-line;
+        }
+
+        .explorer-insp-foot {
+            @apply border-line;
+        }
+
+        .explorer-kv-label {
+            @apply text-[11px];
+        }
+
+        .explorer-kv-value {
+            @apply text-gray-200;
+        }
+
+        .explorer-section {
+            @apply -mx-3 border-t border-line px-3 pt-3 text-[11px] font-medium;
+        }
+
+        .explorer-value {
+            @apply rounded-md border border-line bg-code px-2 py-1.5;
+        }
+
+        .explorer-badge {
+            @apply font-medium;
+        }
+
+        .explorer-badge-secret { @apply bg-purple-500/15 text-purple-300; }
+        .explorer-badge-config { @apply bg-blue-500/15 text-blue-300; }
+        .explorer-badge-asset { @apply bg-teal-500/15 text-teal-300; }
+        .explorer-badge-group { @apply bg-white/[0.07] text-gray-300; }
+
+        .explorer-btn { @apply bg-white/[0.06] text-gray-200 hover:bg-white/10; }
+        .explorer-btn-primary { @apply bg-brand text-white hover:bg-blue-600; }
+        .explorer-btn-delete { @apply hover:bg-red-600 hover:text-white; }
+
+        .explorer-locked {
+            @apply mx-3 mb-1.5 mt-3 rounded-md border border-amber-500/25 bg-amber-500/[0.06];
+        }
+
+        .explorer-locked-title {
+            @apply text-[13px] font-semibold text-[#e0a43a];
+        }
+
+        .explorer-error {
+            @apply border-b border-red-500/20 bg-red-500/[0.07] py-1.5;
+        }
+
+        .explorer-error-text {
+            @apply text-[#f0716b];
+        }
+
+        .explorer-sheet {
+            @apply rounded-lg border-gray-700 bg-raised;
+        }
+
+        .explorer-sheet-band {
+            @apply bg-white/[0.02];
+        }
+
+        .explorer-sheet-thead {
+            @apply bg-white/[0.03];
+        }
+
+        .explorer-chip {
+            @apply border-gray-700 bg-field;
+        }
+
+        .explorer-strip .text-input {
+            @apply border-transparent! bg-white/[0.06]!;
+        }
+
+        .explorer-strip .toolbar-button {
+            @apply rounded-md! border-transparent! bg-white/[0.06]! text-gray-300! hover:bg-white/10!;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .explorer-filter {
+            @apply border border-gray-700 bg-surface text-gray-300 hover:bg-white/[0.04];
+        }
+
+        .explorer-table {
+            --explorer-indent: 0.75rem;
+            @apply text-xs;
+        }
+
+        .explorer-th {
+            @apply h-6 py-0;
+        }
+
+        .explorer-td,
+        .explorer-name {
+            @apply h-[27px] py-0;
+        }
+
+        .explorer-name {
+            @apply text-xs;
+        }
+
+        .explorer-band .band-label {
+            @apply pb-1 pt-2.5;
+        }
+
+        .explorer-band:hover .band-title {
+            @apply text-white;
+        }
+
+        .explorer-row:not(.band-bg):hover {
+            @apply bg-white/[0.04];
+        }
+
+        .explorer-count {
+            @apply text-[11px] tabular-nums;
+        }
+
+        .explorer-folder-icon {
+            @apply text-gray-500;
+        }
+
+        .explorer-ico-secret { @apply text-[#c3a6e6]; }
+        .explorer-ico-config { @apply text-[#8fc0e0]; }
+
+        .explorer-pathbar {
+            @apply border-line bg-frame;
+        }
+
+        .explorer-inspector {
+            @apply border-line;
+        }
+
+        .explorer-insp-head {
+            @apply border-line;
+        }
+
+        .explorer-insp-foot {
+            @apply border-line;
+        }
+
+        .explorer-kv-label {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider;
+        }
+
+        .explorer-kv-value {
+            @apply text-gray-300;
+        }
+
+        .explorer-section {
+            @apply -mx-3 flex items-center gap-2 px-3 pt-2 text-[10.5px] font-semibold uppercase tracking-wider;
+        }
+
+        .explorer-section::after {
+            @apply h-px flex-1 bg-line;
+            content: "";
+        }
+
+        .explorer-value {
+            @apply bg-code px-2 py-1;
+        }
+
+        .explorer-badge {
+            @apply rounded-sm px-1.5 text-[10px] font-semibold uppercase tracking-wider;
+        }
+
+        .explorer-badge-secret { @apply bg-white/[0.06] text-[#c3a6e6]; }
+        .explorer-badge-config { @apply bg-white/[0.06] text-[#8fc0e0]; }
+        .explorer-badge-asset { @apply bg-white/[0.06] text-asset; }
+        .explorer-badge-group { @apply bg-white/[0.06] text-gray-400; }
+
+        .explorer-btn {
+            @apply bg-transparent text-gray-300 shadow-[inset_0_0_0_1px_var(--color-gray-700)] hover:bg-white/[0.05]
+            hover:text-gray-100;
+        }
+
+        .explorer-btn-primary {
+            @apply bg-brand text-white shadow-none hover:bg-blue-600 hover:text-white;
+        }
+
+        .explorer-btn-delete {
+            @apply hover:bg-red-600 hover:text-white hover:shadow-none;
+        }
+
+        .explorer-locked {
+            @apply border-b border-line;
+            box-shadow: inset 2px 0 0 #d8b36a;
+        }
+
+        .explorer-locked-title {
+            @apply text-xs font-semibold text-[#d8b36a];
+        }
+
+        .explorer-error {
+            @apply border-b border-line py-1.5;
+            box-shadow: inset 2px 0 0 #f0716b;
+        }
+
+        .explorer-error-text {
+            @apply text-[#f0716b];
+        }
+
+        .explorer-sheet {
+            @apply rounded-lg border-gray-600 bg-raised;
+        }
+
+        .explorer-sheet-thead {
+            @apply text-[10.5px] font-semibold uppercase tracking-wider;
+        }
+
+        .explorer-chip {
+            @apply border-gray-700 bg-field;
+        }
+
+        .explorer-strip .toolbar-button {
+            @apply border-gray-700! text-gray-400! hover:bg-white/[0.04]! hover:text-gray-200!;
+        }
+
+        .explorer-strip .text-input {
+            @apply border-gray-700!;
+        }
+    }
+}

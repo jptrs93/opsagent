@@ -43,7 +43,7 @@ export function deploymentUiWidget(args) {
     return div(
         {class: 'flex flex-1 min-h-0 min-w-0'},
         div(
-            {class: 'app-scroll flex-1 min-h-0 overflow-auto px-3 py-3.5 flex flex-col gap-[1.125rem]'},
+            {class: 'app-scroll flex-1 min-h-0 overflow-auto px-3 py-3.5 flex flex-col gap-[1.125rem] slate:gap-3 slate:px-4'},
             deploymentForm(form, {
                 identityLocked: mode === 'update',
                 spaceOptions: spaces,
@@ -123,7 +123,7 @@ function versionSummarySection(args) {
         parts.push(span({class: 'text-gray-500'}, 'No version selected'));
     } else {
         if (entry && branch) parts.push(span({class: 'text-gray-300'}, branch));
-        parts.push(span({class: 'font-mono text-gray-100', title: selected}, shortID));
+        parts.push(span({class: 'editor-version-id font-mono', title: selected}, shortID));
         if (entry?.label) parts.push(span({class: 'text-gray-300'}, entry.label));
         if (date) parts.push(span({class: 'font-mono text-gray-500'}, date));
         if (explicitVersion) parts.push(span({class: 'text-gray-500'}, explicitVersion.startsWith('sha256:') ? 'digest from the image reference' : 'tag from the image reference'));

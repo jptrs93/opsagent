@@ -20,5 +20,7 @@ export function plannedBody() {
 }
 
 export function plannedPage() {
-    return div({class: "flex h-full min-h-0 flex-col bg-surface"}, plannedBody());
+    return div({class: "page"},
+        div({class: "page-strip classic:hidden"}),
+        div({class: "page-body flex flex-col"}, plannedBody()));
 }

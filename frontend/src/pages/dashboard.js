@@ -34,7 +34,6 @@ export function dashboard() {
 
     const activePage = van.state('status');
     const selectedLogDeploymentId = van.state(0);
-    const selectedMetricsDeploymentId = van.state(0);
 
     const openLogsForDeployment = (deploymentId) => {
         selectedLogDeploymentId.val = deploymentId;
@@ -61,6 +60,10 @@ export function dashboard() {
         {class: () => activePage.val === 'settings' ? 'h-full' : 'hidden'},
         settingsPage(),
     );
+    const metricsHost = div(
+        {class: () => activePage.val === 'metrics' ? 'h-full' : 'hidden'},
+        metricsPage({active: () => activePage.val === 'metrics'}),
+    );
 
     return div(
         {class: "h-dvh min-h-dvh w-dvw flex overflow-hidden"},
@@ -69,10 +72,11 @@ export function dashboard() {
             {class: "h-full flex-1 min-w-0 min-h-0 overflow-hidden"},
             deploymentsHost,
             settingsHost,
+            metricsHost,
             () => {
                 if (activePage.val === 'status') return '';
                 if (activePage.val === 'logs') return logsPage(selectedLogDeploymentId);
-                if (activePage.val === 'metrics') return metricsPage(selectedMetricsDeploymentId);
+                if (activePage.val === 'metrics') return '';
                 if (activePage.val === 'secrets') return secretsPage();
                 if (activePage.val === 'configs') return secretsPage();
                 if (activePage.val === 'assets') return assetsPage();

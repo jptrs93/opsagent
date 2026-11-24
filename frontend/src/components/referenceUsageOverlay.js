@@ -4,12 +4,12 @@ const { button, div, h2, p, span, table, tbody, td, th, thead, tr } = van.tags;
 
 export function referenceUsageOverlay(resourceType, resourceName, deployments, settings, onClose) {
     const deploymentTable = deployments.length ? div(
-        {class: "app-scroll-x overflow-x-auto rounded-lg border border-gray-700"},
+        {class: "app-scroll-x overflow-x-auto rounded-lg border border-gray-700 slate:border-line graphite:border-line"},
         table(
             {class: "w-full min-w-[34rem] text-sm"},
             thead(
                 tr(
-                    {class: "border-b border-gray-700 bg-gray-950 text-left text-xs text-gray-400"},
+                    {class: "explorer-sheet-thead border-b border-gray-700 text-left text-xs text-gray-400 slate:border-line graphite:border-line"},
                     th({class: "px-3 py-2 font-medium"}, "Space"),
                     th({class: "px-3 py-2 font-medium"}, "Deployment"),
                     th({class: "px-3 py-2 font-medium"}, "Node"),
@@ -17,7 +17,7 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
             ),
             tbody(...deployments.map(usage => tr(
                 {
-                    class: "border-b border-gray-800 last:border-0",
+                    class: "border-b border-gray-800 last:border-0 slate:border-line graphite:border-line",
                     "data-testid": `reference-usage-deployment-${usage.id}`,
                 },
                 td({class: "px-3 py-2 text-gray-300"}, usage.space),
@@ -36,7 +36,7 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
             },
             div(
                 {
-                    class: "w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-xl border border-gray-700 bg-gray-900 shadow-2xl pointer-events-auto flex flex-col",
+                    class: "explorer-sheet w-full max-w-3xl max-h-[85vh] overflow-hidden pointer-events-auto flex flex-col",
                     role: "dialog",
                     "aria-modal": "true",
                     "aria-labelledby": "reference-usage-title",
@@ -47,7 +47,7 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                         {class: "min-w-0"},
                         h2(
                             {id: "reference-usage-title", class: "truncate text-sm font-normal text-gray-400"},
-                            span({class: `lowercase ${resourceType === "config" ? "text-blue-300" : "text-purple-300"}`}, resourceName),
+                            span({class: `lowercase ${resourceType === "config" ? "explorer-ico-config" : "explorer-ico-secret"}`}, resourceName),
                             " usages:",
                         ),
                     ),
@@ -62,9 +62,9 @@ export function referenceUsageOverlay(resourceType, resourceName, deployments, s
                     settings.length ? div(
                         h2({class: "mb-2 text-sm font-semibold text-gray-200"}, `System settings (${settings.length})`),
                         div(
-                            {class: "overflow-hidden rounded-lg border border-gray-700"},
+                            {class: "overflow-hidden rounded-lg border border-gray-700 slate:border-line graphite:border-line"},
                             ...settings.map(setting => div(
-                                {class: "border-b border-gray-800 px-3 py-2 text-sm text-gray-300 last:border-0"},
+                                {class: "border-b border-gray-800 px-3 py-2 text-sm text-gray-300 last:border-0 slate:border-line graphite:border-line"},
                                 setting.label,
                             )),
                         ),

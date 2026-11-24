@@ -2,7 +2,7 @@ import van from "vanjs-core";
 
 const {div, input, ul, li, span} = van.tags;
 
-const defaultInputClass = "w-full rounded-[0.3rem] bg-gray-800 border border-gray-700 px-1.5 py-1 text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand";
+const defaultInputClass = "editor-cell w-full rounded-[0.3rem] px-1.5 py-1";
 
 function valueOf(value) {
     if (typeof value === 'function') return value();
@@ -125,11 +125,12 @@ export function referencePicker({
             if (!open.val || valueOf(disabled)) return '';
             const items = matches();
             return ul(
-                {class: "app-scroll absolute z-50 mt-1 max-h-44 w-full overflow-auto rounded-md border border-gray-700 bg-gray-900 shadow-xl"},
+                {class: "editor-ref-list app-scroll absolute z-50 mt-1 max-h-44 w-full overflow-auto"},
                 ...(items.length === 0
                     ? [li({class: "px-2 py-1.5 text-gray-500"}, allRefs().length ? noMatchesLabel : emptyLabel)]
                     : items.map((ref, index) => li({
-                        class: () => `flex items-center justify-between gap-2 cursor-pointer px-2 py-1.5 bg-gray-800 text-gray-200 hover:bg-gray-700 ${index === clampedHighlight(items) ? 'bg-gray-700 text-white' : ''}`,
+                        class: "editor-ref-item flex items-center justify-between gap-2 cursor-pointer px-2 py-1.5",
+                        "data-active": () => String(index === clampedHighlight(items)),
                         onmouseenter: () => { highlightedIndex.val = index; },
                         onmousedown: e => {
                             e.preventDefault();

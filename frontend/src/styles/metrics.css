@@ -1,0 +1,370 @@
+@layer components {
+    :root {
+        --chart-series-1: #3987e5;
+        --chart-series-2: #d95926;
+        --chart-series-3: #199e70;
+        --chart-series-4: #c98500;
+        --chart-series-5: #d55181;
+        --chart-series-6: #088a08;
+        --chart-series-7: #9085e9;
+        --chart-series-8: #e66767;
+        --chart-grid: #1f2937;
+        --chart-baseline: #1f2937;
+        --chart-axis: #6b7280;
+        --chart-crosshair: #6b7280;
+        --chart-crosshair-dash: 2 2;
+        --chart-axis-size: 9px;
+    }
+
+    :root[data-theme="slate"] {
+        --chart-grid: #1f2733;
+        --chart-baseline: #2e3848;
+        --chart-axis: #8791a1;
+        --chart-crosshair: #3d4859;
+        --chart-crosshair-dash: none;
+        --chart-axis-size: 10px;
+    }
+
+    :root[data-theme="graphite"] {
+        --chart-grid: #1e2024;
+        --chart-baseline: #33373f;
+        --chart-axis: #8f939b;
+        --chart-crosshair: #454a53;
+        --chart-crosshair-dash: none;
+        --chart-axis-size: 10px;
+    }
+
+    .chart-grid {
+        stroke: var(--chart-grid);
+    }
+
+    .chart-baseline {
+        stroke: var(--chart-baseline);
+    }
+
+    .chart-axis {
+        fill: var(--chart-axis);
+        font-size: var(--chart-axis-size);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .chart-crosshair {
+        stroke: var(--chart-crosshair);
+        stroke-dasharray: var(--chart-crosshair-dash);
+    }
+
+    .chart-card {
+        @apply flex min-w-0 flex-col;
+    }
+
+    .chart-head {
+        @apply flex items-center justify-between;
+    }
+
+    .chart-rule {
+        @apply hidden;
+    }
+
+    .chart-empty {
+        @apply flex h-full items-center justify-center text-[11px] text-gray-500;
+    }
+
+    .chart-legend {
+        @apply flex flex-wrap items-center;
+    }
+
+    .chart-legend-item {
+        @apply flex cursor-pointer items-center;
+    }
+
+    .chart-legend-label {
+        @apply text-gray-400;
+    }
+
+    .chart-legend-value {
+        @apply tabular-nums text-gray-500;
+    }
+
+    .chart-swatch {
+        @apply inline-block flex-none rounded-sm;
+    }
+
+    .chart-tooltip {
+        @apply border shadow-xl;
+    }
+
+    .chart-tip-row {
+        @apply flex items-center;
+    }
+
+    .chart-tip-time {
+        @apply tabular-nums text-gray-500;
+    }
+
+    .chart-tip-value {
+        @apply ml-auto tabular-nums text-gray-100;
+    }
+
+    .metrics-grid {
+        @apply grid grid-cols-1 xl:grid-cols-2;
+    }
+
+    .metrics-control {
+        @apply inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap border text-xs text-gray-200 transition-colors;
+    }
+
+    .metrics-toggle {
+        @apply inline-flex cursor-pointer items-center whitespace-nowrap border text-xs transition-colors;
+    }
+
+    .metrics-primary {
+        @apply inline-flex cursor-pointer items-center whitespace-nowrap bg-brand text-xs font-medium text-white transition-colors
+        hover:bg-blue-600 disabled:cursor-default disabled:opacity-50;
+    }
+
+    .metrics-cell {
+        @apply px-2 py-1;
+    }
+
+    :root:not([data-theme="slate"], [data-theme="graphite"]) {
+        .chart-card {
+            @apply rounded border border-gray-800 bg-gray-950/40 p-2;
+        }
+
+        .chart-head {
+            @apply pb-1;
+        }
+
+        .chart-title {
+            @apply text-[11px] font-medium text-gray-300;
+        }
+
+        .chart-unit {
+            @apply text-[10px] text-gray-600;
+        }
+
+        .chart-empty {
+            @apply text-gray-600;
+        }
+
+        .chart-legend {
+            @apply gap-x-3 gap-y-0.5 px-1 pt-1;
+        }
+
+        .chart-legend-item {
+            @apply gap-1 text-[10px];
+        }
+
+        .chart-swatch {
+            @apply h-[3px] w-3;
+        }
+
+        .chart-tooltip {
+            @apply rounded border-gray-700 bg-gray-900 px-2 py-1 text-[10px];
+        }
+
+        .chart-tip-row {
+            @apply gap-1.5;
+        }
+
+        .chart-tip-row .chart-swatch {
+            @apply w-2.5;
+        }
+
+        .chart-tip-time {
+            @apply mb-0.5 text-gray-400;
+        }
+
+        .chart-tip-label {
+            @apply text-gray-300;
+        }
+
+        .metrics-grid {
+            @apply gap-2 p-2;
+        }
+
+        .metrics-control {
+            @apply h-[30px] rounded-[0.3rem] border-gray-600 bg-field px-2 hover:bg-gray-700;
+        }
+
+        .metrics-toggle {
+            @apply h-[30px] rounded-[0.3rem] px-2.5;
+        }
+
+        .metrics-toggle[aria-pressed="false"] {
+            @apply border-gray-600 bg-gray-800 text-gray-400 hover:text-gray-200;
+        }
+
+        .metrics-toggle[aria-pressed="true"] {
+            @apply border-brand/60 bg-brand/15 text-blue-300;
+        }
+
+        .metrics-primary {
+            @apply h-[30px] rounded-[0.3rem] border border-brand px-3;
+        }
+    }
+
+    :root[data-theme="slate"] {
+        .chart-card {
+            @apply rounded-md border border-line pb-[11px] pl-2.5 pr-3.5 pt-[11px];
+        }
+
+        .chart-head {
+            @apply pb-2.5 pl-1;
+        }
+
+        .chart-title {
+            @apply text-xs font-semibold text-gray-200;
+        }
+
+        .chart-unit {
+            @apply text-[11px] text-gray-500;
+        }
+
+        .chart-legend {
+            @apply gap-x-4 gap-y-1 pl-1 pt-2 text-[11px];
+        }
+
+        .chart-legend-item {
+            @apply gap-1.5;
+        }
+
+        .chart-swatch {
+            @apply h-0.5 w-2.5;
+        }
+
+        .chart-tooltip {
+            @apply rounded-md border-[#2e3848] bg-[#0f141c] px-[9px] py-[7px] text-[11px] leading-[17px];
+        }
+
+        .chart-tip-row {
+            @apply gap-[7px];
+        }
+
+        .chart-tip-time {
+            @apply pb-1;
+        }
+
+        .chart-tip-value {
+            @apply pl-3.5 text-white;
+        }
+
+        .metrics-grid {
+            @apply gap-2.5 p-3.5;
+        }
+
+        .metrics-control {
+            @apply h-7 rounded-md px-2.5;
+        }
+
+        .page-toolbar .metrics-control {
+            @apply border-[#2a3443] bg-field hover:bg-white/5;
+        }
+
+        .page-strip .metrics-control {
+            @apply border-transparent bg-white/[0.06] hover:bg-white/10;
+        }
+
+        .metrics-toggle {
+            @apply h-7 rounded-md border-transparent px-2.5;
+        }
+
+        .metrics-toggle[aria-pressed="false"] {
+            @apply text-gray-400 hover:bg-white/[0.04] hover:text-gray-200;
+        }
+
+        .metrics-toggle[aria-pressed="true"] {
+            @apply bg-brand/15 text-blue-300;
+        }
+
+        .metrics-primary {
+            @apply h-7 rounded-md px-[11px];
+        }
+
+        .metrics-cell {
+            @apply first:pl-3.5 last:pr-3.5;
+        }
+    }
+
+    :root[data-theme="graphite"] {
+        .chart-head {
+            @apply justify-start gap-2 pb-3 pl-1;
+        }
+
+        .chart-title {
+            @apply text-xs font-semibold text-white;
+        }
+
+        .chart-unit {
+            @apply text-[11px] text-gray-500;
+        }
+
+        .chart-rule {
+            @apply block h-px flex-1 bg-line;
+        }
+
+        .chart-legend {
+            @apply gap-x-4 gap-y-1 pl-1 pt-2 text-[11px];
+        }
+
+        .chart-legend-item {
+            @apply gap-1.5;
+        }
+
+        .chart-swatch {
+            @apply h-0.5 w-2.5;
+        }
+
+        .chart-tooltip {
+            @apply rounded border-[#33373f] bg-frame px-[9px] py-[7px] text-[11px] leading-[17px];
+        }
+
+        .chart-tip-row {
+            @apply gap-[7px];
+        }
+
+        .chart-tip-time {
+            @apply pb-1;
+        }
+
+        .chart-tip-value {
+            @apply pl-3.5 text-white;
+        }
+
+        .metrics-grid {
+            @apply gap-x-7 gap-y-6 pb-5 pl-3.5 pr-5 pt-[18px];
+        }
+
+        .metrics-control {
+            @apply rounded;
+        }
+
+        .page-toolbar .metrics-control {
+            @apply h-7 border-[#2f333a] bg-frame px-[9px] hover:bg-white/[0.04];
+        }
+
+        .page-strip .metrics-control {
+            @apply h-6 border-[#33373f] bg-surface px-2 hover:bg-white/[0.04];
+        }
+
+        .metrics-toggle {
+            @apply h-7 rounded border-[#2f333a] px-2.5;
+        }
+
+        .metrics-toggle[aria-pressed="false"] {
+            @apply text-gray-400 hover:text-gray-200;
+        }
+
+        .metrics-toggle[aria-pressed="true"] {
+            @apply border-brand/60 bg-brand/15 text-blue-200;
+        }
+
+        .metrics-primary {
+            @apply h-7 rounded px-2.5;
+        }
+
+        .metrics-cell {
+            @apply py-[5px] first:pl-3.5 last:pr-3.5;
+        }
+    }
+}

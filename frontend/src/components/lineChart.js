@@ -70,12 +70,12 @@ function byteTicks(max, n) {
     return niceTicks(max / scale, n).map(t => t * scale);
 }
 
-const PAD_L = 52, PAD_R = 8, PAD_T = 8, PAD_B = 20;
+const PAD_L = 60, PAD_R = 8, PAD_T = 8, PAD_B = 20;
 
 export function lineChart({title, unit, dataS, height = 160, testid, emptyText = 'No data in range'}) {
     const plotHost = div({class: "relative w-full", style: `height:${height}px`});
-    const tooltip = div({class: "pointer-events-none absolute z-30 hidden rounded border border-gray-700 bg-gray-900 px-2 py-1 text-[10px] shadow-xl"});
-    const legend = div({class: "flex flex-wrap items-center gap-x-3 gap-y-0.5 px-1 pt-1"});
+    const tooltip = div({class: "chart-tooltip pointer-events-none absolute z-30 hidden"});
+    const legend = div({class: "chart-legend"});
     let hidden = new Set();
     let lastData = null;
 
@@ -88,7 +88,7 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
         const h = height;
         if (!data || !data.buckets || !data.series.length) {
             plotHost.replaceChildren(
-                div({class: "flex h-full items-center justify-center text-[11px] text-gray-600"}, emptyText),
+                div({class: "chart-empty"}, emptyText),
                 tooltip,
             );
             legend.replaceChildren();
@@ -107,9 +107,9 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
 
         const children = [];
         for (const t of ticks) {
-            const y = yOf(t);
-            children.push(line({x1: String(PAD_L), y1: y.toFixed(1), x2: String(w - PAD_R), y2: y.toFixed(1), stroke: "#1f2937", "stroke-width": "1"}));
-            children.push(svgText({x: String(PAD_L - 6), y: (y + 3).toFixed(1), "text-anchor": "end", fill: "#6b7280", "font-size": "9"}, formatValue(t, unit)));
+            const y = Math.round(yOf(t)) + 0.5;
+            children.push(line({class: t === 0 ? "chart-baseline" : "chart-grid", x1: String(PAD_L), y1: y.toFixed(1), x2: String(w - PAD_R), y2: y.toFixed(1), "stroke-width": "1"}));
+            children.push(svgText({class: "chart-axis", x: String(PAD_L - 6), y: (y + 3).toFixed(1), "text-anchor": "end"}, formatValue(t, unit)));
         }
         const spanMs = n * data.stepMs;
         const xTickCount = Math.max(2, Math.min(6, Math.floor(plotW / 90)));
@@ -118,9 +118,9 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
             const ts = data.startTs + b * data.stepMs;
             const x = PAD_L + (b / n) * plotW;
             children.push(svgText({
+                class: "chart-axis",
                 x: x.toFixed(1), y: String(h - 6),
                 "text-anchor": i === 0 ? "start" : i === xTickCount ? "end" : "middle",
-                fill: "#6b7280", "font-size": "9",
             }, fmtTick(ts, spanMs)));
         }
         for (const s of series) {
@@ -137,10 +137,10 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
                 d += `${pen ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
                 pen = true;
             }
-            if (d) children.push(path({d, fill: "none", stroke: s.color, "stroke-width": "1.5", "stroke-linejoin": "round"}));
-            for (const [x, y] of lone) children.push(rect({x: (x - 1.5).toFixed(1), y: (y - 1.5).toFixed(1), width: "3", height: "3", fill: s.color}));
+            if (d) children.push(path({d, fill: "none", style: `stroke:${s.color}`, "stroke-width": "1.5", "stroke-linejoin": "round"}));
+            for (const [x, y] of lone) children.push(rect({x: (x - 1.5).toFixed(1), y: (y - 1.5).toFixed(1), width: "3", height: "3", style: `fill:${s.color}`}));
         }
-        const crosshair = line({x1: "0", y1: String(PAD_T), x2: "0", y2: String(PAD_T + plotH), stroke: "#6b7280", "stroke-width": "1", "stroke-dasharray": "2 2", visibility: "hidden"});
+        const crosshair = line({class: "chart-crosshair", x1: "0", y1: String(PAD_T), x2: "0", y2: String(PAD_T + plotH), "stroke-width": "1", visibility: "hidden"});
         children.push(crosshair);
         const el = svg({width: String(w), height: String(h), viewBox: `0 0 ${w} ${h}`, class: "block", ...(testid ? {"data-testid": `${testid}-svg`} : {})}, ...children);
         plotHost.replaceChildren(el, tooltip);
@@ -151,16 +151,16 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
             const off = hidden.has(s.label);
             const last = [...s.values].reverse().find(Number.isFinite);
             return span({
-                class: `flex cursor-pointer items-center gap-1 text-[10px] ${off ? 'opacity-40' : ''}`,
+                class: `chart-legend-item ${off ? 'opacity-40' : ''}`,
                 title: off ? 'Show series' : 'Hide series',
                 onclick: () => {
                     hidden.has(s.label) ? hidden.delete(s.label) : hidden.add(s.label);
                     render();
                 },
             },
-                span({class: "inline-block h-[3px] w-3 rounded-sm", style: `background:${s.color}`}),
-                span({class: "text-gray-400"}, s.label),
-                span({class: "tabular-nums text-gray-500"}, formatValue(last, unit)),
+                span({class: "chart-swatch", style: `background:${s.color}`}),
+                span({class: "chart-legend-label"}, s.label),
+                span({class: "chart-legend-value"}, formatValue(last, unit)),
             );
         })));
     };
@@ -178,12 +178,12 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
         plotHost.__crosshair.setAttribute('visibility', 'visible');
         const t0 = data.startTs + b * data.stepMs;
         tooltip.replaceChildren(
-            div({class: "mb-0.5 text-gray-400"}, fmtTooltipTime(t0)),
+            div({class: "chart-tip-time"}, fmtTooltipTime(t0)),
             ...visibleSeries().map(s => div(
-                {class: "flex items-center gap-1.5"},
-                span({class: "h-[3px] w-2.5 rounded-sm", style: `background:${s.color}`}),
-                span({class: "text-gray-300"}, s.label),
-                span({class: "ml-auto tabular-nums text-gray-100"}, formatValue(s.values[b], unit)),
+                {class: "chart-tip-row"},
+                span({class: "chart-swatch", style: `background:${s.color}`}),
+                span({class: "chart-tip-label"}, s.label),
+                span({class: "chart-tip-value"}, formatValue(s.values[b], unit)),
             )),
         );
         tooltip.classList.remove('hidden');
@@ -207,10 +207,11 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
     }
 
     return div(
-        {"data-testid": testid, class: "flex min-w-0 flex-col rounded border border-gray-800 bg-gray-950/40 p-2"},
-        div({class: "flex items-center justify-between pb-1"},
-            span({class: "text-[11px] font-medium text-gray-300"}, title),
-            span({class: "text-[10px] text-gray-600"}, unit === 'count' ? '' : unit)),
+        {"data-testid": testid, class: "chart-card"},
+        div({class: "chart-head"},
+            span({class: "chart-title"}, title),
+            span({class: "chart-unit"}, unit === 'count' ? '' : unit),
+            span({class: "chart-rule"})),
         plotHost,
         legend,
     );

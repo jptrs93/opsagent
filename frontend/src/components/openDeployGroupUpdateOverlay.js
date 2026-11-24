@@ -214,7 +214,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
             const selectionLoaded = releases.val.some(release => release.id === target.val);
             const greyedOut = alignVersions.val && !isPrimaryRow;
             return select({
-                class: `w-full h-8 px-2 rounded-sm bg-gray-800 text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand ${greyedOut ? 'opacity-50' : ''}`,
+                class: `dep-field w-full h-8 px-2 rounded-sm text-gray-100 border border-gray-700 focus:outline-none focus:ring-1 focus:ring-brand ${greyedOut ? 'opacity-50' : ''}`,
                 'data-testid': `deployment-target-version-${group.name}-${member.node}`,
                 value: selectionLoaded ? target.val : '',
                 disabled: greyedOut || running.val || finished.val || loading.val || Boolean(versionError.val) || releases.val.length === 0,
@@ -237,7 +237,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
     };
 
     const memberRow = (member) => tr(
-        {class: 'border-b border-gray-800 last:border-0', 'data-testid': `deployment-upgrade-row-${group.name}-${member.node}`},
+        {class: 'border-b border-gray-800 slate:border-line graphite:border-line last:border-0', 'data-testid': `deployment-upgrade-row-${group.name}-${member.node}`},
         td(
             {class: 'py-2 pl-3 pr-2 text-sm text-gray-200 whitespace-nowrap'},
             span({class: 'inline-flex items-center gap-1.5'},
@@ -269,7 +269,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
 
     const editor = div(
         {
-            class: 'bg-gray-900 border border-gray-600 rounded-lg shadow-[0_28px_90px_rgba(0,0,0,0.5)] flex flex-col overflow-hidden',
+            class: 'dep-dialog classic:rounded-lg classic:border-gray-600 shadow-[0_28px_90px_rgba(0,0,0,0.5)]',
             'data-testid': 'update-deployment-dialog',
             role: 'dialog',
             'aria-modal': 'true',
@@ -307,7 +307,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                         span('Align versions'),
                     ),
                     button({
-                        class: 'inline-flex h-8 items-center justify-center gap-1.5 px-3 rounded-lg text-xs text-gray-300 bg-gray-800 border border-gray-600 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer',
+                        class: 'inline-flex h-8 items-center justify-center gap-1.5 px-3 rounded-lg text-xs text-gray-300 bg-gray-800 slate:bg-field graphite:bg-transparent border border-gray-600 slate:border-gray-700 hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer',
                         disabled: () => loading.val || running.val || finished.val,
                         onclick: loadReleases,
                         type: 'button',
@@ -318,7 +318,7 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
                     {class: 'w-full table-fixed text-left text-sm'},
                     thead(
                         tr(
-                            {class: 'border-b border-gray-700 text-xs uppercase tracking-wide text-gray-500'},
+                            {class: 'dep-dialog-head classic:bg-transparent'},
                             th({class: 'py-2 pl-3 pr-2 font-medium', style: 'width:10rem'}, 'Node'),
                             th({class: 'py-2 px-2 font-medium', style: 'width:7rem'}, 'Current'),
                             th({class: 'py-2 px-2 font-medium', style: 'width:50%'}, 'Target version'),
@@ -339,12 +339,12 @@ export function openDeployGroupUpdateOverlay(group, onClose) {
             ),
         ),
         div(
-            {class: 'flex shrink-0 items-center justify-between gap-3 bg-gray-950/90 px-4 py-2.5'},
+            {class: 'dep-dialog-foot flex shrink-0 items-center justify-between gap-3 px-4 py-2.5'},
             requestStatus(requestDescription),
             div(
                 {class: 'flex min-w-0 items-center justify-end gap-3'},
                 button({
-                    class: 'text-sm text-gray-400 hover:text-gray-200 cursor-pointer px-3 py-1.5',
+                    class: 'text-sm text-gray-400 hover:text-gray-200 slate:hover:bg-white/5 graphite:hover:bg-white/5 rounded-md cursor-pointer px-3 py-1.5',
                     onclick: close,
                     type: 'button',
                 }, () => finished.val ? 'Close' : (running.val ? 'Stop and close' : 'Cancel')),

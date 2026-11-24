@@ -1,5 +1,5 @@
 // Left sidebar: the OpenDeploy header, the grouped nav built from NAV_GROUPS,
-// and a footer with the deployments stream status and sign-out.
+// and a footer with the theme picker, the stream status and sign-out.
 //
 // Groups show their title only when collapsed. An open group has a slim
 // chevron-only handle (no title, hovered or not) and a hairline separates it
@@ -11,19 +11,15 @@
 
 import van from "vanjs-core";
 import {clearLoginState} from "../state/login.js";
-import {deploymentsStreamS} from "../state/deployments.js";
 import {navigate} from "../lib/router.js";
 import {chevronDownIcon, logOutIcon} from "../lib/icons.js";
 import {NAV_GROUPS, groupOfPage} from "./nav.js";
+import {themePicker} from "./themePicker.js";
+import {streamStatus} from "./streamStatus.js";
 
-const {div, span, h2, p, button} = van.tags;
+const {div, span, h2, button} = van.tags;
 
 const COLLAPSED_KEY = "opsagent_sidebar_collapsed_groups";
-
-const streamStatusClass = (status) => status === "connected" ? "text-green-400" : "text-red-400";
-const streamDotClass = (status) => status === "connected"
-    ? "bg-green-400 animate-pulse [animation-duration:2s]"
-    : "bg-red-400";
 
 const readCollapsed = () => {
     try {
@@ -43,8 +39,7 @@ const pendingBadge = (count) => span({
     title: `${count} pending`,
 }, String(count));
 
-const soonPill = () => span(
-    {class: "ml-auto rounded px-1 text-[9px] font-semibold uppercase tracking-wider text-gray-600"}, "soon");
+const soonPill = () => span({class: "nav-soon"}, "soon");
 
 // sidebar(activePage, {badges})
 //   badges  {[badgeKey]: van.state(number)} — pending counts shown on the
@@ -70,14 +65,6 @@ export function sidebar(activePage, {badges = {}} = {}) {
         writeCollapsed(next);
     });
 
-    const rowClass = (active, future) => `flex items-center gap-2 py-1.5 pl-4 pr-3 rounded cursor-pointer text-sm transition-colors ${
-        active
-            ? "bg-surface text-white"
-            : future
-                ? "text-gray-500 hover:text-gray-200 hover:bg-surface-hover"
-                : "text-gray-400 hover:text-gray-200 hover:bg-surface-hover"
-    }`;
-
     const badgeCount = (entry) => {
         const count = entry.badge ? badges[entry.badge] : null;
         return count ? Number(count.val) || 0 : 0;
@@ -93,7 +80,8 @@ export function sidebar(activePage, {badges = {}} = {}) {
 
     const item = (entry) => div({
         "data-testid": `nav-${entry.key}`,
-        class: () => rowClass(activePage.val === entry.key, entry.future),
+        class: `nav-item ${entry.future ? "nav-item-future" : ""}`,
+        "aria-current": () => activePage.val === entry.key ? "page" : "false",
         onclick: () => activePage.val = entry.key,
     }, span(entry.label), trailing(entry));
 
@@ -103,7 +91,7 @@ export function sidebar(activePage, {badges = {}} = {}) {
         const isCollapsed = () => collapsed.val.has(group.key);
         return div({
             "data-testid": `nav-group-${group.key}`,
-            class: () => `flex items-center gap-1.5 px-2 ${isCollapsed() ? "py-1.5" : "py-0.5"} rounded text-gray-500 select-none cursor-pointer hover:text-gray-300`,
+            class: () => `nav-group-handle ${isCollapsed() ? "py-1.5" : "py-0.5"}`,
             title: group.hint,
             role: "button",
             "aria-label": `Toggle ${group.label}`,
@@ -122,42 +110,28 @@ export function sidebar(activePage, {badges = {}} = {}) {
     const groupBody = (group) => div({class: "flex flex-col gap-0.5"}, ...group.items.map(item));
 
     const nav = div(
-        // The header's bottom border is the first group's separator, so the
-        // nav starts with the same gap a separator leaves below itself.
-        {class: "px-3 pt-1.5 pb-3 flex flex-col"},
-        ...NAV_GROUPS.map((group, index) => div(
-            // Without a visible title, a hairline is what separates groups.
-            {class: index > 0 ? "mt-1.5 border-t border-gray-800 pt-1.5" : ""},
+        {class: "sidebar-nav"},
+        ...NAV_GROUPS.map((group) => div(
+            {class: "nav-group"},
             header(group),
             () => collapsed.val.has(group.key) ? "" : groupBody(group),
         )),
     );
 
     return div(
-        {class: "w-48 shrink-0 h-full min-h-0 bg-sidebar border-r border-gray-800 flex flex-col overflow-hidden"},
-        div(
-            {class: "px-4 py-3 border-b border-gray-800"},
-            h2({class: "text-lg font-bold text-white"}, "OpenDeploy"),
-        ),
+        {class: "sidebar"},
+        div({class: "sidebar-head"}, h2("OpenDeploy")),
         div({class: "app-scroll flex-1 min-h-0 overflow-y-auto"}, nav),
-        // One footer row: stream status on the left, aligned with the item
-        // labels, and a sign-out icon button on the right.
         div(
-            {class: "flex flex-none items-center justify-between border-t border-gray-800 py-2 pl-4 pr-3"},
-            div(
-                {class: "flex min-w-0 items-center gap-2"},
-                span({class: () => `h-2 w-2 flex-none rounded-full ${streamDotClass(deploymentsStreamS.val.status)}`}),
-                p({
-                    class: () => `truncate text-xs ${streamStatusClass(deploymentsStreamS.val.status)}`,
-                    title: () => deploymentsStreamS.val.sentence,
-                }, () => deploymentsStreamS.val.sentence),
-            ),
+            {class: "sidebar-foot"},
+            themePicker(),
+            streamStatus(),
             button({
                 type: "button",
                 "data-testid": "nav-sign-out",
                 title: "Sign out",
                 "aria-label": "Sign out",
-                class: "flex h-7 w-7 flex-none items-center justify-center rounded text-gray-500 transition-colors hover:bg-surface-hover hover:text-gray-200 cursor-pointer",
+                class: "icon-button",
                 onclick: () => {
                     clearLoginState();
                     navigate("/login");

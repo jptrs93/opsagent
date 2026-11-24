@@ -54,7 +54,7 @@ export function timeRangePicker({rangeS, onChange, testid}) {
 
     const presetRow = (preset) => button({
         type: "button",
-        class: "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs text-gray-200 hover:bg-gray-800 cursor-pointer",
+        class: "menu-item w-full",
         onclick: () => {
             rangeS.val = {kind: 'preset', key: preset.key};
             open.val = false;
@@ -82,7 +82,7 @@ export function timeRangePicker({rangeS, onChange, testid}) {
             el,
         );
         return div(
-            {class: "border-t border-gray-800 p-3 flex flex-col gap-1.5"},
+            {class: "mt-1 flex flex-col gap-1.5 border-t border-line px-2 pb-1.5 pt-2.5"},
             span({class: "text-[10px] uppercase tracking-wide text-gray-500"}, "custom range"),
             dtField("from", startInput),
             dtField("to", endInput),
@@ -109,13 +109,13 @@ export function timeRangePicker({rangeS, onChange, testid}) {
         button({
             "data-testid": `${testid}-time-button`,
             type: "button",
-            class: "input flex h-[30px] items-center gap-1.5 whitespace-nowrap text-xs text-gray-200 cursor-pointer hover:bg-gray-700",
+            class: "metrics-control",
             onclick: () => { open.val = !open.val; },
         }, () => rangeLabel(rangeS.val), chevronDownIcon({class: "w-3 h-3 text-gray-500"})),
         () => !open.val ? '' : div(
             div({class: "fixed inset-0 z-20", onclick: () => { open.val = false; }}),
             div(
-                {class: "absolute right-0 top-full z-30 mt-1 w-[22rem] rounded border border-gray-700 bg-gray-900 py-1 shadow-xl"},
+                {class: "menu absolute right-0 top-full z-30 mt-1 w-[22rem]"},
                 div({class: "grid grid-flow-col grid-cols-2 grid-rows-[repeat(7,auto)]"}, ...RANGE_PRESETS.map(presetRow)),
                 customRange(),
             ),

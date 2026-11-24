@@ -3,11 +3,15 @@ import {capi} from '../capi/index.js';
 import {loginS} from './login.js';
 import {createTree, applyMessage, resetTree} from './tree.js';
 import {publishDerived, SEEDED_SPACES} from './derive.js';
+import {createStreamStats} from '../lib/streamStats.js';
+import {bytesReceivedOn} from '../lib/netBytes.js';
 export * from './derive.js';
+
+const EVENT_STREAM_PATH = '/v1/global/event-stream';
 
 export const deploymentsStreamS = van.state({
     status: 'offline',
-    sentence: 'offline',
+    sentence: 'Offline',
     lastError: '',
 });
 
@@ -20,6 +24,9 @@ let streamAbortController = null;
 let streamRetryTimer = null;
 let streamInactivityTimer = null;
 const tree = createTree();
+const streamStats = createStreamStats(bytesReceivedOn(EVENT_STREAM_PATH));
+
+export const deploymentsStreamStats = streamStats.stats;
 
 // A root session streams too: the enrol page needs users, spaces,
 // templates and grants, and the server sends it nothing else.
@@ -64,8 +71,9 @@ const stopDeploymentsStream = ({ clearDeployments = false } = {}) => {
         streamAbortController = null;
     }
     reconnectAttempt = 0;
+    streamStats.closed();
     if (clearDeployments) clearTree();
-    setStreamState('offline', 'offline');
+    setStreamState('offline', 'Offline');
 };
 
 const scheduleReconnect = (generation, lastError) => {
@@ -76,6 +84,7 @@ const scheduleReconnect = (generation, lastError) => {
     }
 
     reconnectAttempt += 1;
+    streamStats.closed();
     setStreamState('reconnecting', `Re-connecting (attempt ${reconnectAttempt})`, lastError || '');
     streamRetryTimer = setTimeout(() => {
         streamRetryTimer = null;
@@ -102,14 +111,17 @@ async function startDeploymentsStream(generation = sessionGeneration) {
     );
 
     let connected = false;
+    streamStats.opening();
     try {
         const stream = capi.postV1GlobalEventStream({}, { signal: streamAbortController.signal });
         for await (const message of stream) {
             if (!connected) {
                 connected = true;
                 reconnectAttempt = 0;
-                setStreamState('connected', 'Connection healthy');
+                streamStats.connected();
+                setStreamState('connected', 'Connected');
             }
+            streamStats.frame(message);
             armInactivityTimer(generation);
             publishDerived(tree, applyMessage(tree, message));
         }

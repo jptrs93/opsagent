@@ -59,13 +59,13 @@ export function restartDeploymentOverlay({deploymentRow, rawConfig, restart, clo
             div({class: "flex items-center justify-end gap-2"},
                 button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-gray-700 text-gray-200 hover:bg-gray-600 disabled:opacity-60 cursor-pointer",
+                    class: "dep-btn text-xs px-3 py-1",
                     disabled: () => saving.val,
                     onclick: close,
                 }, "Cancel"),
                 button({
                     type: "button",
-                    class: "text-xs px-3 py-1 rounded-md font-medium bg-brand text-white hover:bg-blue-600 disabled:opacity-60 cursor-pointer",
+                    class: "dep-btn dep-btn-primary text-xs px-3 py-1",
                     disabled: () => saving.val,
                     "data-testid": "deployment-restart-confirm",
                     onclick: confirmRestart,

@@ -39,6 +39,12 @@ test('split mode plots one line per run with run labels', () => {
     assert.equal(out.charts.mem.series.length, 1);
 });
 
+test('a line keeps its colour slot when the lines before it have no data', () => {
+    const out = buildChartData({...resp, series: [series(10, 'cpu_system_usec', [1, 2, 3])]}, false);
+    assert.equal(out.charts.cpu.series.length, 1);
+    assert.equal(out.charts.cpu.series[0].color, 'var(--chart-series-3)');
+});
+
 test('query fields cover every chart line exactly once', () => {
     const fields = CHARTS.flatMap(c => c.lines.map(l => l.field));
     assert.deepEqual([...new Set(fields)], QUERY_FIELDS);

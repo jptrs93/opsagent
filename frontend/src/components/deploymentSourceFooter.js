@@ -21,9 +21,9 @@ export const STATUS_DOT = {
     error: "bg-red-400",
 };
 export const STATUS_TEXT = {
-    trusted: "text-emerald-300",
-    ok: "text-emerald-300",
-    checking: "text-blue-300",
+    trusted: "text-emerald-300 graphite:text-gray-200",
+    ok: "text-emerald-300 graphite:text-gray-200",
+    checking: "text-blue-300 graphite:text-gray-300",
     unvalidated: "text-gray-400",
     error: "text-red-300",
 };
@@ -35,7 +35,7 @@ const OVERALL_LABEL = {
     error: "Source invalid",
 };
 
-const footerButtonClass = (extra = "") => `inline-flex h-[30px] max-w-[26rem] items-center gap-2 rounded-md border border-gray-700 bg-gray-900 px-2.5 text-xs text-gray-200 transition-colors hover:border-gray-600 hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-gray-900 cursor-pointer ${extra}`;
+const footerButtonClass = (extra = "") => `editor-fbtn inline-flex h-[30px] max-w-[26rem] items-center gap-2 rounded-md border px-2.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer ${extra}`;
 
 // selectionLabel describes the selected version with whatever context the
 // loaded lists add: `branch · sha7 · message` or `tag · date`, else the bare
@@ -78,7 +78,7 @@ export function sourceFooterWidgets({deploymentUpdate: model, onSelectVersion}) 
     }, () => overall() === "unvalidated" ? "Validate" : "Re-validate");
 
     const sourcePanel = () => div(
-        {class: "absolute bottom-full left-0 z-40 mb-1.5 w-[26rem] rounded-md border border-gray-700 bg-gray-900 p-1 text-xs shadow-[0_12px_40px_rgba(0,0,0,0.55)]", "data-testid": "source-status-panel"},
+        {class: "editor-popover absolute bottom-full left-0 z-40 mb-1.5 w-[26rem] p-1 text-xs", "data-testid": "source-status-panel"},
         ...Object.entries(model.layers.val).map(([name, item]) => div(
             {class: "grid grid-cols-[auto_7rem_minmax(0,1fr)] items-start gap-2 rounded px-2 py-1.5"},
             span({class: "mt-1"}, dot(item.status)),
@@ -86,7 +86,7 @@ export function sourceFooterWidgets({deploymentUpdate: model, onSelectVersion}) 
             span({class: `break-words ${STATUS_TEXT[item.status] || ""}`}, item.message),
         )),
         div(
-            {class: "mt-1 flex items-center justify-between gap-2 border-t border-gray-800 px-2 pt-1.5"},
+            {class: "editor-popover-rule mt-1 flex items-center justify-between gap-2 border-t px-2 pt-1.5"},
             span({class: "text-[11px] text-gray-500"}, () => overall() === "trusted"
                 ? "Validated when the deployment was saved."
                 : "Checks run only when you ask."),
@@ -137,7 +137,7 @@ export function sourceFooterWidgets({deploymentUpdate: model, onSelectVersion}) 
             },
                 span({class: "w-4"}, item.id === current ? checkIcon({class: "h-3 w-3 text-blue-300"}) : ""),
                 span({class: "flex min-w-0 items-baseline gap-2"},
-                    span({class: "font-mono text-gray-100"}, model.isImage() ? item.id : shortID(item.id)),
+                    span({class: "editor-version-id font-mono"}, model.isImage() ? item.id : shortID(item.id)),
                     span({class: "truncate text-gray-400"}, item.label || ""),
                     item.id === deployed ? span({class: "rounded bg-emerald-500/15 px-1 text-[10px] text-emerald-300"}, "current") : ""),
                 span({class: "font-mono text-[10px] text-gray-500"}, dateOf(item)),
@@ -147,9 +147,9 @@ export function sourceFooterWidgets({deploymentUpdate: model, onSelectVersion}) 
     };
 
     const versionPanel = () => div(
-        {class: "absolute bottom-full left-0 z-40 mb-1.5 flex w-[30rem] flex-col rounded-md border border-gray-700 bg-gray-900 text-xs shadow-[0_12px_40px_rgba(0,0,0,0.55)]", "data-testid": "version-select-panel"},
+        {class: "editor-popover absolute bottom-full left-0 z-40 mb-1.5 flex w-[30rem] flex-col text-xs", "data-testid": "version-select-panel"},
         div(
-            {class: "flex items-center gap-2 border-b border-gray-800 p-1.5"},
+            {class: "editor-popover-rule flex items-center gap-2 border-b p-1.5"},
             model.isNix() ? select({
                 class: "input h-7 max-w-[11rem] py-0 text-xs",
                 "aria-label": "Branch",
@@ -184,7 +184,7 @@ export function sourceFooterWidgets({deploymentUpdate: model, onSelectVersion}) 
         },
             span({class: "text-gray-500"}, "Version"),
             () => selectionLabel(model)
-                ? span({class: "truncate font-mono text-gray-100", "data-testid": "version-selection"}, selectionLabel(model))
+                ? span({class: "editor-version-id truncate font-mono", "data-testid": "version-selection"}, selectionLabel(model))
                 : span({class: "text-gray-500"}, () => model.sourceValid() ? "Select a version" : "Validate source first"),
             chevronDownIcon({class: "h-3 w-3 text-gray-500 rotate-180"}),
         ),
@@ -193,7 +193,7 @@ export function sourceFooterWidgets({deploymentUpdate: model, onSelectVersion}) 
             "data-testid": "version-refresh-button",
             title: "Refresh available versions",
             "aria-label": "Refresh available versions",
-            class: "inline-flex h-[30px] w-[30px] items-center justify-center rounded-md border border-gray-700 bg-gray-900 text-gray-400 hover:border-gray-600 hover:text-gray-100 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer",
+            class: "editor-fbtn inline-flex h-[30px] w-[30px] items-center justify-center rounded-md border text-gray-400 hover:text-gray-100 classic:hover:bg-gray-900 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer",
             disabled: () => !model.sourceValid() || model.versions.val.loading || versionLocked(),
             onclick: () => { void model.refreshVersions(); },
         }, refreshIcon({class: () => `h-3.5 w-3.5 ${model.versions.val.loading ? "animate-spin" : ""}`})),

@@ -527,18 +527,18 @@ export function deploymentCodeWidget(args) {
     });
     const element = div(
         {
-            class: "flex h-full flex-1 min-h-0 min-w-0 flex-col overflow-hidden bg-gray-950",
+            class: "editor-code flex h-full flex-1 min-h-0 min-w-0 flex-col overflow-hidden",
             "data-testid": "deployment-code-widget",
         },
         host,
         div(
-            {class: "shrink-0 bg-gray-900/90 text-[11px]"},
+            {class: "editor-code-bar shrink-0 text-[11px]"},
             div(
                 {class: "flex min-h-8 items-center justify-end gap-3 px-3 py-1.5"},
                 div(
                     {class: "flex shrink-0 items-center gap-3"},
                     span(
-                        {class: () => diagnostics.val.length ? "text-amber-300" : "text-gray-500"},
+                        {class: () => diagnostics.val.length ? "editor-attention" : "text-gray-500"},
                         () => `${diagnostics.val.length} diagnostic${diagnostics.val.length === 1 ? "" : "s"}`,
                     ),
                     button({
@@ -555,7 +555,7 @@ export function deploymentCodeWidget(args) {
                         const line = currentText.slice(0, Math.max(0, item.from || 0)).split("\n").length;
                         const error = item.severity === "error";
                         return div(
-                            {class: "grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5 odd:bg-black/15"},
+                            {class: "editor-diag-row grid grid-cols-[auto_auto_minmax(0,1fr)] items-start gap-2 rounded-md px-2 py-1.5"},
                             span({class: error ? "mt-1 h-1.5 w-1.5 rounded-full bg-red-400" : "mt-1 h-1.5 w-1.5 rounded-full bg-amber-300"}),
                             span({class: "font-mono text-gray-500"}, `L${line}`),
                             span({class: error ? "break-words text-red-200" : "break-words text-amber-100"}, item.message),

@@ -15,7 +15,7 @@ const generatePassword = () => {
     return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 };
 
-const caption = (text) => span({class: "text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, text);
+const caption = (text) => span({class: "auth-label"}, text);
 
 const section = (title, hint, ...children) => div({class: "flex flex-col gap-2"},
     div({class: "flex flex-wrap items-baseline gap-x-2 gap-y-0.5 border-b border-gray-800 pb-1"},
@@ -24,8 +24,8 @@ const section = (title, hint, ...children) => div({class: "flex flex-col gap-2"}
     ...children);
 
 const buttonBase = "inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium";
-const primaryClass = "bg-brand text-white hover:bg-blue-600";
-const secondaryClass = "border border-gray-600 text-gray-200 hover:bg-surface-hover";
+const primaryClass = "auth-wbtn-primary";
+const secondaryClass = "auth-wbtn";
 
 const actionButton = (text, onClick, {primary = false, disabledWhen, title, testid} = {}) => {
     const b = spinnerButton(text, onClick, primary ? primaryClass : secondaryClass, "button", disabledWhen, {base: buttonBase});
@@ -43,8 +43,7 @@ const quietButton = (text, onclick, testid) => button({
 
 const segment = (state, value, text) => button({
     type: "button",
-    class: () => `rounded px-2.5 py-1 text-xs border cursor-pointer transition-colors ` +
-        (state.val === value ? "border-brand text-gray-100 bg-brand/15" : "border-gray-600 text-gray-400 hover:bg-surface-hover"),
+    class: () => `auth-segment px-2.5 py-1 text-xs cursor-pointer transition-colors${state.val === value ? " auth-segment-on" : ""}`,
     onclick: () => { state.val = value; },
 }, text);
 
@@ -70,7 +69,7 @@ const copyButton = (value) => {
     const copied = van.state(false);
     return button({
         type: "button",
-        class: "inline-flex h-7 flex-none cursor-pointer items-center gap-1 rounded-md border border-gray-600 px-2 text-[11px] text-gray-200 hover:bg-surface-hover",
+        class: "auth-wbtn inline-flex h-7 flex-none cursor-pointer items-center gap-1 rounded-md px-2 text-[11px]",
         "data-testid": "enrol-copy-link",
         onclick: async () => {
             try { await navigator.clipboard.writeText(value); } catch {}
@@ -81,9 +80,7 @@ const copyButton = (value) => {
 };
 
 const notice = (tone, ...children) => div(
-    {class: `flex items-start gap-2 rounded-lg border px-3 py-2.5 text-sm ${tone === "ok"
-        ? "border-emerald-900/60 bg-emerald-950/30 text-emerald-200/90"
-        : "border-red-900/60 bg-red-950/40 text-red-300"}`},
+    {class: `auth-notice ${tone === "ok" ? "auth-notice-success" : "auth-notice-error"} flex items-start gap-2 px-3 py-2.5 text-sm`},
     span({class: "min-w-0"}, ...children));
 
 // actions: createUser({name, password, grants}) → user, createLink({userId}) → {url, expiresAt}, signIn({userId, password}).
@@ -136,11 +133,11 @@ export function userEnrolWidget({
 
     const choice = (icon, heading, text, onclick, testid) => button({
         type: "button",
-        class: "group flex w-full cursor-pointer items-start gap-3 rounded-lg border border-gray-700 bg-gray-900/40 px-4 py-3 text-left transition-colors hover:border-brand/70 hover:bg-brand/10",
+        class: "auth-choice group flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors",
         "data-testid": testid,
         onclick,
     },
-    span({class: "mt-0.5 flex h-8 w-8 flex-none items-center justify-center rounded-md border border-gray-700 bg-gray-950/60 text-gray-300 transition-colors group-hover:border-brand/50 group-hover:text-blue-200"}, icon),
+    span({class: "auth-choice-icon mt-0.5 flex h-8 w-8 flex-none items-center justify-center transition-colors"}, icon),
     span({class: "min-w-0"},
         span({class: "block text-sm font-medium text-gray-100"}, heading),
         span({class: "mt-0.5 block text-xs leading-relaxed text-gray-400"}, text)));
@@ -175,7 +172,7 @@ export function userEnrolWidget({
     const canLink = () => !nameTaken() && (passwordMode.val === "link" || canDirect());
 
     const detailRow = (label, ...children) => div({class: "grid gap-2 px-3 py-2.5 sm:grid-cols-[7rem_1fr] sm:items-start"},
-        span({class: "pt-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500"}, label),
+        span({class: "auth-label pt-2"}, label),
         div({class: "flex min-w-0 flex-col gap-1.5"}, ...children));
 
     const detailsSection = () => {
@@ -221,7 +218,7 @@ export function userEnrolWidget({
                             }, () => passwordShown.val ? eyeOffIcon({class: "h-4 w-4"}) : eyeOpenIcon({class: "h-4 w-4"}))),
                         button({
                             type: "button",
-                            class: "inline-flex h-[38px] flex-none cursor-pointer items-center rounded-lg border border-gray-600 px-3 text-xs text-gray-200 hover:bg-surface-hover",
+                            class: "auth-wbtn inline-flex h-[38px] flex-none cursor-pointer items-center rounded-lg px-3 text-xs",
                             "data-testid": "enrol-generate-password",
                             onclick: () => { password.val = generatePassword(); passwordShown.val = true; },
                         }, "Generate")),
@@ -459,8 +456,8 @@ export function userEnrolOverlay({onClose, ...rest}) {
     const widget = userEnrolWidget({context: "users", onClose, onDone: onClose, ...rest});
     return div(
         {class: "fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"},
-        div({class: "flex w-full max-w-2xl max-h-[88vh] flex-col overflow-hidden rounded-[0.3rem] border border-gray-700 bg-surface shadow-2xl", "data-testid": "enrol-overlay"},
-            div({class: "flex flex-none items-center justify-between gap-3 border-b border-gray-800 px-4 py-3"},
+        div({class: "auth-overlay flex w-full max-w-2xl max-h-[88vh] flex-col overflow-hidden", "data-testid": "enrol-overlay"},
+            div({class: "auth-overlay-head flex flex-none items-center justify-between gap-3 px-4 py-3"},
                 h2({class: "text-base font-semibold"}, () => widget.title.val),
                 button({
                     type: "button",
