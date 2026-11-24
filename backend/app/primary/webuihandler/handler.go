@@ -22,6 +22,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nixstores"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/spacedomainpolicies"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/users"
 	"github.com/jptrs93/opsagent/backend/app/primary/enrollmenthandler"
@@ -169,6 +170,9 @@ func New(staticFS fs.FS, nodeID uint64, deps Dependencies) (*Handler, error) {
 	}
 	if err := users.ActivateExisting(deps.Store); err != nil {
 		return nil, fmt.Errorf("activating existing users: %w", err)
+	}
+	if err := spacedomainpolicies.SeedDefault(deps.Store); err != nil {
+		return nil, fmt.Errorf("seeding the default domain policy: %w", err)
 	}
 	h := &Handler{
 		BackupStatus:  deps.BackupStatus,

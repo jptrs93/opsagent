@@ -57,6 +57,7 @@ export const groups: Group[] = [
     ] },
     { slug: 'reference/space', title: 'Space', sections: [] },
     { slug: 'reference/network-policy', title: 'Network policy', sections: [] },
+    { slug: 'reference/domain-policy', title: 'Domain policy', sections: [] },
     { slug: 'reference/secret', title: 'Secret', sections: [] },
     { slug: 'reference/config-value', title: 'Config value', sections: [] },
     { slug: 'reference/asset', title: 'Asset', sections: [] },

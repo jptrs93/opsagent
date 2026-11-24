@@ -19,6 +19,7 @@ func newV2DeploymentHandler(t *testing.T) (*Handler, *apigen.DeploymentRecord, *
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := ensureTestNode(store, "primary", "primary-id")
+	seedDefaultDomainPolicy(t, store)
 	h := &Handler{SystemConfig: testConfigService(t, store), Store: store, Queries: store.Queries()}
 	cfg, err := h.deploymentsCreate(apigen.Context{}, &apigen.DeploymentCreateRequest{
 		SpaceID: 1, Name: "web",

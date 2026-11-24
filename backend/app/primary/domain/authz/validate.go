@@ -34,7 +34,7 @@ func validVerb(v apigen.AuthzVerb) bool {
 }
 
 func validEntityKind(v apigen.AuthzEntityKind) bool {
-	return v >= apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SPACE && v <= apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS
+	return v >= apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_SPACE && v <= apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DOMAIN_POLICY
 }
 
 func validArgumentKind(v apigen.AuthzArgumentKind) bool {

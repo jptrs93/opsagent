@@ -27,10 +27,15 @@ export const ENTITY_TYPES = [
     {id: 7, name: "cluster"},
     {id: 8, name: "user"},
     {id: 9, name: "access"},
+    {id: 10, name: "domain_policy"},
 ];
 
 const verbNames = new Map(VERBS.map((v) => [v.id, v.name]));
 const entityNames = new Map(ENTITY_TYPES.map((e) => [e.id, e.name]));
+
+// The plural a rule reads with: "secrets", "domain_policies". Access has none.
+export const entityTypePlural = (name) =>
+    name === "access" ? name : name.endsWith("y") ? `${name.slice(0, -1)}ies` : `${name}s`;
 
 // The four selector positions of a rule, in grammar order
 // (spaces : entity types : entity refs : permissions).
@@ -71,6 +76,7 @@ export const REF_TARGETS = [
     {key: "authzGrantTemplate", name: "role", entityType: 9},
     {key: "authzGrant", name: "grant", entityType: 9},
     {key: "authzGlobalRule", name: "global_rule", entityType: 9},
+    {key: "spaceDomainPolicy", name: "domain_policy", entityType: 10},
 ];
 
 export const entityRef = (targetKey, id) => ({target: {value: {[targetKey]: Number(id)}}});

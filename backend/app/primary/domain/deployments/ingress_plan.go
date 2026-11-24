@@ -47,7 +47,8 @@ func ingressPlanInputs(live nodes.LiveState, reservations []ingressplan.Reservat
 
 // ValidateNodeNetworkingClaims evaluates the candidate against every other
 // deployment and the Web UI reservations and rejects the save on the first
-// error; collisions are decided on the listen selectors, not the inventory. A node selector must name a registered node, and until netproxy
+// error; port collisions are decided on the listen selectors, not the
+// inventory. A node selector must name a registered node, and until netproxy
 // can dial backends on other machines it must be the deployment's own node:
 // a route named for another node would validate and then publish nothing.
 func ValidateNodeNetworkingClaims(live nodes.LiveState, reservations []ingressplan.Reservation, nodeID, deploymentID uint64, candidate *apigen.DeploymentSpec) error {

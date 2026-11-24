@@ -3,7 +3,7 @@
 // definition pane, and folds one or more rules into one action × resource
 // grid per space for the access table, with the pairs the API actually
 // checks. No van and no DOM; unit tested in authzExplain.test.js.
-import {ENTITY_TYPES, VERBS, bindingValues, grantRule, grantTemplateId, positionValueName, readSelector, ruleEffect, templateArguments} from "./authz.js";
+import {ENTITY_TYPES, VERBS, bindingValues, entityTypePlural, grantRule, grantTemplateId, positionValueName, readSelector, ruleEffect, templateArguments} from "./authz.js";
 
 // What each verb lets a caller do, in the words the popover uses.
 export const VERB_GLOSS = {
@@ -28,6 +28,7 @@ export const ENTITY_GLOSS = {
     cluster: "cluster settings, backup and export",
     user: "the user roster: adding users and issuing their sign-in links",
     access: "roles, grants and global rules",
+    domain_policy: "space domain policies: which spaces may publish which ingress hostnames",
 };
 
 // PAIR_GLOSS says, per applicable action and resource type, what holding
@@ -71,14 +72,16 @@ export const PAIR_GLOSS = {
     "access:update": "edit roles",
     "access:delete": "delete roles, grants and global rules",
     "access:view": "list roles, grants and global rules",
+    "domain_policy:create": "make space domain policies",
+    "domain_policy:update": "edit, enable and disable space domain policies",
+    "domain_policy:delete": "delete space domain policies",
+    "domain_policy:view": "see the space domain policies",
 };
 
 // Requests on these entity types are checked in the _system space (0), not
 // in the space of any item, so a rule that leaves space 0 out never covers them.
-export const CLUSTER_LEVEL = new Set(["node", "cluster", "user", "access"]);
+export const CLUSTER_LEVEL = new Set(["node", "cluster", "user", "access", "domain_policy"]);
 const SYSTEM_SPACE_ID = 0;
-
-const typePlural = (name) => name === "access" ? name : `${name}s`;
 
 // resolveSelector reads one selector into a mode, the listed values, and, when
 // the position has a finite universe (verbs, entity types, live spaces), one
@@ -187,6 +190,7 @@ export const APPLICABLE = {
     cluster: ["update", "view"],
     user: ["create", "view"],
     access: ["create", "update", "delete", "view"],
+    domain_policy: ["create", "update", "delete", "view"],
 };
 
 // SYSTEM_APPLICABLE is the part of that checked in the _system space (0):
@@ -207,6 +211,7 @@ export const SYSTEM_APPLICABLE = {
     cluster: ["update", "view"],
     user: ["create", "view"],
     access: ["create", "update", "delete", "view"],
+    domain_policy: ["create", "update", "delete", "view"],
 };
 
 // SPACE_APPLICABLE is the part checked in a real space.
@@ -227,7 +232,7 @@ export const VERB_SHORT = {
 };
 export const ENTITY_SHORT = {
     space: "space", deployment: "deploy", secret: "secret", config: "config", asset: "asset",
-    node: "node", cluster: "cluster", user: "user", access: "access",
+    node: "node", cluster: "cluster", user: "user", access: "access", domain_policy: "domains",
 };
 
 const NA_BY_TYPE = {
@@ -242,13 +247,13 @@ export const notApplicableReason = (verb, type, system = null) => {
         if (verb === "reveal") return "reveal applies to secrets only";
         if (verb === "view_logs") return "view_logs applies to deployments only";
         if (verb.startsWith("use_")) return `${verb} applies to deployments only`;
-        return NA_BY_TYPE[type] || `${verb} does not apply to ${typePlural(type)}`;
+        return NA_BY_TYPE[type] || `${verb} does not apply to ${entityTypePlural(type)}`;
     }
     if (system) {
         if (type === "deployment" && verb === "use_privileged_ports") return "the system deployments claim no host ports";
         if (type === "deployment") return "deployments in _system are the per-node system deployments, created by opendeploy itself";
         if (type === "space") return "the _system space cannot be renamed or deleted";
-        return `${typePlural(type)} live in real spaces, never in _system`;
+        return `${entityTypePlural(type)} live in real spaces, never in _system`;
     }
     if (type === "space") return "creating a space is checked in the _system space, since the new space has no id yet";
     return `${verb} ${type} is checked in the _system space, not here`;

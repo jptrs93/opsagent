@@ -34,6 +34,8 @@ func EntityRefTarget(ref apigen.AuthzEntityRef) (apigen.AuthzEntityKind, uint64,
 		return apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS, *v.AuthzGrant, true
 	case v.AuthzGlobalRule != nil:
 		return apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS, *v.AuthzGlobalRule, true
+	case v.SpaceDomainPolicy != nil:
+		return apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DOMAIN_POLICY, *v.SpaceDomainPolicy, true
 	}
 	return apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_UNSPECIFIED, 0, false
 }

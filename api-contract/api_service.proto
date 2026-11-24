@@ -338,6 +338,21 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
+  rpc PostV1SpaceDomainPoliciesCreate(SpaceDomainPolicyCreateRequest) returns (CoreWriteUpdate) {
+    option (cp.url) = "/v1/space-domain-policies/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1SpaceDomainPoliciesUpdate(SpaceDomainPolicyUpdateRequest) returns (CoreWriteUpdate) {
+    option (cp.url) = "/v1/space-domain-policies/update";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1SpaceDomainPoliciesDelete(SpaceDomainPolicyDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/space-domain-policies/delete";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
   rpc PostV1SecretsCreate(SecretCreateRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }

@@ -4843,6 +4843,10 @@ func (m *AuthzEntityRefTarget) validate(seen map[any]bool) error {
 		value := m.Value.AuthzGlobalRule
 		_ = value
 	}
+	{
+		value := m.Value.SpaceDomainPolicy
+		_ = value
+	}
 	return nil
 }
 
@@ -5052,7 +5056,7 @@ func (m *AuthzEntityKindList) validate(seen map[any]bool) error {
 	for i, item := range m.Values {
 		_ = i
 		switch int32(item) {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9:
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10:
 		default:
 			return newValidationError([]string{fmt.Sprintf("values[%d]", i)}, "must be a defined enum value")
 		}
@@ -5599,7 +5603,7 @@ func (m *AuthzEntityValues) validate(seen map[any]bool) error {
 	for i, item := range m.Values {
 		_ = i
 		switch int32(item) {
-		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9:
+		case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10:
 		default:
 			return newValidationError([]string{fmt.Sprintf("values[%d]", i)}, "must be a defined enum value")
 		}
@@ -7056,6 +7060,265 @@ func (m *NetworkPolicyUpdateRequest) validate(seen map[any]bool) error {
 
 func (m *NetworkPolicyDeleteRequest) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *NetworkPolicyDeleteRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *SpaceDomainPolicy) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainPolicy) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if utf8.RuneCountInString(m.Name) < 1 {
+		return newValidationError([]string{"name"}, "must be at least 1 character")
+	}
+	if utf8.RuneCountInString(m.Name) > 64 {
+		return newValidationError([]string{"name"}, "must be at most 64 characters")
+	}
+	{
+		value := &m.Rule
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "rule")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *SpaceDomainRule) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainRule) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Effect
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "effect")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Selector
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "selector")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *SpaceDomainAllow) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainAllow) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *SpaceDomainDeny) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainDeny) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *SpaceDomainEffect) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainEffect) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if err := m.Value.Validate(); err != nil {
+		return wrapValidationError(err, "value")
+	}
+	{
+		value := m.Value.Allow
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "allow")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Value.Deny
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "deny")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *SpaceDomainSelector) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainSelector) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Spaces
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "spaces")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Domains
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "domains")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *DomainSelector) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *DomainSelector) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.ExactDomains.Value, m.ExactDomains.Present
+		var value *DomainList
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "exact_domains")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.AllDomainsExcluding.Value, m.AllDomainsExcluding.Present
+		var value *DomainList
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "all_domains_excluding")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *DomainList) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *DomainList) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *SpaceDomainPolicyCreateRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainPolicyCreateRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Rule
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "rule")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *SpaceDomainPolicyUpdateRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainPolicyUpdateRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Rule
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "rule")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *SpaceDomainPolicyDeleteRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *SpaceDomainPolicyDeleteRequest) validate(seen map[any]bool) error {
 	if m == nil {
 		return newValidationError(nil, "message is nil")
 	}
@@ -8541,7 +8804,7 @@ func (m *CreateMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -8584,7 +8847,7 @@ func (m *UpdateMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -8627,7 +8890,7 @@ func (m *DeleteMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -8661,7 +8924,7 @@ func (m *MaterialisedEntity) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -8906,6 +9169,15 @@ func (m *CoreEntity) validate(seen map[any]bool) error {
 		if value != nil {
 			if err := value.validate(seen); err != nil {
 				return wrapValidationError(err, "secret_keyslot")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Value.SpaceDomainPolicy
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "space_domain_policy")
 			}
 		}
 		_ = value

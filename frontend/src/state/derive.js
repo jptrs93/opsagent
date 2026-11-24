@@ -36,6 +36,9 @@ export const authzGrantsS = van.state([]);
 export const authzGlobalRulesS = van.state([]);
 // Network policy rows derive the latest live event per policy.
 export const networkPoliciesS = van.state([]);
+// Space domain policy rows carry the seq of their last write, the
+// expectedSeq of an update.
+export const spaceDomainPoliciesS = van.state([]);
 // ingressDiagnosticsS arrives as a full snapshot whenever the primary
 // re-renders the cluster network map: per-deployment ingress warnings.
 export const ingressDiagnosticsS = van.state([]);
@@ -132,6 +135,7 @@ export function publishDerived(tree, changed) {
     if (any('valueDirectories')) valueDirectoriesS.val = sortByName([...tree.valueDirectories.values()]);
     if (any('assetDirectories')) assetDirectoriesS.val = sortAssets([...tree.assetDirectories.values()]);
     if (any('networkPolicies')) networkPoliciesS.val = [...tree.networkPolicies.values()].map(e => ({...e.value, id: e.networkPolicyId, seq: e.seq})).sort((a, b) => a.id - b.id);
+    if (any('spaceDomainPolicies')) spaceDomainPoliciesS.val = [...tree.spaceDomainPolicies.values()].map(e => ({...e.value, id: e.spaceDomainPolicyId, seq: e.seq})).sort((a, b) => a.id - b.id);
     if (any('authzGrants')) authzGrantsS.val = [...tree.authzGrants.values()].map(authzGrantViewModel).sort((a, b) => a.id - b.id);
     if (any('authzGrantTemplates')) authzTemplatesS.val = [...tree.authzGrantTemplates.values()].sort((a, b) => a.id - b.id);
     if (any('authzGlobalRules')) authzGlobalRulesS.val = [...tree.authzGlobalRules.values()].sort((a, b) => a.id - b.id);

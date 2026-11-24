@@ -201,8 +201,9 @@ enum AuthzEntityKind {
     Cluster@7
     User@8
     Access@9
+    DomainPolicy@10
 }
 
 type AuthzEntityRef {
-    target@1: Space.id@1 | Deployment.id@2 | Secret.id@3 | Config.id@4 | Asset.id@5 | Node.id@6 | SystemConfig.id@7 | User.id@8 | AuthzGrantTemplate.id@9 | AuthzGrant.id@10 | AuthzGlobalRule.id@11
+    target@1: Space.id@1 | Deployment.id@2 | Secret.id@3 | Config.id@4 | Asset.id@5 | Node.id@6 | SystemConfig.id@7 | User.id@8 | AuthzGrantTemplate.id@9 | AuthzGrant.id@10 | AuthzGlobalRule.id@11 | SpaceDomainPolicy.id@12
 }

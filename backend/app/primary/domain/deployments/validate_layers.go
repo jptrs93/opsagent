@@ -192,6 +192,9 @@ func inLockValidateDeploymentCreate(ctx context.Context, q *pq.Queries, reservat
 	if err := validateIssuedTLSNames(&updated.Deployment.Spec, updated.Deployment.ID, updated.Deployment.SpaceID); err != nil {
 		return err
 	}
+	if err := validateIngressDomains(ctx, q, &updated.Deployment); err != nil {
+		return err
+	}
 	return validateRefSpaces(ctx, q, &updated.Deployment.Spec, updated.Deployment.SpaceID)
 }
 
@@ -255,6 +258,9 @@ func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservat
 		return err
 	}
 	if err := validateIssuedTLSNames(&updated.Deployment.Spec, updated.Deployment.ID, updated.Deployment.SpaceID); err != nil {
+		return err
+	}
+	if err := validateIngressDomains(ctx, q, &updated.Deployment); err != nil {
 		return err
 	}
 	return validateRefSpaces(ctx, q, &updated.Deployment.Spec, updated.Deployment.SpaceID)

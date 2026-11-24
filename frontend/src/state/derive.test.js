@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {createTree, applyMessage} from './tree.js';
 import {deriveDeploymentRows} from './deploymentMerge.js';
-import {deriveEnrollments, configViewModel, authzGrantViewModel, nodeViewModel} from './derive.js';
+import {deriveEnrollments, configViewModel, authzGrantViewModel, nodeViewModel, publishDerived, spaceDomainPoliciesS} from './derive.js';
 
-const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17;
-const fields = {[DEPLOYMENT]: 'deployment', [SCHEDULED_INSTANCE]: 'scheduledInstance', [NODE]: 'node', [SCHEDULED_INSTANCE_STATUS]: 'scheduledInstanceStatus', [NODE_STATUS]: 'nodeStatus'};
+const DEPLOYMENT = 1, SCHEDULED_INSTANCE = 2, NODE = 3, SCHEDULED_INSTANCE_STATUS = 16, NODE_STATUS = 17, SPACE_DOMAIN_POLICY = 22;
+const fields = {[DEPLOYMENT]: 'deployment', [SCHEDULED_INSTANCE]: 'scheduledInstance', [NODE]: 'node', [SCHEDULED_INSTANCE_STATUS]: 'scheduledInstanceStatus', [NODE_STATUS]: 'nodeStatus',
+    [SPACE_DOMAIN_POLICY]: 'spaceDomainPolicy'};
 const create = (type, id, entity, meta) => ({value: {create: {entityType: type, entityId: id, entity: {value: {[fields[type]]: entity}}, ...(meta ? {meta} : {})}}});
 const deployment = version => ({spec: {workload: {value: {container: {version: `sha-${version}`}}}}});
 const deploymentMeta = version => ({version, specVersion: version});
@@ -117,4 +118,19 @@ test('grant view preserves subject, bindings and attribution from the event', ()
     assert.deepEqual(authzGrantViewModel({authzGrantId: 10, author: 4, createdTime: 123, value}), {
         ...value, id: 10, author: 4, createdAt: 123,
     });
+});
+
+test('space domain policies derive in id order with the seq an update expects', () => {
+    const rule = {effect: {value: {allow: {}}}, selector: {spaces: {allSpacesExcluding: {values: []}}, domains: {allDomainsExcluding: {values: []}}}};
+    const policy = (id, name, disabled = false) => ({id, name, disabled, rule});
+    const tree = createTree();
+    const changed = applyMessage(tree, {seq: 6, events: [
+        {seq: 5, time: 5000, mutations: [create(SPACE_DOMAIN_POLICY, 2, policy(2, 'prod-only')), create(SPACE_DOMAIN_POLICY, 1, policy(1, 'default_ingress_domains'))]},
+        {seq: 6, time: 6000, mutations: [{value: {update: {entityType: SPACE_DOMAIN_POLICY, entityId: 2, entity: {value: {spaceDomainPolicy: policy(2, 'prod-only', true)}}}}}]},
+    ]});
+    publishDerived(tree, changed);
+    assert.deepEqual(spaceDomainPoliciesS.val, [
+        {id: 1, seq: 5, name: 'default_ingress_domains', disabled: false, rule},
+        {id: 2, seq: 6, name: 'prod-only', disabled: true, rule},
+    ]);
 });

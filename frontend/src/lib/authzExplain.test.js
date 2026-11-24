@@ -129,12 +129,16 @@ test("a rule over every space gets a System tab first and one Any space tab", ()
     assert.equal(system["secret:view"].state, "na");
     assert.equal(system["space:create"].state, "user");
     assert.equal(system["space:update"].state, "na");
-    assert.deepEqual(tab(m, "system").grid.types.map((t) => t.name), ["space", "deployment", "node", "cluster", "user", "access"]);
+    assert.equal(system["domain_policy:update"].state, "user");
+    assert.equal(system["domain_policy:reveal"].state, "na");
+    assert.deepEqual(tab(m, "system").grid.types.map((t) => t.name), ["space", "deployment", "node", "cluster", "user", "access", "domain_policy"]);
 
     const any = cellsOf(tab(m, "1-2-3"));
     assert.equal(any["space:create"].state, "na");
     assert.equal(any["deployment:create"].state, "user");
     assert.equal(any["node:view"].state, "na");
+    assert.equal(any["domain_policy:view"].state, "na");
+    assert.equal(notApplicableReason("view", "domain_policy"), "view domain_policy is checked in the _system space, not here");
 });
 
 test("a delegable rule reaches both sessions and a scoped one leaves the rest out", () => {

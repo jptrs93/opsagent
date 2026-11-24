@@ -23,6 +23,7 @@ func newSecretLocalityHandler(t *testing.T) (*Handler, *nodes.Node) {
 	t.Helper()
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	node := ensureTestNode(store, "primary", "primary")
+	seedDefaultDomainPolicy(t, store)
 	secretsManager, err := secrets.Initialize(t.TempDir(), store)
 	if err != nil {
 		t.Fatalf("secrets.Initialize: %v", err)

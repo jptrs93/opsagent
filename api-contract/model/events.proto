@@ -100,6 +100,7 @@ enum CoreEntityType { // numbers equal the CoreEntity field numbers
   CORE_ENTITY_USER_SESSION = 19;
   CORE_ENTITY_NIX_STORE_RESET = 20;
   CORE_ENTITY_SECRET_KEYSLOT = 21; // replica only; never in the browser class
+  CORE_ENTITY_SPACE_DOMAIN_POLICY = 22;
 }
 
 message CoreEntity {
@@ -126,6 +127,7 @@ message CoreEntity {
     UserSession user_session = 19;
     NixStoreReset nix_store_reset = 20;
     SecretKeyslot secret_keyslot = 21;
+    SpaceDomainPolicy space_domain_policy = 22;
   }
 }
 

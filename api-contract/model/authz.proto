@@ -32,6 +32,7 @@ enum AuthzEntityKind {
   AUTHZ_ENTITY_KIND_CLUSTER = 7;
   AUTHZ_ENTITY_KIND_USER = 8;
   AUTHZ_ENTITY_KIND_ACCESS = 9;
+  AUTHZ_ENTITY_KIND_DOMAIN_POLICY = 10;
 }
 
 enum AuthzArgumentKind {
@@ -61,6 +62,7 @@ message AuthzEntityRefTarget {
     uint64 authz_grant_template = 9 [(cp.js_type) = "number"];
     uint64 authz_grant = 10 [(cp.js_type) = "number"];
     uint64 authz_global_rule = 11 [(cp.js_type) = "number"];
+    uint64 space_domain_policy = 12 [(cp.js_type) = "number"];
   }
 }
 

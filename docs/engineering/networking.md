@@ -673,6 +673,63 @@ into its DNAT keys so restricted rules audit clean. Warnings and exclusions
 are published on the state stream (`ingress_diagnostics` in `Snapshot` / `Update`) and shown
 in the deployment editor's networking pane.
 
+### Domain policies
+
+Which space may publish which ingress hostname is decided by the cluster's
+space domain policies (`SpaceDomainPolicy`, core entity 22, added
+2026-11-24). Without them a hostname belonged to whichever deployment
+claimed it first, in any space, and a second deployment could take a longer
+path prefix under another space's hostname.
+
+A policy is a name, a `disabled` flag, and a rule in the shape of an access
+rule: an effect, `allow` or `deny`, and a selector of two positions, `spaces`
+(the access `AuthzSpaceSelector`) and `domains` (`DomainSelector`). Each
+position sets exactly one list: `exact_…` covers the listed values and
+`all_…_excluding` covers everything else, the empty list being the wildcard.
+A domain value is a hostname, or `*.` and a hostname for every name below it
+at any depth; `*.example.com` does not cover `example.com`.
+
+`lib/domainpolicy.Decide` evaluates one space and hostname: an enabled deny
+that matches refuses, otherwise an enabled allow that matches permits, and a
+hostname no allow covers is refused. Rules are flat. A narrower allow does
+not override a broader deny, so a deny lists the exact names it protects.
+Paths are not a selector position: a hostname is one origin whatever paths
+are split across it, and two spaces that share a hostname by path are both
+listed in one allow.
+
+The policies hold as an invariant over stored state rather than a filter at
+publish time, kept by two checks under the write lock:
+
+- A deployment create or update is refused with `403
+  ingress_domain_not_allowed` when its space is not allowed one of the
+  hostnames in `networking.ingress` (`validateIngressDomains`). The check runs
+  on every update kind, so a space move is checked against the destination.
+  Host-mode specs publish nothing and are not checked.
+- A policy create, update, or delete is refused with `409
+  space_domain_policy_routes_in_use` when the resulting set would refuse a
+  hostname that a stored deployment publishes, running or stopped
+  (`spacedomainpolicies.requireRoutesAllowed`). The message lists up to five
+  of them. Disabling a policy is an update and is checked the same way.
+
+Because both run inside `Commit`, neither can slip past the other, and the
+node publisher does not evaluate policies: every stored route is allowed.
+
+A cluster starts with `default_ingress_domains`, an enabled allow for every
+space and every hostname, so nothing needs configuring before the first
+route. It is seeded once by `spacedomainpolicies.SeedDefault` from
+`webuihandler.New`, like the seeded global access rule: the write log is
+asked whether the name was ever written, so a deleted default stays deleted.
+An upgrade seeds it too, which is why existing routes pass. With the default
+in place any space can publish any unclaimed hostname; an operator narrows
+that with a deny per protected domain, or replaces the default with exact
+allows.
+
+Managing policies is the `domain_policy` access entity kind, checked at the
+cluster level (space 0): see [auth.md](auth.md#authz-layer-backendappprimarydomainauthz).
+A policy that lists a space by id blocks deleting that space. Issued TLS
+names (`issued_tls`) are internal names under the deployment's own space and
+are not subject to domain policies.
+
 ### HTTPS termination
 
 HTTPS routes are terminated by netproxy and claim TCP 443 plus 80 (HTTP→HTTPS

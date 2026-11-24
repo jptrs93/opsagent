@@ -4,6 +4,55 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.622 (released 2026-11-24)
+
+### What changed
+
+- **Domain policies decide which space may publish which ingress
+  hostname.** A policy is an allow or a deny over a selection of spaces and
+  a selection of domains, written like an access rule. Enabled denies are
+  checked first, then enabled allows, and a hostname no allow covers is
+  refused. They are managed on the Spaces page under Domain policies, and
+  each has an enable toggle.
+- **A deployment save is refused when its space is not allowed one of its
+  ingress hostnames**, with `403 ingress_domain_not_allowed`. This covers
+  create, every kind of update, and a move to another space.
+- **A policy change never takes a route off the air.** Creating, changing,
+  disabling or deleting a policy is refused with `409
+  space_domain_policy_routes_in_use` when it would leave a hostname some
+  deployment already publishes without permission. The message lists them.
+- **Managing policies is a new permission**, the `domain_policy` entity
+  kind at the cluster level. Cluster admins hold it. Space admins and agent
+  sessions do not.
+- **A space cannot be deleted while a domain policy names it.**
+
+### Before upgrading
+
+- **Nothing needs doing for existing routes.** The first start on this
+  release creates the policy `default_ingress_domains`, which allows every
+  space every hostname, so every stored route stays allowed.
+- **Check custom rules that use `all_entity_types_excluding`.** Such a rule
+  conveys `domain_policy` from the first start on this release, because the
+  list was written before the kind existed. Add the kind to the list where
+  that is not intended.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. Only the primary
+  reads the policies; nodes and the proxy see no change.
+- **Do not roll the primary back** once it has started on this release. The
+  first start writes the default policy to the write log, and an earlier
+  release does not know the entity.
+
+### After upgrading
+
+- While the default policy is enabled any space can publish any hostname
+  nobody has taken. To keep a domain for one space, add a deny for every
+  other space that lists the domain and `*.` the domain. The Domain
+  policies tab says so while more than one space exists.
+- Deleting the default is remembered: it is not created again on a later
+  start.
+
 ## v0.0.621 (released 2026-11-24)
 
 ### What changed
@@ -30,7 +79,10 @@ and what to expect during and after the rollout.
 - **Copy out anything you still need from the volumes of deleted
   deployments.** Once the primary runs this release, every node removes
   the volume directory of each deployment that no longer exists, including
-  those deleted under earlier releases. To see what will go, list
+  those deleted under earlier releases. A node also removes the directory
+  of a deployment that exists but is placed on another node, which is what
+  a deployment leaves behind on the node it was created on before its
+  placement changed. To see what will go, list
   `/var/lib/opendeploy-volumes` on each node and compare the directory
   names with the ids of the deployments placed on that node. Entries whose
   name is not a deployment id are left alone.

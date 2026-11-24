@@ -46,6 +46,7 @@ const (
 	eCluster    = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_CLUSTER
 	eUser       = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_USER
 	eAccess     = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS
+	eDomain     = apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DOMAIN_POLICY
 )
 
 var eValues = []apigen.AuthzEntityKind{eSecret, eConfig}

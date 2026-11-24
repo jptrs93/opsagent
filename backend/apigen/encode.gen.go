@@ -16074,7 +16074,7 @@ func mergeAuthzEntityRef(b []byte, m *AuthzEntityRef) (*AuthzEntityRef, error) {
 }
 
 func (m AuthzEntityRefTarget) IsZero() bool {
-	return (m.Value.Space == nil && m.Value.Deployment == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.Node == nil && m.Value.SystemConfig == nil && m.Value.User == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil) &&
+	return (m.Value.Space == nil && m.Value.Deployment == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.Node == nil && m.Value.SystemConfig == nil && m.Value.User == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SpaceDomainPolicy == nil) &&
 		len(m.unknownFields) == 0
 }
 
@@ -16139,6 +16139,10 @@ func (m *AuthzEntityRefTarget) encodeUnchecked() []byte {
 	{
 		value := m.Value.AuthzGlobalRule
 		b = AppendUint64FieldOpt(b, value, 11)
+	}
+	{
+		value := m.Value.SpaceDomainPolicy
+		b = AppendUint64FieldOpt(b, value, 12)
 	}
 	return append(b, m.unknownFields...)
 }
@@ -16239,6 +16243,13 @@ func mergeAuthzEntityRefTarget(b []byte, m *AuthzEntityRefTarget) (*AuthzEntityR
 			b, value, err = ConsumeVarUint64Opt(b, typ)
 			if err == nil {
 				m.Value = AuthzEntityRefTargetValueOneof{AuthzGlobalRule: value}
+			}
+		case 12:
+			var value *uint64
+			value = m.Value.SpaceDomainPolicy
+			b, value, err = ConsumeVarUint64Opt(b, typ)
+			if err == nil {
+				m.Value = AuthzEntityRefTargetValueOneof{SpaceDomainPolicy: value}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -23905,6 +23916,916 @@ func mergeNetworkPolicyDeleteRequest(b []byte, m *NetworkPolicyDeleteRequest) (*
 }
 
 // Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainPolicy) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainPolicy) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainPolicy) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	b = AppendStringField(b, m.Name, 2)
+	b = AppendBoolField(b, m.Disabled, 3)
+	{
+		value := &m.Rule
+		if value != nil {
+			b = AppendTag(b, 4, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainPolicy) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeSpaceDomainPolicy(b []byte) (*SpaceDomainPolicy, error) {
+	return mergeSpaceDomainPolicy(b, nil)
+}
+
+func mergeSpaceDomainPolicy(b []byte, m *SpaceDomainPolicy) (*SpaceDomainPolicy, error) {
+	if m == nil {
+		m = new(SpaceDomainPolicy)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Disabled, err = ConsumeBool(b, typ)
+		case 4:
+			var value *SpaceDomainRule
+			value = &m.Rule
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceDomainRule
+				item, err = mergeSpaceDomainRule(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Rule = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m SpaceDomainRule) IsZero() bool {
+	return m.Effect.IsZero() &&
+		m.Selector.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainRule) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainRule) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainRule) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Effect
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Selector
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainRule) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeSpaceDomainRule(b []byte) (*SpaceDomainRule, error) {
+	return mergeSpaceDomainRule(b, nil)
+}
+
+func mergeSpaceDomainRule(b []byte, m *SpaceDomainRule) (*SpaceDomainRule, error) {
+	if m == nil {
+		m = new(SpaceDomainRule)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *SpaceDomainEffect
+			value = &m.Effect
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceDomainEffect
+				item, err = mergeSpaceDomainEffect(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Effect = *value
+			}
+		case 2:
+			var value *SpaceDomainSelector
+			value = &m.Selector
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceDomainSelector
+				item, err = mergeSpaceDomainSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Selector = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainAllow) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainAllow) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainAllow) encodeUnchecked() []byte {
+	var b []byte
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainAllow) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeSpaceDomainAllow(b []byte) (*SpaceDomainAllow, error) {
+	return mergeSpaceDomainAllow(b, nil)
+}
+
+func mergeSpaceDomainAllow(b []byte, m *SpaceDomainAllow) (*SpaceDomainAllow, error) {
+	if m == nil {
+		m = new(SpaceDomainAllow)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainDeny) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainDeny) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainDeny) encodeUnchecked() []byte {
+	var b []byte
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainDeny) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeSpaceDomainDeny(b []byte) (*SpaceDomainDeny, error) {
+	return mergeSpaceDomainDeny(b, nil)
+}
+
+func mergeSpaceDomainDeny(b []byte, m *SpaceDomainDeny) (*SpaceDomainDeny, error) {
+	if m == nil {
+		m = new(SpaceDomainDeny)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m SpaceDomainEffect) IsZero() bool {
+	return (m.Value.Allow == nil && m.Value.Deny == nil) &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainEffect) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainEffect) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainEffect) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := m.Value.Allow
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Value.Deny
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainEffect) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeSpaceDomainEffect(b []byte) (*SpaceDomainEffect, error) {
+	return mergeSpaceDomainEffect(b, nil)
+}
+
+func mergeSpaceDomainEffect(b []byte, m *SpaceDomainEffect) (*SpaceDomainEffect, error) {
+	if m == nil {
+		m = new(SpaceDomainEffect)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *SpaceDomainAllow
+			value = m.Value.Allow
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceDomainAllow
+				item, err = mergeSpaceDomainAllow(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = SpaceDomainEffectValueOneof{Allow: value}
+			}
+		case 2:
+			var value *SpaceDomainDeny
+			value = m.Value.Deny
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceDomainDeny
+				item, err = mergeSpaceDomainDeny(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = SpaceDomainEffectValueOneof{Deny: value}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m SpaceDomainSelector) IsZero() bool {
+	return m.Spaces.IsZero() &&
+		m.Domains.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainSelector) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainSelector) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainSelector) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Spaces
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Domains
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainSelector) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeSpaceDomainSelector(b []byte) (*SpaceDomainSelector, error) {
+	return mergeSpaceDomainSelector(b, nil)
+}
+
+func mergeSpaceDomainSelector(b []byte, m *SpaceDomainSelector) (*SpaceDomainSelector, error) {
+	if m == nil {
+		m = new(SpaceDomainSelector)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *AuthzSpaceSelector
+			value = &m.Spaces
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *AuthzSpaceSelector
+				item, err = mergeAuthzSpaceSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Spaces = *value
+			}
+		case 2:
+			var value *DomainSelector
+			value = &m.Domains
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DomainSelector
+				item, err = mergeDomainSelector(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Domains = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m DomainSelector) IsZero() bool {
+	return m.ExactDomains.IsZero() &&
+		m.AllDomainsExcluding.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *DomainSelector) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *DomainSelector) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *DomainSelector) encodeUnchecked() []byte {
+	var b []byte
+	{
+		if m.ExactDomains.Present {
+			v := m.ExactDomains.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 1, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.AllDomainsExcluding.Present {
+			v := m.AllDomainsExcluding.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 2, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *DomainSelector) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeDomainSelector(b []byte) (*DomainSelector, error) {
+	return mergeDomainSelector(b, nil)
+}
+
+func mergeDomainSelector(b []byte, m *DomainSelector) (*DomainSelector, error) {
+	if m == nil {
+		m = new(DomainSelector)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *DomainList
+			if m.ExactDomains.Present {
+				v := m.ExactDomains.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DomainList
+				item, err = mergeDomainList(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.ExactDomains = Maybe[DomainList]{Value: *value, Present: true}
+			}
+		case 2:
+			var value *DomainList
+			if m.AllDomainsExcluding.Present {
+				v := m.AllDomainsExcluding.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DomainList
+				item, err = mergeDomainList(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.AllDomainsExcluding = Maybe[DomainList]{Value: *value, Present: true}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *DomainList) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *DomainList) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *DomainList) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendRepeated(b, m.Values, AppendFieldDecorator(AppendStringElem, 1))
+	return append(b, m.unknownFields...)
+}
+
+func (m *DomainList) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeDomainList(b []byte) (*DomainList, error) {
+	return mergeDomainList(b, nil)
+}
+
+func mergeDomainList(b []byte, m *DomainList) (*DomainList, error) {
+	if m == nil {
+		m = new(DomainList)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Values = append(m.Values, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainPolicyCreateRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainPolicyCreateRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainPolicyCreateRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendStringField(b, m.Name, 1)
+	b = AppendBoolField(b, m.Disabled, 2)
+	{
+		value := &m.Rule
+		if value != nil {
+			b = AppendTag(b, 3, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainPolicyCreateRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeSpaceDomainPolicyCreateRequest(b []byte) (*SpaceDomainPolicyCreateRequest, error) {
+	return mergeSpaceDomainPolicyCreateRequest(b, nil)
+}
+
+func mergeSpaceDomainPolicyCreateRequest(b []byte, m *SpaceDomainPolicyCreateRequest) (*SpaceDomainPolicyCreateRequest, error) {
+	if m == nil {
+		m = new(SpaceDomainPolicyCreateRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 2:
+			b, m.Disabled, err = ConsumeBool(b, typ)
+		case 3:
+			var value *SpaceDomainRule
+			value = &m.Rule
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceDomainRule
+				item, err = mergeSpaceDomainRule(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Rule = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainPolicyUpdateRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainPolicyUpdateRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainPolicyUpdateRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	b = AppendInt64Field(b, m.ExpectedSeq, 2)
+	b = AppendStringField(b, m.Name, 3)
+	b = AppendBoolField(b, m.Disabled, 4)
+	{
+		value := &m.Rule
+		if value != nil {
+			b = AppendTag(b, 5, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainPolicyUpdateRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeSpaceDomainPolicyUpdateRequest(b []byte) (*SpaceDomainPolicyUpdateRequest, error) {
+	return mergeSpaceDomainPolicyUpdateRequest(b, nil)
+}
+
+func mergeSpaceDomainPolicyUpdateRequest(b []byte, m *SpaceDomainPolicyUpdateRequest) (*SpaceDomainPolicyUpdateRequest, error) {
+	if m == nil {
+		m = new(SpaceDomainPolicyUpdateRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.ExpectedSeq, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.Name, err = ConsumeString(b, typ)
+		case 4:
+			b, m.Disabled, err = ConsumeBool(b, typ)
+		case 5:
+			var value *SpaceDomainRule
+			value = &m.Rule
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceDomainRule
+				item, err = mergeSpaceDomainRule(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Rule = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *SpaceDomainPolicyDeleteRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *SpaceDomainPolicyDeleteRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *SpaceDomainPolicyDeleteRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *SpaceDomainPolicyDeleteRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeSpaceDomainPolicyDeleteRequest(b []byte) (*SpaceDomainPolicyDeleteRequest, error) {
+	return mergeSpaceDomainPolicyDeleteRequest(b, nil)
+}
+
+func mergeSpaceDomainPolicyDeleteRequest(b []byte, m *SpaceDomainPolicyDeleteRequest) (*SpaceDomainPolicyDeleteRequest, error) {
+	if m == nil {
+		m = new(SpaceDomainPolicyDeleteRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
 func (m *GithubCredentials) Encode() []byte {
 	b, err := m.EncodeChecked()
 	if err != nil {
@@ -29043,7 +29964,7 @@ func mergeCoreSnapshot(b []byte, m *CoreSnapshot) (*CoreSnapshot, error) {
 }
 
 func (m CoreEntity) IsZero() bool {
-	return (m.Value.Deployment == nil && m.Value.ScheduledInstance == nil && m.Value.Node == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.NetworkPolicy == nil && m.Value.Space == nil && m.Value.User == nil && m.Value.ValueDirectory == nil && m.Value.AssetDirectory == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SystemConfig == nil && m.Value.ScheduledInstanceStatus == nil && m.Value.NodeStatus == nil && m.Value.AgentSession == nil && m.Value.UserSession == nil && m.Value.NixStoreReset == nil && m.Value.SecretKeyslot == nil) &&
+	return (m.Value.Deployment == nil && m.Value.ScheduledInstance == nil && m.Value.Node == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.NetworkPolicy == nil && m.Value.Space == nil && m.Value.User == nil && m.Value.ValueDirectory == nil && m.Value.AssetDirectory == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SystemConfig == nil && m.Value.ScheduledInstanceStatus == nil && m.Value.NodeStatus == nil && m.Value.AgentSession == nil && m.Value.UserSession == nil && m.Value.NixStoreReset == nil && m.Value.SecretKeyslot == nil && m.Value.SpaceDomainPolicy == nil) &&
 		len(m.unknownFields) == 0
 }
 
@@ -29209,6 +30130,13 @@ func (m *CoreEntity) encodeUnchecked() []byte {
 		value := m.Value.SecretKeyslot
 		if value != nil {
 			b = AppendTag(b, 21, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Value.SpaceDomainPolicy
+		if value != nil {
+			b = AppendTag(b, 22, BytesType)
 			b = AppendBytes(b, value.encodeUnchecked())
 		}
 	}
@@ -29529,6 +30457,20 @@ func mergeCoreEntity(b []byte, m *CoreEntity) (*CoreEntity, error) {
 			}
 			if err == nil {
 				m.Value = CoreEntityValueOneof{SecretKeyslot: value}
+			}
+		case 22:
+			var value *SpaceDomainPolicy
+			value = m.Value.SpaceDomainPolicy
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *SpaceDomainPolicy
+				item, err = mergeSpaceDomainPolicy(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = CoreEntityValueOneof{SpaceDomainPolicy: value}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
