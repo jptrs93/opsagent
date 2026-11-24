@@ -138,11 +138,24 @@ const addressReferrers = (deploymentId) =>
         );
     });
 
+const volumeReferrers = (deploymentId) =>
+    deploymentUsages(deploymentsS.val, spacesS.val, machinesS.val, (candidate) => {
+        const mounts = containerWorkload(candidate?.config)?.runtime?.crossDeploymentMounts || [];
+        return mounts.some((mount) => Number(mount?.deploymentId || 0) === Number(deploymentId));
+    });
+
+const deleteReferrerWarning = (testId, what, referrers) => referrers.length === 0 ? '' : div(
+    {class: "text-sm text-amber-400 flex flex-col gap-1", "data-testid": testId},
+    p(`Deletion will fail: its ${what} by ${referrers.length === 1 ? 'this deployment' : 'these deployments'}:`),
+    ...referrers.map((ref) => p({class: "pl-4"}, `${ref.space} / ${ref.node} / ${ref.name}`)),
+);
+
 function deleteDeploymentOverlay(deploymentRow, close) {
     const saving = van.state(false);
     const error = van.state('');
     const label = formatDeploymentLabel(deploymentRow);
     const referrers = addressReferrers(deploymentRow.id);
+    const mounters = volumeReferrers(deploymentRow.id);
 
     const confirmDelete = async () => {
         if (saving.val) return;
@@ -167,11 +180,9 @@ function deleteDeploymentOverlay(deploymentRow, close) {
             {class: "card w-full max-w-md flex flex-col gap-4 shadow-2xl"},
             h2({class: "text-base font-semibold"}, "Delete deployment"),
             p({class: "text-sm text-gray-300"}, `Are you sure you want to delete ${label}? This removes it from the deployment list.`),
-            referrers.length === 0 ? '' : div(
-                {class: "text-sm text-amber-400 flex flex-col gap-1", "data-testid": "deployment-delete-referrers"},
-                p(`Deletion will fail: its address is referenced by ${referrers.length === 1 ? 'this deployment' : 'these deployments'}:`),
-                ...referrers.map((ref) => p({class: "pl-4"}, `${ref.space} / ${ref.node} / ${ref.name}`)),
-            ),
+            p({class: "text-sm text-gray-300", "data-testid": "deployment-delete-volume-warning"}, "Its data volume on the node is deleted permanently. This cannot be undone."),
+            deleteReferrerWarning("deployment-delete-referrers", "address is referenced", referrers),
+            deleteReferrerWarning("deployment-delete-volume-referrers", "volume is mounted", mounters),
             () => error.val ? p({class: "text-sm text-red-400"}, error.val) : '',
             div({class: "flex items-center justify-end gap-2"},
                 button({

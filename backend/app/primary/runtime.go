@@ -206,6 +206,17 @@ func (r *runtime) start(ctx context.Context, nodeID uint64, nodeIdentifier strin
 	go r.nixDocker.RunMaintenance(ctx)
 	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, int32(nodeID))
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
+	volumeSweeper := runner.NewVolumeSweeper(scheduledinstances.Store{Service: r.store}, predicate)
+	if err := projection.WatchNode(nodeID, func(update *apigen.NodeProjection) {
+		if update.Deployments.Present {
+			volumeSweeper.SetLive(update.Deployments.Value.LiveIds)
+		} else if len(update.Instances) > 0 {
+			volumeSweeper.Kick()
+		}
+	}); err != nil {
+		panic(fmt.Sprintf("watch node projection: %v", err))
+	}
+	go volumeSweeper.Run(ctx)
 	go func() {
 		runner.SweepForeignContainers(ctx, scheduledinstances.Store{Service: r.store}, predicate)
 		r.operator.RunAll(predicate)

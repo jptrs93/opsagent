@@ -31,10 +31,10 @@ export const groups: Group[] = [
     ] },
   ] },
   { title: 'Concepts & Design', documents: [
-    { slug: 'design/overview', title: 'Design overview', sections: [['overview', 'Overview'], ['state', 'Cluster state']] },
+    { slug: 'design/introduction', title: 'Design introduction', sections: [['overview', 'Overview'], ['state', 'Cluster state'], ['reconciliation', 'Node reconciliation']] },
     { slug: 'design/networking', title: 'Networking', sections: [
-      ['goals', 'Design overview'], ['addressing', 'Addressing'], ['dns', 'DNS'],
-      ['balancing', 'Load balancing'], ['routing', 'Routing and transport'],
+      ['goals', 'Overview'], ['addressing', 'Addressing'], ['discovery', 'Service discovery and load balancing'],
+      ['dns', 'DNS'], ['routing', 'Routing and transport'],
       ['rollover', 'Rollover'], ['policy', 'Network policy'], ['egress', 'Egress'], ['ingress', 'Ingress'],
     ] },
     { slug: 'design/logging', title: 'Logging', sections: [

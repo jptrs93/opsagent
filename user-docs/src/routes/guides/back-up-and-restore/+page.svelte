@@ -62,6 +62,4 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/resto
 <p>The command installs the agent, downloads the latest state of the database from the bucket, unlocks the secrets with the recovery code, seals them with a new machine key, and starts the service. The cluster comes back as it was: the same users and master password, the same deployments, and the same certificates. Deployments assigned to the primary are prepared again from their saved configs, since the old machine's containers are gone, while deployments on secondary nodes keep running throughout and the nodes reconnect on their own once the name resolves to the new machine. Assets stay in the bucket, where the new primary reads them.</p>
 
 <p>The restore takes the newest state in the bucket. Going back to an earlier point in time is not supported, because asset content that only older versions referenced may already have expired. A restore refuses to run on a machine that already has a primary database.</p>
-
-<p>How the pieces fit together, from the key hierarchy to what each node keeps locally, is in the <a href="{base}/design/overview/">design overview</a>.</p>
 </section>

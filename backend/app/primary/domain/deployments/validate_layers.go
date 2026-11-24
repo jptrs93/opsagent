@@ -288,5 +288,8 @@ func inLockValidateDeploymentDelete(ctx context.Context, q *pq.Queries, cluster 
 	if details := RefDetails(ctx, q, live, IDSet([]uint64{existing.Deployment.ID}), AddressRefIDs); len(details) > 0 {
 		return ReferenceInUseDetailErr("Deployment address", details)
 	}
+	if details := RefDetails(ctx, q, live, IDSet([]uint64{existing.Deployment.ID}), CrossDeploymentMountSourceIDs); len(details) > 0 {
+		return ReferenceInUseDetailErr("Deployment volume", details)
+	}
 	return nil
 }

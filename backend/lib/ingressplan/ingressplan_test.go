@@ -242,7 +242,9 @@ func TestReservationIntersectsEveryOverlappingSelector(t *testing.T) {
 	}
 }
 
-func TestSelectorSetsCollideRegardlessOfInventory(t *testing.T) {
+// Netproxy routes on the hostname alone, so two deployments collide on one
+// hostname whether or not their selectors share an address.
+func TestOneHostnameCollidesWhateverTheSelectors(t *testing.T) {
 	evaluate := func(first, second []apigen.IngressListen) Result {
 		return Evaluate(Inputs{
 			Nodes:     nodes(),
@@ -260,23 +262,16 @@ func TestSelectorSetsCollideRegardlessOfInventory(t *testing.T) {
 			t.Fatalf("%s must collide, got %q", name, messages(result.Errors))
 		}
 	}
-	disjoint := func(name string, first, second []apigen.IngressListen) {
-		t.Helper()
-		result := evaluate(first, second)
-		if len(result.Errors) != 0 {
-			t.Fatalf("%s must not collide: %s", name, messages(result.Errors))
-		}
-	}
 	collide("whole space against a prefix no inventory address matches", nil, []apigen.IngressListen{literal("10.0.0.0/8")})
 	collide("prefix against the whole space", []apigen.IngressListen{literal("10.0.0.0/8")}, nil)
 	collide("containing prefixes", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("10.1.0.0/16")})
 	collide("literal inside a prefix", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("10.1.2.3")})
 	collide("family against a prefix of that family", []apigen.IngressListen{family(anyIPv4)}, []apigen.IngressListen{literal("10.0.0.0/8")})
 	collide("family against the whole space", []apigen.IngressListen{family(anyIPv6)}, nil)
-	disjoint("disjoint prefixes", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("192.168.0.0/16")})
-	disjoint("different families", []apigen.IngressListen{family(anyIPv4)}, []apigen.IngressListen{family(anyIPv6)})
-	disjoint("literal outside a prefix", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("192.0.2.1")})
-	disjoint("IPv6 prefix against an IPv4 literal", []apigen.IngressListen{literal("2001:db8::/32")}, []apigen.IngressListen{literal(v4A.String())})
+	collide("disjoint prefixes", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("192.168.0.0/16")})
+	collide("different families", []apigen.IngressListen{family(anyIPv4)}, []apigen.IngressListen{family(anyIPv6)})
+	collide("literal outside a prefix", []apigen.IngressListen{literal("10.0.0.0/8")}, []apigen.IngressListen{literal("192.0.2.1")})
+	collide("IPv6 prefix against an IPv4 literal", []apigen.IngressListen{literal("2001:db8::/32")}, []apigen.IngressListen{literal(v4A.String())})
 }
 
 func TestLiteralReservationOnlyBlocksItsAddress(t *testing.T) {
@@ -324,8 +319,8 @@ func TestSameHostnameOverlapIsAnErrorForTheCandidate(t *testing.T) {
 			{ID: 11, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", literal(v6A.String()))}},
 		},
 	})
-	if len(result.Errors) != 0 {
-		t.Fatalf("disjoint address sets do not collide: %s", messages(result.Errors))
+	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0].Message, "already claimed by another deployment") {
+		t.Fatalf("disjoint address sets collide too: %q", messages(result.Errors))
 	}
 	result = Evaluate(Inputs{
 		Nodes:     nodes(),
@@ -372,6 +367,62 @@ func TestCertSourceAndKindConflicts(t *testing.T) {
 	})
 	if !strings.Contains(messages(result.Errors), "cannot use both HTTPS and TLS_PASSTHROUGH") {
 		t.Fatalf("cross-kind hostname claims must be rejected: %q", messages(result.Errors))
+	}
+}
+
+// A passthrough claim would shadow the HTTPS host in netproxy, which consults
+// passthrough first, so an address the HTTPS route does not name is no way in.
+func TestKindConflictIgnoresSelectors(t *testing.T) {
+	result := Evaluate(Inputs{
+		Nodes:     nodes(),
+		Candidate: 11,
+		Deployments: []Deployment{
+			{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", family(anyIPv4))}},
+			{ID: 11, NodeID: 1, Routes: []Route{passthroughRoute("app.example", 0, family(anyIPv6))}},
+		},
+	})
+	if !strings.Contains(messages(result.Errors), "cannot use both HTTPS and TLS_PASSTHROUGH") {
+		t.Fatalf("a cross-kind claim on another address family must be rejected: %q", messages(result.Errors))
+	}
+	if got := publishSet(t, result, 1); got[v6A.String()+":443"] {
+		t.Fatalf("the rejected claim must not be published: %v", got)
+	}
+}
+
+func TestHostnameCollisionIsAnErrorForAnOlderCandidate(t *testing.T) {
+	result := Evaluate(Inputs{
+		Nodes:     nodes(),
+		Candidate: 10,
+		Deployments: []Deployment{
+			{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", literal(v4A.String()))}},
+			{ID: 11, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", literal(v6A.String()))}},
+		},
+	})
+	if len(result.Errors) != 1 || result.Errors[0].DeploymentID != 10 {
+		t.Fatalf("the candidate is refused although the stored claim is newer: %+v", result.Errors)
+	}
+}
+
+// Two stored deployments could share a hostname on disjoint selectors before
+// the sets stopped counting. They must not block an unrelated save.
+func TestStoredHostnameCollisionIsAWarningForTheLoser(t *testing.T) {
+	result := Evaluate(Inputs{
+		Nodes:     nodes(),
+		Candidate: 12,
+		Deployments: []Deployment{
+			{ID: 11, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", literal(v6A.String()))}},
+			{ID: 10, NodeID: 1, Routes: []Route{httpsRoute("app.example", "/", literal(v4A.String()))}},
+			{ID: 12, NodeID: 1, Routes: []Route{httpsRoute("other.example", "/", literal(v4A.String()))}},
+		},
+	})
+	if len(result.Errors) != 0 {
+		t.Fatalf("a collision between two stored deployments is not the candidate's error: %q", messages(result.Errors))
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].DeploymentID != 11 || !strings.Contains(result.Warnings[0].Message, "not published on node 1") {
+		t.Fatalf("the newer deployment is warned: %+v", result.Warnings)
+	}
+	if got := publishSet(t, result, 1); !got[v4A.String()+":443"] || got[v6A.String()+":443"] {
+		t.Fatalf("only the older claim is published: %v", got)
 	}
 }
 

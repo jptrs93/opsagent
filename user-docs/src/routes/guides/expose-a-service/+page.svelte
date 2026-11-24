@@ -126,7 +126,7 @@
 
 <p><code class="inl">any_node()</code> publishes the route on every node in the cluster; the proxy on each node reaches the container over the internal network, so one public DNS record per node gives you more than one way in. The address selector takes <code class="inl">ipv4()</code>, <code class="inl">ipv6()</code>, or a literal address when a node has several.</p>
 
-<p>On the primary, the Web UI already holds port 443 on its own address. A route that would land exactly there is rejected when you save; a route for every address simply skips it. Two deployments cannot publish the same hostname on the same node, address and port, and the second save tells you so.</p>
+<p>On the primary, the Web UI already holds port 443 on its own address. A route that would land exactly there is rejected when you save; a route for every address simply skips it. Two deployments cannot publish the same hostname on the same node and port, even on different addresses: the proxy routes by hostname alone. The second save tells you so.</p>
 
 <p>Field by field detail is in the <a href="{base}/reference/deployment/#ingress">network.ingress reference</a>, and the routing design is in <a href="{base}/design/networking/#ingress">Networking</a>.</p>
 </section>

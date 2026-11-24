@@ -1,6 +1,7 @@
-// Package ingressplan decides ingress listen collisions on the selector sets
-// and expands the accepted claims against the cluster's host address
-// inventory. It is a pure function of its inputs: the deployment validation
+// Package ingressplan decides which ingress claims a node publishes: a claim
+// collides with a platform listener on its selector set and with another
+// deployment's claim on its hostname. The accepted claims are expanded against
+// the cluster's host address inventory. It is a pure function of its inputs: the deployment validation
 // layer and the network map publisher both call it, so the answer given at
 // save time and the publish set distributed to nodes cannot diverge.
 package ingressplan
@@ -218,8 +219,8 @@ func reservationSet(r *Reservation) addrSet {
 }
 
 // Evaluate expands every route into selector claims and decides collisions
-// on the selector sets, so the answer does not depend on the inventory a
-// node reports today. The inventory is used only to expand the accepted
+// on the selector sets and hostnames, so the answer does not depend on the
+// inventory a node reports today. The inventory is used only to expand the accepted
 // claims into the publish set.
 func Evaluate(in Inputs) Result {
 	result := Result{Publish: make(map[uint64][]Publish), PublishedDeployments: make(map[uint64][]uint64)}
@@ -389,39 +390,48 @@ func routePrefix(route *Route) string {
 }
 
 // resolveClaim checks c against the claims already accepted on its node and
-// port. A collision is an error against the candidate and the claim is not
-// published.
+// port, and a colliding claim is not published. The listen sets play no part:
+// netproxy routes on the hostname alone and never sees a selector, so two
+// claims on one hostname meet in its tables whatever addresses they name.
+//
+// A collision involving the candidate is an error against it. One between two
+// stored deployments was saved before the sets stopped counting; the newer
+// deployment is warned, like a stored port-forward collision.
 func resolveClaim(result *Result, candidate uint64, accepted []*claim, c *claim) bool {
-	report := func(message string) bool {
-		result.Errors = append(result.Errors, Diagnostic{candidate, "networking.ingress: " + message})
+	collide := func(other *claim, message string) bool {
+		if candidate != 0 && (c.deployment.ID == candidate || other.deployment.ID == candidate) {
+			result.Errors = append(result.Errors, Diagnostic{candidate, "networking.ingress: " + message})
+		} else {
+			result.Warnings = append(result.Warnings, Diagnostic{c.deployment.ID, fmt.Sprintf("not published on node %d: %s", c.nodeID, message)})
+		}
 		return false
 	}
-	var overlapping []*claim
+	var sameHost []*claim
 	for _, other := range accepted {
-		if other.route.Hostname == c.route.Hostname && other.set.intersects(c.set) {
-			overlapping = append(overlapping, other)
+		if other.route.Hostname == c.route.Hostname {
+			sameHost = append(sameHost, other)
 		}
 	}
-	for _, other := range overlapping {
+	for _, other := range sameHost {
 		if other.deployment.ID == c.deployment.ID || other.route.Kind != c.route.Kind || routePrefix(other.route) != routePrefix(c.route) {
 			continue
 		}
 		if c.route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
-			return report(fmt.Sprintf("HTTPS route %s%s is already claimed by another deployment on this node", c.route.Hostname, c.route.PathPrefix))
+			return collide(other, fmt.Sprintf("HTTPS route %s%s is already claimed by another deployment on this node", c.route.Hostname, c.route.PathPrefix))
 		}
-		return report(fmt.Sprintf("%s on host port %d is already claimed by another deployment on this node", c.route.Hostname, c.port))
+		return collide(other, fmt.Sprintf("%s on host port %d is already claimed by another deployment on this node", c.route.Hostname, c.port))
 	}
-	for _, other := range overlapping {
+	for _, other := range sameHost {
 		if other.deployment.ID != c.deployment.ID && other.route.Kind != c.route.Kind {
-			return report(fmt.Sprintf("%s cannot use both HTTPS and TLS_PASSTHROUGH on host port %d on this node", c.route.Hostname, c.port))
+			return collide(other, fmt.Sprintf("%s cannot use both HTTPS and TLS_PASSTHROUGH on host port %d on this node", c.route.Hostname, c.port))
 		}
 	}
 	if c.route.Kind == apigen.IngressKind_INGRESS_KIND_HTTPS {
 		// Unlike the ownership rule, the cert source must agree within one
 		// deployment too: netproxy serves one certificate per hostname.
-		for _, other := range overlapping {
+		for _, other := range sameHost {
 			if other.route.Kind == c.route.Kind && other.route.CertSource != c.route.CertSource {
-				return report(fmt.Sprintf("certSource for %s must match across all HTTPS routes on this node", c.route.Hostname))
+				return collide(other, fmt.Sprintf("certSource for %s must match across all HTTPS routes on this node", c.route.Hostname))
 			}
 		}
 	}

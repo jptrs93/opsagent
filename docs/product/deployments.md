@@ -201,6 +201,12 @@ terminal: the current row goes, the versions a live instance still pins
 stay until that instance is finalized, and any further write attempt finds
 no current row.
 
+Deleting a deployment removes its volumes from its node, permanently; see
+[Volume removal](../engineering/engine.md#volume-removal). Stopping a
+deployment keeps them. The delete is refused with `reference_in_use` while
+another deployment mounts the volume through `crossDeploymentMounts`, as it
+is while an Address reference remains.
+
 A space move is its own update kind, `assigned_space` in
 `POST /v1/deployments/update`, guarded like every update kind by the
 `expected_seq` the caller observed (the write is refused when the
@@ -297,7 +303,7 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 
 Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{scheduling.placement.dedicatedNodes.nodes[0], spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the identity lives inside the event snapshots, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
 
-Deleting a deployment releases its human-readable identity tuple but retains its ID, configuration history, status history, logs, volumes, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
+Deleting a deployment releases its human-readable identity tuple and removes its volumes from its node. It retains the ID, configuration history, status history, logs, and other ID-owned records. Creating a deployment later with the same space, node, and name creates a completely new and independent deployment with a fresh ID and version history. It does not restore, continue, or otherwise inherit the deleted deployment.
 
 ### Node space policy
 
@@ -318,11 +324,12 @@ deployments deleted most recently, fetched from `POST /v1/deployments/recently-d
 Each row offers **Fork**, which opens the create form seeded with the deleted
 deployment's spec.
 
-There is deliberately no restore. A deployment's ID owns its volumes, logs, run
-history, and network address; deletion is defined above as releasing the identity
-while keeping all of that attached to the ID. Reviving the ID would silently
-re-attach volumes and logs an operator has already discarded, and could fail
-outright once another deployment has claimed the released identity tuple. A fork
+There is deliberately no restore. A deployment's ID owns its logs, run history,
+and network address; deletion is defined above as releasing the identity while
+keeping those attached to the ID, and it removes the volumes. Reviving the ID
+would silently re-attach logs an operator has already discarded to a deployment
+whose data is gone, and could fail outright once another deployment has claimed
+the released identity tuple. A fork
 is an ordinary create, so it passes the same validation as any new deployment —
 identity uniqueness, node registration, host-port and ingress conflicts, address
 references, and source verification.

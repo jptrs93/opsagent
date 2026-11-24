@@ -4,6 +4,56 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.621 (released 2026-11-24)
+
+### What changed
+
+- **Deleting a deployment removes its volumes.** Its node removes
+  `/var/lib/opendeploy-volumes/<deployment id>` permanently, once its last
+  instance there is gone. Stopping a deployment keeps them. The delete
+  dialog says so. Earlier releases kept the directory for ever.
+- **A delete is refused while another deployment mounts the volume**
+  through `crossDeploymentMounts`, with `reference_in_use` naming the
+  deployments that mount it.
+- **One deployment per ingress hostname on a node and port.** A save is
+  refused when another deployment already publishes the same hostname on
+  the same node and port, whatever the listen addresses of the two routes.
+  Before, two routes on different addresses both saved, and the proxy,
+  which routes by hostname alone, sent the traffic of both to the backends
+  of both.
+- **The proxy never joins two deployments into one route.** Where stored
+  routes still collide, the deployment with the lowest id keeps the
+  hostname and the other is not published.
+
+### Before upgrading
+
+- **Copy out anything you still need from the volumes of deleted
+  deployments.** Once the primary runs this release, every node removes
+  the volume directory of each deployment that no longer exists, including
+  those deleted under earlier releases. To see what will go, list
+  `/var/lib/opendeploy-volumes` on each node and compare the directory
+  names with the ids of the deployments placed on that node. Entries whose
+  name is not a deployment id are left alone.
+- **Check for deployments that share an ingress hostname.** Two
+  deployments that already publish one hostname on the same node and port
+  keep their stored specs. The one with the higher id stops being
+  published and shows the warning `not published on node …`, and neither
+  can be saved again until one changes its hostname.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. A node on this
+  release removes nothing until a primary on this release sends it the
+  list of its deployments, and a node on an earlier release ignores the
+  list.
+- Rolling back is safe at any point. Nothing on disk changes format.
+  Volumes already removed stay removed.
+
+### After upgrading
+
+- Each node logs `removed volume directory … of a deleted deployment`
+  under the `VolumeSweep` tag for every directory it removes.
+
 ## v0.0.620 (released 2026-11-24)
 
 This release needs commands run as root on every node, over SSH, after the

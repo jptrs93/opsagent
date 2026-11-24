@@ -1840,11 +1840,16 @@
  * @property {Date} statusWatermark
  */
 /**
+ * @typedef {Object} NodeDeployments
+ * @property {number[]} liveIds
+ */
+/**
  * @typedef {Object} NodeProjection
  * @property {number} seq
  * @property {NodeInstance[]} instances
  * @property {ClusterNetMap} netMap
  * @property {AcmeState} acme
+ * @property {NodeDeployments} deployments
  */
 /**
  * @typedef {Object} ClusterSecretsRequest
@@ -23387,6 +23392,71 @@ export function decodeNodeInstance(buffer) {
 
 
 /**
+ * @param {NodeDeployments} message
+ * @param {Writer} writer
+ */
+export function writeNodeDeployments(message, writer) {
+    if (message.liveIds) {
+        const packedWriter = Writer.create();
+        for (const item of message.liveIds) {
+            packedWriter.uint64(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(1, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {NodeDeployments} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeDeployments(message) {
+    const writer = Writer.create();
+    writeNodeDeployments(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeDeployments}
+ */
+function decodeNodeDeploymentsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {liveIds: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.liveIds.push(readInt64(reader, "uint64"));
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeDeployments}
+ */
+export function decodeNodeDeployments(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeDeploymentsMessage(reader);
+}
+
+
+
+/**
  * @param {NodeProjection} message
  * @param {Writer} writer
  */
@@ -23411,6 +23481,11 @@ export function writeNodeProjection(message, writer) {
         writeAcmeState(message.acme, writer);
         writer.ldelim();
     }
+    if (message.deployments !== undefined && message.deployments !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeNodeDeployments(message.deployments, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -23432,7 +23507,7 @@ export function encodeNodeProjection(message) {
  */
 function decodeNodeProjectionMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {seq: 0, instances: [], netMap: undefined, acme: undefined };
+    const message = {seq: 0, instances: [], netMap: undefined, acme: undefined, deployments: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -23450,6 +23525,10 @@ function decodeNodeProjectionMessage(reader, length) {
             }
             case 4: {
                 message.acme = decodeAcmeStateMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.deployments = decodeNodeDeploymentsMessage(reader, reader.uint32());
                 break;
             }
             default:

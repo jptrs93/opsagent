@@ -2,14 +2,14 @@ export const hostMode = `network {
   mode = "host"
 }`;
 
-export const addressReferences = `address("prod", "payments-api", 2)       # inbound address of one instance
-service_address("prod", "payments-api")  # the deployment as a whole; no ordinal`;
-
 export const serviceEnvironment = `container {
   env_vars = {
-    "PAYMENTS_API_HOST" = address("prod", "payments-api", 0)
+    "PAYMENTS_API_HOST" = address("prod", "payments-api")
   }
 }`;
+
+export const applicationDial = `const host = process.env.PAYMENTS_API_HOST;
+const res = await fetch(\`http://[\${host}]:8080/charges\`);`;
 
 export const dnsNames = `# every established instance of a deployment: one AAAA record per instance
 {name}.space-{spaceId}.internal

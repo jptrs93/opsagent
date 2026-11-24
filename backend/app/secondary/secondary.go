@@ -142,6 +142,8 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
 	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
 	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)
+	volumeSweeper := runner.NewVolumeSweeper(store, scheduledInstancePredicateForNode(cfg.NodeID))
+	go volumeSweeper.Run(ctx)
 
 	// Boot sync gate: hold the operator until the primary's first snapshot has
 	// been applied to the store, or bootSyncTimeout if the primary is
@@ -167,7 +169,7 @@ func run(ctx context.Context, cfg runtimeConfig) {
 		}.RunAll(scheduledInstancePredicateForNode(cfg.NodeID))
 	}()
 
-	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient, acmeHolder, netMapHolder, notifySynced)
+	runPrimaryConnLoop(ctx, cfg, store, primaryHTTPClient, acmeHolder, netMapHolder, volumeSweeper, notifySynced)
 }
 
 // newPrimaryHTTPClient builds the HTTP/2-only client a secondary uses to dial the

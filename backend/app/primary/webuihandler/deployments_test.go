@@ -679,6 +679,31 @@ func TestDeploymentUpdateAcceptsCrossDeploymentMount(t *testing.T) {
 	}
 }
 
+func TestDeploymentDeleteRefusedWhileVolumeIsMounted(t *testing.T) {
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	sourceSpec := remoteDeploymentSpec("postgres", hostNetworking())
+	source := createTestDeployment(store, "primary", 1, "database", &sourceSpec)
+	targetSpec := remoteDeploymentSpec("nginx", hostNetworking())
+	targetSpec.Workload.Value.Container.Runtime.CrossDeploymentMounts = []apigen.CrossDeploymentMount{{
+		DeploymentID: source.Deployment.ID, ContainerPath: "/var/lib/postgresql/data", Permission: apigen.FilePermission_FILE_PERMISSION_READ_ONLY,
+	}}
+	target := createTestDeployment(store, "primary", 1, "web", &targetSpec)
+	h := &Handler{SystemConfig: testConfigService(t, store), Store: store, Queries: store.Queries(), NodeID: source.Deployment.PlacementNodeID()}
+
+	err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: source.Deployment.ID, ExpectedSeq: source.Meta.UpdatedSeq})
+	var apiErr apigen.ApiErr
+	if !errors.Is(err, deployments.ReferenceInUseErr) || !errors.As(err, &apiErr) || !strings.Contains(apiErr.DisplayErr, "Deployment volume still in use") {
+		t.Fatalf("err = %v (%+v), want the mounted volume to refuse the delete", err, apiErr)
+	}
+
+	if err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: target.Deployment.ID, ExpectedSeq: target.Meta.UpdatedSeq}); err != nil {
+		t.Fatalf("deleting the mounting deployment: %v", err)
+	}
+	if err := h.PostV1DeploymentsDelete(apigen.Context{}, &apigen.DeploymentDeleteRequest{DeploymentID: source.Deployment.ID, ExpectedSeq: source.Meta.UpdatedSeq}); err != nil {
+		t.Fatalf("deleting the source once nothing mounts it: %v", err)
+	}
+}
+
 func TestDeploymentDeleteRequiresStoppedDeployment(t *testing.T) {
 	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
 	initial := remoteDeploymentSpec("nginx", hostNetworking())

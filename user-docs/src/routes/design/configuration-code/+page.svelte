@@ -24,7 +24,7 @@
 <section id="overview" class="page">
 <h2>Overview</h2>
 
-<p>All resources in OpenDeploy have a formalised underlying type definition and can be managed through the API as JSON or protobuf. As a user you create and edit resources in the Web UI, which has a built-in editor and a configuration code language that is more human friendly than the raw record.</p>
+<p>All resources in OpenDeploy have a formalised underlying type definition. Instances can be created and updated via the control plane API where they are represented on the wire as JSON or protobuf. However, as a user, you create and edit resources in the Web UI, which has a built-in editor and a configuration code language that is more human friendly.</p>
 
 <p>An example deployment written in configuration code looks like:</p>
 
@@ -34,9 +34,7 @@
 
 <CodeBlock code={minimalInstance} language="json" title="stored instance" />
 
-<p>The conversion is mostly one to one, with a small number of deliberate exceptions where the code follows convention rather than the type. The image is written as it is written everywhere else, <code class="inl">repository:tag</code>, and the tag is stored as the workload's version.</p>
-
-<p>A crucial point is how resources refer to each other. In the code you write, you reference other resources by their display identifiers: the space is <code class="inl">space("prod")</code>, the secret is <code class="inl">secret("prod", "db/password")</code>, the node is <code class="inl">node("worker-1")</code>. On save, these are resolved to the underlying ids, and the ids are what the stored state contains: space 2, secret 11 at version 3, node 4.</p>
+<p>A key difference is how resources refer to each other. In the code you write, you reference other resources by their display identifiers: the space is <code class="inl">space("prod")</code>, the secret is <code class="inl">secret("prod", "db/password")</code>, the node is <code class="inl">node("worker-1")</code>. On save, these are resolved to the underlying ids, and the ids are what the stored state contains: space 2, secret 11 at version 3, node 4.</p>
 
 <p>The configuration code itself is never stored. It is always converted to, and back from, an instance of the underlying type. This keeps human-readable identifiers a surface-level concern that can be renamed trivially. The next time you open the configuration code it is converted again from the stored instance, and any reference shows the name the resource has now.</p>
 </section>

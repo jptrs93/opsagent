@@ -63,6 +63,7 @@ type Publisher struct {
 	appliedSeq  int64
 	waiters     []seqWaiter
 	subscribers map[*subscriber]struct{}
+	watchers    []nodeWatcher
 	closed      bool
 	unsubscribe func()
 
@@ -80,10 +81,11 @@ type Publisher struct {
 }
 
 type outputs struct {
-	seq  int64
-	rows map[uint64][]apigen.NodeInstance
-	maps map[uint64]*apigen.ClusterNetMap
-	acme map[uint64]*apigen.AcmeState
+	seq         int64
+	rows        map[uint64][]apigen.NodeInstance
+	maps        map[uint64]*apigen.ClusterNetMap
+	acme        map[uint64]*apigen.AcmeState
+	deployments map[uint64]*apigen.NodeDeployments
 }
 
 func New(store *state.Service, prefix network.Prefix, acme *acmestate.Holder) (*Publisher, error) {
@@ -203,6 +205,7 @@ func (p *Publisher) applyLocked(u *state.WriteUpdate) outputs {
 
 	dirty := newDirtySet()
 	touched := make(map[uint64]struct{})
+	placements := make(map[uint64]struct{})
 	inputsTouched, planDirty := false, false
 	for _, m := range ordered {
 		switch m.Type() {
@@ -210,6 +213,7 @@ func (p *Publisher) applyLocked(u *state.WriteUpdate) outputs {
 			prev, next := p.cache.applyDeployment(m)
 			inputsTouched = true
 			p.dirtyDeployment(dirty, prev, next, &planDirty)
+			placementChange(placements, prev, next)
 		case apigen.CoreEntityType_CORE_ENTITY_NODE:
 			prev, next := p.cache.applyNode(m)
 			if prev == nil && next == nil {
@@ -234,6 +238,7 @@ func (p *Publisher) applyLocked(u *state.WriteUpdate) outputs {
 	if !inputsTouched {
 		return out
 	}
+	out.deployments = p.liveDeploymentsLocked(placements)
 	inputs := p.cache.inputs()
 	if planDirty {
 		next := renderIngressPlan(inputs)
@@ -314,12 +319,21 @@ func (p *Publisher) persistStamps(upserts []pq.NodeNetmap, deletes []uint64) {
 
 func (p *Publisher) enqueueLocked(out outputs) {
 	updates := make(map[uint64]*apigen.NodeProjection)
-	for sub := range p.subscribers {
-		update, built := updates[sub.nodeID]
+	updateOf := func(nodeID uint64) *apigen.NodeProjection {
+		update, built := updates[nodeID]
 		if !built {
-			update = p.updateFor(out, sub.nodeID)
-			updates[sub.nodeID] = update
+			update = p.updateFor(out, nodeID)
+			updates[nodeID] = update
 		}
+		return update
+	}
+	for _, w := range p.watchers {
+		if update := updateOf(w.nodeID); update != nil {
+			w.fn(update)
+		}
+	}
+	for sub := range p.subscribers {
+		update := updateOf(sub.nodeID)
 		if update == nil {
 			continue
 		}
@@ -341,7 +355,10 @@ func (p *Publisher) updateFor(out outputs, nodeID uint64) *apigen.NodeProjection
 	if a := out.acme[nodeID]; a != nil {
 		update.Acme = apigen.Some(*a)
 	}
-	if len(update.Instances) == 0 && !update.NetMap.Present && !update.Acme.Present {
+	if d := out.deployments[nodeID]; d != nil {
+		update.Deployments = apigen.Some(*d)
+	}
+	if len(update.Instances) == 0 && !update.NetMap.Present && !update.Acme.Present && !update.Deployments.Present {
 		return nil
 	}
 	return update
@@ -351,7 +368,7 @@ func (p *Publisher) snapshotLocked(nodeID uint64) (apigen.NodeProjection, error)
 	if _, member := p.cache.nodes[nodeID]; !member {
 		return apigen.NodeProjection{}, fmt.Errorf("node %d is not a cluster member", nodeID)
 	}
-	return apigen.NodeProjection{Seq: p.appliedSeq, Instances: p.cache.instancesOn(nodeID), NetMap: apigen.Some(*p.maps[nodeID].current), Acme: apigen.Some(p.acmeByNode[nodeID].state)}, nil
+	return apigen.NodeProjection{Seq: p.appliedSeq, Instances: p.cache.instancesOn(nodeID), NetMap: apigen.Some(*p.maps[nodeID].current), Acme: apigen.Some(p.acmeByNode[nodeID].state), Deployments: apigen.Some(p.cache.liveDeploymentsOn(nodeID))}, nil
 }
 
 // Subscribe returns the node's projection at the applied seq and a queue of

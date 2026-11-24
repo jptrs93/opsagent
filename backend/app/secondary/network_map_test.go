@@ -75,7 +75,7 @@ func TestRejectedInitialClusterNetMapReportsError(t *testing.T) {
 	invalid := testClusterNetMap(t, prefix, 1)
 	invalid.TargetNodeID = 2
 	sess := &primarySessionState{netMapSnapshotPending: true}
-	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToSecondary{NodeUpdate: apigen.Some(apigen.NodeProjection{Seq: 1, NetMap: apigen.Some(*invalid)})}, 1, nil, nil, nil)
+	dispatchFromPrimary(context.Background(), out, store, newLogStreamTracker(), sess, &apigen.MsgToSecondary{NodeUpdate: apigen.Some(apigen.NodeProjection{Seq: 1, NetMap: apigen.Some(*invalid)})}, 1, nil, nil, nil, nil)
 	status := (<-out.ch).NetMapStatus
 	if !status.Present || status.Value.ReconciliationError == "" || status.Value.PersistedSeq != 0 {
 		t.Fatalf("rejection status = %+v", status)
