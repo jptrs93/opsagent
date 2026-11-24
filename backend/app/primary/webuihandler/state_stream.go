@@ -1,6 +1,7 @@
 package webuihandler
 
 import (
+	"bytes"
 	"iter"
 	"time"
 
@@ -42,7 +43,8 @@ func (h *Handler) sidecarMsg(ctx apigen.Context, secrets apigen.SecretsStatusRes
 	if !h.canAccess(ctx, vView, eCluster, 0, 0) {
 		backup = apigen.BackupStatus{}
 	}
-	return &apigen.EventStreamMsg{SecretsStatus: apigen.Some(secrets), BackupStatus: apigen.Some(backup), IngressDiagnostics: h.filterIngressDiagnostics(ctx, diagnostics)}
+	return &apigen.EventStreamMsg{SecretsStatus: apigen.Some(secrets), BackupStatus: apigen.Some(backup), IngressDiagnostics: h.filterIngressDiagnostics(ctx, diagnostics),
+		NodeAccess: apigen.Some(h.nodeAccessList(ctx))}
 }
 
 func (h *Handler) PostV1GlobalEvents(ctx apigen.Context, req *apigen.EventStreamRequest) (*apigen.EventStreamMsg, error) {
@@ -66,7 +68,7 @@ func (h *Handler) PostV1GlobalEvents(ctx apigen.Context, req *apigen.EventStream
 		diagnostics = initial
 	}
 	side := h.sidecarMsg(ctx, status, backup, diagnostics)
-	msg.SecretsStatus, msg.BackupStatus, msg.IngressDiagnostics = side.SecretsStatus, side.BackupStatus, side.IngressDiagnostics
+	msg.SecretsStatus, msg.BackupStatus, msg.IngressDiagnostics, msg.NodeAccess = side.SecretsStatus, side.BackupStatus, side.IngressDiagnostics, side.NodeAccess
 	return msg, nil
 }
 
@@ -110,11 +112,20 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 			yield(nil, openErr)
 			return
 		}
-		if !yield(h.sidecarMsg(ctx, secretsStatus, backupStatus, diagnostics), nil) {
+		side := h.sidecarMsg(ctx, secretsStatus, backupStatus, diagnostics)
+		nodeAccess := side.NodeAccess.Value.Encode()
+		if !yield(side, nil) {
 			return
 		}
 		if !yield(openingMsg(visibility, op), nil) {
 			return
+		}
+		attachNodeAccess := func(msg *apigen.EventStreamMsg) {
+			list := h.nodeAccessList(ctx)
+			if encoded := list.Encode(); !bytes.Equal(encoded, nodeAccess) {
+				nodeAccess = encoded
+				msg.NodeAccess = apigen.Some(list)
+			}
 		}
 		seq := op.seq
 		heartbeat := time.NewTicker(5 * time.Second)
@@ -141,10 +152,17 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 				return true
 			}
 			seq = update.Seq
-			if visible := visibility.visibleUpdate(&update); visible != nil && !yield(&apigen.EventStreamMsg{Seq: seq, Events: []apigen.CoreWriteUpdate{*visible}}, nil) {
-				return false
+			msg := &apigen.EventStreamMsg{Seq: seq}
+			if update.Has(apigen.CoreEntityType_CORE_ENTITY_NODE) {
+				attachNodeAccess(msg)
 			}
-			return true
+			if visible := visibility.visibleUpdate(&update); visible != nil {
+				msg.Events = []apigen.CoreWriteUpdate{*visible}
+			}
+			if len(msg.Events) == 0 && !msg.NodeAccess.Present {
+				return true
+			}
+			return yield(msg, nil)
 		}
 		for {
 			select {
@@ -186,7 +204,9 @@ func (h *Handler) PostV1GlobalEventStream(ctx apigen.Context, req *apigen.EventS
 					return
 				}
 				seq = current.seq
-				if !yield(openingMsg(visibility, current), nil) {
+				msg := openingMsg(visibility, current)
+				attachNodeAccess(msg)
+				if !yield(msg, nil) {
 					return
 				}
 			case <-heartbeat.C:

@@ -1,6 +1,7 @@
 import * as model from "/src/capi/model.js";
 import {Capi} from "/src/capi/capi.js";
 import {AGENT_VERSION, CURRENT_SESSION_ID, NODE, SIGNED_IN_USER, SPACE, T, buildDataset, bytesOf, commitSha} from "./data.js";
+import {runSpaces, writePolicies} from "/fixtures/nodeAccess.js";
 
 const FIELDS = {
     [T.DEPLOYMENT]: "deployment", [T.SCHEDULED_INSTANCE]: "scheduledInstance", [T.NODE]: "node", [T.SECRET]: "secret", [T.CONFIG]: "config",
@@ -8,7 +9,9 @@ const FIELDS = {
     [T.ASSET_DIRECTORY]: "assetDirectory", [T.AUTHZ_GRANT_TEMPLATE]: "authzGrantTemplate", [T.AUTHZ_GRANT]: "authzGrant",
     [T.AUTHZ_GLOBAL_RULE]: "authzGlobalRule", [T.SYSTEM_CONFIG]: "systemConfig", [T.SCHEDULED_INSTANCE_STATUS]: "scheduledInstanceStatus",
     [T.NODE_STATUS]: "nodeStatus", [T.AGENT_SESSION]: "agentSession", [T.USER_SESSION]: "userSession", [T.SPACE_DOMAIN_POLICY]: "spaceDomainPolicy",
+    [T.NODE_ACCESS_POLICY]: "nodeAccessPolicy",
 };
+const NODE_ACCESS_INPUTS = new Set([T.NODE, T.SPACE, T.NODE_ACCESS_POLICY]);
 const VERSIONED = new Set([T.DEPLOYMENT, T.SECRET, T.CONFIG, T.ASSET]);
 const MIN = 60e3, HOUR = 3600e3, DAY = 86400e3;
 
@@ -100,8 +103,19 @@ class Store {
             mutations.push({value: {[kind]: {entityType: op.type, entityId: op.id, entity: {value: {[FIELDS[op.type]]: item.entity}}, meta: item.meta}}});
         }
         const update = rt("CoreWriteUpdate", {seq, time, actor, mutations});
-        this.publish({events: [update], seq});
+        const message = {events: [update], seq};
+        if (ops.some((op) => NODE_ACCESS_INPUTS.has(op.type))) {
+            this.sidecars.nodeAccess = this.nodeAccess();
+            message.nodeAccess = this.sidecars.nodeAccess;
+        }
+        this.publish(message);
         return update;
+    }
+
+    nodeAccess() {
+        const policies = this.all(T.NODE_ACCESS_POLICY).map((item) => item.entity);
+        const spaceIds = this.all(T.SPACE).map((item) => Number(item.id));
+        return {items: this.all(T.NODE).map((item) => ({nodeId: item.id, runDeploymentSpaces: runSpaces(policies, item.id, spaceIds)}))};
     }
 
     publish(message) {
@@ -563,6 +577,16 @@ export function installServer(capi, {log = console} = {}) {
         return store.commit(SIGNED_IN_USER, [{op: "update", type: T.NODE, id: item.id, entity}]);
     };
 
+    const checkNodeAccessWrite = (write) => {
+        const policies = store.all(T.NODE_ACCESS_POLICY).map((item) => item.entity);
+        const placements = store.all(T.DEPLOYMENT).map((d) => {
+            const nodeId = Number(d.entity.scheduling?.placement?.value?.dedicatedNodes?.nodes?.[0] || 0);
+            const spaceId = Number(d.entity.spaceId || 0);
+            return {deployment: d.entity.name, spaceId, nodeId, space: store.get(T.SPACE, spaceId)?.name, node: store.get(T.NODE, nodeId)?.operator?.name};
+        }).filter((d) => d.nodeId);
+        writePolicies(policies, write, placements, refuse);
+    };
+
     const revealDefault = (secretId, version) => {
         const key = store.get(T.SECRET, secretId)?.fs?.key || "secret";
         if (key === "github_token") return `ghp_${commitSha(`gh${version}`).slice(0, 36)}`;
@@ -832,6 +856,23 @@ export function installServer(capi, {log = console} = {}) {
         },
         async postV1SpaceDomainPoliciesDelete({id}) { store.commit(SIGNED_IN_USER, [{op: "delete", type: T.SPACE_DOMAIN_POLICY, id: Number(id)}]); },
 
+        async postV1NodeAccessPoliciesCreate({name, disabled, nodes, rule}) {
+            const id = store.nextId(T.NODE_ACCESS_POLICY);
+            const entity = {id, name, disabled: Boolean(disabled), builtin: 0, nodes, rule};
+            checkNodeAccessWrite({op: "create", id, policy: entity});
+            return store.commit(SIGNED_IN_USER, [{op: "create", type: T.NODE_ACCESS_POLICY, id, entity}]);
+        },
+        async postV1NodeAccessPoliciesUpdate({id, name, disabled, nodes, rule}) {
+            const builtin = store.get(T.NODE_ACCESS_POLICY, Number(id))?.builtin || 0;
+            const entity = {id: Number(id), name, disabled: Boolean(disabled), builtin, nodes, rule};
+            checkNodeAccessWrite({op: "update", id: Number(id), policy: entity});
+            return store.commit(SIGNED_IN_USER, [{op: "update", type: T.NODE_ACCESS_POLICY, id: Number(id), entity}]);
+        },
+        async postV1NodeAccessPoliciesDelete({id}) {
+            checkNodeAccessWrite({op: "delete", id: Number(id)});
+            store.commit(SIGNED_IN_USER, [{op: "delete", type: T.NODE_ACCESS_POLICY, id: Number(id)}]);
+        },
+
         async postV1SpacesCreate({name}) {
             if (store.all(T.SPACE).some((s) => s.entity.name === name)) throw refuse(409, `A space named ${name} already exists`);
             const id = store.nextId(T.SPACE);
@@ -849,9 +890,6 @@ export function installServer(capi, {log = console} = {}) {
 
         async getV1NodesEnrollmentsInfo() { return rt("NodeEnrollmentInfo", {enrollmentTlsSpkiSha256: "4f2a9c1e7b3d5a8f0c6e2b9d1a7f3c5e8b0d2f4a6c8e0b1d3f5a7c9e1b3d5f7a"}); },
         async postV1NodesRename({identifier, name}) { return updateNode(identifier, (n) => ({...n, operator: {...n.operator, name}})); },
-        async postV1NodesAllowedSpaces({identifier, spaceIds}) {
-            return updateNode(identifier, (n) => ({...n, operator: {...n.operator, allowedSpaces: [...new Set([0, ...(spaceIds || []).map(Number)])].sort((a, b) => a - b)}}));
-        },
         async postV1NodesDrain({identifier, draining}) { return updateNode(identifier, (n) => ({...n, status: draining ? 6 : 4})); },
         async postV1NodesEvict({identifier}) {
             const item = nodeByIdentifier(identifier);
@@ -873,7 +911,7 @@ export function installServer(capi, {log = console} = {}) {
         async postV1NodesEnrollmentsAccept({id, nodeName}) {
             const item = store.latest(T.NODE, Number(id));
             if (!item) throw refuse(404, "Enrollment request not found");
-            const entity = {...clone(item.entity), status: 4, operator: {...item.entity.operator, name: nodeName, allowedSpaces: store.all(T.SPACE).map((s) => s.id), enrolledTime: new Date()}};
+            const entity = {...clone(item.entity), status: 4, operator: {...item.entity.operator, name: nodeName, enrolledTime: new Date()}};
             delete entity.enrollmentRequestedAt;
             store.commit(SIGNED_IN_USER, [{op: "update", type: T.NODE, id: item.id, entity}]);
             return rt("EnrollmentRequestStatus", {id: item.id, createdAt: new Date(), requestingMachineId: entity.reported.identifier, opendeployVersion: AGENT_VERSION, status: 4, isConnected: true});

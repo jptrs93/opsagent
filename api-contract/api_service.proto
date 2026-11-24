@@ -282,11 +282,6 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
-  rpc PostV1NodesAllowedSpaces(NodeAllowedSpacesRequest) returns (CoreWriteUpdate) {
-    option (cp.url) = "/v1/nodes/allowed-spaces";
-    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
-  }
-
   rpc PostV1NodesDrain(NodeDrainRequest) returns (CoreWriteUpdate) {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
@@ -350,6 +345,21 @@ service ApiServer {
 
   rpc PostV1SpaceDomainPoliciesDelete(SpaceDomainPolicyDeleteRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/space-domain-policies/delete";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1NodeAccessPoliciesCreate(NodeAccessPolicyCreateRequest) returns (CoreWriteUpdate) {
+    option (cp.url) = "/v1/node-access-policies/create";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1NodeAccessPoliciesUpdate(NodeAccessPolicyUpdateRequest) returns (CoreWriteUpdate) {
+    option (cp.url) = "/v1/node-access-policies/update";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1NodeAccessPoliciesDelete(NodeAccessPolicyDeleteRequest) returns (cp.Empty) {
+    option (cp.url) = "/v1/node-access-policies/delete";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 

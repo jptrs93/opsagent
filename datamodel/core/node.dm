@@ -18,7 +18,7 @@ type Node@3 root {
             Primary@0
             Secondary@1
         }
-        allowed_spaces@3: []Space.id
+        reserve @3
         enrolled_time@4: ?i64
     }
     reported@5: type NodeReported {

@@ -91,6 +91,8 @@ test("entity refs format, parse, and resolve their target", () => {
     assert.equal(refTargetForEntityType(7).key, "systemConfig");
     assert.equal(formatRef(entityRef("spaceDomainPolicy", 3)), "domain_policy#3");
     assert.deepEqual(parseEntityRefs("domain_policy#3"), [entityRef("spaceDomainPolicy", 3)]);
+    assert.equal(formatRef(entityRef("nodeAccessPolicy", 4)), "node_access_policy#4");
+    assert.deepEqual(parseEntityRefs("node_access_policy#4"), [entityRef("nodeAccessPolicy", 4)]);
     assert.equal(refTargetForEntityType(10).key, "spaceDomainPolicy");
 });
 

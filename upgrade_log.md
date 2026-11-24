@@ -4,6 +4,72 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.625 (released 2026-11-25)
+
+### What changed
+
+- **Node access policies decide which node may run which space's
+  deployments.** They replace the per-node list of allowed spaces. A policy
+  selects nodes and gives them one rule, written like an access rule: an
+  allow or a deny over the running permission and a selection of spaces.
+  Enabled denies are checked first, then enabled allows, and what no allow
+  covers is refused. They are managed on the Nodes page under Access
+  policies, and each has an enable toggle.
+- **Every cluster holds two built-in policies** that cannot be edited or
+  deleted. `system_everywhere` lets every node run the `_system` space and
+  is always enabled. `all_spaces_everywhere` lets every node run every
+  space and can be disabled.
+- **A policy change never strands a deployment.** Creating, changing,
+  disabling or deleting a policy is refused with `409
+  node_access_policy_placements_in_use` when it would leave a deployment,
+  running or stopped, on a node that may no longer run it. The message
+  lists them.
+- **A placement the policies refuse is `409 node_space_not_allowed`**, as
+  before, and the message now names the deny or says that no policy allows
+  it.
+- **`POST /v1/nodes/allowed-spaces` is removed**, and a node no longer
+  carries `operator.allowed_spaces`. The state stream sends the spaces each
+  visible node may run as `node_access`. The Spaces column of the Nodes
+  page, the node inspector and the deployment form read it; the inspector
+  no longer edits it.
+- **Managing the policies needs the `access` permission** at the cluster
+  level, the one that covers roles, grants and global rules. Cluster admins
+  hold it.
+- **A space cannot be deleted while a node access policy names it.**
+
+### Before upgrading
+
+- **Write down every node whose allowed spaces were narrowed.** The lists
+  are not converted. After the upgrade every node may run every space until
+  the matching policies are created. On the Nodes page, a node whose Spaces
+  column does not read `all` is one to note, with the spaces its inspector
+  lists.
+- **A user limited to some spaces sees every node after the upgrade**,
+  until a policy denies a node their spaces again. Node visibility follows
+  the policies as it followed the lists.
+- Scripts that call `/v1/nodes/allowed-spaces` or read
+  `operator.allowed_spaces` need changing.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. Only the primary
+  reads the policies; nodes see no change.
+- **Do not roll the primary back** once it has started on this release. The
+  first start drops the `allowed_spaces` column of the `nodes` table and
+  writes the two built-in policies to the write log, and an earlier release
+  needs the column and does not know the entity.
+
+### After upgrading
+
+- **Recreate each narrowed node as a deny.** For a node that ran only some
+  spaces, add a policy with the effect Deny, that node, and "All spaces
+  except" the spaces it ran. The policy is refused if a deployment placed
+  since the upgrade contradicts it; the message names it.
+- To start from nothing instead, add the allows the cluster needs, then
+  disable `all_spaces_everywhere`.
+- The Access policies tab can check one node against one space and names
+  the deny that refuses it.
+
 ## v0.0.624 (released 2026-11-25)
 
 ### What changed

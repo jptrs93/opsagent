@@ -138,9 +138,6 @@ type Deployment@1 root {
         restart_generation@3: u32
     }
     laws {
-        placement_nodes_have_space_access where scheduling.placement is DedicatedNodesScheduling p {
-            assert all n in p.nodes : space_id in n->operator.allowed_spaces
-        }
         placement_nodes_are_members where scheduling.placement is DedicatedNodesScheduling p {
             assert all n in p.nodes : n->status in [MemberNormal, MemberUnhealthy, MemberDraining, MemberMissing]
         }

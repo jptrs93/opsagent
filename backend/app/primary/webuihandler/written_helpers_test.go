@@ -133,14 +133,6 @@ func (h *Handler) nodesRename(ctx apigen.Context, req *apigen.NodeRenameRequest)
 	return nodeOf(u), nil
 }
 
-func (h *Handler) nodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeAllowedSpacesRequest) (*pq.NodeEvent, error) {
-	u, err := h.PostV1NodesAllowedSpaces(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	return nodeOf(u), nil
-}
-
 func (h *Handler) nodesDrain(ctx apigen.Context, req *apigen.NodeDrainRequest) (*pq.NodeEvent, error) {
 	u, err := h.PostV1NodesDrain(ctx, req)
 	if err != nil {

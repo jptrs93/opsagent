@@ -4847,6 +4847,10 @@ func (m *AuthzEntityRefTarget) validate(seen map[any]bool) error {
 		value := m.Value.SpaceDomainPolicy
 		_ = value
 	}
+	{
+		value := m.Value.NodeAccessPolicy
+		_ = value
+	}
 	return nil
 }
 
@@ -6227,19 +6231,6 @@ func (m *NodeRenameRequest) validate(seen map[any]bool) error {
 	return nil
 }
 
-func (m *NodeAllowedSpacesRequest) Validate() error { return m.validate(make(map[any]bool)) }
-func (m *NodeAllowedSpacesRequest) validate(seen map[any]bool) error {
-	if m == nil {
-		return newValidationError(nil, "message is nil")
-	}
-	if seen[m] {
-		return newValidationError(nil, "cyclic message graph cannot be encoded")
-	}
-	seen[m] = true
-	defer delete(seen, m)
-	return nil
-}
-
 func (m *NodeDrainRequest) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *NodeDrainRequest) validate(seen map[any]bool) error {
 	if m == nil {
@@ -7319,6 +7310,392 @@ func (m *SpaceDomainPolicyUpdateRequest) validate(seen map[any]bool) error {
 
 func (m *SpaceDomainPolicyDeleteRequest) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *SpaceDomainPolicyDeleteRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *NodeAccessPolicy) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessPolicy) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if utf8.RuneCountInString(m.Name) < 1 {
+		return newValidationError([]string{"name"}, "must be at least 1 character")
+	}
+	if utf8.RuneCountInString(m.Name) > 64 {
+		return newValidationError([]string{"name"}, "must be at most 64 characters")
+	}
+	switch int32(m.Builtin) {
+	case 0, 1, 2:
+	default:
+		return newValidationError([]string{"builtin"}, "must be a defined enum value")
+	}
+	{
+		value := &m.Nodes
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "nodes")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Rule
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "rule")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeAccessRule) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessRule) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Effect
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "effect")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Selector
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "selector")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeAccessAllow) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessAllow) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *NodeAccessDeny) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessDeny) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *NodeAccessEffect) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessEffect) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if err := m.Value.Validate(); err != nil {
+		return wrapValidationError(err, "value")
+	}
+	{
+		value := m.Value.Allow
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "allow")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Value.Deny
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "deny")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeAccessSelector) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessSelector) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Permissions
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "permissions")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Spaces
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "spaces")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeSelector) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeSelector) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.ExactNodes.Value, m.ExactNodes.Present
+		var value *NodeIdList
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "exact_nodes")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.AllNodesExcluding.Value, m.AllNodesExcluding.Present
+		var value *NodeIdList
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "all_nodes_excluding")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeIdList) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeIdList) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *NodePermissionSelector) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodePermissionSelector) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.ExactPermissions.Value, m.ExactPermissions.Present
+		var value *NodePermissionList
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "exact_permissions")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.AllPermissionsExcluding.Value, m.AllPermissionsExcluding.Present
+		var value *NodePermissionList
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "all_permissions_excluding")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodePermissionList) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodePermissionList) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Values {
+		_ = i
+		switch int32(item) {
+		case 0, 1:
+		default:
+			return newValidationError([]string{fmt.Sprintf("values[%d]", i)}, "must be a defined enum value")
+		}
+		if slices.Contains([]int32{0}, int32(item)) {
+			return newValidationError([]string{fmt.Sprintf("values[%d]", i)}, "must not be one of the disallowed values")
+		}
+	}
+	return nil
+}
+
+func (m *NodeAccess) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccess) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *NodeAccessList) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessList) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Items {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("items[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *NodeAccessPolicyCreateRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessPolicyCreateRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Nodes
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "nodes")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Rule
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "rule")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeAccessPolicyUpdateRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessPolicyUpdateRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Nodes
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "nodes")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Rule
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "rule")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeAccessPolicyDeleteRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeAccessPolicyDeleteRequest) validate(seen map[any]bool) error {
 	if m == nil {
 		return newValidationError(nil, "message is nil")
 	}
@@ -8804,7 +9181,7 @@ func (m *CreateMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -8847,7 +9224,7 @@ func (m *UpdateMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -8890,7 +9267,7 @@ func (m *DeleteMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -8924,7 +9301,7 @@ func (m *MaterialisedEntity) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -9182,6 +9559,15 @@ func (m *CoreEntity) validate(seen map[any]bool) error {
 		}
 		_ = value
 	}
+	{
+		value := m.Value.NodeAccessPolicy
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_access_policy")
+			}
+		}
+		_ = value
+	}
 	return nil
 }
 
@@ -9262,6 +9648,19 @@ func (m *EventStreamMsg) validate(seen map[any]bool) error {
 		if value != nil {
 			if err := value.validate(seen); err != nil {
 				return wrapValidationError(err, "secrets_status")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.NodeAccess.Value, m.NodeAccess.Present
+		var value *NodeAccessList
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_access")
 			}
 		}
 		_ = value

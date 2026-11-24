@@ -348,7 +348,9 @@ node that may run such a deployment therefore holds the global space key.
 - No user is online at failover. A node can run only what was wrapped to it
   beforehand, so node-to-space eligibility is a signed grant and the scheduler
   places a deployment only on eligible nodes.
-- Whether anything scopes nodes to spaces today was not checked.
+- Node access policies, added on 2026-11-25, scope nodes to spaces today
+  (`docs/product/deployments.md`). They are primary-trusted records, not
+  signed grants.
 
 ### Conflicts with the current design
 

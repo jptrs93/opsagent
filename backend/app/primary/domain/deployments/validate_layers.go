@@ -4,19 +4,19 @@ import (
 	"context"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"net/http"
-	"slices"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"github.com/jptrs93/opsagent/backend/lib/ingressplan"
 	"github.com/jptrs93/opsagent/backend/lib/network"
+	"github.com/jptrs93/opsagent/backend/lib/nodeaccess"
 	"github.com/jptrs93/opsagent/backend/storage"
 	"github.com/jptrs93/opsagent/backend/storage/primarydb/pq"
 )
 
 var NodeSpaceNotAllowedErr = apigen.NewApiErr(
-	"This node does not allow deployments from that space",
+	"This node may not run deployments of that space",
 	"node_space_not_allowed", http.StatusConflict)
 
 var NodeDrainingErr = apigen.NewApiErr(
@@ -129,15 +129,28 @@ func validateInternalSpecUnchanged(existing, updated *apigen.DeploymentRecord) e
 	return nil
 }
 
-func validateNodeAllowsSpace(live nodes.LiveState, nodeID, spaceID uint64) error {
+// Call under the write lock: a node access policy write checks placements
+// under the same lock, so neither can slip past the other.
+func validateNodeAllowsSpace(ctx context.Context, q *pq.Queries, live nodes.LiveState, nodeID, spaceID uint64) error {
 	node := live.Nodes[nodeID]
 	if node == nil {
 		return InvalidConfigErrf("node is not registered")
 	}
-	if !slices.Contains(node.AllowedSpaces, spaceID) {
-		return NodeSpaceNotAllowedErr
+	policies, err := q.NodeAccessPolicyValues(ctx)
+	if err != nil {
+		return err
 	}
-	return nil
+	decision := nodeaccess.Decide(policies, nodeID, nodeaccess.Run, spaceID)
+	if decision.Allowed {
+		return nil
+	}
+	space, err := q.GetSpace(ctx, spaceID)
+	if err != nil {
+		return err
+	}
+	e := NodeSpaceNotAllowedErr
+	e.DisplayErr = nodeaccess.Refusal(node.Name, space.Name, decision)
+	return e
 }
 
 func validateNodeNotDraining(live nodes.LiveState, updated, existing *apigen.DeploymentRecord) error {
@@ -174,7 +187,7 @@ func inLockValidateDeploymentCreate(ctx context.Context, q *pq.Queries, reservat
 	if err := validateNoDuplicateIdentity(live, updated); err != nil {
 		return err
 	}
-	if err := validateNodeAllowsSpace(live, updated.Deployment.PlacementNodeID(), updated.Deployment.SpaceID); err != nil {
+	if err := validateNodeAllowsSpace(ctx, q, live, updated.Deployment.PlacementNodeID(), updated.Deployment.SpaceID); err != nil {
 		return err
 	}
 	if err := validateNodeNotDraining(live, updated, nil); err != nil {
@@ -226,7 +239,7 @@ func inLockValidateDeploymentUpdate(ctx context.Context, q *pq.Queries, reservat
 		if err := validateNoDuplicateIdentity(live, updated); err != nil {
 			return err
 		}
-		if err := validateNodeAllowsSpace(live, updated.Deployment.PlacementNodeID(), updated.Deployment.SpaceID); err != nil {
+		if err := validateNodeAllowsSpace(ctx, q, live, updated.Deployment.PlacementNodeID(), updated.Deployment.SpaceID); err != nil {
 			return err
 		}
 		ids := IDSet([]uint64{existing.Deployment.ID})

@@ -63,6 +63,7 @@ message AuthzEntityRefTarget {
     uint64 authz_grant = 10 [(cp.js_type) = "number"];
     uint64 authz_global_rule = 11 [(cp.js_type) = "number"];
     uint64 space_domain_policy = 12 [(cp.js_type) = "number"];
+    uint64 node_access_policy = 13 [(cp.js_type) = "number"];
   }
 }
 

@@ -62,6 +62,7 @@ export const groups: Group[] = [
     { slug: 'reference/config-value', title: 'Config value', sections: [] },
     { slug: 'reference/asset', title: 'Asset', sections: [] },
     { slug: 'reference/node', title: 'Node', sections: [] },
+    { slug: 'reference/node-access-policy', title: 'Node access policy', sections: [] },
     { slug: 'reference/user-and-access-rule', title: 'User and access rule', sections: [] },
     { slug: 'reference/system-settings', title: 'System settings', sections: [] },
   ] },

@@ -98,7 +98,6 @@
         f('operator', obj('NodeOperator', [
           f('name', 'string', { note: 'unique' }),
           f('roles', 'int32', { mod: 'repeated' }),
-          f('allowedSpaces', 'int32', { mod: 'repeated', ref: 'Space.id' }),
           f('enrolledTime', 'int64', { srv: true }),
         ])),
         f('reported', obj('NodeReported', [

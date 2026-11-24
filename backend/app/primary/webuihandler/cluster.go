@@ -4,10 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/jptrs93/opsagent/backend/app/primary/domain/deployments"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
-	"github.com/jptrs93/opsagent/backend/lib/engine/internaldeploy"
 	"net/http"
 	"strings"
 
@@ -34,7 +32,7 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	}
 	// Derived visibility counts as viewable: a space operator who can see the
 	// node gets a 403 here, not a 404.
-	if !h.nodeVisible(ctx, existing.ID, existing.AllowedSpaces) {
+	if !h.nodeVisible(ctx, existing.ID) {
 		return nil, NodeNotFoundErr
 	}
 	if err := h.requireAccess(ctx, vUpdate, eNode, 0, existing.ID); err != nil {
@@ -53,77 +51,6 @@ func (h *Handler) PostV1NodesRename(ctx apigen.Context, req *apigen.NodeRenameRe
 	return nil, err
 }
 
-var InvalidAllowedSpacesErr = apigen.NewApiErr("Node identifier is required", "invalid_allowed_spaces", http.StatusBadRequest)
-var UnknownSpaceErr = apigen.NewApiErr("One or more spaces do not exist", "unknown_space", http.StatusBadRequest)
-
-// PostV1NodesAllowedSpaces replaces the set of spaces whose deployments may
-// be placed on a node.
-func (h *Handler) PostV1NodesAllowedSpaces(ctx apigen.Context, req *apigen.NodeAllowedSpacesRequest) (*apigen.CoreWriteUpdate, error) {
-	if req == nil {
-		return nil, InvalidAllowedSpacesErr
-	}
-	identifier := strings.TrimSpace(req.Identifier)
-	if identifier == "" {
-		return nil, InvalidAllowedSpacesErr
-	}
-	node := h.nodeByIdentifier(identifier)
-	if node == nil {
-		return nil, NodeNotFoundErr
-	}
-	if !h.nodeVisible(ctx, node.ID, node.AllowedSpaces) {
-		return nil, NodeNotFoundErr
-	}
-	if err := h.requireAccess(ctx, vUpdate, eNode, 0, node.ID); err != nil {
-		return nil, err
-	}
-
-	// A list naming a space that does not exist is a caller mistake, not a
-	// narrowing: accepting it would silently store an id that can never match.
-	existing := map[uint64]struct{}{}
-	for _, space := range nodes.ListSpaces(h.Store.Queries()) {
-		existing[space.ID] = struct{}{}
-	}
-	requested := map[uint64]struct{}{}
-	for _, id := range req.SpaceIds {
-		if _, ok := existing[id]; !ok {
-			return nil, UnknownSpaceErr
-		}
-		requested[id] = struct{}{}
-	}
-	// The invariant, applied here too so the check below sees the same list
-	// that will be stored rather than the one the caller sent.
-	requested[internaldeploy.SpaceID] = struct{}{}
-
-	// Narrowing must not contradict what is already placed on the node. This is
-	// the same shape as refusing to delete a space with live deployments.
-	for _, cfg := range deployments.Active(h.Queries, nil) {
-		if cfg.Deployment.PlacementNodeID() != node.ID {
-			continue
-		}
-		if _, ok := requested[cfg.Deployment.SpaceID]; !ok {
-			return nil, apigen.NewApiErr(
-				fmt.Sprintf("Deployment %q is already on this node in a space you are removing", cfg.Deployment.Name),
-				"node_space_in_use", http.StatusConflict)
-		}
-	}
-
-	spaces := make([]uint64, 0, len(requested))
-	for id := range requested {
-		spaces = append(spaces, id)
-	}
-	updated, err := nodes.SetNodeAllowedSpaces(h.Store, identifier, spaces)
-	if err == sql.ErrNoRows {
-		return nil, NodeNotFoundErr
-	}
-	if err != nil {
-		return nil, err
-	}
-	// The allow list feeds derived node visibility, and a viewer who just lost
-	// a node has no pending update to take it away — only a full re-filter of
-	// each open stream removes (or reveals) the row.
-	return h.written(ctx, pq.NodeMutation(apigen.AuthzVerb_AUTHZ_VERB_UPDATE, updated)), nil
-}
-
 var NodeNotMemberErr = apigen.NewApiErr("Node is not a cluster member", "node_not_member", http.StatusConflict)
 var NodeIsPrimaryErr = apigen.NewApiErr("The primary node cannot be drained or evicted", "node_is_primary", http.StatusBadRequest)
 var NodeVersionChangedErr = apigen.NewApiErr("The node changed while you were looking at it; reload and try again", "node_version_changed", http.StatusConflict)
@@ -135,7 +62,7 @@ func (h *Handler) visibleMemberNode(ctx apigen.Context, identifier string) (*nod
 		return nil, InvalidNodeRequestErr
 	}
 	node := h.nodeByIdentifier(identifier)
-	if node == nil || !h.nodeVisible(ctx, node.ID, node.AllowedSpaces) {
+	if node == nil || !h.nodeVisible(ctx, node.ID) {
 		return nil, NodeNotFoundErr
 	}
 	return node, nil
@@ -211,7 +138,7 @@ func (h *Handler) PostV1NodesExposure(ctx apigen.Context, req *apigen.NodeExposu
 		return nil, err
 	}
 	nodeID := row.Event.NodeID
-	if !h.nodeVisible(ctx, nodeID, row.Event.Value.Operator.AllowedSpaces) {
+	if !h.nodeVisible(ctx, nodeID) {
 		return nil, NodeNotFoundErr
 	}
 	if err := h.requireAccess(ctx, vDelete, eNode, 0, nodeID); err != nil {

@@ -59,6 +59,15 @@ type SpaceDomainPolicyEvent struct {
 	Value               apigen.SpaceDomainPolicy
 }
 
+type NodeAccessPolicyEvent struct {
+	NodeAccessPolicyID uint64
+	Seq                int64
+	Author             int64
+	CreatedTime        int64
+	EventTime          int64
+	Value              apigen.NodeAccessPolicy
+}
+
 type ScheduledInstanceEvent struct {
 	ScheduledInstanceID uint64
 	Seq                 int64
@@ -111,6 +120,10 @@ func (v *NetworkPolicyEvent) Mutation(verb apigen.AuthzVerb) Mutation {
 
 func (v *SpaceDomainPolicyEvent) Mutation(verb apigen.AuthzVerb) Mutation {
 	return SpaceDomainPolicyMutation(viewMeta(v.Seq, v.EventTime, v.Author, verb), v.SpaceDomainPolicyID, v.Value)
+}
+
+func (v *NodeAccessPolicyEvent) Mutation(verb apigen.AuthzVerb) Mutation {
+	return NodeAccessPolicyMutation(viewMeta(v.Seq, v.EventTime, v.Author, verb), v.NodeAccessPolicyID, v.Value)
 }
 
 func Written(m Mutation) *apigen.CoreWriteUpdate {

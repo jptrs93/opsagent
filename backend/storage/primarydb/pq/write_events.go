@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
+	"github.com/jptrs93/opsagent/backend/lib/nodeaccess"
 )
 
 func (q *Queries) InsertWriteEvent(ctx context.Context, u *apigen.CoreWriteUpdate) error {
@@ -129,9 +130,9 @@ func (q *Queries) LatestMutation(ctx context.Context, t apigen.CoreEntityType, i
 	return &m, nil
 }
 
-// seedWriteLogGenesis writes seq 0 of a fresh database: the two spaces every
-// cluster starts with, materialised and logged like every later write, at
-// the time the log was born.
+// seedWriteLogGenesis writes seq 0 of a fresh database: the two spaces and
+// the built-in node access policies every cluster starts with, materialised
+// and logged like every later write, at the time the log was born.
 func seedWriteLogGenesis(db *sql.DB) {
 	ctx := context.Background()
 	q := &Queries{db: &conn{DBTX: db, root: db}}
@@ -145,6 +146,11 @@ func seedWriteLogGenesis(db *sql.DB) {
 	genesis := &apigen.CoreWriteUpdate{Time: time.Now().UnixMilli()}
 	for _, sp := range []apigen.Space{{ID: 0, Name: "_system"}, {ID: 1, Name: "global"}} {
 		genesis.Mutations = append(genesis.Mutations, apigen.CreateMutationOf(apigen.CoreEntityType_CORE_ENTITY_SPACE, sp.ID, entityOf(apigen.CoreEntityValueOneof{Space: &sp})))
+	}
+	for i, policy := range nodeaccess.Builtins() {
+		id := uint64(i + 1)
+		policy.ID = id
+		genesis.Mutations = append(genesis.Mutations, apigen.CreateMutationOf(apigen.CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY, id, entityOf(apigen.CoreEntityValueOneof{NodeAccessPolicy: &policy})))
 	}
 	err = q.Tx(ctx, func(tx *Queries) error {
 		if err := tx.ReduceUpdate(ctx, genesis); err != nil {

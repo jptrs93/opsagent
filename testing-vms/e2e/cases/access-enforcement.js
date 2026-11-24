@@ -225,7 +225,7 @@ export const accessEnforcementCases = [
         await expect(spaceRow(page, 'global')).toHaveCount(0);
       });
 
-      await test.step('nodes become visible through their allowed spaces', async () => {
+      await test.step('nodes become visible through the spaces they may run', async () => {
         await page.getByTestId('nav-cluster').click();
         const workerRow = page.getByTestId(`machine-row-${requiredEnv('OPD_WORKER_1_MACHINE_ID')}`);
         await expect(workerRow).toBeVisible({timeout: LONG_UI_TIMEOUT});

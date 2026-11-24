@@ -36,7 +36,7 @@ message Node {
 message NodeOperator {
   string name = 1;
   repeated NodeRole roles = 2 [(buf.validate.field).repeated.items.enum.defined_only = true];
-  repeated uint64 allowed_spaces = 3 [(cp.js_type) = "number"];
+  reserved 3;
   optional int64 enrolled_time = 4 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
 }
 

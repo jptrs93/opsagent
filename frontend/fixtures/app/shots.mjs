@@ -126,6 +126,13 @@ const SHOTS = {
         await p.locator("[data-testid^='machine-row-']", {hasText: "worker-b"}).first().click();
         await p.getByTestId("node-inspector").waitFor();
     }},
+    "cluster-access": {steps: async (p) => { await nav(p, "cluster"); await tab(p, "nodes-tab-access"); await p.getByTestId("node-access-policy-row-1").waitFor(); }},
+    "dialog-node-access-policy": {steps: async (p) => {
+        await nav(p, "cluster");
+        await tab(p, "nodes-tab-access");
+        await p.getByTestId("node-access-policy-edit-4").click();
+        await p.getByTestId("node-access-policy-editor").waitFor();
+    }},
     "cluster-enrollments": {steps: async (p) => { await nav(p, "cluster"); await tab(p, "nodes-tab-enrollments"); await p.locator("[data-testid^='enrollment-request-']").first().waitFor(); await noLoading(p); }},
     "cluster-replication": {steps: async (p) => { await nav(p, "cluster"); await tab(p, "nodes-tab-replication"); await p.getByTestId("backup-replication-status").waitFor(); }},
     "settings": {steps: async (p) => { await nav(p, "settings"); await p.getByTestId("settings-page").waitFor(); await p.locator("[data-testid^='setting-row-']").first().waitFor(); }},

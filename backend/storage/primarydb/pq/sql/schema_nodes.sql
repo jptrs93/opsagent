@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS nodes (
     identifier              TEXT    NOT NULL UNIQUE,
     status                  INTEGER NOT NULL,
     roles                   TEXT    NOT NULL,  -- JSON
-    allowed_spaces          TEXT    NOT NULL,  -- JSON
     enrolled_time           INTEGER NOT NULL,  -- epoch ms, 0 until accept
     enrollment_requested_at INTEGER NOT NULL,  -- epoch ms, 0 outside a request
     underlay_address        TEXT    NOT NULL,

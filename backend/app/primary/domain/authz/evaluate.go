@@ -6,7 +6,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
-// EntityRefTarget returns the kind and id an entity ref names. The three
+// EntityRefTarget returns the kind and id an entity ref names. The four
 // access-management targets all report the ACCESS kind, and the system
 // config target reports CLUSTER.
 func EntityRefTarget(ref apigen.AuthzEntityRef) (apigen.AuthzEntityKind, uint64, bool) {
@@ -36,6 +36,8 @@ func EntityRefTarget(ref apigen.AuthzEntityRef) (apigen.AuthzEntityKind, uint64,
 		return apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS, *v.AuthzGlobalRule, true
 	case v.SpaceDomainPolicy != nil:
 		return apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_DOMAIN_POLICY, *v.SpaceDomainPolicy, true
+	case v.NodeAccessPolicy != nil:
+		return apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_ACCESS, *v.NodeAccessPolicy, true
 	}
 	return apigen.AuthzEntityKind_AUTHZ_ENTITY_KIND_UNSPECIFIED, 0, false
 }
