@@ -4,7 +4,7 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
-## v0.0.620 (unreleased)
+## v0.0.620 (released 2026-11-24)
 
 This release needs commands run as root on every node, over SSH, after the
 version is rolled out. They are listed under "Per-node conversion" below.
@@ -73,16 +73,24 @@ minute, most of it the runtime download in step 4. Containers keep
 running throughout; on the primary the Web UI and API are down for that
 time.
 
-1. Record the state to compare against afterwards, and stop the agent.
-   The `readlink` output names the release the node runs; it must be this
-   one.
+1. Save the files the conversion replaces, record the state to compare
+   against afterwards, and stop the agent. The `readlink` output names the
+   release the node runs; it must be this one.
 
    ```bash
    CTR="sudo /var/lib/opendeploy/runtime/bin/ctr --address /run/opendeploy/containerd.sock -n opendeploy"
-   readlink -f /var/lib/opendeploy/bin/opendeploy
+   sudo readlink -f /var/lib/opendeploy/bin/opendeploy
+   sudo install -d -m 700 /root/opendeploy-pre-root
+   sudo cp -p /etc/systemd/system/opendeploy.service /etc/sudoers.d/opendeploy \
+     /var/lib/opendeploy/runtime/config.toml /etc/opendeploy/env /root/opendeploy-pre-root/
    $CTR tasks ls | sort > /tmp/tasks.before
    sudo systemctl stop opendeploy
    ```
+
+   On the primary, also take a database backup first:
+   `sudo sqlite3 /var/lib/opendeploy/primary.db ".backup /root/opendeploy-pre-root/primary.db"`.
+   After the stop, `systemctl is-active opendeploy` may answer `failed`
+   instead of `inactive`; both mean stopped.
 
 2. Give the runtime roots to root. The volume and Nix store commands
    change only the directories the agent created. Do not replace them
@@ -133,7 +141,9 @@ time.
    `upgrade` with no version re-stages the installed binary, writes the
    new unit, reloads systemd and restarts the service. The explicit
    `start` covers a rerun, where nothing changed and `upgrade` restarts
-   nothing.
+   nothing. On a primary it also removes `OPENDEPLOY_INITIAL_*` lines
+   left in `/etc/opendeploy/env` by an old install; they have been unused
+   since the settings moved into the database.
 
 5. Verify.
 
@@ -166,8 +176,19 @@ time.
    Files inside volumes that listed `opendeploy` as owner show the
    numeric uid from then on.
 
+### Reverting a converted node
+
+Possible until the account is deleted in step 6, with the files saved in
+step 1: stop the agent, copy the unit, sudoers file and `config.toml`
+back, run `systemctl daemon-reload`, repeat the step 2 commands with
+`opendeploy:opendeploy` (and `root:opendeploy`, mode `640`, for the env
+file), restart `opendeploy-containerd`, and start the agent.
+
 ### After upgrading
 
+- Delete `/root/opendeploy-pre-root` once the node is settled. The saved
+  env file of an old primary install can hold the initial master password
+  hash.
 - A node that still shows the `running as uid` warning has not been
   converted. It works, through a fallback that a later release removes.
 - Later upgrades from the Deployments page need no SSH step.
