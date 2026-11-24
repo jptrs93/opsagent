@@ -570,15 +570,15 @@
         }
 
         .page-strip {
-            @apply min-h-11 py-2 pl-2 pr-3;
+            @apply min-h-11 px-3 py-2;
         }
 
         .page-tabs {
-            @apply h-11 items-center gap-0.5 pl-2 pr-3;
+            @apply h-11 items-center gap-0.5 px-3;
         }
 
         .page-body {
-            @apply overflow-hidden rounded-tl-lg border-l border-t border-line bg-surface;
+            @apply overflow-hidden border-t border-line bg-surface;
         }
 
         .page-toolbar {
@@ -630,6 +630,10 @@
 
         .status-line {
             @apply px-3 py-1;
+        }
+
+        .sidebar {
+            @apply border-r border-line;
         }
 
         .sidebar-head {

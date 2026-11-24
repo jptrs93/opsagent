@@ -250,7 +250,7 @@ There are three themes: Slate (the default), Graphite and Classic. `state/theme.
 
 Switching a theme changes only CSS. No component reads the theme, so nothing re-renders and nothing may branch on it in JavaScript.
 
-- **Slate**: the sidebar and the strip above a page share one dark frame; the page content is a lighter panel set into it with a hairline on its top and left edge and a rounded top-left corner. Tabs are pills on the frame. A group heading is a lightly tinted row. Rows carry a hairline.
+- **Slate**: the sidebar and the strip above a page share one dark tone. A hairline runs down the sidebar's right edge for the full height and another runs under the strip, and the page content below it is a lighter panel. The strip and the panel's toolbar share one left inset, so a tab, a search field and the first column line up. Tabs are pills on the frame. A group heading is a lightly tinted row. Rows carry a hairline.
 - **Graphite**: neutral greys with an indigo accent. The content is the darkest surface and the frame is lighter. Tabs are cut into the content with an accent line on the active one. A group heading is a label followed by a rule. Rows carry no hairline. Amber is kept for things that need attention.
 - **Classic**: the look the app had before themes, with every tabbed page on the Deployments page's folder tabs.
 

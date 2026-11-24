@@ -4,6 +4,28 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.624 (released 2026-11-25)
+
+### What changed
+
+Only the Slate theme of the Web UI changes. Nothing changes on disk or on
+the wire.
+
+- **The content panel's top-left corner is square.**
+- **A hairline runs down the sidebar's right edge for the full height**, in
+  place of the one that started below the header.
+- **The header and the toolbar below it share one left inset**, so a tab, a
+  search field and the first column line up.
+
+### Before upgrading
+
+- Nothing needs doing.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. Only the primary
+  serves the Web UI. Reload any open tab afterwards.
+
 ## v0.0.623 (released 2026-11-24)
 
 ### What changed
