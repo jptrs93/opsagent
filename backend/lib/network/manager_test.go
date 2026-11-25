@@ -58,7 +58,7 @@ func TestRetainedContainerNetsIncludeActiveRunners(t *testing.T) {
 	m.containerNets[candidate.ContainerID] = candidate
 	m.containerNets[otherDeployment.ContainerID] = otherDeployment
 
-	retained := m.retainedContainerNetsForDeployment(10, nil)
+	retained := m.retainedContainerNetsForDeployment(10)
 	for _, cn := range []*ContainerNet{current, candidate} {
 		if !retained.keepsContainer(cn.ContainerID) || !retained.keepsHostVeth(cn.HostVeth) {
 			t.Fatalf("active network was not retained: %+v", cn)
@@ -66,6 +66,30 @@ func TestRetainedContainerNetsIncludeActiveRunners(t *testing.T) {
 	}
 	if retained.keepsContainer(otherDeployment.ContainerID) || retained.keepsHostVeth(otherDeployment.HostVeth) {
 		t.Fatal("network from another deployment was retained")
+	}
+}
+
+func TestRetainedContainerNetsKeepUntrackedContainers(t *testing.T) {
+	m := New(Prefix{}, 0)
+	recovered := &ContainerNet{ContainerID: "opendeploy-10-149-1180-1", DeploymentID: 10, HostVeth: "od10s0"}
+	m.containerNets[recovered.ContainerID] = recovered
+
+	retained := m.retainedContainerNetsForDeployment(10)
+	if retained.keepsContainer("opendeploy-10-150-1200-1") || retained.keepsHostVeth("od10s1") {
+		t.Fatal("an untracked sibling was retained before it was named")
+	}
+	retained.keep("opendeploy-10-150-1200-1", "od10s1")
+	retained.keep("opendeploy-10-151-1201-1", "")
+	for _, containerID := range []string{recovered.ContainerID, "opendeploy-10-150-1200-1", "opendeploy-10-151-1201-1"} {
+		if !retained.keepsContainer(containerID) {
+			t.Fatalf("container %q was not retained", containerID)
+		}
+	}
+	if !retained.keepsHostVeth("od10s0") || !retained.keepsHostVeth("od10s1") {
+		t.Fatal("a retained container's host veth was not retained")
+	}
+	if retained.keepsHostVeth("") {
+		t.Fatal("a container without a namespace retained an empty veth name")
 	}
 }
 

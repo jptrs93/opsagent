@@ -122,14 +122,26 @@ func (op DeploymentOperator) Run(
 
 	var currentPreparer *prepare.Handle
 	var currentRunner runner.Runner
+	var candidate runner.RolloverCandidate
+	var candidateReady <-chan rolloverCandidateResult
 	shouldRun := target.WantsRunning()
 	if shouldRun {
 		slog.InfoContext(ctx, fmt.Sprintf("Run: reattaching running preparer preparer=[%s] specVersion=%d",
 			fmtPreparerStatus(status.Preparer), config.Meta.SpecVersion))
 		currentPreparer = op.reAttachPreparer(instanceID, &config, status.Preparer)
-		slog.InfoContext(ctx, fmt.Sprintf("Run: reattaching running runner runner=[%s] specVersion=%d",
-			fmtRunnerStatus(status.Runner), config.Meta.SpecVersion))
-		currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, instanceID, nodeID, &config, status.Runner)
+		if awaitingReadiness(&config, target, status.Runner) {
+			// Reattached as the current runner it would publish RUNNING at once,
+			// and the scheduler would promote a placement that is still warming.
+			slog.InfoContext(ctx, fmt.Sprintf("Run: reattaching rollover candidate runner=[%s] specVersion=%d",
+				fmtRunnerStatus(status.Runner), config.Meta.SpecVersion))
+			currentRunner = runner.Stopped()
+			candidate = runner.ReAttachRolloverCandidate(op.Store, op.RuntimeInputs, instanceID, nodeID, &config, status.Runner.Value)
+			candidateReady = waitForRolloverCandidate(candidate, config.Meta.SpecVersion)
+		} else {
+			slog.InfoContext(ctx, fmt.Sprintf("Run: reattaching running runner runner=[%s] specVersion=%d",
+				fmtRunnerStatus(status.Runner), config.Meta.SpecVersion))
+			currentRunner = runner.ReAttachRunning(op.Store, op.RuntimeInputs, instanceID, nodeID, &config, status.Runner)
+		}
 	} else {
 		slog.InfoContext(ctx, fmt.Sprintf("Run: initializing stopped/terminating instance targetState=%v preparer=[%s] runner=[%s] specVersion=%d",
 			target, fmtPreparerStatus(status.Preparer), fmtRunnerStatus(status.Runner), config.Meta.SpecVersion))
@@ -143,8 +155,6 @@ func (op DeploymentOperator) Run(
 			slog.WarnContext(ctx, "Run: claiming the instance address on startup failed", "err", err)
 		}
 	}
-	var candidate runner.RolloverCandidate
-	var candidateReady <-chan rolloverCandidateResult
 	artifactRepairPending := false
 	artifactRepairStarted := false
 	reconcile := func(update apigen.ScheduledInstanceState) bool {
@@ -493,6 +503,29 @@ type rolloverCandidateResult struct {
 	version   uint32
 	candidate runner.RolloverCandidate
 	err       error
+}
+
+// awaitingReadiness reports whether a placement being reattached was still a
+// rollover candidate when the agent stopped. Nothing records that directly, so
+// it is read from what was last published: under ROLLOVER only a candidate
+// publishes STARTING, and a crashed placement that is still standing by has
+// not been promoted, so it never reported ready either. A crashed placement
+// that is serving has nothing to wait behind and restarts as an ordinary runner.
+func awaitingReadiness(config *apigen.DeploymentRecord, target apigen.ScheduledInstanceTarget, prev apigen.Maybe[apigen.RunnerStatus]) bool {
+	if internaldeploy.IsSelfConfig(config) || config.EffectiveUpgradeStrategy() != apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_ROLLOVER {
+		return false
+	}
+	if !prev.Present || prev.Value.DeploymentSpecVersion != config.Meta.SpecVersion {
+		return false
+	}
+	switch prev.Value.Status {
+	case apigen.RunningStatus_RUNNING_STATUS_STARTING:
+		return true
+	case apigen.RunningStatus_RUNNING_STATUS_CRASHED:
+		return target == apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+	default:
+		return false
+	}
 }
 
 func waitForRolloverCandidate(candidate runner.RolloverCandidate, version uint32) <-chan rolloverCandidateResult {

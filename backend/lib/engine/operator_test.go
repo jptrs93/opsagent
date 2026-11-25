@@ -388,3 +388,53 @@ func selfSpecAt(version string) apigen.DeploymentSpec {
 	}
 	return *spec
 }
+
+// TestAwaitingReadiness pins which reattached placements are still rollover
+// candidates. Reattached as an ordinary runner, a warming candidate published
+// RUNNING at once and was promoted over the placement that was serving.
+func TestAwaitingReadiness(t *testing.T) {
+	const (
+		serving = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_SERVING
+		standby = apigen.ScheduledInstanceTarget_SCHEDULED_INSTANCE_TARGET_RUN_STANDBY
+	)
+	config := func(strategy apigen.ContainerUpgradeStrategy) *apigen.DeploymentRecord {
+		cfg := remoteImageDeployment(9, 7, apigen.ContainerRuntime{})
+		cfg.Deployment.SpaceID = 1
+		cfg.Deployment.Spec.Container().UpgradeStrategy = strategy
+		return cfg
+	}
+	runner := func(status apigen.RunningStatus, specVersion uint32) apigen.Maybe[apigen.RunnerStatus] {
+		return apigen.Some(apigen.RunnerStatus{DeploymentSpecVersion: specVersion, Status: status})
+	}
+	rollover := apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_ROLLOVER
+	recreate := apigen.ContainerUpgradeStrategy_CONTAINER_UPGRADE_STRATEGY_RECREATE
+	self := config(rollover)
+	self.Deployment.SpaceID = internaldeploy.SpaceID
+	self.Deployment.Name = internaldeploy.SelfName
+
+	tests := []struct {
+		name   string
+		config *apigen.DeploymentRecord
+		target apigen.ScheduledInstanceTarget
+		prev   apigen.Maybe[apigen.RunnerStatus]
+		want   bool
+	}{
+		{"warming standby", config(rollover), standby, runner(apigen.RunningStatus_RUNNING_STATUS_STARTING, 7), true},
+		{"warming first placement", config(rollover), serving, runner(apigen.RunningStatus_RUNNING_STATUS_STARTING, 7), true},
+		{"standby crashed before ready", config(rollover), standby, runner(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 7), true},
+		{"serving placement crashed", config(rollover), serving, runner(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 7), false},
+		{"standby already ready", config(rollover), standby, runner(apigen.RunningStatus_RUNNING_STATUS_RUNNING, 7), false},
+		{"serving and running", config(rollover), serving, runner(apigen.RunningStatus_RUNNING_STATUS_RUNNING, 7), false},
+		{"recreate strategy", config(recreate), standby, runner(apigen.RunningStatus_RUNNING_STATUS_STARTING, 7), false},
+		{"status from another spec version", config(rollover), standby, runner(apigen.RunningStatus_RUNNING_STATUS_STARTING, 6), false},
+		{"no runner status", config(rollover), standby, apigen.Maybe[apigen.RunnerStatus]{}, false},
+		{"opendeploy itself", self, serving, runner(apigen.RunningStatus_RUNNING_STATUS_STARTING, 7), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := awaitingReadiness(tt.config, tt.target, tt.prev); got != tt.want {
+				t.Fatalf("awaitingReadiness() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

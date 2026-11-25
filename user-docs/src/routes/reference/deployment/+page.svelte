@@ -180,7 +180,7 @@ ipv6() -> ListenAddress
   </tbody>
 </table>
 
-<p>A rollover candidate finds a Unix socket path in <code class="inl">OPENDEPLOY_READINESS_SOCK_PATH</code> and signals readiness by writing <code class="inl">ready</code> followed by a newline to it once it can serve. In virtual mode the switch is a route change on the node and no port contention exists. In host mode the candidate shares the host's ports, so it must defer binding them until after it has signalled. See <a href="{base}/design/networking/#rollover">Rollover</a> for what happens on the network.</p>
+<p>A rollover candidate finds a Unix socket path in <code class="inl">OPENDEPLOY_READINESS_SOCK_PATH</code> and signals readiness by writing <code class="inl">ready</code> followed by a newline to it once it can serve. If the write fails, exit with an error: the node may have been restarting its agent at that moment, and it starts the candidate again. In virtual mode the switch is a route change on the node and no port contention exists. In host mode the candidate shares the host's ports, so it must defer binding them until after it has signalled. See <a href="{base}/design/networking/#rollover">Rollover</a> for what happens on the network.</p>
 </section>
 
 <!-- ============================================================ -->

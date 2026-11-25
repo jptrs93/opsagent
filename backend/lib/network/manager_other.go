@@ -42,7 +42,7 @@ func (m *Manager) TeardownContainerNet(cn *ContainerNet) {}
 
 func (m *Manager) TeardownContainerNetState(containerID string, deploymentID int32) {}
 
-func (m *Manager) CleanupContainerNets(deploymentID int32, keep []*ContainerNet) {}
+func (m *Manager) CleanupContainerNets(deploymentID int32, inUse []string) {}
 
 func (m *Manager) ReconcileTopology(topology Topology) error {
 	return fmt.Errorf("virtual networking requires linux")
