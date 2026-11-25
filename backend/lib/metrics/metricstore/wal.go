@@ -89,32 +89,44 @@ func readWAL[S any](path string, decode func([]byte) (*S, error), accept func(pa
 	if err != nil {
 		return 0, false, err
 	}
-	for len(b) > 0 {
-		if len(b) < frameLenSize {
-			return records, false, nil
-		}
-		n := int(binary.BigEndian.Uint32(b))
-		if n > maxFramePayload || len(b) < frameLenSize+n+frameCRCSize {
-			return records, false, nil
-		}
-		payload := b[frameLenSize : frameLenSize+n]
-		if binary.BigEndian.Uint32(b[frameLenSize+n:]) != logv2.PayloadCRC(payload) {
-			return records, false, nil
-		}
-		b = b[frameLenSize+n+frameCRCSize:]
+	records, clean = walkWAL(b, decode, accept, yield)
+	return records, clean, nil
+}
+
+func walkWAL[S any](b []byte, decode func([]byte) (*S, error), accept func(payload []byte) bool, yield func(*S) bool) (records int, clean bool) {
+	clean = walkFrames(b, func(payload []byte) bool {
 		if accept != nil && !accept(payload) {
-			continue
+			return true
 		}
 		s, err := decode(payload)
 		if err != nil {
-			continue
+			return true
 		}
 		records++
-		if !yield(s) {
-			return records, true, nil
+		return yield(s)
+	})
+	return records, clean
+}
+
+func walkFrames(b []byte, visit func(payload []byte) bool) (clean bool) {
+	for len(b) > 0 {
+		if len(b) < frameLenSize {
+			return false
+		}
+		n := int(binary.BigEndian.Uint32(b))
+		if n > maxFramePayload || len(b) < frameLenSize+n+frameCRCSize {
+			return false
+		}
+		payload := b[frameLenSize : frameLenSize+n]
+		if binary.BigEndian.Uint32(b[frameLenSize+n:]) != logv2.PayloadCRC(payload) {
+			return false
+		}
+		b = b[frameLenSize+n+frameCRCSize:]
+		if !visit(payload) {
+			return true
 		}
 	}
-	return records, true, nil
+	return true
 }
 
 func peekSample(payload []byte) (t int64, deploymentID int32) {

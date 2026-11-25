@@ -134,8 +134,10 @@ func TestCompactSealsPastDaysAndCollectRoutesBothSources(t *testing.T) {
 	if _, err := os.Stat(walPath(dir, day2)); err != nil {
 		t.Fatalf("day2 wal missing: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dayDir(dir, day1), parquetName(7, 1))); err != nil {
-		t.Fatalf("day1 parquet missing: %v", err)
+	for _, dep := range []int32{1, 2} {
+		if _, err := os.Stat(filepath.Join(dayDir(dir, day1), splitParquetName(dep, 7, 1))); err != nil {
+			t.Fatalf("day1 parquet of deployment %d missing: %v", dep, err)
+		}
 	}
 
 	got, err := Collect(ctx, dir, 7, Query{})
@@ -187,7 +189,7 @@ func TestCompactSealsPastDaysAndCollectRoutesBothSources(t *testing.T) {
 	if err := Compact(ctx, dir, 7, day2.Add(12*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(dayDir(dir, day1), parquetName(7, 2))); err != nil {
+	if _, err := os.Stat(filepath.Join(dayDir(dir, day1), splitParquetName(1, 7, 2))); err != nil {
 		t.Fatalf("second day1 parquet missing: %v", err)
 	}
 	again, err := Collect(ctx, dir, 7, Query{To: day2})

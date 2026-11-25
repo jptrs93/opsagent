@@ -73,6 +73,7 @@ type ApiServerHandler interface {
 	GetV1Healthz(Context, *http.Request, http.ResponseWriter) error
 	PostV1ClusterSettingsGet(Context) (*ClusterSettings, error)
 	PostV1ClusterSettingsUpdate(Context, *ClusterSettings) (*ClusterSettings, error)
+	PostV1ArchiveStatus(Context, *ArchiveStatusRequest) (*ArchiveStatusResponse, error)
 	PostV1NixStoreReset(Context, *NixStoreResetRequest) error
 	PostV1AuthMaster(Context, *MasterPasswordRequest) (*LoginResponse, error)
 	PostV1AuthMasterPasswordSave(Context, *MasterPasswordSaveRequest) error
@@ -231,6 +232,21 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/cluster-settings/update", buildHandlerFunc(config, verifyAuth, postV1ClusterSettingsUpdateAccessPolicy, postAuthHandlerPostV1ClusterSettingsUpdate, compressionModeAuto, false))
+	postV1ArchiveStatusAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1ArchiveStatus := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeArchiveStatusRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ArchiveStatus(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/archive/status", buildHandlerFunc(config, verifyAuth, postV1ArchiveStatusAccessPolicy, postAuthHandlerPostV1ArchiveStatus, compressionModeAuto, false))
 	postV1NixStoreResetAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1NixStoreReset := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNixStoreResetRequest)
@@ -1753,6 +1769,9 @@ type OpsagentClusterV1Handler interface {
 	GetV1ClusterConfigs(Context, *ClusterConfigsRequest) (*ClusterConfigsResponse, error)
 	GetV1ClusterIssuedTls(Context, *ClusterIssuedTLSRequest) (*ClusterIssuedTLSResponse, error)
 	GetV1ClusterRenewCertificate(Context) (*ClusterRenewCertificateResponse, error)
+	PostV1ClusterChunksSync(Context, *ClusterChunksSyncRequest) (*ClusterChunksSyncResponse, error)
+	PostV1ClusterChunksUploadWork(Context, *ClusterChunksUploadWorkRequest) (*ClusterChunksUploadWorkResponse, error)
+	PostV1ClusterChunksUploaded(Context, *ClusterChunksUploadedRequest) (*ClusterChunksUploadedResponse, error)
 	PostV1ClusterConnect(Context, iter.Seq2[*MsgToPrimary, error]) iter.Seq2[*MsgToSecondary, error]
 }
 
@@ -1834,6 +1853,51 @@ func CreateOpsagentClusterV1Mux(h OpsagentClusterV1Handler, config *MuxConfig) *
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("GET /v1/cluster/renew-certificate", buildHandlerFunc(config, verifyAuth, getV1ClusterRenewCertificateAccessPolicy, postAuthHandlerGetV1ClusterRenewCertificate, compressionModeAuto, false))
+	postV1ClusterChunksSyncAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1ClusterChunksSync := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterChunksSyncRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ClusterChunksSync(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/cluster/chunks/sync", buildHandlerFunc(config, verifyAuth, postV1ClusterChunksSyncAccessPolicy, postAuthHandlerPostV1ClusterChunksSync, compressionModeAuto, false))
+	postV1ClusterChunksUploadWorkAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1ClusterChunksUploadWork := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterChunksUploadWorkRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ClusterChunksUploadWork(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/cluster/chunks/upload-work", buildHandlerFunc(config, verifyAuth, postV1ClusterChunksUploadWorkAccessPolicy, postAuthHandlerPostV1ClusterChunksUploadWork, compressionModeAuto, false))
+	postV1ClusterChunksUploadedAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
+	postAuthHandlerPostV1ClusterChunksUploaded := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeClusterChunksUploadedRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1ClusterChunksUploaded(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/cluster/chunks/uploaded", buildHandlerFunc(config, verifyAuth, postV1ClusterChunksUploadedAccessPolicy, postAuthHandlerPostV1ClusterChunksUploaded, compressionModeAuto, false))
 	postV1ClusterConnectAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_NO_AUTH}
 	postAuthHandlerPostV1ClusterConnect := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		sr := NewStreamReader(r.Body, config.MaxRequestBodySize)

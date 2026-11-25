@@ -476,6 +476,29 @@ function buildNodeMetrics(store, req) {
     return rt("NodeMetricsQueryResponse", {timeStart: new Date(start - (start % stepMs)), stepMs, buckets, series, scannedRows: buckets * 3, tookMs: 9});
 }
 
+function buildArchiveStatus(store) {
+    const now = Date.now();
+    const ids = reportingNodes(store);
+    const counts = (chunks, each) => ({chunks, bytes: Math.round(chunks * each)});
+    const kind = (total, each, behind) => ({
+        local: counts(total, each),
+        archived: counts(total - behind, each),
+        pending: counts(behind, each),
+        lastArchivedAt: now - (behind ? 26 : 1) * 3_600_000 - total * 1000,
+    });
+    const nodes = ids.map((nodeId, i) => {
+        const behind = i === ids.length - 1 && ids.length > 1;
+        const deployments = 4 + (nodeId * 3) % 7;
+        return {
+            nodeId,
+            logs: kind(deployments * 30 + nodeId, 38 * 1e6, behind ? deployments * 2 : 0),
+            deploymentMetrics: kind(deployments * 30, 410 * 1e3, behind ? deployments * 2 : 0),
+            nodeMetrics: kind(30, 1.2 * 1e6, behind ? 2 : 0),
+        };
+    });
+    return rt("ArchiveStatusResponse", {enabled: true, nodes});
+}
+
 function buildNodeLatest(store) {
     const now = Date.now();
     const entries = reportingNodes(store).map((nodeId) => {
@@ -918,6 +941,7 @@ export function installServer(capi, {log = console} = {}) {
         async postV1MetricsNodesLatest() { await sleep(450); return buildNodeLatest(store); },
         async postV1MetricsNodesQuery(request) { await sleep(220); return buildNodeMetrics(store, request); },
         async postV1NixStoreReset() { await sleep(300); },
+        async postV1ArchiveStatus() { await sleep(250); return buildArchiveStatus(store); },
         async postV1GlobalExportedConfig() { return rt("ExportedConfigBlob", {blob: bytesOf("export", 2048)}); },
 
         async postV1SecretsCreate(request) { return secrets.create(request).update; },

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import CodeBlock from '$lib/CodeBlock.svelte';
   import CodeTabs from '$lib/CodeTabs.svelte';
   import { logEventVariants } from '$lib/log-event';
@@ -99,6 +100,7 @@
 <p>Background maintenance merges small level 1 files into level 2 files, targeting about 256 MB of compressed Parquet per output. It runs when a day's batch files reach that size, or after the day ends when several smaller files remain. Roll-up preserves individual events and their ordering; it is not a downsampling operation.</p>
 <p>Rewrites publish replacement files through the catalog before retiring their inputs, with a grace period for readers already using the old files. Maintenance also reconciles the catalog with files on disk after interruptions.</p>
 <p>Logs are retained for 30 days. Retention removes expired archive days and old WAL buckets automatically. Storage is node-local, so provision enough disk for the workload's retained logs and the temporary space needed by compaction.</p>
+<p>A file that maintenance will not rewrite again is sealed: the catalog records the SHA-256 of its bytes. With the <a href="{base}/guides/back-up-and-restore/#archive">archive</a> on, each node copies its sealed files to the backup bucket. Search reads the files on the node, not the bucket.</p>
 </section>
 
 <section class="page" id="search">

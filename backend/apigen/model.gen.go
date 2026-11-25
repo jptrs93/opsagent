@@ -293,6 +293,9 @@ const (
 	CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT            CoreEntityType = 21
 	CoreEntityType_CORE_ENTITY_SPACE_DOMAIN_POLICY       CoreEntityType = 22
 	CoreEntityType_CORE_ENTITY_NODE_ACCESS_POLICY        CoreEntityType = 23
+	CoreEntityType_CORE_ENTITY_LOG_CHUNK                 CoreEntityType = 24
+	CoreEntityType_CORE_ENTITY_DEPLOYMENT_METRICS_CHUNK  CoreEntityType = 25
+	CoreEntityType_CORE_ENTITY_NODE_METRICS_CHUNK        CoreEntityType = 26
 )
 
 type AccessPolicyType int32
@@ -2648,6 +2651,184 @@ type NodeAccessPolicyDeleteRequest struct {
 	ID            uint64 `json:"id"`
 }
 
+// ChunkLocation says where the bytes of a chunk are. A chunk that is neither
+// local nor archived has no record.
+type ChunkLocation struct {
+	unknownFields []byte
+	Local         bool                             `json:"local"`
+	Archive       Maybe[ChunkLocationArchiveOneof] `json:"archive,omitzero"`
+}
+
+// S3Archive is a copy in the cluster's archive bucket. The object key is
+// derived from the chunk's identity.
+type S3Archive struct {
+	unknownFields []byte
+}
+
+// LogChunk is one sealed log archive file of a deployment on a node.
+type LogChunk struct {
+	unknownFields []byte
+	ID            uint64        `json:"id"`
+	DeploymentID  uint64        `json:"deployment_id"`
+	NodeID        uint64        `json:"node_id"`
+	Day           uint32        `json:"day"`
+	Level         uint32        `json:"level"`
+	Seq           int64         `json:"seq"`
+	MinTime       int64         `json:"min_time"`
+	MaxTime       int64         `json:"max_time"`
+	RowCount      uint64        `json:"row_count"`
+	SizeBytes     uint64        `json:"size_bytes"`
+	Sha256        []byte        `json:"sha256"`
+	Location      ChunkLocation `json:"location"`
+}
+
+// DeploymentMetricsChunk is one sealed metrics file of a deployment's runs on
+// a node for one day.
+type DeploymentMetricsChunk struct {
+	unknownFields []byte
+	ID            uint64        `json:"id"`
+	DeploymentID  uint64        `json:"deployment_id"`
+	NodeID        uint64        `json:"node_id"`
+	Day           uint32        `json:"day"`
+	Seq           uint32        `json:"seq"`
+	MinTime       int64         `json:"min_time"`
+	MaxTime       int64         `json:"max_time"`
+	RowCount      uint64        `json:"row_count"`
+	SizeBytes     uint64        `json:"size_bytes"`
+	Sha256        []byte        `json:"sha256"`
+	Location      ChunkLocation `json:"location"`
+}
+
+// NodeMetricsChunk is one sealed host metrics file of a node for one day.
+type NodeMetricsChunk struct {
+	unknownFields []byte
+	ID            uint64        `json:"id"`
+	NodeID        uint64        `json:"node_id"`
+	Day           uint32        `json:"day"`
+	Seq           uint32        `json:"seq"`
+	MinTime       int64         `json:"min_time"`
+	MaxTime       int64         `json:"max_time"`
+	RowCount      uint64        `json:"row_count"`
+	SizeBytes     uint64        `json:"size_bytes"`
+	Sha256        []byte        `json:"sha256"`
+	Location      ChunkLocation `json:"location"`
+}
+
+type LogChunkSet struct {
+	unknownFields []byte
+	Chunks        []LogChunk `json:"chunks,omitempty"`
+}
+
+type DeploymentMetricsChunkSet struct {
+	unknownFields []byte
+	Chunks        []DeploymentMetricsChunk `json:"chunks,omitempty"`
+}
+
+type NodeMetricsChunkSet struct {
+	unknownFields []byte
+	Chunks        []NodeMetricsChunk `json:"chunks,omitempty"`
+}
+
+// ClusterChunksSyncRequest lists every sealed chunk the calling node holds
+// whose day is within from_day..to_day, for each chunk type it covers. The
+// primary creates the records it lacks and, for a record of the node in that
+// range that is not listed, clears local or removes the record. A set that
+// is absent is not covered and its records are left alone. The id, node_id
+// and location of a listed chunk are ignored.
+type ClusterChunksSyncRequest struct {
+	unknownFields     []byte
+	FromDay           uint32                           `json:"from_day"`
+	ToDay             uint32                           `json:"to_day"`
+	Logs              Maybe[LogChunkSet]               `json:"logs,omitzero"`
+	DeploymentMetrics Maybe[DeploymentMetricsChunkSet] `json:"deployment_metrics,omitzero"`
+	NodeMetrics       Maybe[NodeMetricsChunkSet]       `json:"node_metrics,omitzero"`
+}
+
+type ClusterChunksSyncResponse struct {
+	unknownFields []byte
+	Created       uint32 `json:"created"`
+	Released      uint32 `json:"released"`
+	Conflicts     uint32 `json:"conflicts"`
+}
+
+// ChunkRef names one chunk record.
+type ChunkRef struct {
+	unknownFields []byte
+	EntityType    CoreEntityType `json:"entity_type"`
+	EntityID      uint64         `json:"entity_id"`
+}
+
+// ClusterChunksUploadWorkRequest asks for the calling node's oldest chunks
+// that are local and not archived. exclude names records the node will not
+// send again in this pass: an upload that failed, or one the primary could
+// not confirm.
+type ClusterChunksUploadWorkRequest struct {
+	unknownFields []byte
+	Limit         uint32     `json:"limit"`
+	Exclude       []ChunkRef `json:"exclude,omitempty"`
+}
+
+// ChunkUpload is one file for the node to send: a PUT of the file to url
+// with every header in headers. The URL accepts only content with the
+// record's size and SHA-256.
+type ChunkUpload struct {
+	unknownFields []byte
+	Ref           ChunkRef              `json:"ref"`
+	Url           string                `json:"url,omitempty"`
+	Headers       map[string]string     `json:"headers,omitempty"`
+	Chunk         ChunkUploadChunkOneof `json:"chunk"`
+}
+
+type ClusterChunksUploadWorkResponse struct {
+	unknownFields []byte
+	Uploads       []ChunkUpload `json:"uploads,omitempty"`
+	Archived      uint32        `json:"archived"`
+}
+
+type ClusterChunksUploadedRequest struct {
+	unknownFields []byte
+	Uploaded      []ChunkRef `json:"uploaded,omitempty"`
+}
+
+type ClusterChunksUploadedResponse struct {
+	unknownFields []byte
+	Archived      uint32 `json:"archived"`
+}
+
+type ArchiveStatusRequest struct {
+	unknownFields []byte
+}
+
+type ArchiveCounts struct {
+	unknownFields []byte
+	Chunks        uint32 `json:"chunks"`
+	Bytes         uint64 `json:"bytes"`
+}
+
+// ArchiveKindStatus counts the chunk records of one type on one node.
+// pending is local and not archived.
+type ArchiveKindStatus struct {
+	unknownFields  []byte
+	Local          ArchiveCounts `json:"local"`
+	Archived       ArchiveCounts `json:"archived"`
+	Pending        ArchiveCounts `json:"pending"`
+	LastArchivedAt int64         `json:"last_archived_at"`
+}
+
+type ArchiveNodeStatus struct {
+	unknownFields     []byte
+	NodeID            uint64            `json:"node_id"`
+	Logs              ArchiveKindStatus `json:"logs"`
+	DeploymentMetrics ArchiveKindStatus `json:"deployment_metrics"`
+	NodeMetrics       ArchiveKindStatus `json:"node_metrics"`
+}
+
+type ArchiveStatusResponse struct {
+	unknownFields []byte
+	Enabled       bool                `json:"enabled"`
+	Nodes         []ArchiveNodeStatus `json:"nodes,omitempty"`
+}
+
 type GithubCredentials struct {
 	unknownFields []byte
 	Token         string    `json:"token,omitempty"`
@@ -2884,6 +3065,7 @@ type ClusterSettings struct {
 	Backup        BackupSettings        `json:"backup"`
 	LargeAssets   LargeAssetsSettings   `json:"large_assets"`
 	Auth          AuthSettings          `json:"auth"`
+	Archive       ArchiveSettings       `json:"archive"`
 }
 
 type HttpWebSettings struct {
@@ -2934,6 +3116,14 @@ type LargeAssetsSettings struct {
 	S3Region          StringSetting    `json:"s3_region"`
 	S3Endpoint        StringSetting    `json:"s3_endpoint"`
 	KeepLocalCopy     BoolSetting      `json:"keep_local_copy"`
+}
+
+// ArchiveSettings controls the upload of sealed log and metrics files to the
+// backup bucket. It takes effect only while backup is enabled.
+type ArchiveSettings struct {
+	unknownFields []byte
+	Enabled       BoolSetting   `json:"enabled"`
+	S3Path        StringSetting `json:"s3_path"`
 }
 
 // AuthSettings controls which login methods the Web UI offers. Passkeys are
@@ -4148,6 +4338,78 @@ func (v NodeAccessEffectValueOneof) Validate() error {
 	return nil
 }
 
+type ChunkLocationArchiveOneof struct {
+	S3 *S3Archive `json:"s3,omitempty"`
+}
+
+func (v ChunkLocationArchiveOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.S3 != nil {
+		if err := v.S3.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue ChunkLocationArchiveOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v ChunkLocationArchiveOneof) Validate() error {
+	selected := 0
+	if v.S3 != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
+type ChunkUploadChunkOneof struct {
+	Log               *LogChunk               `json:"log,omitempty"`
+	DeploymentMetrics *DeploymentMetricsChunk `json:"deployment_metrics,omitempty"`
+	NodeMetrics       *NodeMetricsChunk       `json:"node_metrics,omitempty"`
+}
+
+func (v ChunkUploadChunkOneof) MarshalJSON() ([]byte, error) {
+	if err := v.Validate(); err != nil {
+		return nil, err
+	}
+	if v.Log != nil {
+		if err := v.Log.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.DeploymentMetrics != nil {
+		if err := v.DeploymentMetrics.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.NodeMetrics != nil {
+		if err := v.NodeMetrics.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	type jsonValue ChunkUploadChunkOneof
+	return json.Marshal(jsonValue(v))
+}
+func (v ChunkUploadChunkOneof) Validate() error {
+	selected := 0
+	if v.Log != nil {
+		selected++
+	}
+	if v.DeploymentMetrics != nil {
+		selected++
+	}
+	if v.NodeMetrics != nil {
+		selected++
+	}
+	if selected != 1 {
+		return newValidationError(nil, "exactly one alternative must be selected")
+	}
+	return nil
+}
+
 type StringSettingValueValueOneof struct {
 	Literal   *string    `json:"literal,omitempty"`
 	ConfigRef *ConfigRef `json:"config_ref,omitempty"`
@@ -4279,6 +4541,9 @@ type CoreEntityValueOneof struct {
 	SecretKeyslot           *SecretKeyslot           `json:"secret_keyslot,omitempty"`
 	SpaceDomainPolicy       *SpaceDomainPolicy       `json:"space_domain_policy,omitempty"`
 	NodeAccessPolicy        *NodeAccessPolicy        `json:"node_access_policy,omitempty"`
+	LogChunk                *LogChunk                `json:"log_chunk,omitempty"`
+	DeploymentMetricsChunk  *DeploymentMetricsChunk  `json:"deployment_metrics_chunk,omitempty"`
+	NodeMetricsChunk        *NodeMetricsChunk        `json:"node_metrics_chunk,omitempty"`
 }
 
 func (v CoreEntityValueOneof) MarshalJSON() ([]byte, error) {
@@ -4400,6 +4665,21 @@ func (v CoreEntityValueOneof) MarshalJSON() ([]byte, error) {
 			return nil, err
 		}
 	}
+	if v.LogChunk != nil {
+		if err := v.LogChunk.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.DeploymentMetricsChunk != nil {
+		if err := v.DeploymentMetricsChunk.Validate(); err != nil {
+			return nil, err
+		}
+	}
+	if v.NodeMetricsChunk != nil {
+		if err := v.NodeMetricsChunk.Validate(); err != nil {
+			return nil, err
+		}
+	}
 	type jsonValue CoreEntityValueOneof
 	return json.Marshal(jsonValue(v))
 }
@@ -4472,6 +4752,15 @@ func (v CoreEntityValueOneof) Validate() error {
 		selected++
 	}
 	if v.NodeAccessPolicy != nil {
+		selected++
+	}
+	if v.LogChunk != nil {
+		selected++
+	}
+	if v.DeploymentMetricsChunk != nil {
+		selected++
+	}
+	if v.NodeMetricsChunk != nil {
 		selected++
 	}
 	if selected != 1 {

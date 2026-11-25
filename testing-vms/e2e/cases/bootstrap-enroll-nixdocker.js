@@ -21,6 +21,7 @@ import {networkPolicyCrossNodeCases} from './network-policy-cross-node.js';
 import {networkPolicyInteractionCases} from './network-policy-interactions.js';
 import {pgBackRestCases} from './postgres-pgbackrest.js';
 import {metricsAfterUpgradeCases, metricsDeployCases, metricsVerifyCases} from './metrics.js';
+import {archiveEnableCases, archiveVerifyCases} from './archive.js';
 import {installVirtualAuthenticator} from '../helpers/webauthn.js';
 import {
   acceptWaitingWorker,
@@ -416,6 +417,7 @@ export const orderedCases = [
       await configureLargeAssetStorage(ctx.page);
     },
   },
+  ...archiveEnableCases,
   {
     id: 'migrated-large-asset-deployment-created',
     title: 'create migrated large asset deployment',
@@ -643,4 +645,5 @@ export const orderedCases = [
     },
   },
   ...pgBackRestCases,
+  ...archiveVerifyCases,
 ];

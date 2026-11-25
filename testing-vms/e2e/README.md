@@ -117,3 +117,29 @@ they read nftables counters, enter workload network namespaces, restart the
 agent, and deliberately break kernel state. `network-policy-kernel-check-state`
 hands them the workloads' deployment ids through `test-results/netpolicy.env`,
 and their output lands in `test-results/network-policy-checks/`.
+
+`cases/archive.js` covers the log and metrics archive
+(`docs/engineering/chunk-archive.md`). A metrics file is sealed only after its
+UTC day ends, so nothing seals within a run on its own. The orchestrator
+therefore copies today's metrics WAL to the day two days back
+(`archivecheck.go`), and the next agent start compacts that day into sealed
+files. It does this in two places:
+
+- Before the flows, for the primary's node metrics. `archive-enabled` turns
+  the archive on under Settings with its own bucket path, after the backup
+  bucket is configured and before the agent upgrade. The upgrade restarts the
+  primary, which seals the copied day and sends the file two minutes after it
+  starts. `archive-status-verified`, the last case, waits for the Replication
+  tab to count that file as held in the bucket.
+- After the flows, as the `archive checks` step, for the run and node metrics
+  of the primary and worker-1. It copies the WALs, restarts both agents, and
+  waits until every sealed metrics file on each node is an object under the
+  archive path with the same SHA-256, read back from MinIO with a signed
+  `curl`. `archive-enabled` hands the step the bucket through
+  `test-results/archive.env`, and its output lands in
+  `test-results/archive-checks/`. The worker covers the cluster endpoints and
+  an upload from a node that holds no bucket credentials.
+
+Log chunks are not covered here: a log file is sealed 30 minutes after its
+day ends and its day is a catalog column, so a copied file does not age it.
+The unit tests in `lib/log/logmanager` and `lib/chunkarchive` cover them.

@@ -102,6 +102,9 @@ enum CoreEntityType { // numbers equal the CoreEntity field numbers
   CORE_ENTITY_SECRET_KEYSLOT = 21; // replica only; never in the browser class
   CORE_ENTITY_SPACE_DOMAIN_POLICY = 22;
   CORE_ENTITY_NODE_ACCESS_POLICY = 23;
+  CORE_ENTITY_LOG_CHUNK = 24;                // never in the browser class
+  CORE_ENTITY_DEPLOYMENT_METRICS_CHUNK = 25; // never in the browser class
+  CORE_ENTITY_NODE_METRICS_CHUNK = 26;       // never in the browser class
 }
 
 message CoreEntity {
@@ -130,6 +133,9 @@ message CoreEntity {
     SecretKeyslot secret_keyslot = 21;
     SpaceDomainPolicy space_domain_policy = 22;
     NodeAccessPolicy node_access_policy = 23;
+    LogChunk log_chunk = 24;
+    DeploymentMetricsChunk deployment_metrics_chunk = 25;
+    NodeMetricsChunk node_metrics_chunk = 26;
   }
 }
 

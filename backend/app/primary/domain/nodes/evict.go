@@ -162,6 +162,11 @@ func EvictNode(ctx apigen.Context, store *state.Service, identifier string, expe
 			return nil, err
 		}
 		pq.AppendMutations(update, keyslots...)
+		chunks, err := q.NodeChunkReleases(ctx, pq.EventMeta{GlobalSeq: seq, EventTime: now.UnixMilli(), Author: ctx.AttributionUserID()}, nodeID)
+		if err != nil {
+			return nil, err
+		}
+		pq.AppendMutations(update, chunks...)
 		row, _ = appendNodeVersion(seq, now.UnixMilli(), current, ctx.AttributionUserID(), func(spec *nodeEventSpec) {
 			spec.Status = apigen.NodeLifecycleStatus_NODE_LIFECYCLE_STATUS_MEMBER_EVICTED
 			spec.EnrollmentRequestedAt = 0

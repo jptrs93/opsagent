@@ -430,6 +430,16 @@ func FillClusterSettingDefaults(s *ClusterSettings) {
 			v.Value.Value.Literal = &d
 		}
 	}
+	fillString := func(v *StringSetting, def string) {
+		if v.Value.Value.Literal == nil && v.Value.Value.ConfigRef == nil {
+			d := def
+			v.Value.Value.Literal = &d
+		}
+	}
 	fillBool(&s.Auth.PasswordLoginEnabled, false)
 	fillBool(&s.Auth.RequirePasskey, false)
+	fillBool(&s.Archive.Enabled, false)
+	fillString(&s.Archive.S3Path, DefaultArchiveS3Path)
 }
+
+const DefaultArchiveS3Path = "opendeploy/archive"

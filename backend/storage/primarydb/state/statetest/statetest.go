@@ -311,10 +311,10 @@ func Fold(events []*apigen.CoreWriteUpdate) map[apigen.CoreEntityType]map[uint64
 }
 
 // Snapshot returns the opening snapshot, the same shape the stream sends a
-// fresh subscriber.
+// fresh subscriber, with the chunk records an opening leaves out.
 func Snapshot(t testing.TB, q *pq.Queries) []*apigen.MaterialisedEntity {
 	t.Helper()
-	return erru.Must(q.Snapshot(context.Background()))
+	return erru.Must(q.SnapshotAll(context.Background()))
 }
 
 // FoldSnapshot returns, by type and id, the live entity payloads a fresh

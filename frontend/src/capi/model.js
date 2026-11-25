@@ -2039,6 +2039,149 @@
  * @property {number} id
  */
 /**
+ * @typedef {Object} ChunkLocationArchiveOneof
+ * @property {S3Archive} [s3]
+ */
+/**
+ * @typedef {Object} ChunkLocation
+ * @property {boolean} local
+ * @property {ChunkLocationArchiveOneof} [archive]
+ */
+/**
+ * @typedef {Object} S3Archive
+ */
+/**
+ * @typedef {Object} LogChunk
+ * @property {number} id
+ * @property {number} deploymentId
+ * @property {number} nodeId
+ * @property {number} day
+ * @property {number} level
+ * @property {bigint} seq
+ * @property {bigint} minTime
+ * @property {bigint} maxTime
+ * @property {number} rowCount
+ * @property {number} sizeBytes
+ * @property {Uint8Array} sha256
+ * @property {ChunkLocation} location
+ */
+/**
+ * @typedef {Object} DeploymentMetricsChunk
+ * @property {number} id
+ * @property {number} deploymentId
+ * @property {number} nodeId
+ * @property {number} day
+ * @property {number} seq
+ * @property {number} minTime
+ * @property {number} maxTime
+ * @property {number} rowCount
+ * @property {number} sizeBytes
+ * @property {Uint8Array} sha256
+ * @property {ChunkLocation} location
+ */
+/**
+ * @typedef {Object} NodeMetricsChunk
+ * @property {number} id
+ * @property {number} nodeId
+ * @property {number} day
+ * @property {number} seq
+ * @property {number} minTime
+ * @property {number} maxTime
+ * @property {number} rowCount
+ * @property {number} sizeBytes
+ * @property {Uint8Array} sha256
+ * @property {ChunkLocation} location
+ */
+/**
+ * @typedef {Object} LogChunkSet
+ * @property {LogChunk[]} chunks
+ */
+/**
+ * @typedef {Object} DeploymentMetricsChunkSet
+ * @property {DeploymentMetricsChunk[]} chunks
+ */
+/**
+ * @typedef {Object} NodeMetricsChunkSet
+ * @property {NodeMetricsChunk[]} chunks
+ */
+/**
+ * @typedef {Object} ClusterChunksSyncRequest
+ * @property {number} fromDay
+ * @property {number} toDay
+ * @property {LogChunkSet} logs
+ * @property {DeploymentMetricsChunkSet} deploymentMetrics
+ * @property {NodeMetricsChunkSet} nodeMetrics
+ */
+/**
+ * @typedef {Object} ClusterChunksSyncResponse
+ * @property {number} created
+ * @property {number} released
+ * @property {number} conflicts
+ */
+/**
+ * @typedef {Object} ChunkRef
+ * @property {number} entityType
+ * @property {number} entityId
+ */
+/**
+ * @typedef {Object} ClusterChunksUploadWorkRequest
+ * @property {number} limit
+ * @property {ChunkRef[]} exclude
+ */
+/**
+ * @typedef {Object} ChunkUploadChunkOneof
+ * @property {LogChunk} [log]
+ * @property {DeploymentMetricsChunk} [deploymentMetrics]
+ * @property {NodeMetricsChunk} [nodeMetrics]
+ */
+/**
+ * @typedef {Object} ChunkUpload
+ * @property {ChunkRef} ref
+ * @property {ChunkUploadChunkOneof} chunk
+ * @property {string} url
+ * @property {Object.<string, string>} headers
+ */
+/**
+ * @typedef {Object} ClusterChunksUploadWorkResponse
+ * @property {ChunkUpload[]} uploads
+ * @property {number} archived
+ */
+/**
+ * @typedef {Object} ClusterChunksUploadedRequest
+ * @property {ChunkRef[]} uploaded
+ */
+/**
+ * @typedef {Object} ClusterChunksUploadedResponse
+ * @property {number} archived
+ */
+/**
+ * @typedef {Object} ArchiveStatusRequest
+ */
+/**
+ * @typedef {Object} ArchiveCounts
+ * @property {number} chunks
+ * @property {number} bytes
+ */
+/**
+ * @typedef {Object} ArchiveKindStatus
+ * @property {ArchiveCounts} local
+ * @property {ArchiveCounts} archived
+ * @property {ArchiveCounts} pending
+ * @property {number} lastArchivedAt
+ */
+/**
+ * @typedef {Object} ArchiveNodeStatus
+ * @property {number} nodeId
+ * @property {ArchiveKindStatus} logs
+ * @property {ArchiveKindStatus} deploymentMetrics
+ * @property {ArchiveKindStatus} nodeMetrics
+ */
+/**
+ * @typedef {Object} ArchiveStatusResponse
+ * @property {boolean} enabled
+ * @property {ArchiveNodeStatus[]} nodes
+ */
+/**
  * @typedef {Object} GithubCredentials
  * @property {string} token
  * @property {Date} changedAt
@@ -2234,6 +2377,7 @@
  * @property {BackupSettings} backup
  * @property {LargeAssetsSettings} largeAssets
  * @property {AuthSettings} auth
+ * @property {ArchiveSettings} archive
  */
 /**
  * @typedef {Object} HttpWebSettings
@@ -2278,6 +2422,11 @@
  * @property {StringSetting} s3Region
  * @property {StringSetting} s3Endpoint
  * @property {BoolSetting} keepLocalCopy
+ */
+/**
+ * @typedef {Object} ArchiveSettings
+ * @property {BoolSetting} enabled
+ * @property {StringSetting} s3Path
  */
 /**
  * @typedef {Object} AuthSettings
@@ -2393,6 +2542,9 @@
  * @property {SecretKeyslot} [secretKeyslot]
  * @property {SpaceDomainPolicy} [spaceDomainPolicy]
  * @property {NodeAccessPolicy} [nodeAccessPolicy]
+ * @property {LogChunk} [logChunk]
+ * @property {DeploymentMetricsChunk} [deploymentMetricsChunk]
+ * @property {NodeMetricsChunk} [nodeMetricsChunk]
  */
 /**
  * @typedef {Object} CoreEntity
@@ -25825,6 +25977,1640 @@ export function decodeNodeAccessPolicyDeleteRequest(buffer) {
 
 
 /**
+ * @param {ChunkLocation} message
+ * @param {Writer} writer
+ */
+export function writeChunkLocation(message, writer) {
+    if (message.local === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.local);
+    }
+    if (message.archive !== undefined && message.archive !== null) {
+        const selected = [message.archive.s3].filter((v) => v !== undefined && v !== null).length;
+        if (selected > 1) {
+            throw new Error("ChunkLocation.archive: expected at most one alternative, got " + selected);
+        }
+        if (message.archive.s3 !== undefined && message.archive.s3 !== null) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeS3Archive(message.archive.s3, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ChunkLocation} message
+ * @returns {Uint8Array}
+ */
+export function encodeChunkLocation(message) {
+    const writer = Writer.create();
+    writeChunkLocation(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ChunkLocation}
+ */
+function decodeChunkLocationMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {local: false, archive: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.local = reader.bool();
+                break;
+            }
+            case 2: {
+                message.archive = { s3: decodeS3ArchiveMessage(reader, reader.uint32()) };
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ChunkLocation}
+ */
+export function decodeChunkLocation(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeChunkLocationMessage(reader);
+}
+
+
+
+/**
+ * @param {S3Archive} message
+ * @param {Writer} writer
+ */
+export function writeS3Archive(message, writer) {
+}
+
+
+/**
+ * @param {S3Archive} message
+ * @returns {Uint8Array}
+ */
+export function encodeS3Archive(message) {
+    const writer = Writer.create();
+    writeS3Archive(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {S3Archive}
+ */
+function decodeS3ArchiveMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {S3Archive}
+ */
+export function decodeS3Archive(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeS3ArchiveMessage(reader);
+}
+
+
+
+/**
+ * @param {LogChunk} message
+ * @param {Writer} writer
+ */
+export function writeLogChunk(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint64(Math.trunc(message.deploymentId));
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).uint64(Math.trunc(message.nodeId));
+    }
+    if (message.day !== undefined && message.day !== null && message.day !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).uint32(message.day);
+    }
+    if (message.level !== undefined && message.level !== null && message.level !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).uint32(message.level);
+    }
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0n) {
+        writer.uint32(tag(6, WIRE.VARINT)).int64(message.seq.toString());
+    }
+    if (message.minTime !== undefined && message.minTime !== null && message.minTime !== 0n) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(message.minTime.toString());
+    }
+    if (message.maxTime !== undefined && message.maxTime !== null && message.maxTime !== 0n) {
+        writer.uint32(tag(8, WIRE.VARINT)).int64(message.maxTime.toString());
+    }
+    if (message.rowCount !== undefined && message.rowCount !== null && message.rowCount !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).uint64(Math.trunc(message.rowCount));
+    }
+    if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
+        writer.uint32(tag(10, WIRE.VARINT)).uint64(Math.trunc(message.sizeBytes));
+    }
+    if (message.sha256 && message.sha256.length > 0) {
+        writer.uint32(tag(11, WIRE.LDELIM)).bytes(message.sha256);
+    }
+    if (message.location !== undefined && message.location !== null) {
+        writer.uint32(tag(12, WIRE.LDELIM)).fork();
+        writeChunkLocation(message.location, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {LogChunk} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogChunk(message) {
+    const writer = Writer.create();
+    writeLogChunk(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogChunk}
+ */
+function decodeLogChunkMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, deploymentId: 0, nodeId: 0, day: 0, level: 0, seq: 0n, minTime: 0n, maxTime: 0n, rowCount: 0, sizeBytes: 0, sha256: new Uint8Array(0), location: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.deploymentId = readInt64(reader, "uint64");
+                break;
+            }
+            case 3: {
+                message.nodeId = readInt64(reader, "uint64");
+                break;
+            }
+            case 4: {
+                message.day = reader.uint32();
+                break;
+            }
+            case 5: {
+                message.level = reader.uint32();
+                break;
+            }
+            case 6: {
+                message.seq = readInt64BigInt(reader, "int64");
+                break;
+            }
+            case 7: {
+                message.minTime = readInt64BigInt(reader, "int64");
+                break;
+            }
+            case 8: {
+                message.maxTime = readInt64BigInt(reader, "int64");
+                break;
+            }
+            case 9: {
+                message.rowCount = readInt64(reader, "uint64");
+                break;
+            }
+            case 10: {
+                message.sizeBytes = readInt64(reader, "uint64");
+                break;
+            }
+            case 11: {
+                message.sha256 = reader.bytes();
+                break;
+            }
+            case 12: {
+                message.location = decodeChunkLocationMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogChunk}
+ */
+export function decodeLogChunk(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogChunkMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentMetricsChunk} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentMetricsChunk(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint64(Math.trunc(message.deploymentId));
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).uint64(Math.trunc(message.nodeId));
+    }
+    if (message.day !== undefined && message.day !== null && message.day !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).uint32(message.day);
+    }
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).uint32(message.seq);
+    }
+    if (message.minTime !== undefined && message.minTime !== null && message.minTime !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int64(Math.trunc(message.minTime));
+    }
+    if (message.maxTime !== undefined && message.maxTime !== null && message.maxTime !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).int64(Math.trunc(message.maxTime));
+    }
+    if (message.rowCount !== undefined && message.rowCount !== null && message.rowCount !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).uint64(Math.trunc(message.rowCount));
+    }
+    if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).uint64(Math.trunc(message.sizeBytes));
+    }
+    if (message.sha256 && message.sha256.length > 0) {
+        writer.uint32(tag(10, WIRE.LDELIM)).bytes(message.sha256);
+    }
+    if (message.location !== undefined && message.location !== null) {
+        writer.uint32(tag(11, WIRE.LDELIM)).fork();
+        writeChunkLocation(message.location, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {DeploymentMetricsChunk} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentMetricsChunk(message) {
+    const writer = Writer.create();
+    writeDeploymentMetricsChunk(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentMetricsChunk}
+ */
+function decodeDeploymentMetricsChunkMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, deploymentId: 0, nodeId: 0, day: 0, seq: 0, minTime: 0, maxTime: 0, rowCount: 0, sizeBytes: 0, sha256: new Uint8Array(0), location: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.deploymentId = readInt64(reader, "uint64");
+                break;
+            }
+            case 3: {
+                message.nodeId = readInt64(reader, "uint64");
+                break;
+            }
+            case 4: {
+                message.day = reader.uint32();
+                break;
+            }
+            case 5: {
+                message.seq = reader.uint32();
+                break;
+            }
+            case 6: {
+                message.minTime = readInt64(reader, "int64");
+                break;
+            }
+            case 7: {
+                message.maxTime = readInt64(reader, "int64");
+                break;
+            }
+            case 8: {
+                message.rowCount = readInt64(reader, "uint64");
+                break;
+            }
+            case 9: {
+                message.sizeBytes = readInt64(reader, "uint64");
+                break;
+            }
+            case 10: {
+                message.sha256 = reader.bytes();
+                break;
+            }
+            case 11: {
+                message.location = decodeChunkLocationMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentMetricsChunk}
+ */
+export function decodeDeploymentMetricsChunk(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentMetricsChunkMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsChunk} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsChunk(message, writer) {
+    if (message.id !== undefined && message.id !== null && message.id !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.id));
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint64(Math.trunc(message.nodeId));
+    }
+    if (message.day !== undefined && message.day !== null && message.day !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).uint32(message.day);
+    }
+    if (message.seq !== undefined && message.seq !== null && message.seq !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).uint32(message.seq);
+    }
+    if (message.minTime !== undefined && message.minTime !== null && message.minTime !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.minTime));
+    }
+    if (message.maxTime !== undefined && message.maxTime !== null && message.maxTime !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int64(Math.trunc(message.maxTime));
+    }
+    if (message.rowCount !== undefined && message.rowCount !== null && message.rowCount !== 0) {
+        writer.uint32(tag(7, WIRE.VARINT)).uint64(Math.trunc(message.rowCount));
+    }
+    if (message.sizeBytes !== undefined && message.sizeBytes !== null && message.sizeBytes !== 0) {
+        writer.uint32(tag(8, WIRE.VARINT)).uint64(Math.trunc(message.sizeBytes));
+    }
+    if (message.sha256 && message.sha256.length > 0) {
+        writer.uint32(tag(9, WIRE.LDELIM)).bytes(message.sha256);
+    }
+    if (message.location !== undefined && message.location !== null) {
+        writer.uint32(tag(10, WIRE.LDELIM)).fork();
+        writeChunkLocation(message.location, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {NodeMetricsChunk} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsChunk(message) {
+    const writer = Writer.create();
+    writeNodeMetricsChunk(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsChunk}
+ */
+function decodeNodeMetricsChunkMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {id: 0, nodeId: 0, day: 0, seq: 0, minTime: 0, maxTime: 0, rowCount: 0, sizeBytes: 0, sha256: new Uint8Array(0), location: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.id = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.nodeId = readInt64(reader, "uint64");
+                break;
+            }
+            case 3: {
+                message.day = reader.uint32();
+                break;
+            }
+            case 4: {
+                message.seq = reader.uint32();
+                break;
+            }
+            case 5: {
+                message.minTime = readInt64(reader, "int64");
+                break;
+            }
+            case 6: {
+                message.maxTime = readInt64(reader, "int64");
+                break;
+            }
+            case 7: {
+                message.rowCount = readInt64(reader, "uint64");
+                break;
+            }
+            case 8: {
+                message.sizeBytes = readInt64(reader, "uint64");
+                break;
+            }
+            case 9: {
+                message.sha256 = reader.bytes();
+                break;
+            }
+            case 10: {
+                message.location = decodeChunkLocationMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsChunk}
+ */
+export function decodeNodeMetricsChunk(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsChunkMessage(reader);
+}
+
+
+
+/**
+ * @param {LogChunkSet} message
+ * @param {Writer} writer
+ */
+export function writeLogChunkSet(message, writer) {
+    if (message.chunks && message.chunks.length > 0) {
+        for (const item of message.chunks) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeLogChunk(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {LogChunkSet} message
+ * @returns {Uint8Array}
+ */
+export function encodeLogChunkSet(message) {
+    const writer = Writer.create();
+    writeLogChunkSet(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {LogChunkSet}
+ */
+function decodeLogChunkSetMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {chunks: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.chunks.push(decodeLogChunkMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {LogChunkSet}
+ */
+export function decodeLogChunkSet(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeLogChunkSetMessage(reader);
+}
+
+
+
+/**
+ * @param {DeploymentMetricsChunkSet} message
+ * @param {Writer} writer
+ */
+export function writeDeploymentMetricsChunkSet(message, writer) {
+    if (message.chunks && message.chunks.length > 0) {
+        for (const item of message.chunks) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeDeploymentMetricsChunk(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {DeploymentMetricsChunkSet} message
+ * @returns {Uint8Array}
+ */
+export function encodeDeploymentMetricsChunkSet(message) {
+    const writer = Writer.create();
+    writeDeploymentMetricsChunkSet(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {DeploymentMetricsChunkSet}
+ */
+function decodeDeploymentMetricsChunkSetMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {chunks: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.chunks.push(decodeDeploymentMetricsChunkMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {DeploymentMetricsChunkSet}
+ */
+export function decodeDeploymentMetricsChunkSet(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeDeploymentMetricsChunkSetMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsChunkSet} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsChunkSet(message, writer) {
+    if (message.chunks && message.chunks.length > 0) {
+        for (const item of message.chunks) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeNodeMetricsChunk(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NodeMetricsChunkSet} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsChunkSet(message) {
+    const writer = Writer.create();
+    writeNodeMetricsChunkSet(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsChunkSet}
+ */
+function decodeNodeMetricsChunkSetMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {chunks: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.chunks.push(decodeNodeMetricsChunkMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsChunkSet}
+ */
+export function decodeNodeMetricsChunkSet(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsChunkSetMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterChunksSyncRequest} message
+ * @param {Writer} writer
+ */
+export function writeClusterChunksSyncRequest(message, writer) {
+    if (message.fromDay !== undefined && message.fromDay !== null && message.fromDay !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint32(message.fromDay);
+    }
+    if (message.toDay !== undefined && message.toDay !== null && message.toDay !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint32(message.toDay);
+    }
+    if (message.logs !== undefined && message.logs !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeLogChunkSet(message.logs, writer);
+        writer.ldelim();
+    }
+    if (message.deploymentMetrics !== undefined && message.deploymentMetrics !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeDeploymentMetricsChunkSet(message.deploymentMetrics, writer);
+        writer.ldelim();
+    }
+    if (message.nodeMetrics !== undefined && message.nodeMetrics !== null) {
+        writer.uint32(tag(5, WIRE.LDELIM)).fork();
+        writeNodeMetricsChunkSet(message.nodeMetrics, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ClusterChunksSyncRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterChunksSyncRequest(message) {
+    const writer = Writer.create();
+    writeClusterChunksSyncRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterChunksSyncRequest}
+ */
+function decodeClusterChunksSyncRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {fromDay: 0, toDay: 0, logs: undefined, deploymentMetrics: undefined, nodeMetrics: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.fromDay = reader.uint32();
+                break;
+            }
+            case 2: {
+                message.toDay = reader.uint32();
+                break;
+            }
+            case 3: {
+                message.logs = decodeLogChunkSetMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.deploymentMetrics = decodeDeploymentMetricsChunkSetMessage(reader, reader.uint32());
+                break;
+            }
+            case 5: {
+                message.nodeMetrics = decodeNodeMetricsChunkSetMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterChunksSyncRequest}
+ */
+export function decodeClusterChunksSyncRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterChunksSyncRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterChunksSyncResponse} message
+ * @param {Writer} writer
+ */
+export function writeClusterChunksSyncResponse(message, writer) {
+    if (message.created !== undefined && message.created !== null && message.created !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint32(message.created);
+    }
+    if (message.released !== undefined && message.released !== null && message.released !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint32(message.released);
+    }
+    if (message.conflicts !== undefined && message.conflicts !== null && message.conflicts !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).uint32(message.conflicts);
+    }
+}
+
+
+/**
+ * @param {ClusterChunksSyncResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterChunksSyncResponse(message) {
+    const writer = Writer.create();
+    writeClusterChunksSyncResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterChunksSyncResponse}
+ */
+function decodeClusterChunksSyncResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {created: 0, released: 0, conflicts: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.created = reader.uint32();
+                break;
+            }
+            case 2: {
+                message.released = reader.uint32();
+                break;
+            }
+            case 3: {
+                message.conflicts = reader.uint32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterChunksSyncResponse}
+ */
+export function decodeClusterChunksSyncResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterChunksSyncResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ChunkRef} message
+ * @param {Writer} writer
+ */
+export function writeChunkRef(message, writer) {
+    if (message.entityType !== undefined && message.entityType !== null && message.entityType !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int32(message.entityType);
+    }
+    if (message.entityId !== undefined && message.entityId !== null && message.entityId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint64(Math.trunc(message.entityId));
+    }
+}
+
+
+/**
+ * @param {ChunkRef} message
+ * @returns {Uint8Array}
+ */
+export function encodeChunkRef(message) {
+    const writer = Writer.create();
+    writeChunkRef(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ChunkRef}
+ */
+function decodeChunkRefMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {entityType: 0, entityId: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.entityType = reader.int32();
+                break;
+            }
+            case 2: {
+                message.entityId = readInt64(reader, "uint64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ChunkRef}
+ */
+export function decodeChunkRef(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeChunkRefMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterChunksUploadWorkRequest} message
+ * @param {Writer} writer
+ */
+export function writeClusterChunksUploadWorkRequest(message, writer) {
+    if (message.limit !== undefined && message.limit !== null && message.limit !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint32(message.limit);
+    }
+    if (message.exclude && message.exclude.length > 0) {
+        for (const item of message.exclude) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeChunkRef(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterChunksUploadWorkRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterChunksUploadWorkRequest(message) {
+    const writer = Writer.create();
+    writeClusterChunksUploadWorkRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterChunksUploadWorkRequest}
+ */
+function decodeClusterChunksUploadWorkRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {limit: 0, exclude: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.limit = reader.uint32();
+                break;
+            }
+            case 2: {
+                message.exclude.push(decodeChunkRefMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterChunksUploadWorkRequest}
+ */
+export function decodeClusterChunksUploadWorkRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterChunksUploadWorkRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ChunkUpload} message
+ * @param {Writer} writer
+ */
+export function writeChunkUpload(message, writer) {
+    if (message.ref !== undefined && message.ref !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeChunkRef(message.ref, writer);
+        writer.ldelim();
+    }
+    if (message.chunk !== undefined && message.chunk !== null) {
+        const selected = [message.chunk.log, message.chunk.deploymentMetrics, message.chunk.nodeMetrics].filter((v) => v !== undefined && v !== null).length;
+        if (selected !== 1) {
+            throw new Error("ChunkUpload.chunk: expected exactly one alternative, got " + selected);
+        }
+        if (message.chunk.log !== undefined && message.chunk.log !== null) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeLogChunk(message.chunk.log, writer);
+            writer.ldelim();
+        }
+        if (message.chunk.deploymentMetrics !== undefined && message.chunk.deploymentMetrics !== null) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeDeploymentMetricsChunk(message.chunk.deploymentMetrics, writer);
+            writer.ldelim();
+        }
+        if (message.chunk.nodeMetrics !== undefined && message.chunk.nodeMetrics !== null) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeNodeMetricsChunk(message.chunk.nodeMetrics, writer);
+            writer.ldelim();
+        }
+    } else {
+        throw new Error("ChunkUpload.chunk: expected exactly one alternative, got none");
+    }
+    if (message.url !== undefined && message.url !== null && message.url !== "") {
+        writer.uint32(tag(5, WIRE.LDELIM)).string(message.url);
+    }
+    if (message.headers && Object.keys(message.headers).length > 0) {
+        for (const [rawKey, value] of Object.entries(message.headers).sort(compareMapEntriesString)) {
+            const key = rawKey;
+            writer.uint32(tag(6, WIRE.LDELIM)).fork();
+            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
+            if (value !== undefined && value !== null && value !== "") {
+                writer.uint32(tag(2, WIRE.LDELIM)).string(value);
+            }
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ChunkUpload} message
+ * @returns {Uint8Array}
+ */
+export function encodeChunkUpload(message) {
+    const writer = Writer.create();
+    writeChunkUpload(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ChunkUpload}
+ */
+function decodeChunkUploadMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {ref: undefined, chunk: {}, url: "", headers: {} };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.ref = decodeChunkRefMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.chunk = { log: decodeLogChunkMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 3: {
+                message.chunk = { deploymentMetrics: decodeDeploymentMetricsChunkMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 4: {
+                message.chunk = { nodeMetrics: decodeNodeMetricsChunkMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 5: {
+                message.url = reader.string();
+                break;
+            }
+            case 6: {
+                const end2 = reader.uint32() + reader.pos;
+                let key = "";
+                let value = "";
+                while (reader.pos < end2) {
+                    const tag2 = reader.uint32();
+                    switch (tag2 >>> 3) {
+                        case 1:
+                            key = reader.string();
+                            break;
+                        case 2:
+                            value = reader.string();
+                            break;
+                        default:
+                            reader.skipType(tag2 & 7);
+                    }
+                }
+                if (!message.headers) { message.headers = {}; }
+                message.headers[String(key)] = value;
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ChunkUpload}
+ */
+export function decodeChunkUpload(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeChunkUploadMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterChunksUploadWorkResponse} message
+ * @param {Writer} writer
+ */
+export function writeClusterChunksUploadWorkResponse(message, writer) {
+    if (message.uploads && message.uploads.length > 0) {
+        for (const item of message.uploads) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeChunkUpload(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.archived !== undefined && message.archived !== null && message.archived !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint32(message.archived);
+    }
+}
+
+
+/**
+ * @param {ClusterChunksUploadWorkResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterChunksUploadWorkResponse(message) {
+    const writer = Writer.create();
+    writeClusterChunksUploadWorkResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterChunksUploadWorkResponse}
+ */
+function decodeClusterChunksUploadWorkResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {uploads: [], archived: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.uploads.push(decodeChunkUploadMessage(reader, reader.uint32()));
+                break;
+            }
+            case 2: {
+                message.archived = reader.uint32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterChunksUploadWorkResponse}
+ */
+export function decodeClusterChunksUploadWorkResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterChunksUploadWorkResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterChunksUploadedRequest} message
+ * @param {Writer} writer
+ */
+export function writeClusterChunksUploadedRequest(message, writer) {
+    if (message.uploaded && message.uploaded.length > 0) {
+        for (const item of message.uploaded) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeChunkRef(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ClusterChunksUploadedRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterChunksUploadedRequest(message) {
+    const writer = Writer.create();
+    writeClusterChunksUploadedRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterChunksUploadedRequest}
+ */
+function decodeClusterChunksUploadedRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {uploaded: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.uploaded.push(decodeChunkRefMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterChunksUploadedRequest}
+ */
+export function decodeClusterChunksUploadedRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterChunksUploadedRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ClusterChunksUploadedResponse} message
+ * @param {Writer} writer
+ */
+export function writeClusterChunksUploadedResponse(message, writer) {
+    if (message.archived !== undefined && message.archived !== null && message.archived !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint32(message.archived);
+    }
+}
+
+
+/**
+ * @param {ClusterChunksUploadedResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeClusterChunksUploadedResponse(message) {
+    const writer = Writer.create();
+    writeClusterChunksUploadedResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ClusterChunksUploadedResponse}
+ */
+function decodeClusterChunksUploadedResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {archived: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.archived = reader.uint32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ClusterChunksUploadedResponse}
+ */
+export function decodeClusterChunksUploadedResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeClusterChunksUploadedResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {ArchiveStatusRequest} message
+ * @param {Writer} writer
+ */
+export function writeArchiveStatusRequest(message, writer) {
+}
+
+
+/**
+ * @param {ArchiveStatusRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeArchiveStatusRequest(message) {
+    const writer = Writer.create();
+    writeArchiveStatusRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ArchiveStatusRequest}
+ */
+function decodeArchiveStatusRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = { };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ArchiveStatusRequest}
+ */
+export function decodeArchiveStatusRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeArchiveStatusRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {ArchiveCounts} message
+ * @param {Writer} writer
+ */
+export function writeArchiveCounts(message, writer) {
+    if (message.chunks !== undefined && message.chunks !== null && message.chunks !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint32(message.chunks);
+    }
+    if (message.bytes !== undefined && message.bytes !== null && message.bytes !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint64(Math.trunc(message.bytes));
+    }
+}
+
+
+/**
+ * @param {ArchiveCounts} message
+ * @returns {Uint8Array}
+ */
+export function encodeArchiveCounts(message) {
+    const writer = Writer.create();
+    writeArchiveCounts(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ArchiveCounts}
+ */
+function decodeArchiveCountsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {chunks: 0, bytes: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.chunks = reader.uint32();
+                break;
+            }
+            case 2: {
+                message.bytes = readInt64(reader, "uint64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ArchiveCounts}
+ */
+export function decodeArchiveCounts(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeArchiveCountsMessage(reader);
+}
+
+
+
+/**
+ * @param {ArchiveKindStatus} message
+ * @param {Writer} writer
+ */
+export function writeArchiveKindStatus(message, writer) {
+    if (message.local !== undefined && message.local !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeArchiveCounts(message.local, writer);
+        writer.ldelim();
+    }
+    if (message.archived !== undefined && message.archived !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeArchiveCounts(message.archived, writer);
+        writer.ldelim();
+    }
+    if (message.pending !== undefined && message.pending !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeArchiveCounts(message.pending, writer);
+        writer.ldelim();
+    }
+    if (message.lastArchivedAt !== undefined && message.lastArchivedAt !== null && message.lastArchivedAt !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.lastArchivedAt));
+    }
+}
+
+
+/**
+ * @param {ArchiveKindStatus} message
+ * @returns {Uint8Array}
+ */
+export function encodeArchiveKindStatus(message) {
+    const writer = Writer.create();
+    writeArchiveKindStatus(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ArchiveKindStatus}
+ */
+function decodeArchiveKindStatusMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {local: undefined, archived: undefined, pending: undefined, lastArchivedAt: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.local = decodeArchiveCountsMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.archived = decodeArchiveCountsMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.pending = decodeArchiveCountsMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.lastArchivedAt = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ArchiveKindStatus}
+ */
+export function decodeArchiveKindStatus(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeArchiveKindStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {ArchiveNodeStatus} message
+ * @param {Writer} writer
+ */
+export function writeArchiveNodeStatus(message, writer) {
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.nodeId));
+    }
+    if (message.logs !== undefined && message.logs !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeArchiveKindStatus(message.logs, writer);
+        writer.ldelim();
+    }
+    if (message.deploymentMetrics !== undefined && message.deploymentMetrics !== null) {
+        writer.uint32(tag(3, WIRE.LDELIM)).fork();
+        writeArchiveKindStatus(message.deploymentMetrics, writer);
+        writer.ldelim();
+    }
+    if (message.nodeMetrics !== undefined && message.nodeMetrics !== null) {
+        writer.uint32(tag(4, WIRE.LDELIM)).fork();
+        writeArchiveKindStatus(message.nodeMetrics, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ArchiveNodeStatus} message
+ * @returns {Uint8Array}
+ */
+export function encodeArchiveNodeStatus(message) {
+    const writer = Writer.create();
+    writeArchiveNodeStatus(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ArchiveNodeStatus}
+ */
+function decodeArchiveNodeStatusMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {nodeId: 0, logs: undefined, deploymentMetrics: undefined, nodeMetrics: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.nodeId = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.logs = decodeArchiveKindStatusMessage(reader, reader.uint32());
+                break;
+            }
+            case 3: {
+                message.deploymentMetrics = decodeArchiveKindStatusMessage(reader, reader.uint32());
+                break;
+            }
+            case 4: {
+                message.nodeMetrics = decodeArchiveKindStatusMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ArchiveNodeStatus}
+ */
+export function decodeArchiveNodeStatus(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeArchiveNodeStatusMessage(reader);
+}
+
+
+
+/**
+ * @param {ArchiveStatusResponse} message
+ * @param {Writer} writer
+ */
+export function writeArchiveStatusResponse(message, writer) {
+    if (message.enabled === true) {
+        writer.uint32(tag(1, WIRE.VARINT)).bool(message.enabled);
+    }
+    if (message.nodes && message.nodes.length > 0) {
+        for (const item of message.nodes) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeArchiveNodeStatus(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {ArchiveStatusResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeArchiveStatusResponse(message) {
+    const writer = Writer.create();
+    writeArchiveStatusResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ArchiveStatusResponse}
+ */
+function decodeArchiveStatusResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {enabled: false, nodes: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.enabled = reader.bool();
+                break;
+            }
+            case 2: {
+                message.nodes.push(decodeArchiveNodeStatusMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ArchiveStatusResponse}
+ */
+export function decodeArchiveStatusResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeArchiveStatusResponseMessage(reader);
+}
+
+
+
+/**
  * @param {GithubCredentials} message
  * @param {Writer} writer
  */
@@ -28088,6 +29874,11 @@ export function writeClusterSettings(message, writer) {
         writeAuthSettings(message.auth, writer);
         writer.ldelim();
     }
+    if (message.archive !== undefined && message.archive !== null) {
+        writer.uint32(tag(8, WIRE.LDELIM)).fork();
+        writeArchiveSettings(message.archive, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -28109,7 +29900,7 @@ export function encodeClusterSettings(message) {
  */
 function decodeClusterSettingsMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {httpWeb: undefined, httpsWeb: undefined, cluster: undefined, repo: undefined, backup: undefined, largeAssets: undefined, auth: undefined };
+    const message = {httpWeb: undefined, httpsWeb: undefined, cluster: undefined, repo: undefined, backup: undefined, largeAssets: undefined, auth: undefined, archive: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -28139,6 +29930,10 @@ function decodeClusterSettingsMessage(reader, length) {
             }
             case 7: {
                 message.auth = decodeAuthSettingsMessage(reader, reader.uint32());
+                break;
+            }
+            case 8: {
+                message.archive = decodeArchiveSettingsMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -28684,6 +30479,73 @@ function decodeLargeAssetsSettingsMessage(reader, length) {
 export function decodeLargeAssetsSettings(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeLargeAssetsSettingsMessage(reader);
+}
+
+
+
+/**
+ * @param {ArchiveSettings} message
+ * @param {Writer} writer
+ */
+export function writeArchiveSettings(message, writer) {
+    if (message.enabled !== undefined && message.enabled !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeBoolSetting(message.enabled, writer);
+        writer.ldelim();
+    }
+    if (message.s3Path !== undefined && message.s3Path !== null) {
+        writer.uint32(tag(2, WIRE.LDELIM)).fork();
+        writeStringSetting(message.s3Path, writer);
+        writer.ldelim();
+    }
+}
+
+
+/**
+ * @param {ArchiveSettings} message
+ * @returns {Uint8Array}
+ */
+export function encodeArchiveSettings(message) {
+    const writer = Writer.create();
+    writeArchiveSettings(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {ArchiveSettings}
+ */
+function decodeArchiveSettingsMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {enabled: undefined, s3Path: undefined };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.enabled = decodeBoolSettingMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.s3Path = decodeStringSettingMessage(reader, reader.uint32());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {ArchiveSettings}
+ */
+export function decodeArchiveSettings(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeArchiveSettingsMessage(reader);
 }
 
 
@@ -29663,7 +31525,7 @@ export function decodeCoreSnapshot(buffer) {
  */
 export function writeCoreEntity(message, writer) {
     if (message.value !== undefined && message.value !== null) {
-        const selected = [message.value.deployment, message.value.scheduledInstance, message.value.node, message.value.secret, message.value.config, message.value.asset, message.value.networkPolicy, message.value.space, message.value.user, message.value.valueDirectory, message.value.assetDirectory, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.systemConfig, message.value.scheduledInstanceStatus, message.value.nodeStatus, message.value.agentSession, message.value.userSession, message.value.nixStoreReset, message.value.secretKeyslot, message.value.spaceDomainPolicy, message.value.nodeAccessPolicy].filter((v) => v !== undefined && v !== null).length;
+        const selected = [message.value.deployment, message.value.scheduledInstance, message.value.node, message.value.secret, message.value.config, message.value.asset, message.value.networkPolicy, message.value.space, message.value.user, message.value.valueDirectory, message.value.assetDirectory, message.value.authzGrantTemplate, message.value.authzGrant, message.value.authzGlobalRule, message.value.systemConfig, message.value.scheduledInstanceStatus, message.value.nodeStatus, message.value.agentSession, message.value.userSession, message.value.nixStoreReset, message.value.secretKeyslot, message.value.spaceDomainPolicy, message.value.nodeAccessPolicy, message.value.logChunk, message.value.deploymentMetricsChunk, message.value.nodeMetricsChunk].filter((v) => v !== undefined && v !== null).length;
         if (selected !== 1) {
             throw new Error("CoreEntity.value: expected exactly one alternative, got " + selected);
         }
@@ -29780,6 +31642,21 @@ export function writeCoreEntity(message, writer) {
         if (message.value.nodeAccessPolicy !== undefined && message.value.nodeAccessPolicy !== null) {
             writer.uint32(tag(23, WIRE.LDELIM)).fork();
             writeNodeAccessPolicy(message.value.nodeAccessPolicy, writer);
+            writer.ldelim();
+        }
+        if (message.value.logChunk !== undefined && message.value.logChunk !== null) {
+            writer.uint32(tag(24, WIRE.LDELIM)).fork();
+            writeLogChunk(message.value.logChunk, writer);
+            writer.ldelim();
+        }
+        if (message.value.deploymentMetricsChunk !== undefined && message.value.deploymentMetricsChunk !== null) {
+            writer.uint32(tag(25, WIRE.LDELIM)).fork();
+            writeDeploymentMetricsChunk(message.value.deploymentMetricsChunk, writer);
+            writer.ldelim();
+        }
+        if (message.value.nodeMetricsChunk !== undefined && message.value.nodeMetricsChunk !== null) {
+            writer.uint32(tag(26, WIRE.LDELIM)).fork();
+            writeNodeMetricsChunk(message.value.nodeMetricsChunk, writer);
             writer.ldelim();
         }
     } else {
@@ -29900,6 +31777,18 @@ function decodeCoreEntityMessage(reader, length) {
             }
             case 23: {
                 message.value = { nodeAccessPolicy: decodeNodeAccessPolicyMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 24: {
+                message.value = { logChunk: decodeLogChunkMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 25: {
+                message.value = { deploymentMetricsChunk: decodeDeploymentMetricsChunkMessage(reader, reader.uint32()) };
+                break;
+            }
+            case 26: {
+                message.value = { nodeMetricsChunk: decodeNodeMetricsChunkMessage(reader, reader.uint32()) };
                 break;
             }
             default:

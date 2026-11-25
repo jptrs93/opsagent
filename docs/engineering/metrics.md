@@ -294,21 +294,29 @@ local disk by bucket upload (both below), not by thinning the data.
 ### Layout
 
 ```
-<data>-metrics/<YYYYMMDD>.wal                          live file for the day
-<data>-metrics/<YYYYMMDD>/n<node>_<seq>.parquet        sealed day
+<data>-metrics/<YYYYMMDD>.wal                                    live file for the day
+<data>-metrics/<YYYYMMDD>/d<deployment>_n<node>_<seq>.parquet    sealed day of one deployment
+<data>-metrics/<YYYYMMDD>/n<node>_<seq>.manifest                 what one compaction sealed
 ```
 
 The root is `ainit.StaticConfig.MetricsDir` (`/var/lib/opendeploy-metrics`
 installed), a sibling of the log roots.
 
-Partitioning is per node-day, not per deployment as for logs. Logs partition
-by deployment because each container has its own writer process and queries
-are per deployment. The metrics sampler is one in-process writer that emits a
-row for every run on each tick, and "every run on this node now" is as
-common a query as "this deployment over time". One append per tick writes the
-whole batch; deployment is a dictionary-encoded column. Node in the filename
-and a per-day `seq` are kept as in the log design so later S3 upload is
-coordination-free.
+The live file is per node-day, not per deployment as for logs. Logs
+partition by deployment because each container has its own writer process.
+The metrics sampler is one in-process writer that emits a row for every run
+on each tick, and one append per tick writes the whole batch.
+
+The sealed form is one file per deployment per node-day. Compaction splits
+the day by `deployment_id`, so a per-deployment query opens one file and a
+chunk record names the metrics of one deployment
+([chunk-archive.md](chunk-archive.md)). Node in the filename and a per-day
+`seq` are kept as in the log design, so the bucket key of a file needs no
+coordination.
+
+A file named `n<node>_<seq>.parquet` in a run-table day directory was sealed
+before the split. It holds every deployment of the day. It is still read,
+it has no manifest, and it is never listed as a chunk.
 
 ### WAL
 
@@ -337,20 +345,43 @@ Sealing is known, not inferred: the sampler stamps and writes from one
 goroutine, so day D is complete once the first record of D+1 is written. The
 maintenance loop (at start and hourly) lists WAL files and compacts every day
 before today-minus-ten-minutes (the grace covers clock steps around midnight)
-oldest-first into one parquet per node-day, and commits by `tmp → fsync →
-rename → fsync dir → delete WAL`. A well-formed parquet name is the commit.
-No sqlite catalog: the files are self-describing by name, the schema is
-fixed, and a directory listing is the planner.
+oldest-first. The run table gets one parquet per deployment, the node table
+one for the day. No sqlite catalog: the schema is fixed, and a directory
+listing is the planner.
 
-Rows stream from the WAL through a `parquet.SortingWriter` with a 64k-row
-sort buffer spilling to files in the day directory, so a day of any size
-compacts in bounded memory; splitting a node-day into several files was not
-needed and is not done. The `seq` in the name is one above the highest
-existing seq for the node in that day directory. A crash between rename and
-WAL delete, or a clock step that reopens a compacted day's WAL, therefore
-produces a second file rather than replacing the first: duplicates over data
-loss. Stray `.tmp` files in the day directory are removed before writing.
-An empty WAL is deleted without producing a file.
+One compaction takes one `seq`, one above the highest for the node in that
+day directory, and commits in this order:
+
+1. Write every file as `<name>.parquet.tmp` and fsync it.
+2. Write the manifest `n<node>_<seq>.manifest`: tmp, fsync, rename, fsync
+   the directory.
+3. Rename every `.tmp` to its final name and fsync the directory.
+4. Delete the WAL.
+
+The manifest is the commit. It is a JSON file that lists each sealed file
+with its deployment, row count, time range, size and SHA-256, and it carries
+the SHA-256 of the WAL it was built from. `SealedFiles` reads the manifests,
+so a sealed file is described without opening it.
+
+The next compaction of a day first finishes or discards what an interrupted
+one left (`recoverDay`). A `.tmp` file that a manifest names is renamed. Any
+other `.tmp` file is removed. A manifest that cannot be read is removed.
+When a manifest already carries the hash of the WAL, the WAL is deleted and
+nothing is written, so a crash between the renames and the WAL delete does
+not produce a second copy. That holds only while every file the manifest
+names is on disk, renamed or not. A manifest of the WAL that names a missing
+file is removed with the files it does have, and the day is compacted again
+under the next `seq`: the WAL is then the only complete copy. A clock step that reopens a compacted day's WAL
+produces a second set of files under the next `seq`: duplicates over data
+loss.
+
+The WAL is read once into memory. The rows of each file stream through a
+`parquet.SortingWriter` with a 64k-row sort buffer spilling to files in the
+day directory. A WAL with no records is deleted without producing a file.
+
+A file sealed before manifests existed gets one from the maintenance loop
+(`backfillManifests`), for the node table only: the file is read once for
+its row count and time range and hashed.
 
 ### Query routing
 
@@ -364,8 +395,13 @@ query primitives in `metricstore` (no endpoints yet):
   reads every parquet file in the day directory (any node's, so a later
   bucket sync can drop other nodes' files in) and then the WAL, unless a
   parquet for this node already exists for that day, in which case the WAL
-  is a not-yet-deleted duplicate and is skipped. Per-deployment queries skip
-  row groups whose `deployment_id` page statistics exclude the id.
+  is a not-yet-deleted duplicate and is skipped. While a compaction of this
+  node is between its manifest and its last rename, some files of its `seq`
+  have their final name and some are still `.tmp`: the scan skips every
+  file of a `seq` that still has a `.tmp` and reads the WAL instead. A
+  per-deployment query skips the files of other deployments by name, and in
+  a file sealed before the split it skips row groups whose `deployment_id`
+  page statistics exclude the id.
 - `Collect` runs `Scan`, sorts by key then time, and drops exact
   `(key, time)` duplicates, which is what the double-commit case above
   produces. `GroupByKey` splits that into per-run series.
@@ -417,10 +453,10 @@ and node id so tests and tools run against a directory without a sampler.
 
 Retention deletes whole day directories (and any stray WAL) older than
 `metricstore.DefaultRetention`, 90 days, in the same maintenance pass as
-compaction. Local disk space is not what retention length is decided by: the target for data volume is uploading
-sealed parquet files to bucket storage under the same key scheme, as
-planned for logs, after which local retention is a cache window and history
-is read from the bucket.
+compaction. Local disk space is not what retention length is decided by: sealed files are sent to bucket
+storage under the same key scheme ([chunk-archive.md](chunk-archive.md)).
+Reading history from the bucket, after which local retention is a cache
+window, is not built.
 
 A later rollup pass over sealed days exists for query efficiency on long
 time ranges, not for space. A 30-day chart at 10s resolution reads 259,200
@@ -497,6 +533,7 @@ used plus available, the figure `df` prints.
 ```
 <data>-metrics/node/<YYYYMMDD>.wal                     live file for the day
 <data>-metrics/node/<YYYYMMDD>/n<node>_<seq>.parquet   sealed day
+<data>-metrics/node/<YYYYMMDD>/n<node>_<seq>.manifest  what one compaction sealed
 ```
 
 `metricstore` is generic over the sample type. A `table[S, R]` holds what
@@ -506,7 +543,8 @@ writer, compaction, retention, scan routing and the rollup accumulator are
 written once over it. `Store` is the run table and `NodeStore` the node
 table; both run the same write and maintenance loops. Node rows sort by time.
 The frame format, the commit protocol and the 90 day retention are those
-described above.
+described above. The node table is not split: a compaction seals one file
+for the day.
 
 The run store lists `<data>-metrics` and skips every name that is not a day,
 so the `node` directory is invisible to it, and to an older agent after a
@@ -538,8 +576,10 @@ Primary and secondary start `metricstore.Default` on
 it at 10 seconds.
 
 The e2e metrics flow verifies sampling of freshly started containers and of
-containers adopted after an agent upgrade. A real day roll and compaction on
-a node has not been observed yet.
+containers adopted after an agent upgrade. The e2e archive checks compact a
+copied WAL under a past day on the primary and a worker and compare every
+sealed file with its object in the bucket. A real day roll on a node has not
+been observed under the per-deployment layout yet.
 
 Served: `POST /v1/metrics/query` (rollup, fanned out by the primary to every
 node holding an instance of the deployment) and `POST /v1/metrics/latest`
@@ -571,7 +611,9 @@ Not yet for node metrics: charts of `extra_filesystems` entries and
 host-mount paths of deployments as a source for that map.
 
 Not yet: the writable snapshot layer's usage, the self-deployment target,
-stored rollup (the rollup engine runs at query time), and bucket upload. A leaked-cgroup sweep is no longer needed: a cgroup belongs to a
+stored rollup (the rollup engine runs at query time), and reading from the
+bucket. Sealed files are recorded as chunks and sent to the bucket when the
+archive is on ([chunk-archive.md](chunk-archive.md)). A leaked-cgroup sweep is no longer needed: a cgroup belongs to a
 container, and the runner removes leftover containers of its family before
 every start.
 

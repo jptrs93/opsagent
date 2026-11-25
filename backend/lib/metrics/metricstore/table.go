@@ -14,6 +14,7 @@ type table[S any, R any] struct {
 	toRow   func(*S) R
 	fromRow func(*R) *S
 	sorting []parquet.SortingColumn
+	split   func(payload []byte) int32
 }
 
 type rowFieldPair struct {

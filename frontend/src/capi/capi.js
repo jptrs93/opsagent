@@ -7,11 +7,15 @@ import {
   decodeAgentSessionList,
   decodeAgentSessionPickup,
   decodeAgentSessionRequest,
+  decodeArchiveStatusResponse,
   decodeAssetDirectory,
   decodeAssetDirectoryList,
   decodeAuthMethodsResponse,
   decodeAuthzGlobalRuleList,
   decodeAuthzGrantTemplateList,
+  decodeClusterChunksSyncResponse,
+  decodeClusterChunksUploadWorkResponse,
+  decodeClusterChunksUploadedResponse,
   decodeClusterConfigsResponse,
   decodeClusterIssuedTLSResponse,
   decodeClusterRenewCertificateResponse,
@@ -57,6 +61,7 @@ import {
   encodeAgentSessionGetRequest,
   encodeAgentSessionRequestStartRequest,
   encodeAgentSessionRevokeRequest,
+  encodeArchiveStatusRequest,
   encodeAssetDeleteRequest,
   encodeAssetDirectoryCreateRequest,
   encodeAssetDirectoryDeleteRequest,
@@ -71,6 +76,9 @@ import {
   encodeAuthzGrantTemplateCreateRequest,
   encodeAuthzGrantTemplateDeleteRequest,
   encodeAuthzGrantTemplateUpdateRequest,
+  encodeClusterChunksSyncRequest,
+  encodeClusterChunksUploadWorkRequest,
+  encodeClusterChunksUploadedRequest,
   encodeClusterConfigsRequest,
   encodeClusterIssuedTLSRequest,
   encodeClusterSecretsRequest,
@@ -280,6 +288,19 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeClusterSettings(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ArchiveStatusRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<ArchiveStatusResponse>}
+   */
+  async postV1ArchiveStatus(payload, options = {}) {
+    const response = await this.#request("/v1/archive/status", { method: 'POST', body: encodeArchiveStatusRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeArchiveStatusResponse(await response.arrayBuffer());
   }
 
   /**
@@ -1709,6 +1730,45 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeClusterRenewCertificateResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ClusterChunksSyncRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<ClusterChunksSyncResponse>}
+   */
+  async postV1ClusterChunksSync(payload, options = {}) {
+    const response = await this.#request("/v1/cluster/chunks/sync", { method: 'POST', body: encodeClusterChunksSyncRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterChunksSyncResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ClusterChunksUploadWorkRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<ClusterChunksUploadWorkResponse>}
+   */
+  async postV1ClusterChunksUploadWork(payload, options = {}) {
+    const response = await this.#request("/v1/cluster/chunks/upload-work", { method: 'POST', body: encodeClusterChunksUploadWorkRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterChunksUploadWorkResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {ClusterChunksUploadedRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<ClusterChunksUploadedResponse>}
+   */
+  async postV1ClusterChunksUploaded(payload, options = {}) {
+    const response = await this.#request("/v1/cluster/chunks/uploaded", { method: 'POST', body: encodeClusterChunksUploadedRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeClusterChunksUploadedResponse(await response.arrayBuffer());
   }
 
   /**

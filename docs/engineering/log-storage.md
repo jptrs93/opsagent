@@ -123,7 +123,10 @@ row is a page lookup rather than a decompressing walk from the chunk start.
 
 - `log_files`: one row per archive file. `deployment_id`, `day`, `seq`
   identify the file; `level`, `node`, `min_time`, `max_time` (unix nanos),
-  `row_count`, `byte_size`, `created_at`. The scan index is
+  `row_count`, `byte_size`, `created_at`, `sha256`. `sha256` is the hex
+  hash of the file once it is sealed and empty before (see Sealing). The
+  column is added to an existing catalog when it is opened
+  (`sql/migrations.sql`). The scan index is
   `(deployment_id, max_time DESC, min_time)`.
 - `log_file_keys`: one row per `(file, key, type)` variant present in a
   level 1 or 2 file with its placement (dense or spill) and row count.
@@ -139,8 +142,9 @@ is the only durable fact about them.
 ## Maintenance
 
 `Manager` runs one maintenance goroutine per process. It wakes on a commit
-nudge or every minute and runs one roll-up job per wake;
-every hour it first reconciles the catalog with the disk. Jobs select from
+nudge or every minute and runs steps until none is due: a roll-up job when
+one is due, otherwise the sealing of one file. Every hour it first reconciles
+the catalog with the disk. Jobs select from
 the catalog alone, so the loop has no state across restarts.
 
 Every rewrite follows one protocol: check free space for twice the input
@@ -154,11 +158,23 @@ files by path afterwards. A crash before the transaction leaves rowless
 output files; a crash after leaves rowless input files; reconciliation
 removes both.
 
-- **Roll-up (level 1 to 2).** Per `(deployment, day)`: when the level 1
-  files sum to at least 256MB of parquet, or the day ended more than 15
-  minutes ago and at least two level 1 files remain, they k-way-merge by
-  record key into level 2 output, split so each file is about 256MB. A lone
-  level 1 file is left alone.
+- **Roll-up (level 1 to 2).** Per `(deployment, day)`: when the unsealed
+  level 1 files sum to at least 256MB of parquet, or the day ended more than
+  15 minutes ago and at least two unsealed level 1 files remain, they
+  k-way-merge by record key into level 2 output, split so each file is about
+  256MB. A lone level 1 file is left alone. A sealed file is never an input.
+- **Sealing.** A sealed file is one no later step rewrites; its row carries
+  the SHA-256 of its bytes. A level 2 file is sealable as soon as it exists.
+  A level 1 file is sealable when it is the only unsealed level 1 file of
+  its `(deployment, day)` and the day ended more than 30 minutes ago, which
+  is after the roll-up of that day had its turn. One step hashes one file,
+  checks the byte count against the catalog, stores the hash, and then
+  pauses for as long as the hash took, up to 5 seconds. A file that fails to
+  hash is skipped until the next reconciliation. The system log (deployment
+  0) is never sealed. `Manager.SealedFiles` lists the sealed files of a
+  node; they are what the node reports as log chunks
+  ([chunk-archive.md](chunk-archive.md)). Sealing runs on the maintenance
+  goroutine, so it never overlaps a roll-up.
 - **Reconciliation.** Final-named archive files without a catalog row and
   catalog rows without a file are removed, each only once older than the
   grace and never while a rewrite still holds the file for its deferred
@@ -216,8 +232,9 @@ the owning secondary over the cluster session.
 ## Not yet present
 
 The field sidebar from `log_file_keys`, the display map from columns
-instead of `raw_message`, a level 3 cross-node merge, and S3 upload. See
-the implementation plan.
+instead of `raw_message`, a level 3 cross-node merge, and reading from the
+bucket. Sealed files are sent to the bucket when the archive is on
+([chunk-archive.md](chunk-archive.md)). See the implementation plan.
 
 ## Design decisions
 

@@ -168,6 +168,28 @@ func (c *ApiServerCapi) PostV1ClusterSettingsUpdate(ctx context.Context, req *Cl
 	return DecodeClusterSettings(body)
 }
 
+func (c *ApiServerCapi) PostV1ArchiveStatus(ctx context.Context, req *ArchiveStatusRequest) (*ArchiveStatusResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ArchiveStatus request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/archive/status", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeArchiveStatusResponse(body)
+}
+
 func (c *ApiServerCapi) PostV1NixStoreReset(ctx context.Context, req *NixStoreResetRequest) error {
 	if req == nil {
 		return fmt.Errorf("PostV1NixStoreReset request is nil")
@@ -2477,6 +2499,72 @@ func (c *OpsagentClusterV1Capi) GetV1ClusterRenewCertificate(ctx context.Context
 		return nil, err
 	}
 	return DecodeClusterRenewCertificateResponse(body)
+}
+
+func (c *OpsagentClusterV1Capi) PostV1ClusterChunksSync(ctx context.Context, req *ClusterChunksSyncRequest) (*ClusterChunksSyncResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ClusterChunksSync request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/cluster/chunks/sync", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterChunksSyncResponse(body)
+}
+
+func (c *OpsagentClusterV1Capi) PostV1ClusterChunksUploadWork(ctx context.Context, req *ClusterChunksUploadWorkRequest) (*ClusterChunksUploadWorkResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ClusterChunksUploadWork request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/cluster/chunks/upload-work", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterChunksUploadWorkResponse(body)
+}
+
+func (c *OpsagentClusterV1Capi) PostV1ClusterChunksUploaded(ctx context.Context, req *ClusterChunksUploadedRequest) (*ClusterChunksUploadedResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1ClusterChunksUploaded request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/cluster/chunks/uploaded", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeClusterChunksUploadedResponse(body)
 }
 
 func (c *OpsagentClusterV1Capi) PostV1ClusterConnect(ctx context.Context, reqs iter.Seq2[*MsgToPrimary, error]) iter.Seq2[*MsgToSecondary, error] {

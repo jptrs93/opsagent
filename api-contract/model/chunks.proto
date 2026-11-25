@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+// ChunkLocation says where the bytes of a chunk are. A chunk that is neither
+// local nor archived has no record.
+message ChunkLocation {
+  bool local = 1;      // the node that wrote the file still holds it
+  oneof archive {      // absent: not archived
+    S3Archive s3 = 2;
+  }
+}
+
+// S3Archive is a copy in the cluster's archive bucket. The object key is
+// derived from the chunk's identity.
+message S3Archive {}
+
+// LogChunk is one sealed log archive file of a deployment on a node.
+message LogChunk {
+  uint64 id = 1 [(cp.js_type) = "number"];
+  uint64 deployment_id = 2 [(cp.js_type) = "number"];  // a plain number: a chunk outlives its deployment
+  uint64 node_id = 3 [(cp.js_type) = "number"];
+  uint32 day = 4;                                      // UTC days since the Unix epoch
+  uint32 level = 5 [(buf.validate.field).uint32 = {gte: 1, lte: 2}];
+  int64 seq = 6;                                       // the file's random number on the node
+  int64 min_time = 7;                                  // Unix nanoseconds
+  int64 max_time = 8;                                  // Unix nanoseconds
+  uint64 row_count = 9 [(cp.js_type) = "number"];
+  uint64 size_bytes = 10 [(cp.js_type) = "number"];
+  bytes sha256 = 11 [(buf.validate.field).bytes.len = 32];
+  ChunkLocation location = 12 [(cp.go_value) = true];
+}
+
+// DeploymentMetricsChunk is one sealed metrics file of a deployment's runs on
+// a node for one day.
+message DeploymentMetricsChunk {
+  uint64 id = 1 [(cp.js_type) = "number"];
+  uint64 deployment_id = 2 [(cp.js_type) = "number"];  // a plain number: a chunk outlives its deployment
+  uint64 node_id = 3 [(cp.js_type) = "number"];
+  uint32 day = 4;                                      // UTC days since the Unix epoch
+  uint32 seq = 5 [(buf.validate.field).uint32.gte = 1];
+  int64 min_time = 6 [(cp.js_type) = "number"];        // Unix milliseconds
+  int64 max_time = 7 [(cp.js_type) = "number"];        // Unix milliseconds
+  uint64 row_count = 8 [(cp.js_type) = "number"];
+  uint64 size_bytes = 9 [(cp.js_type) = "number"];
+  bytes sha256 = 10 [(buf.validate.field).bytes.len = 32];
+  ChunkLocation location = 11 [(cp.go_value) = true];
+}
+
+// NodeMetricsChunk is one sealed host metrics file of a node for one day.
+message NodeMetricsChunk {
+  uint64 id = 1 [(cp.js_type) = "number"];
+  uint64 node_id = 2 [(cp.js_type) = "number"];
+  uint32 day = 3;                                      // UTC days since the Unix epoch
+  uint32 seq = 4 [(buf.validate.field).uint32.gte = 1];
+  int64 min_time = 5 [(cp.js_type) = "number"];        // Unix milliseconds
+  int64 max_time = 6 [(cp.js_type) = "number"];        // Unix milliseconds
+  uint64 row_count = 7 [(cp.js_type) = "number"];
+  uint64 size_bytes = 8 [(cp.js_type) = "number"];
+  bytes sha256 = 9 [(buf.validate.field).bytes.len = 32];
+  ChunkLocation location = 10 [(cp.go_value) = true];
+}

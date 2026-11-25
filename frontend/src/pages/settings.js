@@ -112,6 +112,10 @@ const emptySettings = () => ({
         s3Endpoint: stringSetting(""),
         keepLocalCopy: boolSetting(false),
     },
+    archive: {
+        enabled: boolSetting(false),
+        s3Path: stringSetting("opendeploy/archive"),
+    },
 });
 
 const resolvedConfigValue = (key) => findRef(userConfigRefsS.val, key)?.value || "";
@@ -202,6 +206,8 @@ const settingsSections = [
             {label: "Large asset S3 bucket", key: "LARGE_ASSET_S3_BUCKET", type: "text", setting: (cfg) => cfg.largeAssets?.s3Bucket, apply: applyTo("largeAssets", "s3Bucket"), visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
             {label: "Large asset S3 region", key: "LARGE_ASSET_S3_REGION", type: "text", setting: (cfg) => cfg.largeAssets?.s3Region, apply: applyTo("largeAssets", "s3Region"), visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
             {label: "Large asset S3 endpoint", key: "LARGE_ASSET_S3_ENDPOINT", type: "text", setting: (cfg) => cfg.largeAssets?.s3Endpoint, apply: applyTo("largeAssets", "s3Endpoint"), visible: (draft) => effectiveDraftBoolValue(draft?.LARGE_ASSETS_USE_SEPARATE_S3)},
+            {label: "Archive logs and metrics", key: "ARCHIVE_ENABLED", type: "bool", setting: (cfg) => cfg.archive?.enabled, apply: applyTo("archive", "enabled")},
+            {label: "Archive S3 path", key: "ARCHIVE_S3_PATH", type: "text", setting: (cfg) => cfg.archive?.s3Path, apply: applyTo("archive", "s3Path"), visible: (draft) => effectiveDraftBoolValue(draft?.ARCHIVE_ENABLED)},
         ],
     },
 ];

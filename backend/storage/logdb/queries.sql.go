@@ -58,7 +58,7 @@ func (q *Queries) DeleteLogFilesForDay(ctx context.Context, arg DeleteLogFilesFo
 }
 
 const getLogFileBySeq = `-- name: GetLogFileBySeq :one
-SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at, sha256
 FROM log_files WHERE deployment_id = ? AND day = ? AND seq = ?
 `
 
@@ -83,6 +83,7 @@ func (q *Queries) GetLogFileBySeq(ctx context.Context, arg GetLogFileBySeqParams
 		&i.RowCount,
 		&i.ByteSize,
 		&i.CreatedAt,
+		&i.Sha256,
 	)
 	return i, err
 }
@@ -170,7 +171,7 @@ func (q *Queries) InsertLogFileKey(ctx context.Context, arg InsertLogFileKeyPara
 
 const listLevelOneDays = `-- name: ListLevelOneDays :many
 SELECT deployment_id, day, COUNT(*) AS file_count, SUM(byte_size) AS byte_total
-FROM log_files WHERE level = 1 GROUP BY deployment_id, day ORDER BY deployment_id, day
+FROM log_files WHERE level = 1 AND sha256 = '' GROUP BY deployment_id, day ORDER BY deployment_id, day
 `
 
 type ListLevelOneDaysRow struct {
@@ -323,7 +324,7 @@ func (q *Queries) ListLogFileKeysInRange(ctx context.Context, arg ListLogFileKey
 }
 
 const listLogFilesForDay = `-- name: ListLogFilesForDay :many
-SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at, sha256
 FROM log_files WHERE deployment_id = ? AND day = ?
 ORDER BY min_time, id
 `
@@ -354,53 +355,7 @@ func (q *Queries) ListLogFilesForDay(ctx context.Context, arg ListLogFilesForDay
 			&i.RowCount,
 			&i.ByteSize,
 			&i.CreatedAt,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listLogFilesForDayLevel = `-- name: ListLogFilesForDayLevel :many
-SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
-FROM log_files WHERE deployment_id = ? AND day = ? AND level = ?
-ORDER BY min_time, id
-`
-
-type ListLogFilesForDayLevelParams struct {
-	DeploymentID int64
-	Day          int64
-	Level        int64
-}
-
-func (q *Queries) ListLogFilesForDayLevel(ctx context.Context, arg ListLogFilesForDayLevelParams) ([]LogFile, error) {
-	rows, err := q.db.QueryContext(ctx, listLogFilesForDayLevel, arg.DeploymentID, arg.Day, arg.Level)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []LogFile
-	for rows.Next() {
-		var i LogFile
-		if err := rows.Scan(
-			&i.ID,
-			&i.DeploymentID,
-			&i.Day,
-			&i.Level,
-			&i.Node,
-			&i.Seq,
-			&i.MinTime,
-			&i.MaxTime,
-			&i.RowCount,
-			&i.ByteSize,
-			&i.CreatedAt,
+			&i.Sha256,
 		); err != nil {
 			return nil, err
 		}
@@ -416,7 +371,7 @@ func (q *Queries) ListLogFilesForDayLevel(ctx context.Context, arg ListLogFilesF
 }
 
 const listLogFilesNewestFirst = `-- name: ListLogFilesNewestFirst :many
-SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at, sha256
 FROM log_files WHERE deployment_id = ?
 ORDER BY max_time DESC, min_time DESC, id DESC
 `
@@ -442,6 +397,7 @@ func (q *Queries) ListLogFilesNewestFirst(ctx context.Context, deploymentID int6
 			&i.RowCount,
 			&i.ByteSize,
 			&i.CreatedAt,
+			&i.Sha256,
 		); err != nil {
 			return nil, err
 		}
@@ -454,6 +410,165 @@ func (q *Queries) ListLogFilesNewestFirst(ctx context.Context, deploymentID int6
 		return nil, err
 	}
 	return items, nil
+}
+
+const listSealableLogFiles = `-- name: ListSealableLogFiles :many
+SELECT f.id, f.deployment_id, f.day, f.level, f.node, f.seq, f.min_time, f.max_time, f.row_count, f.byte_size, f.created_at, f.sha256
+FROM log_files AS f
+WHERE f.sha256 = '' AND f.deployment_id != 0
+  AND (f.level = 2 OR (f.day < ?1 AND NOT EXISTS (
+        SELECT 1 FROM log_files AS o
+        WHERE o.deployment_id = f.deployment_id AND o.day = f.day AND o.level = 1 AND o.sha256 = '' AND o.id != f.id)))
+ORDER BY f.day, f.id
+LIMIT ?2
+`
+
+type ListSealableLogFilesParams struct {
+	BeforeDay int64
+	MaxFiles  int64
+}
+
+func (q *Queries) ListSealableLogFiles(ctx context.Context, arg ListSealableLogFilesParams) ([]LogFile, error) {
+	rows, err := q.db.QueryContext(ctx, listSealableLogFiles, arg.BeforeDay, arg.MaxFiles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LogFile
+	for rows.Next() {
+		var i LogFile
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.Day,
+			&i.Level,
+			&i.Node,
+			&i.Seq,
+			&i.MinTime,
+			&i.MaxTime,
+			&i.RowCount,
+			&i.ByteSize,
+			&i.CreatedAt,
+			&i.Sha256,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSealedLogFiles = `-- name: ListSealedLogFiles :many
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at, sha256
+FROM log_files WHERE sha256 != '' AND node = ? AND deployment_id != 0
+ORDER BY day, id
+`
+
+func (q *Queries) ListSealedLogFiles(ctx context.Context, node int64) ([]LogFile, error) {
+	rows, err := q.db.QueryContext(ctx, listSealedLogFiles, node)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LogFile
+	for rows.Next() {
+		var i LogFile
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.Day,
+			&i.Level,
+			&i.Node,
+			&i.Seq,
+			&i.MinTime,
+			&i.MaxTime,
+			&i.RowCount,
+			&i.ByteSize,
+			&i.CreatedAt,
+			&i.Sha256,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnsealedLogFilesForDayLevel = `-- name: ListUnsealedLogFilesForDayLevel :many
+SELECT id, deployment_id, day, level, node, seq, min_time, max_time, row_count, byte_size, created_at, sha256
+FROM log_files WHERE deployment_id = ? AND day = ? AND level = ? AND sha256 = ''
+ORDER BY min_time, id
+`
+
+type ListUnsealedLogFilesForDayLevelParams struct {
+	DeploymentID int64
+	Day          int64
+	Level        int64
+}
+
+func (q *Queries) ListUnsealedLogFilesForDayLevel(ctx context.Context, arg ListUnsealedLogFilesForDayLevelParams) ([]LogFile, error) {
+	rows, err := q.db.QueryContext(ctx, listUnsealedLogFilesForDayLevel, arg.DeploymentID, arg.Day, arg.Level)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LogFile
+	for rows.Next() {
+		var i LogFile
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeploymentID,
+			&i.Day,
+			&i.Level,
+			&i.Node,
+			&i.Seq,
+			&i.MinTime,
+			&i.MaxTime,
+			&i.RowCount,
+			&i.ByteSize,
+			&i.CreatedAt,
+			&i.Sha256,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const setLogFileSha256 = `-- name: SetLogFileSha256 :execrows
+UPDATE log_files SET sha256 = ? WHERE id = ? AND sha256 = ''
+`
+
+type SetLogFileSha256Params struct {
+	Sha256 string
+	ID     int64
+}
+
+func (q *Queries) SetLogFileSha256(ctx context.Context, arg SetLogFileSha256Params) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setLogFileSha256, arg.Sha256, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertLogStreamCommitMarker = `-- name: UpsertLogStreamCommitMarker :exec

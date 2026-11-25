@@ -16,6 +16,7 @@ type LogFile struct {
 	RowCount     int64
 	ByteSize     int64
 	CreatedAt    int64
+	Sha256       string
 }
 
 type LogFileKey struct {

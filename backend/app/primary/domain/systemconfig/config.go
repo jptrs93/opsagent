@@ -115,6 +115,10 @@ func DefaultSettings(initial Initial) *apigen.ClusterSettings {
 			PasswordLoginEnabled: BoolLiteral(false),
 			RequirePasskey:       BoolLiteral(initial.RequirePasskey),
 		},
+		Archive: apigen.ArchiveSettings{
+			Enabled: BoolLiteral(false),
+			S3Path:  StringLiteral(apigen.DefaultArchiveS3Path),
+		},
 	}
 }
 

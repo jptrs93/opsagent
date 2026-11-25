@@ -4,6 +4,96 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## Not released yet: log and metrics archive
+
+Written on 2026-11-25 for the change that adds chunk records and the archive.
+Give this entry its version number when the change is released.
+
+### What changed
+
+- **The primary records every sealed log and metrics file.** Each node lists
+  its sealed files to the primary once an hour, and the primary keeps one
+  record per file with its size, row count, time range and SHA-256. The
+  records are cluster state in the primary database. They are made whether or
+  not the archive is on.
+- **Nodes can send those files to the backup bucket.** Two new settings in the
+  Backup section, "Archive logs and metrics" (off by default) and "Archive S3
+  path" (default `opendeploy/archive`). With the archive on, each node sends
+  its sealed files to the backup bucket under that path. The primary signs
+  each upload for one file's size and hash, so a node holds no bucket
+  credentials.
+- **Nodes › Replication shows the archive.** One row per node: files in the
+  bucket out of files recorded, and what is still to send.
+  `POST /v1/archive/status` returns the same counts.
+- **Run metrics are sealed as one file per deployment.** A day of a node's run
+  metrics is now compacted into `d<deployment>_n<node>_<seq>.parquet` files
+  with a `n<node>_<seq>.manifest` beside them. Node metrics keep one file per
+  day and gain a manifest.
+- **Sealed log files are hashed.** The log catalog gains a `sha256` column. A
+  file that will not be rewritten is hashed in the background, one file at a
+  time, and is then left out of roll-up.
+
+Nothing reads from the bucket yet, and nothing deletes a local file or a
+bucket object.
+
+### Before upgrading
+
+- Nothing needs doing to upgrade. The archive is off until you turn it on.
+- **Before turning the archive on, check every node can reach the bucket.**
+  Until now only the primary talked to the backup bucket. With the archive on,
+  each secondary sends its own files, to the same endpoint URL the primary
+  uses. A node that cannot reach it logs a failed upload for each file every
+  hour and its files stay "not archived" on the Replication tab.
+- The bucket must accept a presigned `PUT` with `x-amz-checksum-sha256` as a
+  signed header. MinIO and SeaweedFS were checked. AWS S3 documents the same
+  behaviour and was not tested. A bucket that reports no checksum on `HEAD` is
+  accepted on the object's size.
+- To check a bucket before turning the archive on, run
+  `go test ./app/primary/domain/chunks/ -run TestRealBucket -v` in `backend/`
+  with `ARCHIVE_S3_TEST_BUCKET`, `ARCHIVE_S3_TEST_ACCESS_KEY_ID`,
+  `ARCHIVE_S3_TEST_SECRET_ACCESS_KEY` and, outside AWS,
+  `ARCHIVE_S3_TEST_ENDPOINT` and `ARCHIVE_S3_TEST_REGION` set. It uploads one
+  small object under `opendeploy/archive-test/` and removes it.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. A secondary on the
+  newer version asks an older primary for the chunk endpoints, gets a 404,
+  logs one `chunk archive pass failed` warning an hour, and carries on. The
+  cluster protocol version did not change.
+- On its first start each node migrates its log catalog (one `ALTER TABLE`)
+  and begins hashing the sealed log files it already holds: one file at a
+  time, with a pause after each as long as the hash took. A node with many
+  gigabytes of logs takes a while to list them all. Its node metrics files get
+  a manifest in the first maintenance pass, which reads each file once.
+- The first listing reaches the primary 2 minutes after a node's agent starts.
+  Each node then adds one record per sealed file in one commit per 2,000
+  files.
+- Run metrics files sealed before the upgrade keep their name, are still
+  read, and are never recorded or archived.
+- A rollback keeps every file. A rolled-back agent does not read the
+  per-deployment run metrics files, so the days sealed by the newer agent are
+  missing from that node's deployment charts until it is upgraded again. Node
+  metrics and logs are unaffected.
+- A rolled-back agent does not know sealing and may roll a sealed level 1 log
+  file up. After the next upgrade the node lists the new file, and the record
+  of the old one is released.
+- A rolled-back primary keeps running: it ignores the chunk tables and the
+  archive settings. `opendeploy primary rebuild-tables` on the older version
+  fails once the write log holds chunk records, because that version does not
+  know entity types 24 to 26.
+
+### After upgrading
+
+- Nodes › Replication lists each node with its recorded files once the first
+  listing has arrived. Before the archive is turned on the badge reads `off`
+  and every file counts as not archived.
+- After turning the archive on, uploads start at each node's next hourly
+  pass, oldest day first. Restarting a node's agent brings the pass forward to
+  2 minutes after the start.
+- Changing "Archive S3 path" or the backup bucket later does not move
+  objects. Files already recorded as archived are not sent again.
+
 ## v0.0.631 (released 2026-11-25)
 
 ### What changed

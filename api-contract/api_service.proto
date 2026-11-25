@@ -29,6 +29,11 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
+  rpc PostV1ArchiveStatus(ArchiveStatusRequest) returns (ArchiveStatusResponse) {
+    option (cp.url) = "/v1/archive/status";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
   rpc PostV1NixStoreReset(NixStoreResetRequest) returns (cp.Empty) {
     option (cp.url) = "/v1/nix-store/reset";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };

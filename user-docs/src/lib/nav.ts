@@ -27,7 +27,7 @@ export const groups: Group[] = [
       ['flake', 'What the flake must provide'], ['deployment', 'The deployment'], ['private', 'Private repositories'], ['build', 'What happens on the node'],
     ] },
     { slug: 'guides/back-up-and-restore', title: 'Back up and restore', sections: [
-      ['what', 'What is backed up'], ['enable', 'Enable backup'], ['recovery', 'Keep what a restore needs'], ['restore', 'Restore onto a new machine'],
+      ['what', 'What is backed up'], ['enable', 'Enable backup'], ['archive', 'Archive logs and metrics'], ['recovery', 'Keep what a restore needs'], ['restore', 'Restore onto a new machine'],
     ] },
   ] },
   { title: 'Concepts & Design', documents: [

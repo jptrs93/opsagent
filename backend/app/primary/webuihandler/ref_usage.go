@@ -80,6 +80,8 @@ func (h *Handler) settingsConfigRefDetails(ids map[uint64]struct{}) []string {
 			{"large-assets S3 region", settings.LargeAssets.S3Region.Value.Value.ConfigRef},
 			{"large-assets S3 endpoint", settings.LargeAssets.S3Endpoint.Value.Value.ConfigRef},
 			{"large-assets keep local copy", settings.LargeAssets.KeepLocalCopy.Value.Value.ConfigRef},
+			{"archive logs and metrics", settings.Archive.Enabled.Value.Value.ConfigRef},
+			{"archive S3 path", settings.Archive.S3Path.Value.Value.ConfigRef},
 		}
 		for _, ref := range refs {
 			if ref.ref == nil || !ref.ref.Valid() {

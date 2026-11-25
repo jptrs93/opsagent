@@ -2,6 +2,7 @@ package nodes
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -206,5 +207,45 @@ func TestNodeExposureListsDeliveredData(t *testing.T) {
 	}
 	if len(exposure.Configs) != 1 || exposure.Configs[0] != (apigen.ValueRef{ID: 9, Version: 2}) {
 		t.Fatalf("exposed configs = %v, want [9@2]", exposure.Configs)
+	}
+}
+
+func TestEvictNodeReleasesItsChunkRecords(t *testing.T) {
+	store := state.Open(filepath.Join(t.TempDir(), "primary.db"))
+	defer store.Close()
+	primary := EnsurePrimaryNode(store, "primary", "primary-id", testUnderlay, "")
+	node := acceptSecondary(t, store, "secondary-id")
+	ctx := apigen.Context{Ctx: context.Background()}
+	kind := apigen.CoreEntityType_CORE_ENTITY_NODE_METRICS_CHUNK
+	var archived, unarchived, other pq.ChunkRow
+	if err := store.Commit(ctx, nil, func(q *pq.Queries, seq int64) (*state.WriteUpdate, error) {
+		meta := pq.EventMeta{GlobalSeq: seq, EventTime: time.Now().UnixMilli(), EventType: apigen.AuthzVerb_AUTHZ_VERB_CREATE}
+		row := func(nodeID uint64, day uint32, archive pq.ChunkArchive) pq.ChunkRow {
+			id, err := q.NextEntityID(ctx, kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return pq.ChunkRow{Kind: kind, ID: id, NodeID: nodeID, Day: day, FileSeq: 1, MinTime: 1, MaxTime: 2, RowCount: 1, SizeBytes: 10,
+				Sha256: make([]byte, 32), Local: true, Archive: archive}
+		}
+		archived, unarchived, other = row(node.ID, 20_000, pq.ChunkArchiveS3), row(node.ID, 20_001, pq.ChunkArchiveNone), row(primary.ID, 20_000, pq.ChunkArchiveNone)
+		return pq.NewUpdate(pq.ChunkMutation(meta, archived), pq.ChunkMutation(meta, unarchived), pq.ChunkMutation(meta, other)), nil
+	}); err != nil {
+		t.Fatalf("seed chunk records: %v", err)
+	}
+
+	if _, err := EvictNode(ctx, store, node.Identifier, node.Seq, true); err != nil {
+		t.Fatalf("EvictNode: %v", err)
+	}
+	q := store.Queries()
+	kept, err := q.GetChunk(ctx, kind, archived.ID)
+	if err != nil || kept.Local || kept.Archive != pq.ChunkArchiveS3 {
+		t.Fatalf("an archived chunk of the evicted node: %+v (%v), want a record without local", kept, err)
+	}
+	if _, err := q.GetChunk(ctx, kind, unarchived.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("a chunk only the evicted node held still has a record (err %v)", err)
+	}
+	if left, err := q.GetChunk(ctx, kind, other.ID); err != nil || !left.Local {
+		t.Fatalf("another node's chunk record changed: %+v (%v)", left, err)
 	}
 }

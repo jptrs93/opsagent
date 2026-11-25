@@ -21,6 +21,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/nodepublisher"
 	"github.com/jptrs93/opsagent/backend/app/primary/webuihandler"
 	"github.com/jptrs93/opsagent/backend/app/primarybootstrap"
+	"github.com/jptrs93/opsagent/backend/lib/chunkarchive"
 	"github.com/jptrs93/opsagent/backend/lib/log/logmanager"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 	"github.com/jptrs93/opsagent/backend/lib/middleware/clientaddr"
@@ -111,11 +112,19 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 	clusterHandler := clusterhandler.New(primaryRuntime.store, primaryRuntime.assets, primaryRuntime.github, primaryRuntime.secrets, primaryRuntime.configService.NetworkPrefix(), projection, primaryRuntime.acmeHolder, primaryRuntime.nixStores, primaryRuntime.issuedTLS)
 	enrollmentHandler := enrollmenthandler.New(primaryRuntime.store, primaryRuntime.secrets, primaryRuntime.configService, enrollmentFingerprint, projection)
 	go clusterHandler.RunEvictionWatch(ctx)
+	clusterHandler.Chunks = primaryRuntime.chunks
+	webUIHandler.Chunks = primaryRuntime.chunks
 	webUIHandler.Cluster = clusterHandler
 	webUIHandler.IngressDiagnostics = projection
 	webUIHandler.LogManager = logmanager.StartManager(ctx, primaryRuntime.store, func(state apigen.ScheduledInstanceState) bool {
 		return state.Instance.NodeID == primaryNode.ID
 	})
+	go (&chunkarchive.Archiver{
+		NodeID:     int32(primaryNode.ID),
+		MetricsDir: ainit.StaticConfig.MetricsDir,
+		Logs:       webUIHandler.LogManager,
+		Registry:   localChunkRegistry{chunks: primaryRuntime.chunks, nodeID: primaryNode.ID},
+	}).Run(ctx)
 	webUIHandler.Metrics = metricstore.Default
 	webUIHandler.NodeMetrics = metricstore.DefaultNode
 	webUIHandler.Enrollment = enrollmentHandler

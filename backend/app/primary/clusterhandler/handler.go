@@ -113,6 +113,8 @@ type Handler struct {
 	nixStores         nixStoreResetProvider
 	issuedTLS         *pki.Issuer
 
+	Chunks ChunkRegistry
+
 	mu          sync.RWMutex
 	sessions    map[uint64]*Session  // node ID → session
 	connectedAt map[uint64]time.Time // node ID → when session was accepted
@@ -120,6 +122,12 @@ type Handler struct {
 
 type assetProvider interface {
 	OpenAsset(ctx context.Context, ref apigen.ValueRef) (sizeBytes int64, body io.ReadCloser, err error)
+}
+
+type ChunkRegistry interface {
+	Sync(ctx context.Context, nodeID uint64, req *apigen.ClusterChunksSyncRequest) (*apigen.ClusterChunksSyncResponse, error)
+	UploadWork(ctx context.Context, nodeID uint64, req *apigen.ClusterChunksUploadWorkRequest) (*apigen.ClusterChunksUploadWorkResponse, error)
+	Uploaded(ctx context.Context, nodeID uint64, req *apigen.ClusterChunksUploadedRequest) (*apigen.ClusterChunksUploadedResponse, error)
 }
 
 type nixStoreResetProvider interface {

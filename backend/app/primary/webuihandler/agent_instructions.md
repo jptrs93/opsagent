@@ -426,6 +426,15 @@ OpenDeploy directory sits on is in `extra_filesystems`, keyed by mount point.
   `mem_used`, `swap_used`, `fs_data_used_bytes` and `fs_data_inodes_used`.
 - A node that is not connected answers `502`.
 
+`POST /v1/archive/status` (empty body) says where the sealed log and metrics
+files of each node are. `enabled` is true when nodes send them to the backup
+bucket. Each entry in `nodes` has `logs`, `deployment_metrics` and
+`node_metrics`, and each of those has `local` (files the node still holds),
+`archived` (files the bucket holds) and `pending` (files still to send) as
+`chunks` and `bytes`, plus `last_archived_at` in Unix milliseconds. It needs
+view on nodes in every space. A file is sealed after its day ends, and a node
+sends its sealed files once an hour.
+
 ## 6. Assets
 
 An asset has a stable `id`. Its snapshot entries carry `fs.key`,

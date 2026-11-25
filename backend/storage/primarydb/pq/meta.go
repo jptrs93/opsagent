@@ -76,6 +76,9 @@ var metaQueries = map[apigen.CoreEntityType]string{
 	apigen.CoreEntityType_CORE_ENTITY_USER_SESSION:              `SELECT created_at, seq, event_time, author, 0, 0, 0 FROM user_sessions WHERE id = ?`,
 	apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET:           `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM nix_store_resets WHERE id = ?`,
 	apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT:            `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM secret_keyslots WHERE id = ?`,
+	apigen.CoreEntityType_CORE_ENTITY_LOG_CHUNK:                 `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM log_chunks WHERE id = ?`,
+	apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT_METRICS_CHUNK:  `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM deployment_metrics_chunks WHERE id = ?`,
+	apigen.CoreEntityType_CORE_ENTITY_NODE_METRICS_CHUNK:        `SELECT created_time, seq, event_time, author, 0, 0, 0 FROM node_metrics_chunks WHERE id = ?`,
 }
 
 // MetaOf returns the meta of a live entity from its row, or nil when the

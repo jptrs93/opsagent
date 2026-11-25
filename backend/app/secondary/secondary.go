@@ -16,6 +16,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/netproxy"
 	"github.com/jptrs93/opsagent/backend/app/secondary/localinputs"
 	"github.com/jptrs93/opsagent/backend/lib/acmestate"
+	"github.com/jptrs93/opsagent/backend/lib/chunkarchive"
 	"github.com/jptrs93/opsagent/backend/lib/engine"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/nixdocker"
 	"github.com/jptrs93/opsagent/backend/lib/engine/prepare/opendeployrelease"
@@ -145,6 +146,12 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	metricstore.DefaultNode = metricstore.StartNode(ctx, metricstore.NodeDir(ainit.StaticConfig.MetricsDir), int32(cfg.NodeID))
 	go metrics.RunNode(ctx, metrics.DefaultInterval, metrics.OpenDeployRoots(), metricstore.DefaultNode)
 	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
+	go (&chunkarchive.Archiver{
+		NodeID:     int32(cfg.NodeID),
+		MetricsDir: ainit.StaticConfig.MetricsDir,
+		Logs:       logManager,
+		Registry:   newPrimaryChunkRegistry(primaryURL, primaryHTTPClient),
+	}).Run(ctx)
 	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)
 	volumeSweeper := runner.NewVolumeSweeper(store, scheduledInstancePredicateForNode(cfg.NodeID))
 	go volumeSweeper.Run(ctx)

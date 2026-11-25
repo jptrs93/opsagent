@@ -1,7 +1,8 @@
 // The Nodes page: a tab strip in the Users & roles style with Nodes (a dense
 // table and a right-hand inspector for the selected node), Access policies
 // (which nodes may run which spaces), Enrollments (pending requests and the
-// secondary install command) and Replication (the backup status). The fixture in fixtures/nodes-redesign mounts this page over
+// secondary install command) and Replication (the backup status and where each
+// node's sealed log and metrics files are). The fixture in fixtures/nodes-redesign mounts this page over
 // an in-memory node API.
 import van from "vanjs-core";
 import {capi} from "../capi/index.js";
@@ -13,6 +14,7 @@ import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS
 import {deploymentWorkload, isSelfDeployment, placementNodeId} from "../lib/deployment.js";
 import {allowedSpaceNames, runsEverySpace} from "../lib/nodeSpaces.js";
 import {databaseSizeHint, databaseSizeText} from "../lib/backupStatus.js";
+import {archiveLabel, archiveRows, archiveSentence, archiveTone, kindHint, kindText, pendingText} from "../lib/archiveStatus.js";
 import {dataDiskUsage, extraDiskUsages, latestByNode, usageTone} from "../lib/nodeMetrics.js";
 import {formatValue} from "../components/lineChart.js";
 import {nodeAccessPoliciesPage} from "./nodeAccessPolicies.js";
@@ -29,6 +31,7 @@ const NODE_ENROLLMENT_REQUESTED = 1;
 const INSPECTOR_MIN = 260;
 const INSPECTOR_MAX = 560;
 const NODE_METRICS_STALE_MS = 10_000;
+const ARCHIVE_STALE_MS = 10_000;
 const NODE_COLUMN_WIDTHS = [15, 11, 14, 11, 7, 7, 15, 10, 10];
 const NODE_COLUMN_WIDTHS_BESIDE_INSPECTOR = [17, 12, 15, 12, 7, 8, 13, 6, 10];
 
@@ -149,6 +152,22 @@ export function clusterPage() {
         if (activeTab.val === NODES && Date.now() - nodeMetricsAt > NODE_METRICS_STALE_MS) void loadNodeMetrics();
     });
     const nodeSample = (machine) => nodeMetrics.val.byNode.get(Number(machine.id))?.sample;
+
+    const archive = van.state({status: "loading", data: null, error: ""});
+    let archiveAt = 0;
+    const loadArchive = async () => {
+        archiveAt = Date.now();
+        try {
+            archive.val = {status: "loaded", data: await capi.postV1ArchiveStatus({}), error: ""};
+        } catch (e) {
+            archive.val = e?.status === 403
+                ? {status: "hidden", data: null, error: ""}
+                : {status: "error", data: archive.val.data, error: e?.message || "Loading the archive status failed"};
+        }
+    };
+    van.derive(() => {
+        if (activeTab.val === REPLICATION && Date.now() - archiveAt > ARCHIVE_STALE_MS) void loadArchive();
+    });
 
     const liveNodes = () => machinesS.val.filter((m) => !m.evicted);
     const evictedNodes = () => machinesS.val.filter((m) => m.evicted);
@@ -659,9 +678,57 @@ export function clusterPage() {
                 : "");
     };
 
+    const archiveBody = () => {
+        const {status: loadState, data, error} = archive.val;
+        if (loadState === "hidden") return "";
+        const rows = archiveRows(data, machinesS.val);
+        const heading = div({class: "flex flex-wrap items-center gap-2"},
+            span({class: "col-head classic:text-[10px]"}, "Log and metrics archive"),
+            data ? span({class: "cluster-status", "data-tone": archiveTone(data, rows), "data-testid": "archive-status"},
+                span({class: "cluster-status-dot"}), archiveLabel(data, rows)) : "",
+            button({
+                type: "button", class: "cluster-btn ml-auto", "data-testid": "archive-refresh",
+                disabled: loadState === "loading" && !data,
+                onclick: () => { void loadArchive(); },
+            }, "Refresh"));
+        if (!data) {
+            return div({class: "flex flex-col gap-2 border-t border-white/5 px-3 py-3", "data-testid": "archive-card", "data-state": loadState},
+                heading,
+                p({class: `text-xs ${loadState === "error" ? "text-red-300" : "text-gray-500"}`}, loadState === "error" ? error : "Loading…"));
+        }
+        const cell = (cls, ...children) => td({class: `truncate py-1 pr-3 ${cls}`}, ...children);
+        const archiveRow = (row) => {
+            const last = asDate(row.lastArchivedAt);
+            return tr({class: "data-row align-middle classic:border-gray-800/80 classic:last:border-0", "data-testid": `archive-row-${row.id}`},
+                td({class: "truncate py-1 pl-3 pr-3"},
+                    span({class: `font-mono ${row.evicted ? "text-gray-500" : "text-gray-100"}`}, row.name),
+                    row.evicted ? span({class: "ml-1.5 text-[11px] text-gray-500"}, "evicted") : ""),
+                ...row.kinds.map((kind) => cell("font-mono tabular-nums text-gray-300",
+                    span({title: kindHint(kind), "data-testid": `archive-${kind.key}-${row.id}`}, kindText(kind)))),
+                cell("tabular-nums", span({
+                    class: "cluster-tone", "data-tone": row.pending.chunks && data.enabled ? "warn" : row.pending.chunks ? "" : "off",
+                    "data-testid": `archive-pending-${row.id}`,
+                }, pendingText(row.pending))),
+                cell("tabular-nums text-gray-400", span({title: absoluteTime(last)}, last ? relativeTime(last) : "never")));
+        };
+        return div({class: "flex flex-col gap-2 border-t border-white/5 py-3", "data-testid": "archive-card", "data-state": loadState},
+            div({class: "flex flex-col gap-1.5 px-3"},
+                heading,
+                p({class: "text-xs text-gray-400", "data-testid": "archive-sentence"}, archiveSentence(data, rows)),
+                loadState === "error" ? p({class: "text-xs text-red-300"}, error) : ""),
+            rows.length
+                ? table({class: "w-full table-fixed text-[13px]", "data-testid": "archive-table"},
+                    headerRow(["Node", "pl-3"], ["Logs"], ["Deployment metrics"], ["Node metrics"], ["Not archived"], ["Last archived"]),
+                    tbody(...rows.map(archiveRow)))
+                : "",
+            rows.length
+                ? p({class: "px-3 text-[11px] text-gray-500"}, "Each count is files in the bucket out of files recorded for the node.")
+                : "");
+    };
+
     const replicationPanel = div(
         {class: "flex h-full min-h-0 flex-col", "data-testid": "replication-tab-panel"},
-        div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"}, replicationBody),
+        div({class: "app-scroll flex flex-1 min-h-0 flex-col overflow-y-auto"}, replicationBody, archiveBody),
     );
 
     // --- tab strip ------------------------------------------------------------

@@ -465,6 +465,16 @@ backend's row view of a live policy, the envelope of its last write (`seq`,
 `author`, `event_time`, `created_time`) plus the payload; `AuthzGrantEvent`
 is gone.
 
+The chunk records (`LogChunk`, `DeploymentMetricsChunk`, `NodeMetricsChunk`,
+entity types 24 to 26) are latest-only reduced types in `log_chunks`,
+`deployment_metrics_chunks`, and `node_metrics_chunks`. The chunk registry
+writes them on behalf of nodes, so their envelope actor is 0. They are the
+one entity class no browser receives: `Snapshot` leaves them out,
+`SnapshotAll` includes them for the rebuild checks, and `entityVisible` has
+no case for them. Evicting a node releases its records in the evict commit.
+The records and their writers are described in
+[chunk-archive.md](chunk-archive.md).
+
 #### Sessions, resets, keyslots, and the system config
 
 Sessions, Nix store resets, keyslots, and the system config are reduced
@@ -690,6 +700,13 @@ OpenDeploy self-updates go through plain `/v1/deployments/update` calls, one per
 
 `/v1/metrics/nodes/latest` is the live node overview: the last `NodeMetricsSample` of the primary and of every connected secondary the caller can see, each with the per-second rate of every counter against the sample before it. The sample carries the data filesystem as `fs_data_*` and any other filesystem under an OpenDeploy root in `extra_filesystems`, keyed by mount point. The primary fans out with the 5 s budget of `/v1/metrics/latest` and folds a failed node into `warnings`. It stamps every entry with the node it asked, so a node cannot report under another node's id. A node that is not connected has no entry.
 
+### Archive
+| Method | Path | Request | Response | Policy |
+|--------|------|---------|----------|--------|
+| POST | `/v1/archive/status` | `ArchiveStatusRequest` | `ArchiveStatusResponse` | ANY_OF default |
+
+`/v1/archive/status` counts the chunk records of every node by chunk type: records whose file the node still holds, records the archive bucket holds, and records still to send, each as a count and a byte total, with the time of the newest archive confirmation. `enabled` is true while both the backup bucket and the archive setting are on. The caller needs view on nodes in every space. The records are described in [chunk-archive.md](chunk-archive.md).
+
 ### Nodes
 | Method | Path | Request | Response | Policy |
 |--------|------|---------|----------|--------|
@@ -815,7 +832,12 @@ The per-space asset folder tree; see [Assets](assets.md).
 | GET | `/v1/cluster/configs` | `ClusterConfigsRequest` | `ClusterConfigsResponse` | NO_AUTH |
 | GET | `/v1/cluster/issued-tls` | `ClusterIssuedTLSRequest` | `ClusterIssuedTLSResponse` | NO_AUTH |
 | GET | `/v1/cluster/renew-certificate` | — | `ClusterRenewCertificateResponse` | NO_AUTH |
+| POST | `/v1/cluster/chunks/sync` | `ClusterChunksSyncRequest` | `ClusterChunksSyncResponse` | NO_AUTH |
+| POST | `/v1/cluster/chunks/upload-work` | `ClusterChunksUploadWorkRequest` | `ClusterChunksUploadWorkResponse` | NO_AUTH |
+| POST | `/v1/cluster/chunks/uploaded` | `ClusterChunksUploadedRequest` | `ClusterChunksUploadedResponse` | NO_AUTH |
 | POST | `/v1/cluster/connect` | stream `MsgToPrimary` | stream `MsgToSecondary` | NO_AUTH |
+
+The three chunk calls are unary. A node lists its sealed log and metrics files, asks which to send to the archive bucket, and reports what it sent; the primary identifies the node from its certificate and touches only that node's records ([chunk-archive.md](chunk-archive.md)). They did not change `apigen.ClusterProtocolVersion`: a primary that predates them answers 404 and the node tries again an hour later.
 
 Cluster secrets/configs requests carry `SecretRef` and `ConfigRef` lists. The primary authorizes those pairs against the deployment refs allowed for the requesting worker, decrypts/fetches only those values, and the worker keeps the plaintext values in memory and in its encrypted `local_runtime_inputs` cache.
 

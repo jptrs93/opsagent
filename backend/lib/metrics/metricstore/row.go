@@ -96,6 +96,10 @@ var runTable = &table[apigen.MetricsSample, row]{
 	toRow:   runRows.toRow,
 	fromRow: runRows.fromRow,
 	sorting: sortingColumns(),
+	split: func(payload []byte) int32 {
+		_, deploymentID := peekSample(payload)
+		return deploymentID
+	},
 }
 
 func Key(s *apigen.MetricsSample) metrics.TargetKey {

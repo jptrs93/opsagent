@@ -67,6 +67,8 @@ const settingConfigRefs = (settings) => [
     ["Large asset S3 region", settings?.largeAssets?.s3Region?.value?.value?.configRef?.configId],
     ["Large asset S3 endpoint", settings?.largeAssets?.s3Endpoint?.value?.value?.configRef?.configId],
     ["Keep local copies of large assets", settings?.largeAssets?.keepLocalCopy?.value?.value?.configRef?.configId],
+    ["Archive logs and metrics", settings?.archive?.enabled?.value?.value?.configRef?.configId],
+    ["Archive S3 path", settings?.archive?.s3Path?.value?.value?.configRef?.configId],
 ].map(([label, id]) => ({label, id: Number(id || 0)})).filter((ref) => ref.id);
 
 const settingSecretRefs = (settings) => [

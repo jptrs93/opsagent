@@ -466,6 +466,7 @@ export function buildDataset(now = Date.now()) {
             },
             largeAssets: {useSeparateS3: literal(false), keepLocalCopy: literal(true)},
             auth: {requirePasskey: literal(false)},
+            archive: {enabled: literal(true), s3Path: literal("archive/")},
         },
     }, {actor: 1, at: ago(14 * DAY)});
 

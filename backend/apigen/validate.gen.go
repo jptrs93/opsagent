@@ -8329,6 +8329,542 @@ func (m *NodeAccessPolicyDeleteRequest) validate(seen map[any]bool) error {
 	return nil
 }
 
+func (m *ChunkLocation) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ChunkLocation) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if m.Archive.Present {
+		if err := m.Archive.Value.Validate(); err != nil {
+			return wrapValidationError(err, "archive")
+		}
+	}
+	{
+		var choice ChunkLocationArchiveOneof
+		if m.Archive.Present {
+			choice = m.Archive.Value
+		}
+		value := choice.S3
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "s3")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *S3Archive) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *S3Archive) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *LogChunk) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *LogChunk) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if !(m.Level >= 1) {
+		return newValidationError([]string{"level"}, "must be at least 1")
+	}
+	if !(m.Level <= 2) {
+		return newValidationError([]string{"level"}, "must be at most 2")
+	}
+	if len(m.Sha256) < 32 {
+		return newValidationError([]string{"sha256"}, "must be at least 32 bytes")
+	}
+	if len(m.Sha256) > 32 {
+		return newValidationError([]string{"sha256"}, "must be at most 32 bytes")
+	}
+	{
+		value := &m.Location
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "location")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *DeploymentMetricsChunk) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *DeploymentMetricsChunk) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if !(m.Seq >= 1) {
+		return newValidationError([]string{"seq"}, "must be at least 1")
+	}
+	if len(m.Sha256) < 32 {
+		return newValidationError([]string{"sha256"}, "must be at least 32 bytes")
+	}
+	if len(m.Sha256) > 32 {
+		return newValidationError([]string{"sha256"}, "must be at most 32 bytes")
+	}
+	{
+		value := &m.Location
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "location")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeMetricsChunk) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsChunk) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if !(m.Seq >= 1) {
+		return newValidationError([]string{"seq"}, "must be at least 1")
+	}
+	if len(m.Sha256) < 32 {
+		return newValidationError([]string{"sha256"}, "must be at least 32 bytes")
+	}
+	if len(m.Sha256) > 32 {
+		return newValidationError([]string{"sha256"}, "must be at most 32 bytes")
+	}
+	{
+		value := &m.Location
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "location")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *LogChunkSet) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *LogChunkSet) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Chunks {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("chunks[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *DeploymentMetricsChunkSet) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *DeploymentMetricsChunkSet) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Chunks {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("chunks[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *NodeMetricsChunkSet) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsChunkSet) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Chunks {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("chunks[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *ClusterChunksSyncRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ClusterChunksSyncRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.Logs.Value, m.Logs.Present
+		var value *LogChunkSet
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "logs")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.DeploymentMetrics.Value, m.DeploymentMetrics.Present
+		var value *DeploymentMetricsChunkSet
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "deployment_metrics")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.NodeMetrics.Value, m.NodeMetrics.Present
+		var value *NodeMetricsChunkSet
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_metrics")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *ClusterChunksSyncResponse) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ClusterChunksSyncResponse) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *ChunkRef) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ChunkRef) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	switch int32(m.EntityType) {
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26:
+	default:
+		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
+	}
+	if slices.Contains([]int32{0}, int32(m.EntityType)) {
+		return newValidationError([]string{"entity_type"}, "must not be one of the disallowed values")
+	}
+	return nil
+}
+
+func (m *ClusterChunksUploadWorkRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ClusterChunksUploadWorkRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if !(m.Limit <= 64) {
+		return newValidationError([]string{"limit"}, "must be at most 64")
+	}
+	if len(m.Exclude) > 512 {
+		return newValidationError([]string{"exclude"}, "must contain at most 512 items")
+	}
+	for i, item := range m.Exclude {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("exclude[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *ChunkUpload) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ChunkUpload) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	if err := m.Chunk.Validate(); err != nil {
+		return wrapValidationError(err, "chunk")
+	}
+	{
+		value := &m.Ref
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "ref")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Chunk.Log
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "log")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Chunk.DeploymentMetrics
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "deployment_metrics")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Chunk.NodeMetrics
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_metrics")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *ClusterChunksUploadWorkResponse) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ClusterChunksUploadWorkResponse) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Uploads {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("uploads[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *ClusterChunksUploadedRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ClusterChunksUploadedRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Uploaded {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("uploaded[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *ClusterChunksUploadedResponse) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ClusterChunksUploadedResponse) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *ArchiveStatusRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ArchiveStatusRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *ArchiveCounts) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ArchiveCounts) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *ArchiveKindStatus) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ArchiveKindStatus) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Local
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "local")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Archived
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "archived")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.Pending
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "pending")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *ArchiveNodeStatus) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ArchiveNodeStatus) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Logs
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "logs")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.DeploymentMetrics
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "deployment_metrics")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.NodeMetrics
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_metrics")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *ArchiveStatusResponse) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ArchiveStatusResponse) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Nodes {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("nodes[%d]", i))
+		}
+	}
+	return nil
+}
+
 func (m *GithubCredentials) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *GithubCredentials) validate(seen map[any]bool) error {
 	if m == nil {
@@ -9367,6 +9903,15 @@ func (m *ClusterSettings) validate(seen map[any]bool) error {
 		}
 		_ = value
 	}
+	{
+		value := &m.Archive
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "archive")
+			}
+		}
+		_ = value
+	}
 	return nil
 }
 
@@ -9698,6 +10243,37 @@ func (m *LargeAssetsSettings) validate(seen map[any]bool) error {
 	return nil
 }
 
+func (m *ArchiveSettings) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *ArchiveSettings) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Enabled
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "enabled")
+			}
+		}
+		_ = value
+	}
+	{
+		value := &m.S3Path
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "s3_path")
+			}
+		}
+		_ = value
+	}
+	return nil
+}
+
 func (m *AuthSettings) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *AuthSettings) validate(seen map[any]bool) error {
 	if m == nil {
@@ -9855,7 +10431,7 @@ func (m *CreateMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -9898,7 +10474,7 @@ func (m *UpdateMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -9941,7 +10517,7 @@ func (m *DeleteMutation) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -9975,7 +10551,7 @@ func (m *MaterialisedEntity) validate(seen map[any]bool) error {
 	seen[m] = true
 	defer delete(seen, m)
 	switch int32(m.EntityType) {
-	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23:
+	case 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26:
 	default:
 		return newValidationError([]string{"entity_type"}, "must be a defined enum value")
 	}
@@ -10238,6 +10814,33 @@ func (m *CoreEntity) validate(seen map[any]bool) error {
 		if value != nil {
 			if err := value.validate(seen); err != nil {
 				return wrapValidationError(err, "node_access_policy")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Value.LogChunk
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "log_chunk")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Value.DeploymentMetricsChunk
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "deployment_metrics_chunk")
+			}
+		}
+		_ = value
+	}
+	{
+		value := m.Value.NodeMetricsChunk
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_metrics_chunk")
 			}
 		}
 		_ = value

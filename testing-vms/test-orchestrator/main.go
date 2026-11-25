@@ -443,6 +443,7 @@ func (c *config) run() error {
 		{"cluster", "installing primary and secondary services", c.installCluster},
 		{"cli upgrade", "verifying opendeploy upgrade is a no-op on freshly installed nodes", c.verifyUpgradeNoop},
 		{"IPv4 egress listener", "starting receiver on the second worker", c.startIPv4EgressListener},
+		{"archive seed", "a past-day node metrics WAL on the primary, sealed when the flows upgrade the agents", c.seedPrimaryNodeMetrics},
 	}
 	for _, step := range steps {
 		if err := c.step(step.name, step.description, step.fn); err != nil {
@@ -454,6 +455,9 @@ func (c *config) run() error {
 		return err
 	}
 	if err := c.kernelChecks(); err != nil {
+		return err
+	}
+	if err := c.archiveChecks(); err != nil {
 		return err
 	}
 	if c.usesSelfBootstrap() {
@@ -2736,6 +2740,7 @@ func (c *config) runPlaywrightFlows() error {
 		"OPD_BACKUP_RESTORE":              boolString(c.BackupRestore),
 		"OPD_BACKUP_RESTORE_STATE":        "/work/test-results/backup-restore.env",
 		"OPD_NETPOLICY_STATE":             "/work/test-results/netpolicy.env",
+		"OPD_ARCHIVE_STATE":               "/work/test-results/archive.env",
 		"OPD_POSTGRES_IMAGE":              c.PostgresImage,
 		"OPD_DECLARATIVE_POSTGRES_IMAGE":  c.DeclarativePostgresImage,
 		"OPD_MINIO_IMAGE":                 c.MinioImage,

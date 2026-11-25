@@ -27819,6 +27819,1822 @@ func mergeNodeAccessPolicyDeleteRequest(b []byte, m *NodeAccessPolicyDeleteReque
 	return m, nil
 }
 
+func (m ChunkLocation) IsZero() bool {
+	return m.Local == false &&
+		m.Archive.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ChunkLocation) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ChunkLocation) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ChunkLocation) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Local, 1)
+	{
+		var choice ChunkLocationArchiveOneof
+		if m.Archive.Present {
+			choice = m.Archive.Value
+		}
+		value := choice.S3
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *ChunkLocation) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeChunkLocation(b []byte) (*ChunkLocation, error) {
+	return mergeChunkLocation(b, nil)
+}
+
+func mergeChunkLocation(b []byte, m *ChunkLocation) (*ChunkLocation, error) {
+	if m == nil {
+		m = new(ChunkLocation)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Local, err = ConsumeBool(b, typ)
+		case 2:
+			var value *S3Archive
+			if m.Archive.Present {
+				value = m.Archive.Value.S3
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *S3Archive
+				item, err = mergeS3Archive(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Archive = Maybe[ChunkLocationArchiveOneof]{Value: ChunkLocationArchiveOneof{S3: value}, Present: true}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *S3Archive) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *S3Archive) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *S3Archive) encodeUnchecked() []byte {
+	var b []byte
+	return append(b, m.unknownFields...)
+}
+
+func (m *S3Archive) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeS3Archive(b []byte) (*S3Archive, error) {
+	return mergeS3Archive(b, nil)
+}
+
+func mergeS3Archive(b []byte, m *S3Archive) (*S3Archive, error) {
+	if m == nil {
+		m = new(S3Archive)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *LogChunk) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *LogChunk) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *LogChunk) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	b = AppendUint64Field(b, m.DeploymentID, 2)
+	b = AppendUint64Field(b, m.NodeID, 3)
+	b = AppendUint32Field(b, m.Day, 4)
+	b = AppendUint32Field(b, m.Level, 5)
+	b = AppendInt64Field(b, m.Seq, 6)
+	b = AppendInt64Field(b, m.MinTime, 7)
+	b = AppendInt64Field(b, m.MaxTime, 8)
+	b = AppendUint64Field(b, m.RowCount, 9)
+	b = AppendUint64Field(b, m.SizeBytes, 10)
+	b = AppendBytesField(b, m.Sha256, 11)
+	{
+		value := &m.Location
+		if value != nil {
+			b = AppendTag(b, 12, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *LogChunk) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeLogChunk(b []byte) (*LogChunk, error) {
+	return mergeLogChunk(b, nil)
+}
+
+func mergeLogChunk(b []byte, m *LogChunk) (*LogChunk, error) {
+	if m == nil {
+		m = new(LogChunk)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.DeploymentID, err = ConsumeVarUint64(b, typ)
+		case 3:
+			b, m.NodeID, err = ConsumeVarUint64(b, typ)
+		case 4:
+			b, m.Day, err = ConsumeVarUint32(b, typ)
+		case 5:
+			b, m.Level, err = ConsumeVarUint32(b, typ)
+		case 6:
+			b, m.Seq, err = ConsumeVarInt64(b, typ)
+		case 7:
+			b, m.MinTime, err = ConsumeVarInt64(b, typ)
+		case 8:
+			b, m.MaxTime, err = ConsumeVarInt64(b, typ)
+		case 9:
+			b, m.RowCount, err = ConsumeVarUint64(b, typ)
+		case 10:
+			b, m.SizeBytes, err = ConsumeVarUint64(b, typ)
+		case 11:
+			b, m.Sha256, err = ConsumeBytesCopy(b, typ)
+		case 12:
+			var value *ChunkLocation
+			value = &m.Location
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ChunkLocation
+				item, err = mergeChunkLocation(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Location = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *DeploymentMetricsChunk) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *DeploymentMetricsChunk) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *DeploymentMetricsChunk) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	b = AppendUint64Field(b, m.DeploymentID, 2)
+	b = AppendUint64Field(b, m.NodeID, 3)
+	b = AppendUint32Field(b, m.Day, 4)
+	b = AppendUint32Field(b, m.Seq, 5)
+	b = AppendInt64Field(b, m.MinTime, 6)
+	b = AppendInt64Field(b, m.MaxTime, 7)
+	b = AppendUint64Field(b, m.RowCount, 8)
+	b = AppendUint64Field(b, m.SizeBytes, 9)
+	b = AppendBytesField(b, m.Sha256, 10)
+	{
+		value := &m.Location
+		if value != nil {
+			b = AppendTag(b, 11, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *DeploymentMetricsChunk) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeDeploymentMetricsChunk(b []byte) (*DeploymentMetricsChunk, error) {
+	return mergeDeploymentMetricsChunk(b, nil)
+}
+
+func mergeDeploymentMetricsChunk(b []byte, m *DeploymentMetricsChunk) (*DeploymentMetricsChunk, error) {
+	if m == nil {
+		m = new(DeploymentMetricsChunk)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.DeploymentID, err = ConsumeVarUint64(b, typ)
+		case 3:
+			b, m.NodeID, err = ConsumeVarUint64(b, typ)
+		case 4:
+			b, m.Day, err = ConsumeVarUint32(b, typ)
+		case 5:
+			b, m.Seq, err = ConsumeVarUint32(b, typ)
+		case 6:
+			b, m.MinTime, err = ConsumeVarInt64(b, typ)
+		case 7:
+			b, m.MaxTime, err = ConsumeVarInt64(b, typ)
+		case 8:
+			b, m.RowCount, err = ConsumeVarUint64(b, typ)
+		case 9:
+			b, m.SizeBytes, err = ConsumeVarUint64(b, typ)
+		case 10:
+			b, m.Sha256, err = ConsumeBytesCopy(b, typ)
+		case 11:
+			var value *ChunkLocation
+			value = &m.Location
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ChunkLocation
+				item, err = mergeChunkLocation(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Location = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsChunk) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsChunk) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsChunk) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.ID, 1)
+	b = AppendUint64Field(b, m.NodeID, 2)
+	b = AppendUint32Field(b, m.Day, 3)
+	b = AppendUint32Field(b, m.Seq, 4)
+	b = AppendInt64Field(b, m.MinTime, 5)
+	b = AppendInt64Field(b, m.MaxTime, 6)
+	b = AppendUint64Field(b, m.RowCount, 7)
+	b = AppendUint64Field(b, m.SizeBytes, 8)
+	b = AppendBytesField(b, m.Sha256, 9)
+	{
+		value := &m.Location
+		if value != nil {
+			b = AppendTag(b, 10, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsChunk) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeMetricsChunk(b []byte) (*NodeMetricsChunk, error) {
+	return mergeNodeMetricsChunk(b, nil)
+}
+
+func mergeNodeMetricsChunk(b []byte, m *NodeMetricsChunk) (*NodeMetricsChunk, error) {
+	if m == nil {
+		m = new(NodeMetricsChunk)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.ID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.NodeID, err = ConsumeVarUint64(b, typ)
+		case 3:
+			b, m.Day, err = ConsumeVarUint32(b, typ)
+		case 4:
+			b, m.Seq, err = ConsumeVarUint32(b, typ)
+		case 5:
+			b, m.MinTime, err = ConsumeVarInt64(b, typ)
+		case 6:
+			b, m.MaxTime, err = ConsumeVarInt64(b, typ)
+		case 7:
+			b, m.RowCount, err = ConsumeVarUint64(b, typ)
+		case 8:
+			b, m.SizeBytes, err = ConsumeVarUint64(b, typ)
+		case 9:
+			b, m.Sha256, err = ConsumeBytesCopy(b, typ)
+		case 10:
+			var value *ChunkLocation
+			value = &m.Location
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ChunkLocation
+				item, err = mergeChunkLocation(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Location = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *LogChunkSet) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *LogChunkSet) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *LogChunkSet) encodeUnchecked() []byte {
+	var b []byte
+	for _, item := range m.Chunks {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *LogChunkSet) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeLogChunkSet(b []byte) (*LogChunkSet, error) {
+	return mergeLogChunkSet(b, nil)
+}
+
+func mergeLogChunkSet(b []byte, m *LogChunkSet) (*LogChunkSet, error) {
+	if m == nil {
+		m = new(LogChunkSet)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogChunk
+				item, err = DecodeLogChunk(msgBytes)
+				if err == nil {
+					m.Chunks = append(m.Chunks, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *DeploymentMetricsChunkSet) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *DeploymentMetricsChunkSet) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *DeploymentMetricsChunkSet) encodeUnchecked() []byte {
+	var b []byte
+	for _, item := range m.Chunks {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *DeploymentMetricsChunkSet) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeDeploymentMetricsChunkSet(b []byte) (*DeploymentMetricsChunkSet, error) {
+	return mergeDeploymentMetricsChunkSet(b, nil)
+}
+
+func mergeDeploymentMetricsChunkSet(b []byte, m *DeploymentMetricsChunkSet) (*DeploymentMetricsChunkSet, error) {
+	if m == nil {
+		m = new(DeploymentMetricsChunkSet)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentMetricsChunk
+				item, err = DecodeDeploymentMetricsChunk(msgBytes)
+				if err == nil {
+					m.Chunks = append(m.Chunks, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsChunkSet) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsChunkSet) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsChunkSet) encodeUnchecked() []byte {
+	var b []byte
+	for _, item := range m.Chunks {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsChunkSet) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeMetricsChunkSet(b []byte) (*NodeMetricsChunkSet, error) {
+	return mergeNodeMetricsChunkSet(b, nil)
+}
+
+func mergeNodeMetricsChunkSet(b []byte, m *NodeMetricsChunkSet) (*NodeMetricsChunkSet, error) {
+	if m == nil {
+		m = new(NodeMetricsChunkSet)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsChunk
+				item, err = DecodeNodeMetricsChunk(msgBytes)
+				if err == nil {
+					m.Chunks = append(m.Chunks, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ClusterChunksSyncRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ClusterChunksSyncRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ClusterChunksSyncRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint32Field(b, m.FromDay, 1)
+	b = AppendUint32Field(b, m.ToDay, 2)
+	{
+		if m.Logs.Present {
+			v := m.Logs.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 3, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.DeploymentMetrics.Present {
+			v := m.DeploymentMetrics.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 4, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.NodeMetrics.Present {
+			v := m.NodeMetrics.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 5, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *ClusterChunksSyncRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeClusterChunksSyncRequest(b []byte) (*ClusterChunksSyncRequest, error) {
+	return mergeClusterChunksSyncRequest(b, nil)
+}
+
+func mergeClusterChunksSyncRequest(b []byte, m *ClusterChunksSyncRequest) (*ClusterChunksSyncRequest, error) {
+	if m == nil {
+		m = new(ClusterChunksSyncRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.FromDay, err = ConsumeVarUint32(b, typ)
+		case 2:
+			b, m.ToDay, err = ConsumeVarUint32(b, typ)
+		case 3:
+			var value *LogChunkSet
+			if m.Logs.Present {
+				v := m.Logs.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogChunkSet
+				item, err = mergeLogChunkSet(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Logs = Maybe[LogChunkSet]{Value: *value, Present: true}
+			}
+		case 4:
+			var value *DeploymentMetricsChunkSet
+			if m.DeploymentMetrics.Present {
+				v := m.DeploymentMetrics.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentMetricsChunkSet
+				item, err = mergeDeploymentMetricsChunkSet(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.DeploymentMetrics = Maybe[DeploymentMetricsChunkSet]{Value: *value, Present: true}
+			}
+		case 5:
+			var value *NodeMetricsChunkSet
+			if m.NodeMetrics.Present {
+				v := m.NodeMetrics.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsChunkSet
+				item, err = mergeNodeMetricsChunkSet(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeMetrics = Maybe[NodeMetricsChunkSet]{Value: *value, Present: true}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ClusterChunksSyncResponse) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ClusterChunksSyncResponse) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ClusterChunksSyncResponse) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint32Field(b, m.Created, 1)
+	b = AppendUint32Field(b, m.Released, 2)
+	b = AppendUint32Field(b, m.Conflicts, 3)
+	return append(b, m.unknownFields...)
+}
+
+func (m *ClusterChunksSyncResponse) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeClusterChunksSyncResponse(b []byte) (*ClusterChunksSyncResponse, error) {
+	return mergeClusterChunksSyncResponse(b, nil)
+}
+
+func mergeClusterChunksSyncResponse(b []byte, m *ClusterChunksSyncResponse) (*ClusterChunksSyncResponse, error) {
+	if m == nil {
+		m = new(ClusterChunksSyncResponse)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Created, err = ConsumeVarUint32(b, typ)
+		case 2:
+			b, m.Released, err = ConsumeVarUint32(b, typ)
+		case 3:
+			b, m.Conflicts, err = ConsumeVarUint32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m ChunkRef) IsZero() bool {
+	return m.EntityType == 0 &&
+		m.EntityID == 0 &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ChunkRef) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ChunkRef) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ChunkRef) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendInt32Field(b, int32(m.EntityType), 1)
+	b = AppendUint64Field(b, m.EntityID, 2)
+	return append(b, m.unknownFields...)
+}
+
+func (m *ChunkRef) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeChunkRef(b []byte) (*ChunkRef, error) {
+	return mergeChunkRef(b, nil)
+}
+
+func mergeChunkRef(b []byte, m *ChunkRef) (*ChunkRef, error) {
+	if m == nil {
+		m = new(ChunkRef)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.EntityType = CoreEntityType(raw)
+			}
+		case 2:
+			b, m.EntityID, err = ConsumeVarUint64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ClusterChunksUploadWorkRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ClusterChunksUploadWorkRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ClusterChunksUploadWorkRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint32Field(b, m.Limit, 1)
+	for _, item := range m.Exclude {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *ClusterChunksUploadWorkRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeClusterChunksUploadWorkRequest(b []byte) (*ClusterChunksUploadWorkRequest, error) {
+	return mergeClusterChunksUploadWorkRequest(b, nil)
+}
+
+func mergeClusterChunksUploadWorkRequest(b []byte, m *ClusterChunksUploadWorkRequest) (*ClusterChunksUploadWorkRequest, error) {
+	if m == nil {
+		m = new(ClusterChunksUploadWorkRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Limit, err = ConsumeVarUint32(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ChunkRef
+				item, err = DecodeChunkRef(msgBytes)
+				if err == nil {
+					m.Exclude = append(m.Exclude, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ChunkUpload) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ChunkUpload) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ChunkUpload) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Ref
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Chunk.Log
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Chunk.DeploymentMetrics
+		if value != nil {
+			b = AppendTag(b, 3, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Chunk.NodeMetrics
+		if value != nil {
+			b = AppendTag(b, 4, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	b = AppendStringField(b, m.Url, 5)
+	b = AppendMap(b, m.Headers, 6, AppendFieldDecorator(AppendStringField, 1), AppendFieldDecorator(AppendStringField, 2))
+	return append(b, m.unknownFields...)
+}
+
+func (m *ChunkUpload) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeChunkUpload(b []byte) (*ChunkUpload, error) {
+	return mergeChunkUpload(b, nil)
+}
+
+func mergeChunkUpload(b []byte, m *ChunkUpload) (*ChunkUpload, error) {
+	if m == nil {
+		m = new(ChunkUpload)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *ChunkRef
+			value = &m.Ref
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ChunkRef
+				item, err = mergeChunkRef(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Ref = *value
+			}
+		case 2:
+			var value *LogChunk
+			value = m.Chunk.Log
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogChunk
+				item, err = mergeLogChunk(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Chunk = ChunkUploadChunkOneof{Log: value}
+			}
+		case 3:
+			var value *DeploymentMetricsChunk
+			value = m.Chunk.DeploymentMetrics
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentMetricsChunk
+				item, err = mergeDeploymentMetricsChunk(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Chunk = ChunkUploadChunkOneof{DeploymentMetrics: value}
+			}
+		case 4:
+			var value *NodeMetricsChunk
+			value = m.Chunk.NodeMetrics
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsChunk
+				item, err = mergeNodeMetricsChunk(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Chunk = ChunkUploadChunkOneof{NodeMetrics: value}
+			}
+		case 5:
+			b, m.Url, err = ConsumeString(b, typ)
+		case 6:
+			if m.Headers == nil {
+				m.Headers = make(map[string]string)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.Headers, ConsumeString, ConsumeString)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ClusterChunksUploadWorkResponse) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ClusterChunksUploadWorkResponse) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ClusterChunksUploadWorkResponse) encodeUnchecked() []byte {
+	var b []byte
+	for _, item := range m.Uploads {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	b = AppendUint32Field(b, m.Archived, 2)
+	return append(b, m.unknownFields...)
+}
+
+func (m *ClusterChunksUploadWorkResponse) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeClusterChunksUploadWorkResponse(b []byte) (*ClusterChunksUploadWorkResponse, error) {
+	return mergeClusterChunksUploadWorkResponse(b, nil)
+}
+
+func mergeClusterChunksUploadWorkResponse(b []byte, m *ClusterChunksUploadWorkResponse) (*ClusterChunksUploadWorkResponse, error) {
+	if m == nil {
+		m = new(ClusterChunksUploadWorkResponse)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ChunkUpload
+				item, err = DecodeChunkUpload(msgBytes)
+				if err == nil {
+					m.Uploads = append(m.Uploads, *item)
+				}
+			}
+		case 2:
+			b, m.Archived, err = ConsumeVarUint32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ClusterChunksUploadedRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ClusterChunksUploadedRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ClusterChunksUploadedRequest) encodeUnchecked() []byte {
+	var b []byte
+	for _, item := range m.Uploaded {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *ClusterChunksUploadedRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeClusterChunksUploadedRequest(b []byte) (*ClusterChunksUploadedRequest, error) {
+	return mergeClusterChunksUploadedRequest(b, nil)
+}
+
+func mergeClusterChunksUploadedRequest(b []byte, m *ClusterChunksUploadedRequest) (*ClusterChunksUploadedRequest, error) {
+	if m == nil {
+		m = new(ClusterChunksUploadedRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ChunkRef
+				item, err = DecodeChunkRef(msgBytes)
+				if err == nil {
+					m.Uploaded = append(m.Uploaded, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ClusterChunksUploadedResponse) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ClusterChunksUploadedResponse) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ClusterChunksUploadedResponse) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint32Field(b, m.Archived, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *ClusterChunksUploadedResponse) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeClusterChunksUploadedResponse(b []byte) (*ClusterChunksUploadedResponse, error) {
+	return mergeClusterChunksUploadedResponse(b, nil)
+}
+
+func mergeClusterChunksUploadedResponse(b []byte, m *ClusterChunksUploadedResponse) (*ClusterChunksUploadedResponse, error) {
+	if m == nil {
+		m = new(ClusterChunksUploadedResponse)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Archived, err = ConsumeVarUint32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ArchiveStatusRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ArchiveStatusRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ArchiveStatusRequest) encodeUnchecked() []byte {
+	var b []byte
+	return append(b, m.unknownFields...)
+}
+
+func (m *ArchiveStatusRequest) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeArchiveStatusRequest(b []byte) (*ArchiveStatusRequest, error) {
+	return mergeArchiveStatusRequest(b, nil)
+}
+
+func mergeArchiveStatusRequest(b []byte, m *ArchiveStatusRequest) (*ArchiveStatusRequest, error) {
+	if m == nil {
+		m = new(ArchiveStatusRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m ArchiveCounts) IsZero() bool {
+	return m.Chunks == 0 &&
+		m.Bytes == 0 &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ArchiveCounts) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ArchiveCounts) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ArchiveCounts) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint32Field(b, m.Chunks, 1)
+	b = AppendUint64Field(b, m.Bytes, 2)
+	return append(b, m.unknownFields...)
+}
+
+func (m *ArchiveCounts) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeArchiveCounts(b []byte) (*ArchiveCounts, error) {
+	return mergeArchiveCounts(b, nil)
+}
+
+func mergeArchiveCounts(b []byte, m *ArchiveCounts) (*ArchiveCounts, error) {
+	if m == nil {
+		m = new(ArchiveCounts)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Chunks, err = ConsumeVarUint32(b, typ)
+		case 2:
+			b, m.Bytes, err = ConsumeVarUint64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m ArchiveKindStatus) IsZero() bool {
+	return m.Local.IsZero() &&
+		m.Archived.IsZero() &&
+		m.Pending.IsZero() &&
+		m.LastArchivedAt == 0 &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ArchiveKindStatus) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ArchiveKindStatus) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ArchiveKindStatus) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Local
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Archived
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Pending
+		if value != nil {
+			b = AppendTag(b, 3, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	b = AppendInt64Field(b, m.LastArchivedAt, 4)
+	return append(b, m.unknownFields...)
+}
+
+func (m *ArchiveKindStatus) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeArchiveKindStatus(b []byte) (*ArchiveKindStatus, error) {
+	return mergeArchiveKindStatus(b, nil)
+}
+
+func mergeArchiveKindStatus(b []byte, m *ArchiveKindStatus) (*ArchiveKindStatus, error) {
+	if m == nil {
+		m = new(ArchiveKindStatus)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *ArchiveCounts
+			value = &m.Local
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ArchiveCounts
+				item, err = mergeArchiveCounts(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Local = *value
+			}
+		case 2:
+			var value *ArchiveCounts
+			value = &m.Archived
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ArchiveCounts
+				item, err = mergeArchiveCounts(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Archived = *value
+			}
+		case 3:
+			var value *ArchiveCounts
+			value = &m.Pending
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ArchiveCounts
+				item, err = mergeArchiveCounts(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Pending = *value
+			}
+		case 4:
+			b, m.LastArchivedAt, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ArchiveNodeStatus) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ArchiveNodeStatus) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ArchiveNodeStatus) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.NodeID, 1)
+	{
+		value := &m.Logs
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.DeploymentMetrics
+		if value != nil {
+			b = AppendTag(b, 3, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.NodeMetrics
+		if value != nil {
+			b = AppendTag(b, 4, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *ArchiveNodeStatus) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeArchiveNodeStatus(b []byte) (*ArchiveNodeStatus, error) {
+	return mergeArchiveNodeStatus(b, nil)
+}
+
+func mergeArchiveNodeStatus(b []byte, m *ArchiveNodeStatus) (*ArchiveNodeStatus, error) {
+	if m == nil {
+		m = new(ArchiveNodeStatus)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.NodeID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			var value *ArchiveKindStatus
+			value = &m.Logs
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ArchiveKindStatus
+				item, err = mergeArchiveKindStatus(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Logs = *value
+			}
+		case 3:
+			var value *ArchiveKindStatus
+			value = &m.DeploymentMetrics
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ArchiveKindStatus
+				item, err = mergeArchiveKindStatus(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.DeploymentMetrics = *value
+			}
+		case 4:
+			var value *ArchiveKindStatus
+			value = &m.NodeMetrics
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ArchiveKindStatus
+				item, err = mergeArchiveKindStatus(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeMetrics = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ArchiveStatusResponse) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ArchiveStatusResponse) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ArchiveStatusResponse) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendBoolField(b, m.Enabled, 1)
+	for _, item := range m.Nodes {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *ArchiveStatusResponse) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeArchiveStatusResponse(b []byte) (*ArchiveStatusResponse, error) {
+	return mergeArchiveStatusResponse(b, nil)
+}
+
+func mergeArchiveStatusResponse(b []byte, m *ArchiveStatusResponse) (*ArchiveStatusResponse, error) {
+	if m == nil {
+		m = new(ArchiveStatusResponse)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Enabled, err = ConsumeBool(b, typ)
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ArchiveNodeStatus
+				item, err = DecodeArchiveNodeStatus(msgBytes)
+				if err == nil {
+					m.Nodes = append(m.Nodes, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
 // Encode panics if validation fails. Use EncodeChecked for untrusted values.
 func (m *GithubCredentials) Encode() []byte {
 	b, err := m.EncodeChecked()
@@ -30832,6 +32648,7 @@ func (m ClusterSettings) IsZero() bool {
 		m.Backup.IsZero() &&
 		m.LargeAssets.IsZero() &&
 		m.Auth.IsZero() &&
+		m.Archive.IsZero() &&
 		len(m.unknownFields) == 0
 }
 
@@ -30899,6 +32716,13 @@ func (m *ClusterSettings) encodeUnchecked() []byte {
 		value := &m.Auth
 		if value != nil {
 			b = AppendTag(b, 7, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.Archive
+		if value != nil {
+			b = AppendTag(b, 8, BytesType)
 			b = AppendBytes(b, value.encodeUnchecked())
 		}
 	}
@@ -31023,6 +32847,20 @@ func mergeClusterSettings(b []byte, m *ClusterSettings) (*ClusterSettings, error
 			}
 			if err == nil {
 				m.Auth = *value
+			}
+		case 8:
+			var value *ArchiveSettings
+			value = &m.Archive
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *ArchiveSettings
+				item, err = mergeArchiveSettings(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Archive = *value
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -31975,6 +33813,109 @@ func mergeLargeAssetsSettings(b []byte, m *LargeAssetsSettings) (*LargeAssetsSet
 			}
 			if err == nil {
 				m.KeepLocalCopy = *value
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m ArchiveSettings) IsZero() bool {
+	return m.Enabled.IsZero() &&
+		m.S3Path.IsZero() &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *ArchiveSettings) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *ArchiveSettings) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *ArchiveSettings) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Enabled
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := &m.S3Path
+		if value != nil {
+			b = AppendTag(b, 2, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *ArchiveSettings) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeArchiveSettings(b []byte) (*ArchiveSettings, error) {
+	return mergeArchiveSettings(b, nil)
+}
+
+func mergeArchiveSettings(b []byte, m *ArchiveSettings) (*ArchiveSettings, error) {
+	if m == nil {
+		m = new(ArchiveSettings)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *BoolSetting
+			value = &m.Enabled
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *BoolSetting
+				item, err = mergeBoolSetting(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Enabled = *value
+			}
+		case 2:
+			var value *StringSetting
+			value = &m.S3Path
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *StringSetting
+				item, err = mergeStringSetting(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.S3Path = *value
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -33072,7 +35013,7 @@ func mergeCoreSnapshot(b []byte, m *CoreSnapshot) (*CoreSnapshot, error) {
 }
 
 func (m CoreEntity) IsZero() bool {
-	return (m.Value.Deployment == nil && m.Value.ScheduledInstance == nil && m.Value.Node == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.NetworkPolicy == nil && m.Value.Space == nil && m.Value.User == nil && m.Value.ValueDirectory == nil && m.Value.AssetDirectory == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SystemConfig == nil && m.Value.ScheduledInstanceStatus == nil && m.Value.NodeStatus == nil && m.Value.AgentSession == nil && m.Value.UserSession == nil && m.Value.NixStoreReset == nil && m.Value.SecretKeyslot == nil && m.Value.SpaceDomainPolicy == nil && m.Value.NodeAccessPolicy == nil) &&
+	return (m.Value.Deployment == nil && m.Value.ScheduledInstance == nil && m.Value.Node == nil && m.Value.Secret == nil && m.Value.Config == nil && m.Value.Asset == nil && m.Value.NetworkPolicy == nil && m.Value.Space == nil && m.Value.User == nil && m.Value.ValueDirectory == nil && m.Value.AssetDirectory == nil && m.Value.AuthzGrantTemplate == nil && m.Value.AuthzGrant == nil && m.Value.AuthzGlobalRule == nil && m.Value.SystemConfig == nil && m.Value.ScheduledInstanceStatus == nil && m.Value.NodeStatus == nil && m.Value.AgentSession == nil && m.Value.UserSession == nil && m.Value.NixStoreReset == nil && m.Value.SecretKeyslot == nil && m.Value.SpaceDomainPolicy == nil && m.Value.NodeAccessPolicy == nil && m.Value.LogChunk == nil && m.Value.DeploymentMetricsChunk == nil && m.Value.NodeMetricsChunk == nil) &&
 		len(m.unknownFields) == 0
 }
 
@@ -33252,6 +35193,27 @@ func (m *CoreEntity) encodeUnchecked() []byte {
 		value := m.Value.NodeAccessPolicy
 		if value != nil {
 			b = AppendTag(b, 23, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Value.LogChunk
+		if value != nil {
+			b = AppendTag(b, 24, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Value.DeploymentMetricsChunk
+		if value != nil {
+			b = AppendTag(b, 25, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	{
+		value := m.Value.NodeMetricsChunk
+		if value != nil {
+			b = AppendTag(b, 26, BytesType)
 			b = AppendBytes(b, value.encodeUnchecked())
 		}
 	}
@@ -33600,6 +35562,48 @@ func mergeCoreEntity(b []byte, m *CoreEntity) (*CoreEntity, error) {
 			}
 			if err == nil {
 				m.Value = CoreEntityValueOneof{NodeAccessPolicy: value}
+			}
+		case 24:
+			var value *LogChunk
+			value = m.Value.LogChunk
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *LogChunk
+				item, err = mergeLogChunk(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = CoreEntityValueOneof{LogChunk: value}
+			}
+		case 25:
+			var value *DeploymentMetricsChunk
+			value = m.Value.DeploymentMetricsChunk
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *DeploymentMetricsChunk
+				item, err = mergeDeploymentMetricsChunk(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = CoreEntityValueOneof{DeploymentMetricsChunk: value}
+			}
+		case 26:
+			var value *NodeMetricsChunk
+			value = m.Value.NodeMetricsChunk
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsChunk
+				item, err = mergeNodeMetricsChunk(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Value = CoreEntityValueOneof{NodeMetricsChunk: value}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

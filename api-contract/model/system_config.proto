@@ -48,6 +48,7 @@ message ClusterSettings {
   BackupSettings backup = 5 [(cp.go_value) = true];
   LargeAssetsSettings large_assets = 6 [(cp.go_value) = true];
   AuthSettings auth = 7 [(cp.go_value) = true];
+  ArchiveSettings archive = 8 [(cp.go_value) = true];
 }
 
 message HttpWebSettings {
@@ -92,6 +93,13 @@ message LargeAssetsSettings {
   StringSetting s3_region = 6 [(cp.go_value) = true];
   StringSetting s3_endpoint = 7 [(cp.go_value) = true];
   BoolSetting keep_local_copy = 8 [(cp.go_value) = true];
+}
+
+// ArchiveSettings controls the upload of sealed log and metrics files to the
+// backup bucket. It takes effect only while backup is enabled.
+message ArchiveSettings {
+  BoolSetting enabled = 1 [(cp.go_value) = true];
+  StringSetting s3_path = 2 [(cp.go_value) = true];
 }
 
 // AuthSettings controls which login methods the Web UI offers. Passkeys are

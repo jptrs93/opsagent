@@ -21,7 +21,11 @@ var (
 	retentionDays     = int32(30)
 	rollupTargetBytes = int64(256 << 20)
 	rollupDayEndDelay = 15 * time.Minute
+	sealDayEndDelay   = 30 * time.Minute
+	sealPauseLimit    = 5 * time.Second
 )
+
+const sealCandidates = 16
 
 type rollupJob struct {
 	deploymentID int32
@@ -62,10 +66,13 @@ func (m *Manager) runMaintenance(ctx context.Context) {
 
 func (m *Manager) maintenanceStep(ctx context.Context) (bool, error) {
 	job, ok, err := m.nextRollup(ctx)
-	if err != nil || !ok {
+	if err != nil {
 		return false, err
 	}
-	return true, m.runRollup(ctx, job)
+	if ok {
+		return true, m.runRollup(ctx, job)
+	}
+	return m.sealNext(ctx)
 }
 
 func dayEnd(day int32) time.Time {
@@ -90,7 +97,7 @@ func (m *Manager) nextRollup(ctx context.Context) (rollupJob, bool, error) {
 }
 
 func (m *Manager) runRollup(ctx context.Context, job rollupJob) error {
-	inputs, err := m.db.ListLogFilesForDayLevel(ctx, logdb.ListLogFilesForDayLevelParams{
+	inputs, err := m.db.ListUnsealedLogFilesForDayLevel(ctx, logdb.ListUnsealedLogFilesForDayLevelParams{
 		DeploymentID: int64(job.deploymentID), Day: int64(job.day), Level: archiveLevelShredded,
 	})
 	if err != nil {
@@ -215,6 +222,7 @@ func (m *Manager) unlinkAfterGrace(paths []string) {
 }
 
 func (m *Manager) reconcile(ctx context.Context) {
+	clear(m.sealSkip)
 	if err := m.sweepRowlessFiles(ctx); err != nil {
 		slog.WarnContext(m.ctx, "log archive sweep failed", "err", err)
 	}

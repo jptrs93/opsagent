@@ -140,7 +140,7 @@ func fullFold(t *testing.T, q *pq.Queries) foldState {
 func snapshotFold(t *testing.T, q *pq.Queries) foldState {
 	t.Helper()
 	state := foldState{}
-	for _, e := range erru.Must(q.Snapshot(context.Background())) {
+	for _, e := range erru.Must(q.SnapshotAll(context.Background())) {
 		if e.Meta.Deleted {
 			continue
 		}
@@ -159,7 +159,7 @@ func snapshotFold(t *testing.T, q *pq.Queries) foldState {
 func assertSnapshotMatchesRebuild(t *testing.T, q *pq.Queries) {
 	t.Helper()
 	ctx := context.Background()
-	live := erru.Must(q.Snapshot(ctx))
+	live := erru.Must(q.SnapshotAll(ctx))
 	assertSnapshotWellFormed(t, live)
 	var rebuilt []*apigen.MaterialisedEntity
 	rollback := errors.New("rollback")
@@ -168,7 +168,7 @@ func assertSnapshotMatchesRebuild(t *testing.T, q *pq.Queries) {
 			return err
 		}
 		var err error
-		rebuilt, err = tx.Snapshot(ctx)
+		rebuilt, err = tx.SnapshotAll(ctx)
 		if err != nil {
 			return err
 		}
@@ -331,6 +331,7 @@ var oracleTypes = []apigen.CoreEntityType{
 	apigen.CoreEntityType_CORE_ENTITY_AGENT_SESSION, apigen.CoreEntityType_CORE_ENTITY_USER_SESSION, apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET,
 	apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT, apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG,
 	apigen.CoreEntityType_CORE_ENTITY_SCHEDULED_INSTANCE_STATUS, apigen.CoreEntityType_CORE_ENTITY_NODE_STATUS,
+	apigen.CoreEntityType_CORE_ENTITY_LOG_CHUNK, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT_METRICS_CHUNK, apigen.CoreEntityType_CORE_ENTITY_NODE_METRICS_CHUNK,
 }
 
 // assertFoldMatchesLiveTables checks a fold of the full event range, under
@@ -418,6 +419,11 @@ func assertFoldMatchesLiveTables(t *testing.T, s *Service, fold foldState) {
 	}
 	for _, k := range erru.Must(q.ListSecretKeyslots(ctx)) {
 		put(apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT, k.ID, entity(pq.SecretKeyslotMutation(pq.EventMeta{}, k)))
+	}
+	for _, kind := range pq.ChunkKinds {
+		for _, r := range erru.Must(q.ListChunks(ctx, kind)) {
+			put(kind, r.ID, entity(pq.ChunkMutation(pq.EventMeta{}, r)))
+		}
 	}
 	if r, err := q.GetSystemConfig(ctx); err == nil {
 		put(apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG, pq.SystemConfigEntityID, entity(pq.SystemConfigMutation(pq.EventMeta{}, erru.Must(apigen.DecodeSystemConfig(r.ConfigBlob)))))
@@ -970,7 +976,8 @@ func testSystemConfig(hash string) *apigen.SystemConfig {
 				S3Region: stringSetting(""), S3Endpoint: stringSetting("")},
 			LargeAssets: apigen.LargeAssetsSettings{UseSeparateS3: boolSetting(false), S3AccessKeyID: stringSetting(""), S3Bucket: stringSetting(""), S3Path: stringSetting(""),
 				S3Region: stringSetting(""), S3Endpoint: stringSetting(""), KeepLocalCopy: boolSetting(true)},
-			Auth: apigen.AuthSettings{PasswordLoginEnabled: boolSetting(false), RequirePasskey: boolSetting(false)},
+			Auth:    apigen.AuthSettings{PasswordLoginEnabled: boolSetting(false), RequirePasskey: boolSetting(false)},
+			Archive: apigen.ArchiveSettings{Enabled: boolSetting(false), S3Path: stringSetting("")},
 		},
 	}
 }
@@ -1010,4 +1017,5 @@ func seedLatestOnlyHistory(t *testing.T, s *Service) {
 	deleteKeyslotsForTest(t, s, 2)
 	writeSystemConfigForTest(t, s, "one")
 	writeSystemConfigForTest(t, s, "two")
+	seedChunkHistory(t, s)
 }

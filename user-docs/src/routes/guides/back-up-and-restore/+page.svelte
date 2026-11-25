@@ -26,7 +26,9 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/resto
 <section id="what" class="page">
 <h2>What is backed up</h2>
 
-<p>Everything the cluster is configured with lives in one database on the primary: spaces, deployments and their history, secrets, configs, users, policies, and settings. With backup enabled the primary streams every change in that database to the bucket within seconds, continuously rather than on a schedule, and uploaded assets are stored in the bucket as well. Secondary nodes hold nothing that is not refetched from the primary, so they need no backup of their own.</p>
+<p>Everything the cluster is configured with lives in one database on the primary: spaces, deployments and their history, secrets, configs, users, policies, and settings. With backup enabled the primary streams every change in that database to the bucket within seconds, continuously rather than on a schedule, and uploaded assets are stored in the bucket as well. Secondary nodes hold no cluster state that is not refetched from the primary, so they need no backup of their own.</p>
+
+<p>Logs and metrics are not part of that database. They stay on the node that produced them, and the <a href="#archive">archive</a> copies them to the bucket.</p>
 
 <p>What is not backed up is the data deployments write to their volumes. A volume belongs to the node the deployment runs on, and a deployment that must survive the loss of that node needs to keep its state elsewhere, in a database with its own backups or in object storage.</p>
 </section>
@@ -40,6 +42,19 @@ curl -fsSL https://raw.githubusercontent.com/jptrs93/opsagent/main/scripts/resto
 <p>Replication starts at once. Open <strong>Nodes</strong> and the <strong>Replication</strong> tab to watch it: the status reads <em>syncing</em> until the bucket has caught up and <em>in sync</em> afterwards, with the time of the last sync. Existing assets move to the bucket in the background and the tab counts down the ones still pending. Once it reads in sync, a copy of every change reaches the bucket moments after it is made.</p>
 
 <p>Keep the bucket's lifecycle policy in mind: OpenDeploy does not delete replaced asset content from the bucket, so a policy that expires old objects keeps it tidy. Set it to keep objects for longer than you would ever restore back to.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="archive" class="page">
+<h2>Archive logs and metrics</h2>
+
+<p>The archive copies each node's log and metrics files to the backup bucket. With backup enabled, turn <strong>Archive logs and metrics</strong> on in the same section and save. The files go under <strong>Archive S3 path</strong>, beside the backup.</p>
+
+<p>A node archives a file once it is sealed, which is after its UTC day ends. Each node sends its own files, once an hour, so every node needs to reach the bucket endpoint. A node holds no bucket credentials: the primary signs each upload for one file with its size and SHA-256, and counts the file as archived only after it finds the object in the bucket.</p>
+
+<p>The <strong>Replication</strong> tab lists every node with the files in the bucket out of the files recorded, for logs, deployment metrics, and node metrics, and what is still to send.</p>
+
+<p>The archive is a copy for safekeeping. OpenDeploy does not read logs or metrics back from the bucket, and it removes nothing: files on a node follow their usual retention, 30 days for logs and 90 for metrics, and objects stay in the bucket until a lifecycle policy expires them. The agent's own log is not archived.</p>
 </section>
 
 <!-- ============================================================ -->

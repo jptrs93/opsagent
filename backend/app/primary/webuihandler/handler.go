@@ -20,6 +20,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/authz"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/chunks"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nixstores"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodeaccesspolicies"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
@@ -88,6 +89,8 @@ type Handler struct {
 
 	// Enrollment owns the enrollment stream and operator enrollment actions.
 	Enrollment *enrollmenthandler.Handler
+
+	Chunks *chunks.Service
 
 	// IngressDiagnostics supplies the ingress evaluation warnings shown per
 	// deployment; nil when no publisher is wired (tests).

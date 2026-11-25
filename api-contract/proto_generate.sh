@@ -41,6 +41,7 @@ trap 'rm -f "$COMBINED_PROTO"' EXIT
                api-contract/model/network_policies.proto api-contract/model_network_policies_operations.proto \
                api-contract/model/space_domain_policies.proto api-contract/model_space_domain_policies_operations.proto \
                api-contract/model/node_access_policies.proto api-contract/model_node_access_policies_operations.proto \
+               api-contract/model/chunks.proto api-contract/model_chunks_operations.proto \
                api-contract/model_cluster_operations.proto \
                api-contract/model_enrollment_operations.proto \
                api-contract/model/system_config.proto api-contract/model/backup.proto \

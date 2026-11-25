@@ -39,7 +39,8 @@ func (q Query) matchesHeader(t int64, deploymentID int32) bool {
 
 func (q Query) spec() scanSpec[apigen.MetricsSample] {
 	spec := scanSpec[apigen.MetricsSample]{
-		timeRange: timeRange{q.From, q.To},
+		timeRange:    timeRange{q.From, q.To},
+		deploymentID: q.DeploymentID,
 		acceptPayload: func(payload []byte) bool {
 			t, dep := peekSample(payload)
 			return q.matchesHeader(t, dep)
@@ -75,6 +76,7 @@ func (r timeRange) contains(t int64) bool {
 
 type scanSpec[S any] struct {
 	timeRange
+	deploymentID  int32
 	acceptPayload func(payload []byte) bool
 	match         func(*S) bool
 	pruneFile     func(pf *parquet.File) func(parquet.RowGroup) bool
@@ -151,29 +153,40 @@ func scanDay[S any, R any](ctx context.Context, t *table[S, R], dir string, node
 		return false, err
 	}
 	type sealed struct {
-		node int32
-		seq  int
+		sealedName
 		name string
 	}
 	var files []sealed
-	ownSealed := false
+	renaming := map[int]bool{}
 	for _, e := range entries {
-		n, seq, ok := parseParquetName(e.Name())
-		if !ok || strings.HasSuffix(e.Name(), tmpExt) {
+		if base, ok := strings.CutSuffix(e.Name(), tmpExt); ok {
+			if n, ok := parseParquetName(base); ok && n.nodeID == nodeID {
+				renaming[n.seq] = true
+			}
 			continue
 		}
-		if n == nodeID {
-			ownSealed = true
+		if n, ok := parseParquetName(e.Name()); ok {
+			files = append(files, sealed{n, e.Name()})
 		}
-		files = append(files, sealed{n, seq, e.Name()})
 	}
-	slices.SortFunc(files, func(a, b sealed) int {
-		if c := cmp.Compare(a.node, b.node); c != 0 {
-			return c
+	ownSealed := false
+	files = slices.DeleteFunc(files, func(f sealed) bool {
+		if f.nodeID != nodeID {
+			return false
 		}
-		return cmp.Compare(a.seq, b.seq)
+		if renaming[f.seq] {
+			return true
+		}
+		ownSealed = true
+		return false
+	})
+	slices.SortFunc(files, func(a, b sealed) int {
+		return cmp.Or(cmp.Compare(a.nodeID, b.nodeID), cmp.Compare(a.seq, b.seq), cmp.Compare(a.deploymentID, b.deploymentID))
 	})
 	for _, f := range files {
+		if f.split && spec.deploymentID != 0 && f.deploymentID != spec.deploymentID {
+			continue
+		}
 		stop, err := scanParquet(ctx, t, filepath.Join(dd, f.name), spec, matched, yield)
 		if err != nil || stop {
 			return stop, err

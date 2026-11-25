@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS log_files (
   max_time      INTEGER NOT NULL,
   row_count     INTEGER NOT NULL,
   byte_size     INTEGER NOT NULL,
-  created_at    INTEGER NOT NULL
+  created_at    INTEGER NOT NULL,
+  sha256        TEXT    NOT NULL DEFAULT ''  -- hex; empty until the file is sealed
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS log_files_path ON log_files(deployment_id, day, seq);

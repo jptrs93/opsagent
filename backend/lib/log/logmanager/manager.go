@@ -42,6 +42,7 @@ type Manager struct {
 	unlinkWG      sync.WaitGroup
 	unlinkMu      sync.Mutex
 	pendingUnlink map[string]struct{}
+	sealSkip      map[int64]bool
 }
 
 func newManager(db *logdb.Queries) *Manager {
@@ -53,6 +54,7 @@ func newManager(db *logdb.Queries) *Manager {
 		maintStopped:  make(chan struct{}),
 		nudge:         make(chan struct{}, 1),
 		pendingUnlink: map[string]struct{}{},
+		sealSkip:      map[int64]bool{},
 	}
 }
 

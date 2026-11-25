@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package opsagent.v1;
+
+import "api-contract/options.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/jptrs93/opsagent/backend/apigen";
+
+message LogChunkSet {
+  repeated LogChunk chunks = 1;
+}
+
+message DeploymentMetricsChunkSet {
+  repeated DeploymentMetricsChunk chunks = 1;
+}
+
+message NodeMetricsChunkSet {
+  repeated NodeMetricsChunk chunks = 1;
+}
+
+// ClusterChunksSyncRequest lists every sealed chunk the calling node holds
+// whose day is within from_day..to_day, for each chunk type it covers. The
+// primary creates the records it lacks and, for a record of the node in that
+// range that is not listed, clears local or removes the record. A set that
+// is absent is not covered and its records are left alone. The id, node_id
+// and location of a listed chunk are ignored.
+message ClusterChunksSyncRequest {
+  uint32 from_day = 1;
+  uint32 to_day = 2;
+  LogChunkSet logs = 3;
+  DeploymentMetricsChunkSet deployment_metrics = 4;
+  NodeMetricsChunkSet node_metrics = 5;
+}
+
+message ClusterChunksSyncResponse {
+  uint32 created = 1;     // records made for chunks the primary did not know
+  uint32 released = 2;    // records whose file the node no longer holds
+  uint32 conflicts = 3;   // listed chunks refused: a record with the same identity has other content
+}
+
+// ChunkRef names one chunk record.
+message ChunkRef {
+  CoreEntityType entity_type = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  uint64 entity_id = 2 [(cp.js_type) = "number"];
+}
+
+// ClusterChunksUploadWorkRequest asks for the calling node's oldest chunks
+// that are local and not archived. exclude names records the node will not
+// send again in this pass: an upload that failed, or one the primary could
+// not confirm.
+message ClusterChunksUploadWorkRequest {
+  uint32 limit = 1 [(buf.validate.field).uint32.lte = 64];
+  repeated ChunkRef exclude = 2 [(buf.validate.field).repeated.max_items = 512];
+}
+
+// ChunkUpload is one file for the node to send: a PUT of the file to url
+// with every header in headers. The URL accepts only content with the
+// record's size and SHA-256.
+message ChunkUpload {
+  ChunkRef ref = 1 [(cp.go_value) = true];
+  oneof chunk {
+    option (buf.validate.oneof).required = true;
+    LogChunk log = 2;
+    DeploymentMetricsChunk deployment_metrics = 3;
+    NodeMetricsChunk node_metrics = 4;
+  }
+  string url = 5;
+  map<string, string> headers = 6;
+}
+
+message ClusterChunksUploadWorkResponse {
+  repeated ChunkUpload uploads = 1;
+  uint32 archived = 2;    // records the bucket already held, marked archived without an upload
+}
+
+message ClusterChunksUploadedRequest {
+  repeated ChunkRef uploaded = 1;
+}
+
+message ClusterChunksUploadedResponse {
+  uint32 archived = 1;    // records the primary found in the bucket and marked archived
+}
+
+message ArchiveStatusRequest {}
+
+message ArchiveCounts {
+  uint32 chunks = 1;
+  uint64 bytes = 2 [(cp.js_type) = "number"];
+}
+
+// ArchiveKindStatus counts the chunk records of one type on one node.
+// pending is local and not archived.
+message ArchiveKindStatus {
+  ArchiveCounts local = 1 [(cp.go_value) = true];
+  ArchiveCounts archived = 2 [(cp.go_value) = true];
+  ArchiveCounts pending = 3 [(cp.go_value) = true];
+  int64 last_archived_at = 4 [(cp.js_type) = "number"];  // Unix ms of the newest archive confirmation; 0 = never
+}
+
+message ArchiveNodeStatus {
+  uint64 node_id = 1 [(cp.js_type) = "number"];
+  ArchiveKindStatus logs = 2 [(cp.go_value) = true];
+  ArchiveKindStatus deployment_metrics = 3 [(cp.go_value) = true];
+  ArchiveKindStatus node_metrics = 4 [(cp.go_value) = true];
+}
+
+message ArchiveStatusResponse {
+  bool enabled = 1;     // the archive setting and the backup bucket are both on
+  repeated ArchiveNodeStatus nodes = 2;
+}

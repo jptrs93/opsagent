@@ -11,9 +11,13 @@ import (
 //go:embed sql/schema.sql
 var schemaFiles embed.FS
 
+//go:embed sql/migrations.sql
+var migrations string
+
 func Open(dbPath string) *Queries {
 	db := sqlitedb.MustOpen(dbPath)
 	sqlitedb.ApplySchema(db, schemaFiles, "sql/schema.sql")
+	sqlitedb.ApplyMigrations(db, migrations)
 	return New(db)
 }
 

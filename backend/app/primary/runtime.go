@@ -24,6 +24,7 @@ import (
 	"github.com/jptrs93/opsagent/backend/app/primary/backup"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/acmeissue"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/assets"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/chunks"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/values"
@@ -67,6 +68,7 @@ type runtime struct {
 	issuedTLS             *pki.Issuer
 	nixDocker             *nixdocker.Preparer
 	nixStores             *nixstores.Service
+	chunks                *chunks.Service
 }
 
 func newRuntime() (*runtime, error) {
@@ -157,6 +159,15 @@ func newRuntime() (*runtime, error) {
 		issuedTLS:  tlsIssuer,
 		nixDocker:  nixDocker,
 		nixStores:  nixStores,
+		chunks: &chunks.Service{
+			DB:      store,
+			Secrets: secretsMgr,
+			Loader:  configService,
+			Config: func() *apigen.ClusterSettings {
+				snapshot := configService.Snapshot()
+				return &snapshot.Settings
+			},
+		},
 	}, nil
 }
 

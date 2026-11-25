@@ -117,6 +117,9 @@ func (k *sink[S, R]) maintain(ctx context.Context) {
 	if err := Retain(k.dir, now, DefaultRetention); err != nil {
 		slog.WarnContext(ctx, fmt.Sprintf("applying %s retention failed", k.t.name), "err", err)
 	}
+	if err := backfillManifests(ctx, k.t, k.dir, k.nodeID); err != nil && ctx.Err() == nil {
+		slog.WarnContext(ctx, fmt.Sprintf("describing sealed %s files failed", k.t.name), "err", err)
+	}
 }
 
 type Store struct {

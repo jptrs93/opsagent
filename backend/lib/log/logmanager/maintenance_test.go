@@ -115,8 +115,11 @@ func TestRollupMergesOnBytes(t *testing.T) {
 	if all.Stats.Value.MatchedRows != 4 {
 		t.Fatalf("stats = %+v", all.Stats)
 	}
+	if !step(t, m) || listFiles(t, m.db)[0].Sha256 == "" {
+		t.Fatal("the step after a roll-up should seal its output")
+	}
 	if step(t, m) {
-		t.Fatal("second step should find nothing to do")
+		t.Fatal("third step should find nothing to do")
 	}
 }
 
@@ -134,8 +137,11 @@ func TestRollupDayEndSweep(t *testing.T) {
 	if len(files) != 1 || files[0].Level != archiveLevelRollup {
 		t.Fatalf("files = %+v", files)
 	}
+	if !step(t, m) || listFiles(t, m.db)[0].Sha256 == "" {
+		t.Fatal("the step after a roll-up should seal its output")
+	}
 	if step(t, m) {
-		t.Fatal("lone file should be left alone")
+		t.Fatal("a sealed lone file should be left alone")
 	}
 }
 

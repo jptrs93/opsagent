@@ -43,6 +43,10 @@ type SystemConfig@15 root {
             password_login_enabled@1: BoolSetting
             require_passkey@2: BoolSetting
         }
+        archive@8: type ArchiveSettings {
+            enabled@1: BoolSetting
+            s3_path@2: StringSetting
+        }
     }
     master_password_hash@3: ?string [min_length = 1]
     network_ula_prefix@4: [6]u8 [mutable = false]

@@ -49,6 +49,9 @@ var reducedTypes = []apigen.CoreEntityType{
 	apigen.CoreEntityType_CORE_ENTITY_NIX_STORE_RESET,
 	apigen.CoreEntityType_CORE_ENTITY_SECRET_KEYSLOT,
 	apigen.CoreEntityType_CORE_ENTITY_SYSTEM_CONFIG,
+	apigen.CoreEntityType_CORE_ENTITY_LOG_CHUNK,
+	apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT_METRICS_CHUNK,
+	apigen.CoreEntityType_CORE_ENTITY_NODE_METRICS_CHUNK,
 }
 
 var materialisedTables = []string{
@@ -57,6 +60,7 @@ var materialisedTables = []string{
 	"spaces", "users", "network_policies", "space_domain_policies", "node_access_policies", "authz_grant_templates", "authz_grants", "authz_global_rules",
 	"agent_sessions", "user_sessions", "nix_store_resets", "secret_keyslots", "system_config",
 	"deployments", "deployment_versions", "scheduled_instances", "scheduled_instance_status", "nodes", "node_status",
+	"log_chunks", "deployment_metrics_chunks", "node_metrics_chunks",
 }
 
 const rebuildPageSeqs = 2_000
@@ -287,6 +291,11 @@ func (q *Queries) reduce(ctx context.Context, env rowEnvelope, m *apigen.CoreMut
 			return q.deleteSystemConfigRow(ctx, id)
 		}
 		err = q.reduceSystemConfig(ctx, env, meta, id, v.SystemConfig)
+	case apigen.CoreEntityType_CORE_ENTITY_LOG_CHUNK, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT_METRICS_CHUNK, apigen.CoreEntityType_CORE_ENTITY_NODE_METRICS_CHUNK:
+		if deleted {
+			return q.deleteChunkRow(ctx, m.Type(), id)
+		}
+		err = q.reduceChunk(ctx, env, meta, id, &v)
 	default:
 		return fmt.Errorf("reduce %v %d at seq %d: unknown entity type", m.Type(), id, env.Seq)
 	}

@@ -12,10 +12,21 @@ import (
 // per retained version, in version order, each entry carrying that version's
 // document with the identity's current key, directory, and space; a
 // retained version of a deleted deployment carries deleted with the
-// envelope of the delete.
+// envelope of the delete. Chunk records are not part of an opening.
 func (q *Queries) Snapshot(ctx context.Context) ([]*apigen.MaterialisedEntity, error) {
+	return q.snapshot(ctx, false)
+}
+
+func (q *Queries) SnapshotAll(ctx context.Context) ([]*apigen.MaterialisedEntity, error) {
+	return q.snapshot(ctx, true)
+}
+
+func (q *Queries) snapshot(ctx context.Context, chunks bool) ([]*apigen.MaterialisedEntity, error) {
 	var out []*apigen.MaterialisedEntity
 	for _, t := range reducedTypes {
+		if IsChunkKind(t) && !chunks {
+			continue
+		}
 		entries, err := q.snapshotOf(ctx, t)
 		if err != nil {
 			return nil, err
@@ -310,6 +321,15 @@ func (q *Queries) snapshotOf(ctx context.Context, t apigen.CoreEntityType) ([]*a
 		cfg.ID = uint32(SystemConfigEntityID)
 		apigen.FillClusterSettingDefaults(&cfg.Settings)
 		out = append(out, entry(t, SystemConfigEntityID, entityOf(apigen.CoreEntityValueOneof{SystemConfig: cfg}), rowMeta(r.CreatedTime, r.Seq, r.UpdatedAt, r.Author)))
+	case apigen.CoreEntityType_CORE_ENTITY_LOG_CHUNK, apigen.CoreEntityType_CORE_ENTITY_DEPLOYMENT_METRICS_CHUNK, apigen.CoreEntityType_CORE_ENTITY_NODE_METRICS_CHUNK:
+		rows, err := q.ListChunks(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		for i := range rows {
+			r := &rows[i]
+			out = append(out, entry(t, r.ID, r.Entity(), rowMeta(r.CreatedTime, r.Seq, r.EventTime, r.Author)))
+		}
 	}
 	return out, nil
 }

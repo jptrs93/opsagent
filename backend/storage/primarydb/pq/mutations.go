@@ -264,5 +264,11 @@ func StampEntityID(e *apigen.CoreEntity, id uint64) {
 		v.SpaceDomainPolicy.ID = id
 	case v.NodeAccessPolicy != nil:
 		v.NodeAccessPolicy.ID = id
+	case v.LogChunk != nil:
+		v.LogChunk.ID = id
+	case v.DeploymentMetricsChunk != nil:
+		v.DeploymentMetricsChunk.ID = id
+	case v.NodeMetricsChunk != nil:
+		v.NodeMetricsChunk.ID = id
 	}
 }
