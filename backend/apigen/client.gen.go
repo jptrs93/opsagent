@@ -1202,6 +1202,50 @@ func (c *ApiServerCapi) PostV1MetricsLatest(ctx context.Context, req *MetricsLat
 	return DecodeMetricsLatestResponse(body)
 }
 
+func (c *ApiServerCapi) PostV1MetricsNodesQuery(ctx context.Context, req *NodeMetricsQueryRequest) (*NodeMetricsQueryResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1MetricsNodesQuery request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/metrics/nodes/query", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNodeMetricsQueryResponse(body)
+}
+
+func (c *ApiServerCapi) PostV1MetricsNodesLatest(ctx context.Context, req *NodeMetricsLatestRequest) (*NodeMetricsLatestResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("PostV1MetricsNodesLatest request is nil")
+	}
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+	resp, err := c.do(ctx, "POST", "/v1/metrics/nodes/latest", bytes.NewReader(req.Encode()), "application/protobuf", "application/protobuf")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, c.ErrorHandler(ctx, resp)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return DecodeNodeMetricsLatestResponse(body)
+}
+
 func (c *ApiServerCapi) PostV1DeploymentsPrepareOutput(ctx context.Context, req *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error] {
 	return func(yield func(*PrepareOutputChunk, error) bool) {
 		if req == nil {

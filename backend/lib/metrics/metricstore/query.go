@@ -34,16 +34,69 @@ func (q Query) matchesHeader(t int64, deploymentID int32) bool {
 	if q.DeploymentID != 0 && deploymentID != q.DeploymentID {
 		return false
 	}
-	if !q.From.IsZero() && t < q.From.UnixMilli() {
+	return timeRange{q.From, q.To}.contains(t)
+}
+
+func (q Query) spec() scanSpec[apigen.MetricsSample] {
+	spec := scanSpec[apigen.MetricsSample]{
+		timeRange: timeRange{q.From, q.To},
+		acceptPayload: func(payload []byte) bool {
+			t, dep := peekSample(payload)
+			return q.matchesHeader(t, dep)
+		},
+		match: q.matches,
+	}
+	if q.DeploymentID != 0 {
+		spec.pruneFile = func(pf *parquet.File) func(parquet.RowGroup) bool {
+			c, ok := pf.Schema().Lookup("deployment_id")
+			if !ok {
+				return nil
+			}
+			return func(rg parquet.RowGroup) bool { return groupMayContain(rg, c.ColumnIndex, q.DeploymentID) }
+		}
+	}
+	return spec
+}
+
+type timeRange struct {
+	from time.Time
+	to   time.Time
+}
+
+func (r timeRange) contains(t int64) bool {
+	if !r.from.IsZero() && t < r.from.UnixMilli() {
 		return false
 	}
-	if !q.To.IsZero() && t >= q.To.UnixMilli() {
+	if !r.to.IsZero() && t >= r.to.UnixMilli() {
 		return false
 	}
 	return true
 }
 
+type scanSpec[S any] struct {
+	timeRange
+	acceptPayload func(payload []byte) bool
+	match         func(*S) bool
+	pruneFile     func(pf *parquet.File) func(parquet.RowGroup) bool
+}
+
 func Scan(ctx context.Context, dir string, nodeID int32, q Query, yield func(*apigen.MetricsSample) bool) error {
+	return scan(ctx, runTable, dir, nodeID, q.spec(), yield)
+}
+
+func Collect(ctx context.Context, dir string, nodeID int32, q Query) ([]*apigen.MetricsSample, error) {
+	var out []*apigen.MetricsSample
+	err := Scan(ctx, dir, nodeID, q, func(s *apigen.MetricsSample) bool {
+		out = append(out, s)
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	return sortDedup(out), nil
+}
+
+func scan[S any, R any](ctx context.Context, t *table[S, R], dir string, nodeID int32, spec scanSpec[S], yield func(*S) bool) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -52,12 +105,12 @@ func Scan(ctx context.Context, dir string, nodeID int32, q Query, yield func(*ap
 		return err
 	}
 	firstDay := time.Time{}
-	if !q.From.IsZero() {
-		firstDay = utcDay(q.From)
+	if !spec.from.IsZero() {
+		firstDay = utcDay(spec.from)
 	}
 	lastDay := time.UnixMilli(math.MaxInt64 / 2)
-	if !q.To.IsZero() {
-		lastDay = utcDay(q.To.Add(-time.Millisecond))
+	if !spec.to.IsZero() {
+		lastDay = utcDay(spec.to.Add(-time.Millisecond))
 	}
 	seen := map[time.Time]bool{}
 	var days []time.Time
@@ -76,11 +129,14 @@ func Scan(ctx context.Context, dir string, nodeID int32, q Query, yield func(*ap
 		days = append(days, day)
 	}
 	slices.SortFunc(days, time.Time.Compare)
+	matched := func(s *S) bool {
+		return spec.contains(t.timeOf(s)) && (spec.match == nil || spec.match(s))
+	}
 	for _, day := range days {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		stop, err := scanDay(ctx, dir, nodeID, day, q, yield)
+		stop, err := scanDay(ctx, t, dir, nodeID, day, spec, matched, yield)
 		if err != nil || stop {
 			return err
 		}
@@ -88,19 +144,7 @@ func Scan(ctx context.Context, dir string, nodeID int32, q Query, yield func(*ap
 	return nil
 }
 
-func Collect(ctx context.Context, dir string, nodeID int32, q Query) ([]*apigen.MetricsSample, error) {
-	var out []*apigen.MetricsSample
-	err := Scan(ctx, dir, nodeID, q, func(s *apigen.MetricsSample) bool {
-		out = append(out, s)
-		return true
-	})
-	if err != nil {
-		return nil, err
-	}
-	return sortDedup(out), nil
-}
-
-func scanDay(ctx context.Context, dir string, nodeID int32, day time.Time, q Query, yield func(*apigen.MetricsSample) bool) (bool, error) {
+func scanDay[S any, R any](ctx context.Context, t *table[S, R], dir string, nodeID int32, day time.Time, spec scanSpec[S], matched func(*S) bool, yield func(*S) bool) (bool, error) {
 	dd := dayDir(dir, day)
 	entries, err := os.ReadDir(dd)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -130,7 +174,7 @@ func scanDay(ctx context.Context, dir string, nodeID int32, day time.Time, q Que
 		return cmp.Compare(a.seq, b.seq)
 	})
 	for _, f := range files {
-		stop, err := scanParquet(ctx, filepath.Join(dd, f.name), q, yield)
+		stop, err := scanParquet(ctx, t, filepath.Join(dd, f.name), spec, matched, yield)
 		if err != nil || stop {
 			return stop, err
 		}
@@ -139,12 +183,8 @@ func scanDay(ctx context.Context, dir string, nodeID int32, day time.Time, q Que
 		return false, nil
 	}
 	stop := false
-	accept := func(payload []byte) bool {
-		t, dep := peekSample(payload)
-		return q.matchesHeader(t, dep)
-	}
-	_, _, err = readWAL(walPath(dir, day), accept, func(s *apigen.MetricsSample) bool {
-		if q.matches(s) && !yield(s) {
+	_, _, err = readWAL(walPath(dir, day), t.decode, spec.acceptPayload, func(s *S) bool {
+		if matched(s) && !yield(s) {
 			stop = true
 			return false
 		}
@@ -156,7 +196,7 @@ func scanDay(ctx context.Context, dir string, nodeID int32, day time.Time, q Que
 	return stop, nil
 }
 
-func scanParquet(ctx context.Context, path string, q Query, yield func(*apigen.MetricsSample) bool) (bool, error) {
+func scanParquet[S any, R any](ctx context.Context, t *table[S, R], path string, spec scanSpec[S], matched func(*S) bool, yield func(*S) bool) (bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return false, err
@@ -170,21 +210,19 @@ func scanParquet(ctx context.Context, path string, q Query, yield func(*apigen.M
 	if err != nil {
 		return false, err
 	}
-	depCol := -1
-	if q.DeploymentID != 0 {
-		if c, ok := pf.Schema().Lookup("deployment_id"); ok {
-			depCol = c.ColumnIndex
-		}
+	var mayContain func(parquet.RowGroup) bool
+	if spec.pruneFile != nil {
+		mayContain = spec.pruneFile(pf)
 	}
-	rows := make([]row, batchRows)
+	rows := make([]R, batchRows)
 	for _, rg := range pf.RowGroups() {
 		if ctx.Err() != nil {
 			return false, ctx.Err()
 		}
-		if depCol >= 0 && !groupMayContain(rg, depCol, q.DeploymentID) {
+		if mayContain != nil && !mayContain(rg) {
 			continue
 		}
-		stop, err := scanRowGroup(rg, rows, q, yield)
+		stop, err := scanRowGroup(t, rg, rows, matched, yield)
 		if err != nil || stop {
 			return stop, err
 		}
@@ -192,15 +230,15 @@ func scanParquet(ctx context.Context, path string, q Query, yield func(*apigen.M
 	return false, nil
 }
 
-func scanRowGroup(rg parquet.RowGroup, rows []row, q Query, yield func(*apigen.MetricsSample) bool) (bool, error) {
-	r := parquet.NewGenericRowGroupReader[row](rg)
+func scanRowGroup[S any, R any](t *table[S, R], rg parquet.RowGroup, rows []R, matched func(*S) bool, yield func(*S) bool) (bool, error) {
+	r := parquet.NewGenericRowGroupReader[R](rg)
 	defer r.Close()
 	for {
 		clear(rows)
 		n, err := r.Read(rows)
 		for i := range rows[:n] {
-			s := sampleFromRow(&rows[i])
-			if q.matches(s) && !yield(s) {
+			s := t.fromRow(&rows[i])
+			if matched(s) && !yield(s) {
 				return true, nil
 			}
 		}

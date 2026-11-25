@@ -58,14 +58,20 @@ func readOpenFDs(pid uint32) *uint64 {
 }
 
 func parseNetDev(b []byte) *NetMetrics {
+	m, _ := sumNetDev(b, func(name string) bool { return name != "lo" })
+	return &m
+}
+
+func sumNetDev(b []byte, include func(name string) bool) (NetMetrics, int) {
 	var m NetMetrics
+	interfaces := 0
 	sc := bufio.NewScanner(bytes.NewReader(b))
 	for sc.Scan() {
 		name, rest, ok := strings.Cut(sc.Text(), ":")
 		if !ok {
 			continue
 		}
-		if strings.TrimSpace(name) == "lo" {
+		if !include(strings.TrimSpace(name)) {
 			continue
 		}
 		fields := strings.Fields(rest)
@@ -80,6 +86,7 @@ func parseNetDev(b []byte) *NetMetrics {
 			}
 			v[i] = n
 		}
+		interfaces++
 		m.RxBytes += v[0]
 		m.RxPackets += v[1]
 		m.RxDropped += v[3]
@@ -87,7 +94,7 @@ func parseNetDev(b []byte) *NetMetrics {
 		m.TxPackets += v[9]
 		m.TxDropped += v[11]
 	}
-	return &m
+	return m, interfaces
 }
 
 func parseTCP(b []byte, s *TCPStates) {

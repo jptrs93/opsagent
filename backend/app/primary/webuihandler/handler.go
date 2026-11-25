@@ -83,6 +83,9 @@ type Handler struct {
 	// Metrics serves container metrics for deployments running on this node.
 	Metrics *metricstore.Store
 
+	// NodeMetrics serves this node's own host and filesystem metrics.
+	NodeMetrics *metricstore.NodeStore
+
 	// Enrollment owns the enrollment stream and operator enrollment actions.
 	Enrollment *enrollmenthandler.Handler
 

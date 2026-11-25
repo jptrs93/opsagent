@@ -66,3 +66,32 @@ func TestMetricsSeriesJSONOmitsEmptyValues(t *testing.T) {
 		t.Fatalf("infinity not rendered as null: %s", b)
 	}
 }
+
+func TestNodeMetricsSeriesJSONRoundTripsMissingBuckets(t *testing.T) {
+	res := &NodeMetricsQueryResponse{
+		StepMs:  30000,
+		Buckets: 3,
+		Series:  []NodeMetricsSeries{{NodeID: 2, Field: "fs_data_used_bytes", Kind: 1, Values: []float64{1.5, math.NaN(), 2}}},
+	}
+	b, err := json.Marshal(res)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	for _, want := range []string{`"values":[1.5,null,2]`, `"node_id":2`, `"field":"fs_data_used_bytes"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("json %s lacks %s", b, want)
+		}
+	}
+	var back NodeMetricsQueryResponse
+	if err := json.Unmarshal(b, &back); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := back.Series[0]
+	if got.NodeID != 2 || got.Kind != 1 || len(got.Values) != 3 || got.Values[0] != 1.5 || !math.IsNaN(got.Values[1]) || got.Values[2] != 2 {
+		t.Fatalf("series = %+v, want node 2 with [1.5 NaN 2]", got)
+	}
+	empty, err := json.Marshal(NodeMetricsSeries{Field: "load1"})
+	if err != nil || strings.Contains(string(empty), `"values"`) {
+		t.Fatalf("empty series = %s, err %v", empty, err)
+	}
+}

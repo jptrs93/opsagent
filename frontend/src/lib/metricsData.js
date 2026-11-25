@@ -93,3 +93,65 @@ export function buildChartData(resp, split) {
     return {charts: out, runs, buckets, stepMs, startTs};
 }
 
+export const NODE_CHARTS = [
+    {key: 'cpu', title: 'CPU', unit: 'cores', lines: [
+        {field: 'cpu_usage_usec', label: 'total', scale: 1e-6},
+        {field: 'cpu_user_usec', label: 'user', scale: 1e-6},
+        {field: 'cpu_system_usec', label: 'system', scale: 1e-6},
+        {field: 'cpu_iowait_usec', label: 'iowait', scale: 1e-6},
+        {field: 'cpu_steal_usec', label: 'steal', scale: 1e-6},
+    ]},
+    {key: 'load', title: 'Load average', unit: 'count', lines: [
+        {field: 'load1', label: '1 min'},
+        {field: 'load5', label: '5 min'},
+        {field: 'load15', label: '15 min'},
+        {field: 'cpu_count', label: 'cpus'},
+    ]},
+    {key: 'mem', title: 'Memory', unit: 'bytes', lines: [
+        {field: 'mem_used', label: 'used'},
+        {field: 'mem_cached', label: 'cached'},
+        {field: 'swap_used', label: 'swap used'},
+        {field: 'mem_total', label: 'total'},
+    ]},
+    {key: 'disk', title: 'Data filesystem', unit: 'bytes', lines: [
+        {field: 'fs_data_used_bytes', label: 'used'},
+        {field: 'fs_data_total_bytes', label: 'total'},
+    ]},
+    {key: 'net', title: 'Network', unit: 'bytes/s', lines: [
+        {field: 'net_rx_bytes', label: 'rx'},
+        {field: 'net_tx_bytes', label: 'tx'},
+    ]},
+    {key: 'io', title: 'Disk I/O', unit: 'bytes/s', lines: [
+        {field: 'io_read_bytes', label: 'read'},
+        {field: 'io_write_bytes', label: 'write'},
+    ]},
+    {key: 'iops', title: 'Disk operations', unit: 'per_s', lines: [
+        {field: 'io_read_ops', label: 'reads'},
+        {field: 'io_write_ops', label: 'writes'},
+    ]},
+    {key: 'psi', title: 'Pressure stall (some, 10s avg)', unit: 'pct', lines: [
+        {field: 'psi_cpu_some_avg10', label: 'cpu'},
+        {field: 'psi_mem_some_avg10', label: 'memory'},
+        {field: 'psi_io_some_avg10', label: 'io'},
+    ]},
+];
+export const NODE_QUERY_FIELDS = [...new Set(NODE_CHARTS.flatMap(c => c.lines.map(l => l.field)))];
+
+export function buildNodeChartData(resp) {
+    const buckets = Number(resp.buckets || 0);
+    const stepMs = Number(resp.stepMs || 0);
+    const startTs = resp.timeStart instanceof Date ? resp.timeStart.getTime() : 0;
+    const byField = new Map((resp.series || []).map(s => [s.field, s]));
+    const charts = {};
+    for (const chart of NODE_CHARTS) {
+        const lines = [];
+        for (const [lineIdx, ln] of chart.lines.entries()) {
+            const s = byField.get(ln.field);
+            if (!s) continue;
+            const scale = ln.scale || 1;
+            lines.push({label: ln.label, color: seriesColor(lineIdx), values: s.values.map(v => v * scale), field: ln.field});
+        }
+        charts[chart.key] = lines.length ? {startTs, stepMs, buckets, series: lines} : null;
+    }
+    return {charts, buckets, stepMs, startTs, fields: byField.size};
+}

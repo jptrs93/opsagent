@@ -13,6 +13,8 @@ import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS
 import {deploymentWorkload, isSelfDeployment, placementNodeId} from "../lib/deployment.js";
 import {allowedSpaceNames, runsEverySpace} from "../lib/nodeSpaces.js";
 import {databaseSizeHint, databaseSizeText} from "../lib/backupStatus.js";
+import {dataDiskUsage, extraDiskUsages, latestByNode, usageTone} from "../lib/nodeMetrics.js";
+import {formatValue} from "../components/lineChart.js";
 import {nodeAccessPoliciesPage} from "./nodeAccessPolicies.js";
 import {formatDateTime} from "../lib/date.js";
 import {checkIcon, closeIcon, copyIcon, searchIcon} from "../lib/icons.js";
@@ -26,6 +28,9 @@ const REPLICATION = "replication";
 const NODE_ENROLLMENT_REQUESTED = 1;
 const INSPECTOR_MIN = 260;
 const INSPECTOR_MAX = 560;
+const NODE_METRICS_STALE_MS = 10_000;
+const NODE_COLUMN_WIDTHS = [15, 11, 14, 11, 7, 7, 15, 10, 10];
+const NODE_COLUMN_WIDTHS_BESIDE_INSPECTOR = [17, 12, 15, 12, 7, 8, 13, 6, 10];
 
 // --- formatting ---------------------------------------------------------------
 
@@ -73,6 +78,12 @@ const HOST_ADDRESSES_UNKNOWN = "The node could not enumerate its host addresses"
 const hostAddressesSummary = (machine) => machine.hostAddressesUnknown && !(machine.hostAddresses || []).length
     ? span({class: "text-amber-300/80", title: HOST_ADDRESSES_UNKNOWN}, "unknown")
     : span({title: (machine.hostAddresses || []).join("\n") || "No host addresses reported"}, listSummary(machine.hostAddresses, "addresses"));
+
+const bytes = (v) => formatValue(v, "bytes");
+const pct = (v) => `${Math.round(v)}%`;
+
+const diskSummary = (usage) => `${pct(usage.usedPct)} of ${bytes(usage.total)}`;
+const diskDetail = (usage) => `${bytes(usage.used)} used of ${bytes(usage.total)} · ${bytes(usage.avail)} available`;
 
 const nodeState = (machine) => machine.evicted ? "evicted" : machine.connected ? "connected" : "disconnected";
 
@@ -122,6 +133,22 @@ export function clusterPage() {
         }
     };
     loadEnrollmentInfo();
+
+    const nodeMetrics = van.state({status: "loading", byNode: new Map(), error: ""});
+    let nodeMetricsAt = 0;
+    const loadNodeMetrics = async () => {
+        nodeMetricsAt = Date.now();
+        try {
+            const resp = await capi.postV1MetricsNodesLatest({});
+            nodeMetrics.val = {status: "loaded", byNode: latestByNode(resp), error: ""};
+        } catch (e) {
+            nodeMetrics.val = {status: "error", byNode: nodeMetrics.val.byNode, error: e?.message || "Loading node metrics failed"};
+        }
+    };
+    van.derive(() => {
+        if (activeTab.val === NODES && Date.now() - nodeMetricsAt > NODE_METRICS_STALE_MS) void loadNodeMetrics();
+    });
+    const nodeSample = (machine) => nodeMetrics.val.byNode.get(Number(machine.id))?.sample;
 
     const liveNodes = () => machinesS.val.filter((m) => !m.evicted);
     const evictedNodes = () => machinesS.val.filter((m) => m.evicted);
@@ -200,6 +227,25 @@ export function clusterPage() {
 
     // --- nodes tab ------------------------------------------------------------
 
+    const diskCell = (machine) => {
+        if (machine.evicted) return span("-");
+        const metrics = nodeMetrics.val;
+        const usage = dataDiskUsage(nodeSample(machine));
+        if (usage) {
+            return span({
+                class: "cluster-tone tabular-nums", "data-tone": usageTone(usage.usedPct), "data-testid": "node-disk", "data-state": "loaded",
+                title: `Data filesystem: ${diskDetail(usage)}`,
+            }, selectedId.val === null ? diskSummary(usage) : pct(usage.usedPct));
+        }
+        if (metrics.status === "loading") {
+            return span({class: "text-gray-500", "data-testid": "node-disk", "data-state": "loading", "aria-busy": "true", title: "Loading disk usage"}, "…");
+        }
+        return span({
+            class: "text-gray-500", "data-testid": "node-disk", "data-state": "empty",
+            title: metrics.error || (machine.connected || machine.isPrimary ? "No disk usage reported yet" : "The node is not connected"),
+        }, "-");
+    };
+
     const nodeRow = (machine) => {
         const selected = () => selectedId.val === machine.id;
         const muted = machine.evicted;
@@ -226,6 +272,7 @@ export function clusterPage() {
             cell("text-gray-300", span({title: allowedSpaceNames(machine, spacesS.val).join(", ")}, machine.evicted ? "-" : spacesSummary(machine))),
             cell(`font-mono text-gray-400 ${muted ? "" : "slate:text-[#5fcfc0] graphite:text-gray-300"}`, span({title: machine.opendeployVersion ? `Agent ${machine.opendeployVersion}` : "", "data-testid": "node-version"}, machine.opendeployVersion || "-")),
             cell("font-mono text-gray-400", span({title: machine.runtimeVersions || "", "data-testid": "node-runtime-versions"}, runtimeSummary(machine.runtimeVersions))),
+            cell("text-gray-300", () => diskCell(machine)),
             cell("text-gray-400 tabular-nums", span({title: machine.evicted ? absoluteTime(machine.eventTime) : absoluteTime(machine.connectedAt)},
                 machine.isPrimary ? "-" : machine.evicted ? `evicted ${relativeTime(machine.eventTime)}` : machine.connected ? relativeTime(machine.connectedAt) : "-")),
         );
@@ -235,10 +282,10 @@ export function clusterPage() {
         const rows = sortedNodes();
         if (!rows.length) return emptyLine(search.val.trim() ? "No nodes match your search." : "No nodes found.");
         return table({class: "w-full table-fixed text-[13px]"},
-            colgroup(
-                col({style: "width:17%"}), col({style: "width:12%"}), col({style: "width:15%"}), col({style: "width:12%"}),
-                col({style: "width:7%"}), col({style: "width:8%"}), col({style: "width:18%"}), col({style: "width:11%"})),
-            headerRow(["Node", "pl-3"], ["Status"], ["Address"], ["Host addresses"], ["Spaces"], ["Version"], ["Runtime"], ["Connected"]),
+            colgroup(...NODE_COLUMN_WIDTHS.map((wide, i) => col({
+                style: () => `width:${selectedId.val === null ? wide : NODE_COLUMN_WIDTHS_BESIDE_INSPECTOR[i]}%`,
+            }))),
+            headerRow(["Node", "pl-3"], ["Status"], ["Address"], ["Host addresses"], ["Spaces"], ["Version"], ["Runtime"], ["Disk"], ["Connected"]),
             tbody(...rows.map(nodeRow)));
     };
 
@@ -309,6 +356,25 @@ export function clusterPage() {
                     onclick: () => { activeTab.val = ACCESS; },
                 }, "access policies"),
                 " decide."));
+    };
+
+    const usageLine = (label, usage, testId) => div({class: "flex flex-col gap-0.5", "data-testid": testId},
+        label,
+        span({class: "tabular-nums"},
+            span({class: "cluster-tone", "data-tone": usageTone(usage.usedPct)}, pct(usage.usedPct)),
+            span({class: "text-gray-300"}, ` · ${diskDetail(usage)}`)));
+
+    const diskField = (machine) => {
+        const metrics = nodeMetrics.val;
+        const sample = nodeSample(machine);
+        const data = dataDiskUsage(sample);
+        if (!data) {
+            return span({class: "text-gray-500", "data-testid": "node-inspector-disk-empty"},
+                metrics.status === "loading" ? "Loading…" : metrics.error || (machine.connected || machine.isPrimary ? "Not reported yet" : "Not connected"));
+        }
+        return div({class: "flex flex-col gap-1.5"},
+            usageLine(span({class: "text-gray-400"}, "Data filesystem"), data, "node-inspector-disk-data"),
+            ...extraDiskUsages(sample).map((fs) => usageLine(span({class: "break-all font-mono text-gray-400"}, fs.mount), fs, "node-inspector-disk-extra")));
     };
 
     const actionsRow = (machine) => {
@@ -395,6 +461,8 @@ export function clusterPage() {
                 kvRow("Runtime", machine.runtimeVersions
                     ? span({class: "font-mono"}, machine.runtimeVersions)
                     : span({class: "text-gray-500"}, "Not reported")),
+                kvRow("Disk usage", div({"data-testid": "node-inspector-disk"}, () => diskField(machine)),
+                    p({class: "pt-1 text-[11px] text-gray-500"}, "The filesystem that holds the OpenDeploy data, then any other filesystem an OpenDeploy directory sits on.")),
                 kvRow("Spaces", spacesField(machine))),
             machine.isPrimary ? "" : actionsRow(machine)];
     };

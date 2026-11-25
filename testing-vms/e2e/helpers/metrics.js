@@ -138,3 +138,119 @@ export async function expectMetricsControls(page, {name}) {
   await panel.getByRole('button', {name: 'Last hour'}).click();
   await expect.poll(async () => page.evaluate(() => window.__metricsResult?.buckets || 0), {timeout: LONG_UI_TIMEOUT}).toBeGreaterThan(11);
 }
+
+const nodesPanel = page => page.getByTestId('metrics-panel-nodes');
+
+function clusterNodeRow(page, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return page.locator('[data-testid^="machine-row-"]')
+    .filter({has: page.locator('[data-testid="node-name"]', {hasText: new RegExp(`^${escaped}$`)})});
+}
+
+async function showNodesOverview(page) {
+  await page.getByTestId('nav-metrics').click();
+  await expect(page.getByTestId('metrics-page')).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  const tab = page.getByTestId('metrics-tab-nodes');
+  await tab.click();
+  await expect(tab).toHaveAttribute('aria-selected', 'true');
+  await expect(nodesPanel(page)).toBeVisible();
+}
+
+export async function expectNodeMetricsOverviewRow(page, {name, minCpuCores = 0, minMemBytes = 0, maxAgeSeconds = 120}) {
+  await showNodesOverview(page);
+  await expect.poll(async () => {
+    await refreshMetrics(page);
+    const row = nodesPanel(page).getByTestId(`metrics-nodes-row-${name}`);
+    if (await row.count() === 0) return 'row missing';
+    const cells = await row.locator('td').allTextContents();
+    const cpu = Number(cells[1]);
+    const mem = parseBytes(cells[4]);
+    const memPct = parseFloat(cells[5]);
+    const disk = parseBytes(cells[6]);
+    const diskPct = parseFloat(cells[7]);
+    const age = Number(String(cells[12]).replace(/s$/, ''));
+    if (!(age <= maxAgeSeconds)) return `sample age ${cells[12]}`;
+    if (!(cpu >= minCpuCores)) return `cpu ${cells[1]} < ${minCpuCores}`;
+    if (!(mem >= minMemBytes)) return `memory ${cells[4]} < ${minMemBytes}`;
+    if (!(memPct > 0 && memPct <= 100)) return `memory percent ${cells[5]}`;
+    if (!(disk > 0)) return `disk used ${cells[6]}`;
+    if (!(diskPct > 0 && diskPct <= 100)) return `disk percent ${cells[7]}`;
+    return 'ok';
+  }, {message: `expected nodes overview row for ${name}`, timeout: METRICS_TIMEOUT, intervals: POLL_INTERVALS}).toBe('ok');
+}
+
+export async function expectNodeMetricsCharts(page, {name, minCpuCores = 0}) {
+  await showNodesOverview(page);
+  const row = nodesPanel(page).getByTestId(`metrics-nodes-row-${name}`);
+  await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
+  const id = await row.getAttribute('data-node-id');
+  await row.click();
+  await expect(page.getByTestId(`metrics-tab-node-${id}`)).toHaveAttribute('aria-selected', 'true');
+  const panel = page.getByTestId(`metrics-panel-node-${id}`);
+  await expect(panel).toBeVisible();
+  await expect.poll(async () => {
+    await refreshMetrics(page);
+    return page.evaluate(({id, minCpuCores}) => {
+      const r = window.__metricsNodeResult;
+      if (!r || String(r.nodeId) !== id) return 'no result';
+      const last = (chart, label) => {
+        const s = r.charts[chart]?.series.find(x => x.label === label);
+        if (!s) return NaN;
+        for (let i = s.values.length - 1; i >= 0; i -= 1) if (Number.isFinite(s.values[i])) return s.values[i];
+        return NaN;
+      };
+      const cpu = last('cpu', 'total');
+      if (!(cpu >= minCpuCores && cpu > 0)) return `cpu ${cpu} < ${minCpuCores}`;
+      if (!(last('load', 'cpus') >= 1)) return `cpu count ${last('load', 'cpus')}`;
+      if (!(last('mem', 'used') > 0 && last('mem', 'total') >= last('mem', 'used'))) return `memory ${last('mem', 'used')} of ${last('mem', 'total')}`;
+      if (!(last('disk', 'used') > 0 && last('disk', 'total') >= last('disk', 'used'))) return `disk ${last('disk', 'used')} of ${last('disk', 'total')}`;
+      if (!(last('net', 'rx') >= 0)) return 'network rx missing';
+      if (!(last('io', 'write') >= 0)) return 'disk write missing';
+      return 'ok';
+    }, {id, minCpuCores});
+  }, {message: `expected charted node metrics for ${name}`, timeout: METRICS_TIMEOUT, intervals: POLL_INTERVALS}).toBe('ok');
+  await expect(panel.getByTestId('metrics-node-chart-cpu-svg').locator('path')).not.toHaveCount(0);
+  await expect(panel.getByTestId('metrics-node-chart-disk-svg').locator('path')).not.toHaveCount(0);
+
+  await panel.getByTestId('metrics-time-button').click();
+  await panel.getByRole('button', {name: 'Last 5 minutes'}).click();
+  await expect.poll(async () => page.evaluate(() => window.__metricsNodeResult?.stepMs || 0), {timeout: LONG_UI_TIMEOUT}).toBe(10_000);
+  await expect(panel.getByTestId('metrics-status')).toContainText('step 10 s');
+
+  await page.getByTestId(`metrics-tab-node-${id}`).getByRole('button', {name: `Close ${name}`}).click();
+  await expect(page.getByTestId(`metrics-tab-node-${id}`)).toHaveCount(0);
+  await expect(panel).toHaveCount(0);
+}
+
+export async function expectNodeDiskColumn(page, {names}) {
+  await expect.poll(async () => {
+    await page.getByTestId('nav-metrics').click();
+    await page.getByTestId('nav-cluster').click();
+    await page.getByTestId('nodes-tab-nodes').click();
+    for (const name of names) {
+      const row = clusterNodeRow(page, name);
+      if (await row.count() !== 1) return `row for ${name} missing`;
+      const cell = row.getByTestId('node-disk');
+      try {
+        await expect(cell).not.toHaveAttribute('data-state', 'loading', {timeout: LONG_UI_TIMEOUT});
+      } catch {
+        return `disk usage for ${name} still loading`;
+      }
+      const state = await cell.getAttribute('data-state');
+      const text = (await cell.textContent() || '').trim();
+      if (state !== 'loaded') return `disk usage for ${name} is ${state}`;
+      if (!/^\d+% of [\d.]+ (MiB|GiB|TiB)$/.test(text)) return `disk usage for ${name} reads ${text}`;
+    }
+    return 'ok';
+  }, {message: `expected disk usage for ${names.join(', ')} on the Nodes page`, timeout: METRICS_TIMEOUT, intervals: POLL_INTERVALS}).toBe('ok');
+
+  const name = names[names.length - 1];
+  const row = clusterNodeRow(page, name);
+  await row.click();
+  const inspector = page.getByTestId('node-inspector');
+  await expect(inspector.getByTestId('node-inspector-disk-data')).toContainText(/\d+% · .+ used of .+ · .+ available/, {timeout: LONG_UI_TIMEOUT});
+  await expect(row.getByTestId('node-disk')).toHaveText(/^\d+%$/);
+  await inspector.getByRole('button', {name: 'Close details'}).click();
+  await expect(inspector).toBeHidden();
+  await expect(row.getByTestId('node-disk')).toHaveText(/^\d+% of /);
+}

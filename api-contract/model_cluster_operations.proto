@@ -32,6 +32,8 @@ message MsgToSecondary {
   optional bool evicted = 13;
   NodeProjection node_snapshot = 14;
   NodeProjection node_update = 15;
+  NodeMetricsQueryRequest node_metrics_query_request = 16;
+  NodeMetricsLatestRequest node_metrics_latest_request = 17;
 }
 
 message NixStoreResetItem {
@@ -64,6 +66,8 @@ message MsgToPrimary {
   optional string log_query_error = 8;       // secondary-side failure for the query tagged by log_request_id
   MetricsQueryResponse metrics_query_response = 9;
   MetricsLatestResponse metrics_latest_response = 10;
+  NodeMetricsQueryResponse node_metrics_query_response = 11;
+  NodeMetricsLatestResponse node_metrics_latest_response = 12;
 }
 
 // ScheduledInstanceState is the authoritative runtime assignment view: the

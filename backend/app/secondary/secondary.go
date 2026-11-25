@@ -140,6 +140,8 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	go nixDockerPreparer.RunMaintenance(ctx)
 	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, int32(cfg.NodeID))
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
+	metricstore.DefaultNode = metricstore.StartNode(ctx, metricstore.NodeDir(ainit.StaticConfig.MetricsDir), int32(cfg.NodeID))
+	go metrics.RunNode(ctx, metrics.DefaultInterval, metrics.OpenDeployRoots(), metricstore.DefaultNode)
 	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))
 	go runRuntimeInputRetention(ctx, store, runtimeInputs, scheduledInstancePredicateForNode(cfg.NodeID), acmeHolder)
 	volumeSweeper := runner.NewVolumeSweeper(store, scheduledInstancePredicateForNode(cfg.NodeID))

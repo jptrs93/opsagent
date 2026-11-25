@@ -1,6 +1,7 @@
 package webuihandler
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/clusterhandler"
+	"github.com/jptrs93/opsagent/backend/app/primary/domain/nodes"
 	"github.com/jptrs93/opsagent/backend/lib/metrics/metricstore"
 )
 
@@ -173,4 +175,118 @@ func secondaryMetricsErr(nodeID uint64, err error) error {
 		return apigen.NewApiErr(fmt.Sprintf("Secondary node %d is not connected", nodeID), "secondary_not_connected", http.StatusBadGateway)
 	}
 	return apigen.NewApiErr(fmt.Sprintf("Metrics query on secondary node %d failed: %v", nodeID, err), "secondary_metrics_query_failed", http.StatusBadGateway)
+}
+
+const nodeMetricsQueryTimeout = 20 * time.Second
+
+var MissingNodeIDErr = apigen.NewApiErr("Node id is required", "missing_node_id", http.StatusBadRequest)
+
+func (h *Handler) PostV1MetricsNodesQuery(ctx apigen.Context, req *apigen.NodeMetricsQueryRequest) (*apigen.NodeMetricsQueryResponse, error) {
+	if req.NodeID == 0 {
+		return nil, MissingNodeIDErr
+	}
+	if req.StepMs < 0 {
+		return nil, deployments.InvalidConfigErrf("step_ms must not be negative")
+	}
+	if !h.memberNodeExists(req.NodeID) || !h.nodeVisible(ctx, req.NodeID) {
+		return nil, NodeNotFoundErr
+	}
+	from, to, err := metricstore.ResolveRange(req.TimeStart, req.TimeEnd, time.Now())
+	if err != nil {
+		return nil, deployments.InvalidConfigErrf("%s", err.Error())
+	}
+	if _, err := metricstore.NodeRequestFields(req.Fields); err != nil {
+		return nil, deployments.InvalidConfigErrf("%s", err.Error())
+	}
+	if req.StepMs < metricstore.MinStep.Milliseconds() {
+		req.StepMs = metricstore.ChooseStep(from, to, metricstore.DefaultMaxPoints).Milliseconds()
+	}
+	resp, err := h.nodeMetricsQueryOnNode(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	for i := range resp.Series {
+		resp.Series[i].NodeID = req.NodeID
+	}
+	return resp, nil
+}
+
+func (h *Handler) memberNodeExists(nodeID uint64) bool {
+	for _, node := range nodes.ListNodes(h.Store.Queries()) {
+		if node != nil && node.ID == nodeID {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) nodeMetricsQueryOnNode(ctx context.Context, req *apigen.NodeMetricsQueryRequest) (*apigen.NodeMetricsQueryResponse, error) {
+	if req.NodeID != h.NodeID {
+		if h.Cluster == nil {
+			return nil, secondaryMetricsErr(req.NodeID, &clusterhandler.NodeNotConnectedError{NodeID: req.NodeID})
+		}
+		queryCtx, cancel := context.WithTimeout(ctx, nodeMetricsQueryTimeout)
+		defer cancel()
+		r := *req
+		resp, err := h.Cluster.RequestNodeMetricsQuery(queryCtx, req.NodeID, &r)
+		if err != nil {
+			return nil, secondaryMetricsErr(req.NodeID, err)
+		}
+		return resp, nil
+	}
+	if h.NodeMetrics == nil {
+		return nil, apigen.NewApiErr("Node metrics store is not running", "metrics_unavailable", http.StatusInternalServerError)
+	}
+	return h.NodeMetrics.QueryResponse(ctx, req)
+}
+
+func (h *Handler) PostV1MetricsNodesLatest(ctx apigen.Context, _ *apigen.NodeMetricsLatestRequest) (*apigen.NodeMetricsLatestResponse, error) {
+	out := &apigen.NodeMetricsLatestResponse{}
+	access := h.readNodeAccess()
+	if h.NodeMetrics != nil && h.nodeVisibleIn(ctx, access, h.NodeID) {
+		out.Entries = stampNodeMetrics(h.NodeMetrics.LatestResponse().Entries, h.NodeID)
+	}
+	if h.Cluster != nil {
+		type reply struct {
+			node uint64
+			resp *apigen.NodeMetricsLatestResponse
+			err  error
+		}
+		fanCtx, cancel := context.WithTimeout(ctx, metricsLatestTimeout)
+		defer cancel()
+		replies := make(chan reply)
+		pending := 0
+		for node := range h.Cluster.ConnectedNodes() {
+			if node == h.NodeID || !h.nodeVisibleIn(ctx, access, node) {
+				continue
+			}
+			pending++
+			go func() {
+				resp, err := h.Cluster.RequestNodeMetricsLatest(fanCtx, node)
+				replies <- reply{node: node, resp: resp, err: err}
+			}()
+		}
+		for ; pending > 0; pending-- {
+			r := <-replies
+			if r.err != nil {
+				out.Warnings = append(out.Warnings, fmt.Sprintf("node %d: %v", r.node, r.err))
+				continue
+			}
+			out.Entries = append(out.Entries, stampNodeMetrics(r.resp.Entries, r.node)...)
+		}
+	}
+	slices.SortFunc(out.Entries, func(a, b apigen.NodeMetricsLatestEntry) int {
+		return cmp.Compare(a.Sample.NodeID, b.Sample.NodeID)
+	})
+	slices.Sort(out.Warnings)
+	return out, nil
+}
+
+// stampNodeMetrics labels entries with the node they were requested from: a
+// node's own claim about which node it is must not decide whose row they fill.
+func stampNodeMetrics(entries []apigen.NodeMetricsLatestEntry, nodeID uint64) []apigen.NodeMetricsLatestEntry {
+	for i := range entries {
+		entries[i].Sample.NodeID = int32(nodeID)
+	}
+	return entries
 }

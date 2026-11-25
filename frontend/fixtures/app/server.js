@@ -385,6 +385,100 @@ function buildLatest(store) {
     return rt("MetricsLatestResponse", {entries, warnings: ["edge-1: no samples for 9m (node disconnected)"]});
 }
 
+const GIB = 1024 ** 3;
+const NODE_PROFILES = {
+    [NODE.primary]: {cpus: 8, mem: 32 * GIB, memUsed: 0.46, disk: 196 * GIB, diskUsed: 0.47, load: 0.24},
+    [NODE.a]: {cpus: 16, mem: 64 * GIB, memUsed: 0.71, disk: 492 * GIB, diskUsed: 0.84, load: 0.52,
+        extra: {"/var/lib/opendeploy-nix": {total: 984 * GIB, used: 0.38}}},
+    [NODE.b]: {cpus: 16, mem: 64 * GIB, memUsed: 0.38, disk: 492 * GIB, diskUsed: 0.31, load: 0.18},
+    [NODE.c]: {cpus: 4, mem: 16 * GIB, memUsed: 0.62, disk: 98 * GIB, diskUsed: 0.93, load: 0.35},
+};
+const NODE_GAUGES = new Set(["cpu_count", "mem_used", "mem_cached", "swap_used", "mem_total", "fs_data_used_bytes", "fs_data_total_bytes"]);
+
+const reportingNodes = (store) => Object.keys(NODE_PROFILES).map(Number)
+    .filter((id) => store.latest(T.NODE, id) && store.latest(T.NODE_STATUS, id)?.entity?.isConnected !== false);
+
+function nodeFieldShape(profile, field) {
+    const busy = profile.cpus * profile.load;
+    switch (field) {
+        case "cpu_usage_usec": return [busy * 1e6, busy * 0.3e6];
+        case "cpu_user_usec": return [busy * 0.72e6, busy * 0.22e6];
+        case "cpu_system_usec": return [busy * 0.22e6, busy * 0.08e6];
+        case "cpu_iowait_usec": return [busy * 0.04e6, busy * 0.03e6];
+        case "cpu_steal_usec": return [busy * 0.01e6, busy * 0.01e6];
+        case "load1": return [busy * 1.1, busy * 0.4];
+        case "load5": return [busy * 1.05, busy * 0.18];
+        case "load15": return [busy, busy * 0.08];
+        case "cpu_count": return [profile.cpus, 0];
+        case "mem_used": return [profile.mem * profile.memUsed, profile.mem * 0.02];
+        case "mem_cached": return [profile.mem * 0.22, profile.mem * 0.01];
+        case "swap_used": return [profile.mem * 0.004, profile.mem * 0.001];
+        case "mem_total": return [profile.mem, 0];
+        case "fs_data_used_bytes": return [profile.disk * profile.diskUsed, 0];
+        case "fs_data_total_bytes": return [profile.disk, 0];
+        case "net_rx_bytes": return [busy * 0.9e6, busy * 0.5e6];
+        case "net_tx_bytes": return [busy * 1.6e6, busy * 0.8e6];
+        case "io_read_bytes": return [busy * 0.3e6, busy * 0.4e6];
+        case "io_write_bytes": return [busy * 1.1e6, busy * 0.7e6];
+        case "io_read_ops": return [busy * 14, busy * 12];
+        case "io_write_ops": return [busy * 96, busy * 50];
+        case "psi_cpu_some_avg10": return [profile.load * 9, profile.load * 6];
+        case "psi_mem_some_avg10": return [profile.memUsed * 0.6, 0.4];
+        case "psi_io_some_avg10": return [profile.load * 3, profile.load * 3];
+        default: return [1, 1];
+    }
+}
+
+function buildNodeMetrics(store, req) {
+    const end = req.timeEnd instanceof Date ? req.timeEnd.getTime() : Date.now();
+    const start = req.timeStart instanceof Date ? req.timeStart.getTime() : end - HOUR;
+    const stepMs = Math.max(30e3, Math.ceil((end - start) / 120 / 30e3) * 30e3);
+    const buckets = Math.ceil((end - start) / stepMs);
+    const nodeId = Number(req.nodeId || 0);
+    const profile = NODE_PROFILES[nodeId];
+    if (!profile || !reportingNodes(store).includes(nodeId)) throw refuse(502, `Secondary node ${nodeId} is not connected`);
+    const series = [];
+    const r = rng(nodeId * 977);
+    for (const field of req.fields || []) {
+        const [base, jitter] = nodeFieldShape(profile, field);
+        const values = Array.from({length: buckets}, (_, b) => {
+            const wave = Math.sin((b + nodeId * 5) / 11) * 0.5 + Math.sin(b / 2.7) * 0.2;
+            const growth = field === "fs_data_used_bytes" ? 1 - (buckets - b) / buckets * 0.012 : 1;
+            return Math.max(0, base * growth + jitter * (wave + (r.next() - 0.5)));
+        });
+        series.push({nodeId, field, kind: NODE_GAUGES.has(field) ? 1 : field.startsWith("load") || field.startsWith("psi") ? 2 : 0, values});
+    }
+    return rt("NodeMetricsQueryResponse", {timeStart: new Date(start - (start % stepMs)), stepMs, buckets, series, scannedRows: buckets * 3, tookMs: 9});
+}
+
+function buildNodeLatest(store) {
+    const now = Date.now();
+    const entries = reportingNodes(store).map((nodeId) => {
+        const profile = NODE_PROFILES[nodeId];
+        const r = rng(nodeId * 613);
+        const busy = profile.cpus * profile.load;
+        const fs = (total, used) => ({totalBytes: Math.round(total), freeBytes: Math.round(total * (1 - used)), availBytes: Math.round(total * (1 - used) * 0.95), inodesTotal: 32e6, inodesFree: 30e6});
+        const data = fs(profile.disk, profile.diskUsed);
+        return {
+            sample: {
+                time: now - r.int(1, 9) * 1000, nodeId, cpuCount: profile.cpus, load1: busy * 1.1, load5: busy * 1.05, load15: busy,
+                memTotal: profile.mem, memAvailable: Math.round(profile.mem * (1 - profile.memUsed)), memFree: Math.round(profile.mem * 0.08), memCached: Math.round(profile.mem * 0.22),
+                swapTotal: 4 * GIB, swapFree: Math.round(3.9 * GIB),
+                fsDataTotalBytes: data.totalBytes, fsDataFreeBytes: data.freeBytes, fsDataAvailBytes: data.availBytes, fsDataInodesTotal: data.inodesTotal, fsDataInodesFree: data.inodesFree,
+                extraFilesystems: Object.fromEntries(Object.entries(profile.extra || {}).map(([mount, e]) => [mount, fs(e.total, e.used)])),
+            },
+            rates: [
+                {field: "cpu_usage_usec", perSecond: busy * 1e6 * (0.8 + r.next() * 0.4)},
+                {field: "net_rx_bytes", perSecond: busy * 0.9e6 * (0.5 + r.next())},
+                {field: "net_tx_bytes", perSecond: busy * 1.6e6 * (0.5 + r.next())},
+                {field: "io_read_bytes", perSecond: busy * 0.3e6 * r.next() * 2},
+                {field: "io_write_bytes", perSecond: busy * 1.1e6 * (0.4 + r.next())},
+            ],
+        };
+    });
+    return rt("NodeMetricsLatestResponse", {entries, warnings: []});
+}
+
 const NIX_BUILD_LOG = (name, version) => [
     `building '/nix/store/${commitSha(`drv-${name}`).slice(0, 32)}-${name}-image.json.drv'...`,
     `fetching git input 'git+https://github.com/acme/platform?rev=${version}'`,
@@ -793,6 +887,8 @@ export function installServer(capi, {log = console} = {}) {
         async postV1DeploymentsLogQuery(request) { await sleep(180); return buildLogs(store, request); },
         async postV1MetricsLatest() { await sleep(150); return buildLatest(store); },
         async postV1MetricsQuery(request) { await sleep(220); return buildMetrics(store, request); },
+        async postV1MetricsNodesLatest() { await sleep(450); return buildNodeLatest(store); },
+        async postV1MetricsNodesQuery(request) { await sleep(220); return buildNodeMetrics(store, request); },
         async postV1NixStoreReset() { await sleep(300); },
         async postV1GlobalExportedConfig() { return rt("ExportedConfigBlob", {blob: bytesOf("export", 2048)}); },
 

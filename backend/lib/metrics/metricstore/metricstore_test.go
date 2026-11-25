@@ -31,7 +31,7 @@ func mkSample(dep, run int32, t time.Time, cpu int64) *apigen.MetricsSample {
 
 func writeWAL(t *testing.T, dir string, samples ...*apigen.MetricsSample) {
 	t.Helper()
-	w := &walWriter{dir: dir}
+	w := newWALWriter(runTable, dir)
 	if err := w.append(samples); err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,8 @@ func TestRowMirrorsMetricsSample(t *testing.T) {
 			exported++
 		}
 	}
-	if rt.NumField() != exported || len(rowFieldPairs) != exported {
-		t.Fatalf("row has %d fields, MetricsSample has %d exported, %d paired", rt.NumField(), exported, len(rowFieldPairs))
+	if rt.NumField() != exported || len(runRows.pairs) != exported {
+		t.Fatalf("row has %d fields, MetricsSample has %d exported, %d paired", rt.NumField(), exported, len(runRows.pairs))
 	}
 	for i := range st.NumField() {
 		sf := st.Field(i)
@@ -83,7 +83,7 @@ func TestWALRoundTripKeepsRecordsBeforeDamagedTail(t *testing.T) {
 	f.Close()
 
 	var out []*apigen.MetricsSample
-	n, clean, err := readWAL(path, nil, func(s *apigen.MetricsSample) bool {
+	n, clean, err := readWAL(path, runTable.decode, nil, func(s *apigen.MetricsSample) bool {
 		out = append(out, s)
 		return true
 	})
@@ -107,7 +107,7 @@ func TestWALWriterSplitsDays(t *testing.T) {
 		day  time.Time
 		want int
 	}{{day1, 1}, {day2, 2}} {
-		n, clean, err := readWAL(walPath(dir, tc.day), nil, func(*apigen.MetricsSample) bool { return true })
+		n, clean, err := readWAL(walPath(dir, tc.day), runTable.decode, nil, func(*apigen.MetricsSample) bool { return true })
 		if err != nil || !clean || n != tc.want {
 			t.Errorf("%s: records=%d clean=%v err=%v, want %d", tc.day.Format(dayLayout), n, clean, err, tc.want)
 		}

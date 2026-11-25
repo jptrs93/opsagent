@@ -70,34 +70,58 @@ func AlignRange(from, to time.Time, step time.Duration) (time.Time, int) {
 	return start, buckets
 }
 
+type rollupPlan struct {
+	start   time.Time
+	step    time.Duration
+	buckets int
+	grid    bucketGrid
+	scan    timeRange
+}
+
+func planRollup(from, to time.Time, step time.Duration) (rollupPlan, error) {
+	if from.IsZero() || to.IsZero() || !to.After(from) {
+		return rollupPlan{}, errInvalidRange
+	}
+	if step < MinStep {
+		step = ChooseStep(from, to, DefaultMaxPoints)
+	}
+	start, buckets := AlignRange(from, to, step)
+	if buckets > MaxBuckets {
+		return rollupPlan{}, errTooManyBuckets
+	}
+	grid := bucketGrid{startMs: start.UnixMilli(), stepMs: step.Milliseconds(), buckets: buckets}
+	grid.endMs = grid.startMs + grid.stepMs*int64(buckets)
+	return rollupPlan{
+		start:   start,
+		step:    step,
+		buckets: buckets,
+		grid:    grid,
+		scan:    timeRange{start.Add(-rateLookback), start.Add(step * time.Duration(buckets))},
+	}, nil
+}
+
 func (s *Store) Rollup(ctx context.Context, req RollupRequest) (RollupResult, error) {
 	return Rollup(ctx, s.dir, s.nodeID, req)
 }
 
 func Rollup(ctx context.Context, dir string, nodeID int32, req RollupRequest) (RollupResult, error) {
-	if req.From.IsZero() || req.To.IsZero() || !req.To.After(req.From) {
-		return RollupResult{}, errInvalidRange
-	}
-	step := req.Step
-	if step < MinStep {
-		step = ChooseStep(req.From, req.To, DefaultMaxPoints)
-	}
-	start, buckets := AlignRange(req.From, req.To, step)
-	if buckets > MaxBuckets {
-		return RollupResult{}, errTooManyBuckets
+	plan, err := planRollup(req.From, req.To, req.Step)
+	if err != nil {
+		return RollupResult{}, err
 	}
 	fields := req.Fields
 	if len(fields) == 0 {
 		fields = Fields
 	}
 	q := req.Query
-	q.From = start.Add(-rateLookback)
-	q.To = start.Add(step * time.Duration(buckets))
-	grid := bucketGrid{startMs: start.UnixMilli(), stepMs: step.Milliseconds(), buckets: buckets}
-	grid.endMs = grid.startMs + grid.stepMs*int64(buckets)
-	accs := map[metrics.TargetKey]*rollupAcc{}
+	q.From, q.To = plan.scan.from, plan.scan.to
+	type runAcc struct {
+		nodeID int32
+		acc    *rollupAcc[apigen.MetricsSample]
+	}
+	accs := map[metrics.TargetKey]*runAcc{}
 	scanned := 0
-	err := Scan(ctx, dir, nodeID, q, func(s *apigen.MetricsSample) bool {
+	err = Scan(ctx, dir, nodeID, q, func(s *apigen.MetricsSample) bool {
 		if req.DeploymentVersion != 0 && s.DeploymentVersion != req.DeploymentVersion {
 			return true
 		}
@@ -105,15 +129,15 @@ func Rollup(ctx context.Context, dir string, nodeID int32, req RollupRequest) (R
 			return true
 		}
 		k := Key(s)
-		acc := accs[k]
-		if acc == nil {
-			acc = &rollupAcc{key: k, nodeID: s.NodeID, sum: make([][]float64, len(fields)), weight: make([][]float64, len(fields))}
-			accs[k] = acc
-		} else if s.Time <= acc.prev.Time {
+		run := accs[k]
+		if run == nil {
+			run = &runAcc{nodeID: s.NodeID, acc: newRollupAcc[apigen.MetricsSample](len(fields))}
+			accs[k] = run
+		} else if s.Time <= run.acc.prevTime {
 			return true
 		}
 		scanned++
-		acc.fold(s, fields, grid)
+		run.acc.fold(s, s.Time, fields, plan.grid)
 		return true
 	})
 	if err != nil {
@@ -124,9 +148,14 @@ func Rollup(ctx context.Context, dir string, nodeID int32, req RollupRequest) (R
 		keys = append(keys, k)
 	}
 	slices.SortFunc(keys, CompareKey)
-	res := RollupResult{Start: start, Step: step, Buckets: buckets, Scanned: scanned}
+	res := RollupResult{Start: plan.start, Step: plan.step, Buckets: plan.buckets, Scanned: scanned}
 	for _, k := range keys {
-		res.Series = append(res.Series, accs[k].series(fields, buckets)...)
+		run := accs[k]
+		for i, f := range fields {
+			if values := run.acc.values(i, plan.buckets); values != nil {
+				res.Series = append(res.Series, Series{Key: k, NodeID: run.nodeID, Field: f, Values: values})
+			}
+		}
 	}
 	return res, nil
 }
@@ -136,25 +165,28 @@ type bucketGrid struct {
 	buckets                int
 }
 
-type rollupAcc struct {
-	key    metrics.TargetKey
-	nodeID int32
-	prev   *apigen.MetricsSample
-	sum    [][]float64
-	weight [][]float64
+type rollupAcc[S any] struct {
+	prev     *S
+	prevTime int64
+	sum      [][]float64
+	weight   [][]float64
 }
 
-func (a *rollupAcc) fold(s *apigen.MetricsSample, fields []Field, g bucketGrid) {
+func newRollupAcc[S any](fields int) *rollupAcc[S] {
+	return &rollupAcc[S]{sum: make([][]float64, fields), weight: make([][]float64, fields)}
+}
+
+func (a *rollupAcc[S]) fold(s *S, t int64, fields []FieldOf[S], g bucketGrid) {
 	for i, f := range fields {
 		if f.Kind == Counter {
 			if a.prev == nil {
 				continue
 			}
-			rate, ok := Rate(a.prev, s, f)
-			if !ok || s.Time <= g.startMs || a.prev.Time >= g.endMs {
+			rate, ok := counterRate(a.prev, s, a.prevTime, t, f)
+			if !ok || t <= g.startMs || a.prevTime >= g.endMs {
 				continue
 			}
-			lo, hi := max(a.prev.Time, g.startMs), min(s.Time, g.endMs)
+			lo, hi := max(a.prevTime, g.startMs), min(t, g.endMs)
 			for b := (lo - g.startMs) / g.stepMs; b < int64(g.buckets) && g.startMs+b*g.stepMs < hi; b++ {
 				edge0, edge1 := g.startMs+b*g.stepMs, g.startMs+(b+1)*g.stepMs
 				overlap := float64(min(hi, edge1) - max(lo, edge0))
@@ -166,15 +198,15 @@ func (a *rollupAcc) fold(s *apigen.MetricsSample, fields []Field, g bucketGrid) 
 			continue
 		}
 		v, ok := f.Value(s)
-		if !ok || s.Time < g.startMs || s.Time >= g.endMs {
+		if !ok || t < g.startMs || t >= g.endMs {
 			continue
 		}
-		a.add(i, int((s.Time-g.startMs)/g.stepMs), v, 1, g.buckets)
+		a.add(i, int((t-g.startMs)/g.stepMs), v, 1, g.buckets)
 	}
-	a.prev = s
+	a.prev, a.prevTime = s, t
 }
 
-func (a *rollupAcc) add(field, bucket int, sum, weight float64, buckets int) {
+func (a *rollupAcc[S]) add(field, bucket int, sum, weight float64, buckets int) {
 	if a.sum[field] == nil {
 		a.sum[field] = make([]float64, buckets)
 		a.weight[field] = make([]float64, buckets)
@@ -183,21 +215,17 @@ func (a *rollupAcc) add(field, bucket int, sum, weight float64, buckets int) {
 	a.weight[field][bucket] += weight
 }
 
-func (a *rollupAcc) series(fields []Field, buckets int) []Series {
-	var out []Series
-	for i, f := range fields {
-		if a.sum[i] == nil {
-			continue
-		}
-		values := make([]float64, buckets)
-		for b := range values {
-			if a.weight[i][b] > 0 {
-				values[b] = a.sum[i][b] / a.weight[i][b]
-			} else {
-				values[b] = math.NaN()
-			}
-		}
-		out = append(out, Series{Key: a.key, NodeID: a.nodeID, Field: f, Values: values})
+func (a *rollupAcc[S]) values(field, buckets int) []float64 {
+	if a.sum[field] == nil {
+		return nil
 	}
-	return out
+	values := make([]float64, buckets)
+	for b := range values {
+		if a.weight[field][b] > 0 {
+			values[b] = a.sum[field][b] / a.weight[field][b]
+		} else {
+			values[b] = math.NaN()
+		}
+	}
+	return values
 }

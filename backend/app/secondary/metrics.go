@@ -36,3 +36,31 @@ func runMetricsLatest(ctx context.Context, out *outbox, req *apigen.MetricsLates
 	}
 	out.Send(&apigen.MsgToPrimary{MetricsLatestResponse: apigen.Some(*store.LatestResponse()), LogRequestID: apigen.Some(req.RequestID)})
 }
+
+func runNodeMetricsQuery(ctx context.Context, out *outbox, req *apigen.NodeMetricsQueryRequest) {
+	ctx = logu.AddTag(ctx, "Metrics")
+	store := metricstore.DefaultNode
+	if store == nil {
+		out.Send(&apigen.MsgToPrimary{LogQueryError: apigen.Some("node metrics store is not running"), LogRequestID: apigen.Some(req.RequestID)})
+		return
+	}
+	resp, err := store.QueryResponse(ctx, req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		slog.WarnContext(ctx, "node metrics query failed", "err", err)
+		out.Send(&apigen.MsgToPrimary{LogQueryError: apigen.Some(err.Error()), LogRequestID: apigen.Some(req.RequestID)})
+		return
+	}
+	out.Send(&apigen.MsgToPrimary{NodeMetricsQueryResponse: apigen.Some(*resp), LogRequestID: apigen.Some(req.RequestID)})
+}
+
+func runNodeMetricsLatest(out *outbox, req *apigen.NodeMetricsLatestRequest) {
+	store := metricstore.DefaultNode
+	if store == nil {
+		out.Send(&apigen.MsgToPrimary{LogQueryError: apigen.Some("node metrics store is not running"), LogRequestID: apigen.Some(req.RequestID)})
+		return
+	}
+	out.Send(&apigen.MsgToPrimary{NodeMetricsLatestResponse: apigen.Some(*store.LatestResponse()), LogRequestID: apigen.Some(req.RequestID)})
+}

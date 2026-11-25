@@ -53,11 +53,11 @@ Shots:
   `dialog-recently-deleted` and `dialog-run-report` are the Deployments page.
 - `secrets`, `secrets-inspector` and `dialog-secret-value` are Secrets / Configs.
 - `assets` and `assets-inspector` are Assets.
-- `logs`, `metrics` and `metrics-deployment` are Logs and Metrics.
+- `logs`, `metrics`, `metrics-deployment`, `metrics-nodes` and `metrics-node` are Logs and Metrics.
 - `users`, `users-rules`, `users-you`, `sessions` and `sessions-user` are Users & roles and Sessions.
 - `spaces`, `spaces-domain`, `dialog-add-space` and `policies` are Spaces and network policies.
-- `cluster`, `cluster-inspector`, `cluster-access`, `dialog-node-access-policy`, `cluster-enrollments` and
-  `cluster-replication` are Nodes.
+- `cluster`, `cluster-disk-loading`, `cluster-inspector`, `cluster-access`, `dialog-node-access-policy`,
+  `cluster-enrollments` and `cluster-replication` are Nodes.
 - `settings` is Settings.
 - `shell-stream-card` (bottom-left crop) and `shell-theme-menu` are the sidebar footer.
 - `space-filter`, `space-filter-presets` and `space-filter-search` are the space filter open: plain, with

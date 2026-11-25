@@ -9577,6 +9577,1130 @@ func mergeMetricsSample(b []byte, m *MetricsSample) (*MetricsSample, error) {
 }
 
 // Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *FilesystemUsage) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *FilesystemUsage) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *FilesystemUsage) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.TotalBytes, 1)
+	b = AppendInt64Field(b, m.FreeBytes, 2)
+	b = AppendInt64Field(b, m.AvailBytes, 3)
+	b = AppendInt64Field(b, m.InodesTotal, 4)
+	b = AppendInt64Field(b, m.InodesFree, 5)
+	return append(b, m.unknownFields...)
+}
+
+func (m *FilesystemUsage) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeFilesystemUsage(b []byte) (*FilesystemUsage, error) {
+	return mergeFilesystemUsage(b, nil)
+}
+
+func mergeFilesystemUsage(b []byte, m *FilesystemUsage) (*FilesystemUsage, error) {
+	if m == nil {
+		m = new(FilesystemUsage)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.TotalBytes, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.FreeBytes, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.AvailBytes, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, m.InodesTotal, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.InodesFree, err = ConsumeVarInt64(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+func (m NodeMetricsSample) IsZero() bool {
+	return m.Time == 0 &&
+		m.NodeID == 0 &&
+		m.CpuUsageUsec.IsZero() &&
+		m.CpuUserUsec.IsZero() &&
+		m.CpuSystemUsec.IsZero() &&
+		m.CpuIowaitUsec.IsZero() &&
+		m.CpuStealUsec.IsZero() &&
+		m.CpuCount.IsZero() &&
+		m.Load1.IsZero() &&
+		m.Load5.IsZero() &&
+		m.Load15.IsZero() &&
+		m.MemTotal.IsZero() &&
+		m.MemAvailable.IsZero() &&
+		m.MemFree.IsZero() &&
+		m.MemCached.IsZero() &&
+		m.SwapTotal.IsZero() &&
+		m.SwapFree.IsZero() &&
+		m.PsiCpuSomeAvg10.IsZero() &&
+		m.PsiCpuSomeAvg60.IsZero() &&
+		m.PsiCpuSomeAvg300.IsZero() &&
+		m.PsiCpuSomeTotalUsec.IsZero() &&
+		m.PsiCpuFullAvg10.IsZero() &&
+		m.PsiCpuFullAvg60.IsZero() &&
+		m.PsiCpuFullAvg300.IsZero() &&
+		m.PsiCpuFullTotalUsec.IsZero() &&
+		m.PsiMemSomeAvg10.IsZero() &&
+		m.PsiMemSomeAvg60.IsZero() &&
+		m.PsiMemSomeAvg300.IsZero() &&
+		m.PsiMemSomeTotalUsec.IsZero() &&
+		m.PsiMemFullAvg10.IsZero() &&
+		m.PsiMemFullAvg60.IsZero() &&
+		m.PsiMemFullAvg300.IsZero() &&
+		m.PsiMemFullTotalUsec.IsZero() &&
+		m.PsiIoSomeAvg10.IsZero() &&
+		m.PsiIoSomeAvg60.IsZero() &&
+		m.PsiIoSomeAvg300.IsZero() &&
+		m.PsiIoSomeTotalUsec.IsZero() &&
+		m.PsiIoFullAvg10.IsZero() &&
+		m.PsiIoFullAvg60.IsZero() &&
+		m.PsiIoFullAvg300.IsZero() &&
+		m.PsiIoFullTotalUsec.IsZero() &&
+		m.NetRxBytes.IsZero() &&
+		m.NetRxPackets.IsZero() &&
+		m.NetRxDropped.IsZero() &&
+		m.NetTxBytes.IsZero() &&
+		m.NetTxPackets.IsZero() &&
+		m.NetTxDropped.IsZero() &&
+		m.IoReadBytes.IsZero() &&
+		m.IoWriteBytes.IsZero() &&
+		m.IoReadOps.IsZero() &&
+		m.IoWriteOps.IsZero() &&
+		m.FsDataTotalBytes.IsZero() &&
+		m.FsDataFreeBytes.IsZero() &&
+		m.FsDataAvailBytes.IsZero() &&
+		m.FsDataInodesTotal.IsZero() &&
+		m.FsDataInodesFree.IsZero() &&
+		len(m.ExtraFilesystems) == 0 &&
+		len(m.unknownFields) == 0
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsSample) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsSample) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsSample) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendInt64Field(b, m.Time, 1)
+	b = AppendInt32Field(b, m.NodeID, 2)
+	{
+		if m.CpuUsageUsec.Present {
+			v := m.CpuUsageUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 10)
+		}
+	}
+	{
+		if m.CpuUserUsec.Present {
+			v := m.CpuUserUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 11)
+		}
+	}
+	{
+		if m.CpuSystemUsec.Present {
+			v := m.CpuSystemUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 12)
+		}
+	}
+	{
+		if m.CpuIowaitUsec.Present {
+			v := m.CpuIowaitUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 13)
+		}
+	}
+	{
+		if m.CpuStealUsec.Present {
+			v := m.CpuStealUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 14)
+		}
+	}
+	{
+		if m.CpuCount.Present {
+			v := m.CpuCount.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 15)
+		}
+	}
+	{
+		if m.Load1.Present {
+			v := m.Load1.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 20)
+		}
+	}
+	{
+		if m.Load5.Present {
+			v := m.Load5.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 21)
+		}
+	}
+	{
+		if m.Load15.Present {
+			v := m.Load15.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 22)
+		}
+	}
+	{
+		if m.MemTotal.Present {
+			v := m.MemTotal.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 30)
+		}
+	}
+	{
+		if m.MemAvailable.Present {
+			v := m.MemAvailable.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 31)
+		}
+	}
+	{
+		if m.MemFree.Present {
+			v := m.MemFree.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 32)
+		}
+	}
+	{
+		if m.MemCached.Present {
+			v := m.MemCached.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 33)
+		}
+	}
+	{
+		if m.SwapTotal.Present {
+			v := m.SwapTotal.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 34)
+		}
+	}
+	{
+		if m.SwapFree.Present {
+			v := m.SwapFree.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 35)
+		}
+	}
+	{
+		if m.PsiCpuSomeAvg10.Present {
+			v := m.PsiCpuSomeAvg10.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 50)
+		}
+	}
+	{
+		if m.PsiCpuSomeAvg60.Present {
+			v := m.PsiCpuSomeAvg60.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 51)
+		}
+	}
+	{
+		if m.PsiCpuSomeAvg300.Present {
+			v := m.PsiCpuSomeAvg300.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 52)
+		}
+	}
+	{
+		if m.PsiCpuSomeTotalUsec.Present {
+			v := m.PsiCpuSomeTotalUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 53)
+		}
+	}
+	{
+		if m.PsiCpuFullAvg10.Present {
+			v := m.PsiCpuFullAvg10.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 54)
+		}
+	}
+	{
+		if m.PsiCpuFullAvg60.Present {
+			v := m.PsiCpuFullAvg60.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 55)
+		}
+	}
+	{
+		if m.PsiCpuFullAvg300.Present {
+			v := m.PsiCpuFullAvg300.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 56)
+		}
+	}
+	{
+		if m.PsiCpuFullTotalUsec.Present {
+			v := m.PsiCpuFullTotalUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 57)
+		}
+	}
+	{
+		if m.PsiMemSomeAvg10.Present {
+			v := m.PsiMemSomeAvg10.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 60)
+		}
+	}
+	{
+		if m.PsiMemSomeAvg60.Present {
+			v := m.PsiMemSomeAvg60.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 61)
+		}
+	}
+	{
+		if m.PsiMemSomeAvg300.Present {
+			v := m.PsiMemSomeAvg300.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 62)
+		}
+	}
+	{
+		if m.PsiMemSomeTotalUsec.Present {
+			v := m.PsiMemSomeTotalUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 63)
+		}
+	}
+	{
+		if m.PsiMemFullAvg10.Present {
+			v := m.PsiMemFullAvg10.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 64)
+		}
+	}
+	{
+		if m.PsiMemFullAvg60.Present {
+			v := m.PsiMemFullAvg60.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 65)
+		}
+	}
+	{
+		if m.PsiMemFullAvg300.Present {
+			v := m.PsiMemFullAvg300.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 66)
+		}
+	}
+	{
+		if m.PsiMemFullTotalUsec.Present {
+			v := m.PsiMemFullTotalUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 67)
+		}
+	}
+	{
+		if m.PsiIoSomeAvg10.Present {
+			v := m.PsiIoSomeAvg10.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 70)
+		}
+	}
+	{
+		if m.PsiIoSomeAvg60.Present {
+			v := m.PsiIoSomeAvg60.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 71)
+		}
+	}
+	{
+		if m.PsiIoSomeAvg300.Present {
+			v := m.PsiIoSomeAvg300.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 72)
+		}
+	}
+	{
+		if m.PsiIoSomeTotalUsec.Present {
+			v := m.PsiIoSomeTotalUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 73)
+		}
+	}
+	{
+		if m.PsiIoFullAvg10.Present {
+			v := m.PsiIoFullAvg10.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 74)
+		}
+	}
+	{
+		if m.PsiIoFullAvg60.Present {
+			v := m.PsiIoFullAvg60.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 75)
+		}
+	}
+	{
+		if m.PsiIoFullAvg300.Present {
+			v := m.PsiIoFullAvg300.Value
+			value := &v
+			b = AppendFloat64FieldOpt(b, value, 76)
+		}
+	}
+	{
+		if m.PsiIoFullTotalUsec.Present {
+			v := m.PsiIoFullTotalUsec.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 77)
+		}
+	}
+	{
+		if m.NetRxBytes.Present {
+			v := m.NetRxBytes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 80)
+		}
+	}
+	{
+		if m.NetRxPackets.Present {
+			v := m.NetRxPackets.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 81)
+		}
+	}
+	{
+		if m.NetRxDropped.Present {
+			v := m.NetRxDropped.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 82)
+		}
+	}
+	{
+		if m.NetTxBytes.Present {
+			v := m.NetTxBytes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 83)
+		}
+	}
+	{
+		if m.NetTxPackets.Present {
+			v := m.NetTxPackets.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 84)
+		}
+	}
+	{
+		if m.NetTxDropped.Present {
+			v := m.NetTxDropped.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 85)
+		}
+	}
+	{
+		if m.IoReadBytes.Present {
+			v := m.IoReadBytes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 90)
+		}
+	}
+	{
+		if m.IoWriteBytes.Present {
+			v := m.IoWriteBytes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 91)
+		}
+	}
+	{
+		if m.IoReadOps.Present {
+			v := m.IoReadOps.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 92)
+		}
+	}
+	{
+		if m.IoWriteOps.Present {
+			v := m.IoWriteOps.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 93)
+		}
+	}
+	{
+		if m.FsDataTotalBytes.Present {
+			v := m.FsDataTotalBytes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 100)
+		}
+	}
+	{
+		if m.FsDataFreeBytes.Present {
+			v := m.FsDataFreeBytes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 101)
+		}
+	}
+	{
+		if m.FsDataAvailBytes.Present {
+			v := m.FsDataAvailBytes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 102)
+		}
+	}
+	{
+		if m.FsDataInodesTotal.Present {
+			v := m.FsDataInodesTotal.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 103)
+		}
+	}
+	{
+		if m.FsDataInodesFree.Present {
+			v := m.FsDataInodesFree.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 104)
+		}
+	}
+	b = AppendMap(b, m.ExtraFilesystems, 120, AppendFieldDecorator(AppendStringField, 1), func(buf []byte, v FilesystemUsage) []byte { return AppendBytesElem(buf, v.encodeUnchecked(), 2) })
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsSample) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeMetricsSample(b []byte) (*NodeMetricsSample, error) {
+	return mergeNodeMetricsSample(b, nil)
+}
+
+func mergeNodeMetricsSample(b []byte, m *NodeMetricsSample) (*NodeMetricsSample, error) {
+	if m == nil {
+		m = new(NodeMetricsSample)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.Time, err = ConsumeVarInt64(b, typ)
+		case 2:
+			b, m.NodeID, err = ConsumeVarInt32(b, typ)
+		case 10:
+			var value *int64
+			if m.CpuUsageUsec.Present {
+				v := m.CpuUsageUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.CpuUsageUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 11:
+			var value *int64
+			if m.CpuUserUsec.Present {
+				v := m.CpuUserUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.CpuUserUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 12:
+			var value *int64
+			if m.CpuSystemUsec.Present {
+				v := m.CpuSystemUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.CpuSystemUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 13:
+			var value *int64
+			if m.CpuIowaitUsec.Present {
+				v := m.CpuIowaitUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.CpuIowaitUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 14:
+			var value *int64
+			if m.CpuStealUsec.Present {
+				v := m.CpuStealUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.CpuStealUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 15:
+			var value *int64
+			if m.CpuCount.Present {
+				v := m.CpuCount.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.CpuCount = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 20:
+			var value *float64
+			if m.Load1.Present {
+				v := m.Load1.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.Load1 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 21:
+			var value *float64
+			if m.Load5.Present {
+				v := m.Load5.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.Load5 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 22:
+			var value *float64
+			if m.Load15.Present {
+				v := m.Load15.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.Load15 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 30:
+			var value *int64
+			if m.MemTotal.Present {
+				v := m.MemTotal.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.MemTotal = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 31:
+			var value *int64
+			if m.MemAvailable.Present {
+				v := m.MemAvailable.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.MemAvailable = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 32:
+			var value *int64
+			if m.MemFree.Present {
+				v := m.MemFree.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.MemFree = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 33:
+			var value *int64
+			if m.MemCached.Present {
+				v := m.MemCached.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.MemCached = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 34:
+			var value *int64
+			if m.SwapTotal.Present {
+				v := m.SwapTotal.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.SwapTotal = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 35:
+			var value *int64
+			if m.SwapFree.Present {
+				v := m.SwapFree.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.SwapFree = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 50:
+			var value *float64
+			if m.PsiCpuSomeAvg10.Present {
+				v := m.PsiCpuSomeAvg10.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiCpuSomeAvg10 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 51:
+			var value *float64
+			if m.PsiCpuSomeAvg60.Present {
+				v := m.PsiCpuSomeAvg60.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiCpuSomeAvg60 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 52:
+			var value *float64
+			if m.PsiCpuSomeAvg300.Present {
+				v := m.PsiCpuSomeAvg300.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiCpuSomeAvg300 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 53:
+			var value *int64
+			if m.PsiCpuSomeTotalUsec.Present {
+				v := m.PsiCpuSomeTotalUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.PsiCpuSomeTotalUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 54:
+			var value *float64
+			if m.PsiCpuFullAvg10.Present {
+				v := m.PsiCpuFullAvg10.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiCpuFullAvg10 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 55:
+			var value *float64
+			if m.PsiCpuFullAvg60.Present {
+				v := m.PsiCpuFullAvg60.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiCpuFullAvg60 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 56:
+			var value *float64
+			if m.PsiCpuFullAvg300.Present {
+				v := m.PsiCpuFullAvg300.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiCpuFullAvg300 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 57:
+			var value *int64
+			if m.PsiCpuFullTotalUsec.Present {
+				v := m.PsiCpuFullTotalUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.PsiCpuFullTotalUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 60:
+			var value *float64
+			if m.PsiMemSomeAvg10.Present {
+				v := m.PsiMemSomeAvg10.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiMemSomeAvg10 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 61:
+			var value *float64
+			if m.PsiMemSomeAvg60.Present {
+				v := m.PsiMemSomeAvg60.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiMemSomeAvg60 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 62:
+			var value *float64
+			if m.PsiMemSomeAvg300.Present {
+				v := m.PsiMemSomeAvg300.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiMemSomeAvg300 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 63:
+			var value *int64
+			if m.PsiMemSomeTotalUsec.Present {
+				v := m.PsiMemSomeTotalUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.PsiMemSomeTotalUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 64:
+			var value *float64
+			if m.PsiMemFullAvg10.Present {
+				v := m.PsiMemFullAvg10.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiMemFullAvg10 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 65:
+			var value *float64
+			if m.PsiMemFullAvg60.Present {
+				v := m.PsiMemFullAvg60.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiMemFullAvg60 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 66:
+			var value *float64
+			if m.PsiMemFullAvg300.Present {
+				v := m.PsiMemFullAvg300.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiMemFullAvg300 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 67:
+			var value *int64
+			if m.PsiMemFullTotalUsec.Present {
+				v := m.PsiMemFullTotalUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.PsiMemFullTotalUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 70:
+			var value *float64
+			if m.PsiIoSomeAvg10.Present {
+				v := m.PsiIoSomeAvg10.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiIoSomeAvg10 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 71:
+			var value *float64
+			if m.PsiIoSomeAvg60.Present {
+				v := m.PsiIoSomeAvg60.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiIoSomeAvg60 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 72:
+			var value *float64
+			if m.PsiIoSomeAvg300.Present {
+				v := m.PsiIoSomeAvg300.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiIoSomeAvg300 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 73:
+			var value *int64
+			if m.PsiIoSomeTotalUsec.Present {
+				v := m.PsiIoSomeTotalUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.PsiIoSomeTotalUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 74:
+			var value *float64
+			if m.PsiIoFullAvg10.Present {
+				v := m.PsiIoFullAvg10.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiIoFullAvg10 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 75:
+			var value *float64
+			if m.PsiIoFullAvg60.Present {
+				v := m.PsiIoFullAvg60.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiIoFullAvg60 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 76:
+			var value *float64
+			if m.PsiIoFullAvg300.Present {
+				v := m.PsiIoFullAvg300.Value
+				value = &v
+			}
+			b, value, err = ConsumeFloat64Opt(b, typ)
+			if err == nil {
+				m.PsiIoFullAvg300 = Maybe[float64]{Value: *value, Present: true}
+			}
+		case 77:
+			var value *int64
+			if m.PsiIoFullTotalUsec.Present {
+				v := m.PsiIoFullTotalUsec.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.PsiIoFullTotalUsec = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 80:
+			var value *int64
+			if m.NetRxBytes.Present {
+				v := m.NetRxBytes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.NetRxBytes = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 81:
+			var value *int64
+			if m.NetRxPackets.Present {
+				v := m.NetRxPackets.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.NetRxPackets = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 82:
+			var value *int64
+			if m.NetRxDropped.Present {
+				v := m.NetRxDropped.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.NetRxDropped = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 83:
+			var value *int64
+			if m.NetTxBytes.Present {
+				v := m.NetTxBytes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.NetTxBytes = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 84:
+			var value *int64
+			if m.NetTxPackets.Present {
+				v := m.NetTxPackets.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.NetTxPackets = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 85:
+			var value *int64
+			if m.NetTxDropped.Present {
+				v := m.NetTxDropped.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.NetTxDropped = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 90:
+			var value *int64
+			if m.IoReadBytes.Present {
+				v := m.IoReadBytes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.IoReadBytes = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 91:
+			var value *int64
+			if m.IoWriteBytes.Present {
+				v := m.IoWriteBytes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.IoWriteBytes = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 92:
+			var value *int64
+			if m.IoReadOps.Present {
+				v := m.IoReadOps.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.IoReadOps = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 93:
+			var value *int64
+			if m.IoWriteOps.Present {
+				v := m.IoWriteOps.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.IoWriteOps = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 100:
+			var value *int64
+			if m.FsDataTotalBytes.Present {
+				v := m.FsDataTotalBytes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.FsDataTotalBytes = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 101:
+			var value *int64
+			if m.FsDataFreeBytes.Present {
+				v := m.FsDataFreeBytes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.FsDataFreeBytes = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 102:
+			var value *int64
+			if m.FsDataAvailBytes.Present {
+				v := m.FsDataAvailBytes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.FsDataAvailBytes = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 103:
+			var value *int64
+			if m.FsDataInodesTotal.Present {
+				v := m.FsDataInodesTotal.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.FsDataInodesTotal = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 104:
+			var value *int64
+			if m.FsDataInodesFree.Present {
+				v := m.FsDataInodesFree.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.FsDataInodesFree = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 120:
+			if m.ExtraFilesystems == nil {
+				m.ExtraFilesystems = make(map[string]FilesystemUsage)
+			}
+			b, err = ConsumeMapEntry(b, typ, m.ExtraFilesystems, ConsumeString, func(b []byte, typ Type) ([]byte, FilesystemUsage, error) {
+				rest, payload, err := ConsumeMessage(b, typ)
+				if err != nil {
+					return nil, FilesystemUsage{}, err
+				}
+				v, err := DecodeFilesystemUsage(payload)
+				if err != nil {
+					return nil, FilesystemUsage{}, err
+				}
+				return rest, *v, nil
+			})
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
 func (m *MetricsQueryRequest) Encode() []byte {
 	b, err := m.EncodeChecked()
 	if err != nil {
@@ -10128,6 +11252,505 @@ func mergeMetricsLatestResponse(b []byte, m *MetricsLatestResponse) (*MetricsLat
 			if err == nil {
 				var item *MetricsLatestEntry
 				item, err = DecodeMetricsLatestEntry(msgBytes)
+				if err == nil {
+					m.Entries = append(m.Entries, *item)
+				}
+			}
+		case 2:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Warnings = append(m.Warnings, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsQueryRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsQueryRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsQueryRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.NodeID, 1)
+	{
+		if m.TimeStart.Present {
+			v := m.TimeStart.Value
+			value := &v
+			if value != nil {
+				b = AppendInt64FromTimeElem(b, *value, 2)
+			}
+		}
+	}
+	{
+		if m.TimeEnd.Present {
+			v := m.TimeEnd.Value
+			value := &v
+			if value != nil {
+				b = AppendInt64FromTimeElem(b, *value, 3)
+			}
+		}
+	}
+	b = AppendInt64Field(b, m.StepMs, 4)
+	b = AppendRepeated(b, m.Fields, AppendFieldDecorator(AppendStringElem, 5))
+	b = AppendStringField(b, m.RequestID, 6)
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsQueryRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodeMetricsQueryRequest(b []byte) (*NodeMetricsQueryRequest, error) {
+	return mergeNodeMetricsQueryRequest(b, nil)
+}
+
+func mergeNodeMetricsQueryRequest(b []byte, m *NodeMetricsQueryRequest) (*NodeMetricsQueryRequest, error) {
+	if m == nil {
+		m = new(NodeMetricsQueryRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.NodeID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			var value *time.Time
+			if m.TimeStart.Present {
+				v := m.TimeStart.Value
+				value = &v
+			}
+			b, value, err = ConsumeTimeFromInt64Opt(b, typ)
+			if err == nil {
+				m.TimeStart = Maybe[time.Time]{Value: *value, Present: true}
+			}
+		case 3:
+			var value *time.Time
+			if m.TimeEnd.Present {
+				v := m.TimeEnd.Value
+				value = &v
+			}
+			b, value, err = ConsumeTimeFromInt64Opt(b, typ)
+			if err == nil {
+				m.TimeEnd = Maybe[time.Time]{Value: *value, Present: true}
+			}
+		case 4:
+			b, m.StepMs, err = ConsumeVarInt64(b, typ)
+		case 5:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Fields = append(m.Fields, item)
+			}
+		case 6:
+			b, m.RequestID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsSeries) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsSeries) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsSeries) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.NodeID, 1)
+	b = AppendStringField(b, m.Field, 2)
+	b = AppendInt32Field(b, m.Kind, 3)
+	b = AppendRepeatedCompact(b, m.Values, 4, AppendCompactDecorator(AppendFloat64Compact))
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsSeries) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeNodeMetricsSeries(b []byte) (*NodeMetricsSeries, error) {
+	return mergeNodeMetricsSeries(b, nil)
+}
+
+func mergeNodeMetricsSeries(b []byte, m *NodeMetricsSeries) (*NodeMetricsSeries, error) {
+	if m == nil {
+		m = new(NodeMetricsSeries)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.NodeID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.Field, err = ConsumeString(b, typ)
+		case 3:
+			b, m.Kind, err = ConsumeVarInt32(b, typ)
+		case 4:
+			var items []float64
+			b, items, err = ConsumeRepeatedCompact(b, typ, Fixed64Type, ConsumeFloat64)
+			if err == nil {
+				m.Values = append(m.Values, items...)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsQueryResponse) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsQueryResponse) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsQueryResponse) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendInt64FromTime(b, m.TimeStart, 1)
+	b = AppendInt64Field(b, m.StepMs, 2)
+	b = AppendInt32Field(b, m.Buckets, 3)
+	for _, item := range m.Series {
+		b = AppendTag(b, 4, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	b = AppendInt64Field(b, m.ScannedRows, 5)
+	b = AppendInt32Field(b, m.TookMs, 6)
+	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 7))
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsQueryResponse) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodeMetricsQueryResponse(b []byte) (*NodeMetricsQueryResponse, error) {
+	return mergeNodeMetricsQueryResponse(b, nil)
+}
+
+func mergeNodeMetricsQueryResponse(b []byte, m *NodeMetricsQueryResponse) (*NodeMetricsQueryResponse, error) {
+	if m == nil {
+		m = new(NodeMetricsQueryResponse)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.TimeStart, err = ConsumeTimeFromInt64(b, typ)
+		case 2:
+			b, m.StepMs, err = ConsumeVarInt64(b, typ)
+		case 3:
+			b, m.Buckets, err = ConsumeVarInt32(b, typ)
+		case 4:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsSeries
+				item, err = DecodeNodeMetricsSeries(msgBytes)
+				if err == nil {
+					m.Series = append(m.Series, *item)
+				}
+			}
+		case 5:
+			b, m.ScannedRows, err = ConsumeVarInt64(b, typ)
+		case 6:
+			b, m.TookMs, err = ConsumeVarInt32(b, typ)
+		case 7:
+			var item string
+			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
+			if err == nil {
+				m.Warnings = append(m.Warnings, item)
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsLatestRequest) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsLatestRequest) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsLatestRequest) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendStringField(b, m.RequestID, 1)
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsLatestRequest) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodeMetricsLatestRequest(b []byte) (*NodeMetricsLatestRequest, error) {
+	return mergeNodeMetricsLatestRequest(b, nil)
+}
+
+func mergeNodeMetricsLatestRequest(b []byte, m *NodeMetricsLatestRequest) (*NodeMetricsLatestRequest, error) {
+	if m == nil {
+		m = new(NodeMetricsLatestRequest)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.RequestID, err = ConsumeString(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsLatestEntry) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsLatestEntry) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsLatestEntry) encodeUnchecked() []byte {
+	var b []byte
+	{
+		value := &m.Sample
+		if value != nil {
+			b = AppendTag(b, 1, BytesType)
+			b = AppendBytes(b, value.encodeUnchecked())
+		}
+	}
+	for _, item := range m.Rates {
+		b = AppendTag(b, 2, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsLatestEntry) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodeMetricsLatestEntry(b []byte) (*NodeMetricsLatestEntry, error) {
+	return mergeNodeMetricsLatestEntry(b, nil)
+}
+
+func mergeNodeMetricsLatestEntry(b []byte, m *NodeMetricsLatestEntry) (*NodeMetricsLatestEntry, error) {
+	if m == nil {
+		m = new(NodeMetricsLatestEntry)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			var value *NodeMetricsSample
+			value = &m.Sample
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsSample
+				item, err = mergeNodeMetricsSample(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.Sample = *value
+			}
+		case 2:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsRate
+				item, err = DecodeMetricsRate(msgBytes)
+				if err == nil {
+					m.Rates = append(m.Rates, *item)
+				}
+			}
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *NodeMetricsLatestResponse) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *NodeMetricsLatestResponse) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *NodeMetricsLatestResponse) encodeUnchecked() []byte {
+	var b []byte
+	for _, item := range m.Entries {
+		b = AppendTag(b, 1, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
+	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 2))
+	return append(b, m.unknownFields...)
+}
+
+func (m *NodeMetricsLatestResponse) UnknownFields() []byte {
+	return append([]byte(nil), m.unknownFields...)
+}
+
+func DecodeNodeMetricsLatestResponse(b []byte) (*NodeMetricsLatestResponse, error) {
+	return mergeNodeMetricsLatestResponse(b, nil)
+}
+
+func mergeNodeMetricsLatestResponse(b []byte, m *NodeMetricsLatestResponse) (*NodeMetricsLatestResponse, error) {
+	if m == nil {
+		m = new(NodeMetricsLatestResponse)
+	}
+	var num Number
+	var typ Type
+	var err error
+	var msgBytes []byte
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsLatestEntry
+				item, err = DecodeNodeMetricsLatestEntry(msgBytes)
 				if err == nil {
 					m.Entries = append(m.Entries, *item)
 				}
@@ -26224,6 +27847,26 @@ func (m *MsgToSecondary) encodeUnchecked() []byte {
 			}
 		}
 	}
+	{
+		if m.NodeMetricsQueryRequest.Present {
+			v := m.NodeMetricsQueryRequest.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 16, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.NodeMetricsLatestRequest.Present {
+			v := m.NodeMetricsLatestRequest.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 17, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
 	return append(b, m.unknownFields...)
 }
 
@@ -26388,6 +28031,40 @@ func mergeMsgToSecondary(b []byte, m *MsgToSecondary) (*MsgToSecondary, error) {
 			}
 			if err == nil {
 				m.NodeUpdate = Maybe[NodeProjection]{Value: *value, Present: true}
+			}
+		case 16:
+			var value *NodeMetricsQueryRequest
+			if m.NodeMetricsQueryRequest.Present {
+				v := m.NodeMetricsQueryRequest.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsQueryRequest
+				item, err = mergeNodeMetricsQueryRequest(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeMetricsQueryRequest = Maybe[NodeMetricsQueryRequest]{Value: *value, Present: true}
+			}
+		case 17:
+			var value *NodeMetricsLatestRequest
+			if m.NodeMetricsLatestRequest.Present {
+				v := m.NodeMetricsLatestRequest.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsLatestRequest
+				item, err = mergeNodeMetricsLatestRequest(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeMetricsLatestRequest = Maybe[NodeMetricsLatestRequest]{Value: *value, Present: true}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -26723,6 +28400,26 @@ func (m *MsgToPrimary) encodeUnchecked() []byte {
 			}
 		}
 	}
+	{
+		if m.NodeMetricsQueryResponse.Present {
+			v := m.NodeMetricsQueryResponse.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 11, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
+	{
+		if m.NodeMetricsLatestResponse.Present {
+			v := m.NodeMetricsLatestResponse.Value
+			value := &v
+			if value != nil {
+				b = AppendTag(b, 12, BytesType)
+				b = AppendBytes(b, value.encodeUnchecked())
+			}
+		}
+	}
 	return append(b, m.unknownFields...)
 }
 
@@ -26888,6 +28585,40 @@ func mergeMsgToPrimary(b []byte, m *MsgToPrimary) (*MsgToPrimary, error) {
 			}
 			if err == nil {
 				m.MetricsLatestResponse = Maybe[MetricsLatestResponse]{Value: *value, Present: true}
+			}
+		case 11:
+			var value *NodeMetricsQueryResponse
+			if m.NodeMetricsQueryResponse.Present {
+				v := m.NodeMetricsQueryResponse.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsQueryResponse
+				item, err = mergeNodeMetricsQueryResponse(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeMetricsQueryResponse = Maybe[NodeMetricsQueryResponse]{Value: *value, Present: true}
+			}
+		case 12:
+			var value *NodeMetricsLatestResponse
+			if m.NodeMetricsLatestResponse.Present {
+				v := m.NodeMetricsLatestResponse.Value
+				value = &v
+			}
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *NodeMetricsLatestResponse
+				item, err = mergeNodeMetricsLatestResponse(msgBytes, value)
+				if err == nil {
+					value = item
+				}
+			}
+			if err == nil {
+				m.NodeMetricsLatestResponse = Maybe[NodeMetricsLatestResponse]{Value: *value, Present: true}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

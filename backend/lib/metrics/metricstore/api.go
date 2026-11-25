@@ -45,18 +45,7 @@ func ResolveRange(timeStart, timeEnd apigen.Maybe[time.Time], now time.Time) (ti
 }
 
 func RequestFields(names []string) ([]Field, error) {
-	if len(names) == 0 {
-		return Fields, nil
-	}
-	out := make([]Field, 0, len(names))
-	for _, n := range names {
-		f, ok := FieldByName(n)
-		if !ok {
-			return nil, fmt.Errorf("unknown metric %q", n)
-		}
-		out = append(out, f)
-	}
-	return out, nil
+	return requestFields(Fields, names)
 }
 
 func (s *Store) QueryResponse(ctx context.Context, req *apigen.MetricsQueryRequest) (*apigen.MetricsQueryResponse, error) {
@@ -116,16 +105,8 @@ func (s *Store) LatestResponse() *apigen.MetricsLatestResponse {
 
 func LatestEntry(prev, cur *apigen.MetricsSample) apigen.MetricsLatestEntry {
 	e := apigen.MetricsLatestEntry{Sample: *cur}
-	if prev == nil {
-		return e
-	}
-	for _, f := range Fields {
-		if f.Kind != Counter {
-			continue
-		}
-		if r, ok := Rate(prev, cur, f); ok {
-			e.Rates = append(e.Rates, apigen.MetricsRate{Field: f.Name, PerSecond: r})
-		}
+	if prev != nil && Key(prev) == Key(cur) {
+		e.Rates = counterRates(prev, cur, prev.Time, cur.Time, Fields)
 	}
 	return e
 }

@@ -125,6 +125,8 @@ type ApiServerHandler interface {
 	PostV1DeploymentsRunReport(Context, *DeploymentRunReportRequest) (*DeploymentRunReport, error)
 	PostV1MetricsQuery(Context, *MetricsQueryRequest) (*MetricsQueryResponse, error)
 	PostV1MetricsLatest(Context, *MetricsLatestRequest) (*MetricsLatestResponse, error)
+	PostV1MetricsNodesQuery(Context, *NodeMetricsQueryRequest) (*NodeMetricsQueryResponse, error)
+	PostV1MetricsNodesLatest(Context, *NodeMetricsLatestRequest) (*NodeMetricsLatestResponse, error)
 	PostV1DeploymentsPrepareOutput(Context, *PrepareOutputRequest) iter.Seq2[*PrepareOutputChunk, error]
 	PostV1ReposValidate(Context, *RepoValidateRequest) (*RepoValidateResponse, error)
 	PostV1NodesRename(Context, *NodeRenameRequest) (*CoreWriteUpdate, error)
@@ -959,6 +961,36 @@ func CreateApiServerMux(h ApiServerHandler, config *MuxConfig) *http.ServeMux {
 		Respond(authCtx, r, w, res, err)
 	}
 	m.HandleFunc("POST /v1/metrics/latest", buildHandlerFunc(config, verifyAuth, postV1MetricsLatestAccessPolicy, postAuthHandlerPostV1MetricsLatest, compressionModeAuto, false))
+	postV1MetricsNodesQueryAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1MetricsNodesQuery := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeMetricsQueryRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1MetricsNodesQuery(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/metrics/nodes/query", buildHandlerFunc(config, verifyAuth, postV1MetricsNodesQueryAccessPolicy, postAuthHandlerPostV1MetricsNodesQuery, compressionModeAuto, false))
+	postV1MetricsNodesLatestAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
+	postAuthHandlerPostV1MetricsNodesLatest := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
+		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodeNodeMetricsLatestRequest)
+		if err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		if err := req.Validate(); err != nil {
+			HandleReqErr(authCtx, err, r, w)
+			return
+		}
+		res, err := h.PostV1MetricsNodesLatest(authCtx, req)
+		Respond(authCtx, r, w, res, err)
+	}
+	m.HandleFunc("POST /v1/metrics/nodes/latest", buildHandlerFunc(config, verifyAuth, postV1MetricsNodesLatestAccessPolicy, postAuthHandlerPostV1MetricsNodesLatest, compressionModeAuto, false))
 	postV1DeploymentsPrepareOutputAccessPolicy := AccessPolicy{PolicyType: AccessPolicyType_ANY_OF, Scopes: []string{"full"}}
 	postAuthHandlerPostV1DeploymentsPrepareOutput := func(authCtx Context, w http.ResponseWriter, r *http.Request) {
 		req, err := decodeWithMaxBodySize(r, config.MaxRequestBodySize, DecodePrepareOutputRequest)

@@ -4,6 +4,64 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.628 (released 2026-11-25)
+
+### What changed
+
+Node metrics, and two fixes for a rollover that an agent restart interrupts.
+
+- **Every node records its own host metrics.** The agent samples CPU, load,
+  memory, pressure, network, disk IO and filesystem usage every 10 seconds.
+  The samples are stored beside the container metrics, under
+  `/var/lib/opendeploy-metrics/node/`, with the same day files, compaction
+  and 90 day retention.
+- **The Metrics page has two overviews.** "Overview" is now "Deployments
+  overview". "Nodes overview" lists every node with its CPU, load, memory,
+  disk and network figures, and a row opens a tab of charts for that node.
+- **The Nodes page shows disk usage.** The Disk column reads as the used
+  percent and the size of the filesystem that holds the OpenDeploy data,
+  for example `48% of 196 GiB`, amber at 80 percent and red at 90. The
+  inspector lists that filesystem and any other filesystem an OpenDeploy
+  directory sits on.
+- **Two new endpoints**, `POST /v1/metrics/nodes/query` and
+  `POST /v1/metrics/nodes/latest`, and four new cluster session frames that
+  carry them between the primary and a secondary.
+- **An agent restart during a rollover no longer removes the serving
+  container's network.** After a restart each runner of a deployment swept
+  the deployment's leftover network namespaces, and the first to recover
+  could remove the namespace of the other placement before that placement
+  had recovered it. The sweep now keeps the network of every container that
+  still exists for another placement of the deployment.
+- **A rollover candidate that is still warming up stays a candidate across
+  an agent restart.** It keeps `STARTING` and listens for the readiness
+  signal again. Before, it was adopted as an ordinary runner and published
+  `RUNNING` at once, so the scheduler promoted it and stopped the placement
+  that was serving. The readiness timeout starts again from the restart. A
+  signal sent while no agent is listening is lost, so a workload should exit
+  when the send fails; it is then started again.
+
+### Before upgrading
+
+- Nothing needs doing. No existing file changes format.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. The restart that
+  installs this version already reattaches with the new code, so a rollover
+  in progress on a node is handled correctly by the upgrade itself.
+- A secondary still on an older version ignores the new frames. Until it is
+  upgraded, the Nodes overview lists it without figures and shows a timeout
+  warning after 5 seconds, and its node tab fails after 20 seconds.
+
+### After upgrading
+
+- Open Metrics, then Nodes overview, and check every connected node has a
+  row with figures. Rates need two samples, so allow 20 seconds after an
+  agent starts.
+- Open Nodes and check the Disk column fills in.
+- After a rollback, an older agent leaves the `node` directory under the
+  metrics root untouched. It can be deleted by hand.
+
 ## v0.0.627 (released 2026-11-25)
 
 ### What changed

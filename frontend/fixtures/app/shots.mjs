@@ -119,6 +119,19 @@ const SHOTS = {
         await p.getByTestId("metrics-chart-cpu").waitFor();
         await p.waitForTimeout(400);
     }},
+    "metrics-nodes": {steps: async (p) => {
+        await nav(p, "metrics");
+        await tab(p, "metrics-tab-nodes");
+        await p.getByTestId("metrics-nodes-table").waitFor();
+    }},
+    "metrics-node": {steps: async (p) => {
+        await nav(p, "metrics");
+        await tab(p, "metrics-tab-nodes");
+        await p.getByTestId("metrics-nodes-row-worker-a").click();
+        await p.waitForFunction(() => window.__metricsNodeResult?.fields > 0, null, {timeout: 20000});
+        await p.getByTestId("metrics-node-chart-cpu").waitFor();
+        await p.waitForTimeout(400);
+    }},
     "users": {steps: async (p) => { await nav(p, "users"); await p.getByTestId("user-row-1").waitFor(); }},
     "users-rules": {steps: async (p) => { await nav(p, "users"); await tab(p, "users-tab-rules"); await p.getByTestId("template-row-1").waitFor(); }},
     "users-you": {steps: async (p) => { await nav(p, "users"); await tab(p, "users-tab-you"); await p.getByText("YubiKey 5C").first().waitFor(); }},
@@ -136,11 +149,20 @@ const SHOTS = {
         await p.waitForTimeout(300);
     }},
     "policies": {steps: async (p) => { await nav(p, "policies"); await p.getByTestId("network-policy-row-1").waitFor(); }},
-    "cluster": {steps: async (p) => { await nav(p, "cluster"); await p.locator("[data-testid^='machine-row-']").first().waitFor(); }},
+    "cluster": {steps: async (p) => {
+        await nav(p, "cluster");
+        await p.locator("[data-testid^='machine-row-']").first().waitFor();
+        await p.locator("[data-testid='node-disk'][data-state='loaded']").first().waitFor();
+    }},
+    "cluster-disk-loading": {steps: async (p) => {
+        await nav(p, "cluster");
+        await p.locator("[data-testid='node-disk'][data-state='loading']").first().waitFor();
+    }},
     "cluster-inspector": {steps: async (p) => {
         await nav(p, "cluster");
-        await p.locator("[data-testid^='machine-row-']", {hasText: "worker-b"}).first().click();
+        await p.locator("[data-testid^='machine-row-']", {hasText: "worker-a"}).first().click();
         await p.getByTestId("node-inspector").waitFor();
+        await p.getByTestId("node-inspector-disk-data").waitFor();
     }},
     "cluster-access": {steps: async (p) => { await nav(p, "cluster"); await tab(p, "nodes-tab-access"); await p.getByTestId("node-access-policy-row-1").waitFor(); }},
     "dialog-node-access-policy": {steps: async (p) => {

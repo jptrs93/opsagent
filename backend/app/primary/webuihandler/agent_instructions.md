@@ -389,6 +389,31 @@ of CPUs in use.
 - Prefer one wide window at a coarse step over many narrow ones; each call
   fans out to every node holding the deployment.
 
+`POST /v1/metrics/nodes/latest` (empty body) is the same overview for the
+nodes themselves: one entry per connected node you can see. The `sample` is
+the host's newest reading: `cpu_count`, `load1`, `mem_total`,
+`mem_available`, the `psi_*` pressure values, and the filesystem that holds
+the OpenDeploy data as `fs_data_total_bytes`, `fs_data_free_bytes` and
+`fs_data_avail_bytes` (used is total minus free). Any other filesystem an
+OpenDeploy directory sits on is in `extra_filesystems`, keyed by mount point.
+`rates` holds the per-second rate of the counters (`cpu_usage_usec`, `net_*`,
+`io_*`), in the units of the container overview.
+
+`POST /v1/metrics/nodes/query` returns one node's history on the same grid:
+
+```json
+{"node_id": 1,
+ "time_start": "2026-09-03T18:00:00Z", "time_end": "2026-09-04T06:00:00Z",
+ "step_ms": 120000, "fields": ["cpu_usage_usec", "mem_used", "fs_data_used_bytes"]}
+```
+
+- The range, `step_ms` and `fields` behave as in `/v1/metrics/query`. The
+  response has one entry in `series` per field, with the same `kind` values
+  and `null` for an empty bucket.
+- Besides the sample's own fields, `fields` accepts four derived gauges:
+  `mem_used`, `swap_used`, `fs_data_used_bytes` and `fs_data_inodes_used`.
+- A node that is not connected answers `502`.
+
 ## 6. Assets
 
 An asset has a stable `id`. Its snapshot entries carry `fs.key`,
@@ -679,6 +704,7 @@ the live API's answer is the truth. A `403` will not change on retry: ask.
 | `GET /v1/healthz`, `GET /v1/tls/ca.crt`, `GET /v1/auth/methods` | yes, no auth |
 | `POST /v1/deployments/log-query` `/run-report` | operator (logs) |
 | `POST /v1/metrics/query` `/latest` | operator (logs) |
+| `POST /v1/metrics/nodes/query` `/latest` | yes, for the nodes you can see |
 | `POST /v1/deployments/prepare-output` | operator (logs), protobuf stream |
 | `POST /v1/global/event-stream` | protobuf stream |
 | `POST /v1/global/exported-config`, `/v1/nodes/exposure` | operator (cluster) |
