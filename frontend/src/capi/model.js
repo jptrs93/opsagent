@@ -331,6 +331,7 @@
  * @property {Date} lastRestartAt
  * @property {string[]} networkDiagnostics
  * @property {number} exitCode
+ * @property {number} crashReason
  */
 /**
  * @typedef {Object} DeploymentUpdateRequestUpdateOneof
@@ -547,6 +548,7 @@
  * @property {string[]} logLines
  * @property {string[]} warnings
  * @property {number} status
+ * @property {number} crashReason
  */
 /**
  * @typedef {Object} RawLogLine
@@ -6143,6 +6145,9 @@ export function writeRunnerStatus(message, writer) {
     if (message.exitCode !== undefined && message.exitCode !== null) {
         writer.uint32(tag(8, WIRE.VARINT)).int32(message.exitCode);
     }
+    if (message.crashReason !== undefined && message.crashReason !== null && message.crashReason !== 0) {
+        writer.uint32(tag(9, WIRE.VARINT)).int32(message.crashReason);
+    }
 }
 
 
@@ -6164,7 +6169,7 @@ export function encodeRunnerStatus(message) {
  */
 function decodeRunnerStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentSpecVersion: 0, runningPid: undefined, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: undefined, networkDiagnostics: [], exitCode: undefined };
+    const message = {deploymentSpecVersion: 0, runningPid: undefined, runningArtifact: "", status: 0, numberOfRestarts: 0, lastRestartAt: undefined, networkDiagnostics: [], exitCode: undefined, crashReason: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -6198,6 +6203,10 @@ function decodeRunnerStatusMessage(reader, length) {
             }
             case 8: {
                 message.exitCode = reader.int32();
+                break;
+            }
+            case 9: {
+                message.crashReason = reader.int32();
                 break;
             }
             default:
@@ -8561,6 +8570,9 @@ export function writeDeploymentRunReport(message, writer) {
     if (message.status !== undefined && message.status !== null && message.status !== 0) {
         writer.uint32(tag(13, WIRE.VARINT)).int32(message.status);
     }
+    if (message.crashReason !== undefined && message.crashReason !== null && message.crashReason !== 0) {
+        writer.uint32(tag(14, WIRE.VARINT)).int32(message.crashReason);
+    }
 }
 
 
@@ -8582,7 +8594,7 @@ export function encodeDeploymentRunReport(message) {
  */
 function decodeDeploymentRunReportMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentId: 0, deploymentVersion: 0, deploymentSpecVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: undefined, exitCode: undefined, logLines: [], warnings: [], status: 0 };
+    const message = {deploymentId: 0, deploymentVersion: 0, deploymentSpecVersion: 0, nodeId: 0, instanceOrdinal: 0, run: 0, running: false, startedAt: new Date(0), stoppedAt: undefined, exitCode: undefined, logLines: [], warnings: [], status: 0, crashReason: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -8636,6 +8648,10 @@ function decodeDeploymentRunReportMessage(reader, length) {
             }
             case 13: {
                 message.status = reader.int32();
+                break;
+            }
+            case 14: {
+                message.crashReason = reader.int32();
                 break;
             }
             default:

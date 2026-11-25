@@ -62,6 +62,7 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 	var startedAt time.Time
 	var stoppedAt apigen.Maybe[time.Time]
 	var exitCode apigen.Maybe[int32]
+	var crashReason apigen.CrashReason
 	var finalStatus apigen.RunningStatus
 	found := false
 	for _, st := range history {
@@ -78,6 +79,9 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 			exitCode = r.ExitCode
 			finalStatus = r.Status
 		}
+		if r.Status == apigen.RunningStatus_RUNNING_STATUS_CRASHED && r.CrashReason != apigen.CrashReason_CRASH_REASON_UNSPECIFIED {
+			crashReason = r.CrashReason
+		}
 	}
 
 	report := &apigen.DeploymentRunReport{
@@ -92,6 +96,7 @@ func (h *Handler) PostV1DeploymentsRunReport(ctx apigen.Context, req *apigen.Dep
 		StoppedAt:             stoppedAt,
 		ExitCode:              exitCode,
 		Status:                finalStatus,
+		CrashReason:           crashReason,
 	}
 	if running {
 		report.Status = latest.Value.Status

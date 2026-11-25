@@ -436,7 +436,7 @@ func (r *containerRunner) run() {
 			r.logContainerEvent("re-attach", r.currentRunNumber(), r.mounts)
 			r.setTask(task)
 			if r.startupMode == containerStartupReattachStopped {
-				r.stopAdoptedTask(task)
+				r.status.ExitCode = r.stopAdoptedTask(task)
 				r.cleanupDeploymentNetState()
 				if r.shouldPublishStopped() {
 					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
@@ -445,10 +445,10 @@ func (r *containerRunner) run() {
 			}
 			if err := r.recoverContainerNet(); err != nil {
 				slog.ErrorContext(r.ctx, "recovering adopted container network failed", "err", err)
-				r.stopAdoptedTask(task)
+				r.status.ExitCode = r.stopAdoptedTask(task)
 				r.cleanupDeploymentNetState()
 				hadProcess = true
-				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
+				r.crashed(apigen.CrashReason_CRASH_REASON_NETWORK_RECOVERY_FAILED)
 			} else {
 				r.registerSampling(task, r.currentRunNumber())
 				var exitCode apigen.Maybe[int32]
@@ -462,7 +462,7 @@ func (r *containerRunner) run() {
 					// An agent restart does not make a warming candidate ready:
 					// it keeps STARTING and waits for the signal as before.
 					var finished bool
-					running, finished = r.resumeReadiness(task, exitDone)
+					running, finished = r.resumeReadiness(task, exitDone, &exitCode)
 					if finished {
 						return
 					}
@@ -505,7 +505,7 @@ func (r *containerRunner) run() {
 		// candidate that never gets far enough to wait for a signal at all — one
 		// whose container fails to start, not just one that starts unhealthy.
 		if r.readinessPending.Load() && !time.Now().Before(r.readinessDeadline) {
-			r.failReadiness(fmt.Errorf("timed out after %s waiting for readiness signal", r.readiness.timeout))
+			r.failReadiness(fmt.Errorf("timed out after %s waiting for readiness signal", r.readiness.timeout), apigen.CrashReason_CRASH_REASON_READINESS_TIMED_OUT)
 			return
 		}
 
@@ -625,7 +625,7 @@ func (r *containerRunner) run() {
 				if readinessActive {
 					// The operator repairs the artifact and builds a fresh
 					// candidate, so this one has nothing left to wait for.
-					r.failReadiness(fmt.Errorf("starting container: %w", err))
+					r.failReadiness(fmt.Errorf("starting container: %w", err), apigen.CrashReason_CRASH_REASON_UNSPECIFIED)
 				}
 				return
 			}
@@ -648,7 +648,7 @@ func (r *containerRunner) run() {
 				_ = task.Kill(context.Background(), syscall.SIGTERM)
 				r.deleteTask(task)
 				r.cleanupContainerNet(cn)
-				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
+				r.crashed(apigen.CrashReason_CRASH_REASON_NETWORK_PUBLISH_FAILED)
 				crashCount++
 				if !r.sleepBackoff(crashCount) {
 					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
@@ -676,7 +676,7 @@ func (r *containerRunner) run() {
 		}()
 
 		if readinessActive {
-			signalled, finished := r.settleReadiness(task, cn, ready, closeReady, exitDone)
+			signalled, finished := r.settleReadiness(task, cn, ready, closeReady, exitDone, &exitCode)
 			if finished {
 				return
 			}
@@ -792,32 +792,40 @@ func recheckTask(ctx context.Context, task taskWaiter) (ctrd.TaskStatus, bool) {
 	}
 }
 
-func (r *containerRunner) stopAdoptedTask(task *ctrd.Task) {
+func (r *containerRunner) stopAdoptedTask(task *ctrd.Task) apigen.Maybe[int32] {
 	if task == nil {
-		return
+		return apigen.Maybe[int32]{}
 	}
 	r.logContainerEvent("stop", r.currentRunNumber(), r.mounts)
 	if err := task.Kill(context.Background(), syscall.SIGTERM); err != nil {
 		slog.WarnContext(r.ctx, "sending SIGTERM to adopted container failed", "err", err)
 	}
+	var exitCode apigen.Maybe[int32]
 	exitDone := make(chan struct{})
 	go func() {
-		r.monitorTask(task)
+		exitCode = r.monitorTask(task)
 		close(exitDone)
 	}()
+	exited := false
 	select {
 	case <-exitDone:
+		exited = true
 	case <-time.After(3 * time.Second):
 		if err := task.Kill(context.Background(), syscall.SIGKILL); err != nil {
 			slog.WarnContext(r.ctx, "sending SIGKILL to adopted container failed", "err", err)
 		}
 		select {
 		case <-exitDone:
+			exited = true
 		case <-time.After(5 * time.Second):
 		}
 	}
 	r.deleteTask(task)
 	r.setTask(nil)
+	if !exited {
+		return apigen.Maybe[int32]{}
+	}
+	return exitCode
 }
 
 func (r *containerRunner) shouldPublishStopped() bool {
@@ -1127,7 +1135,7 @@ func (r *containerRunner) waitForReadiness(ready <-chan error, closeReady func()
 // means the container reported ready and RUNNING is published. Otherwise the
 // attempt is over and its task and network are gone: finished means the runner
 // is done too, and when it is not the caller respawns.
-func (r *containerRunner) settleReadiness(task *ctrd.Task, cn *network.ContainerNet, ready <-chan error, closeReady func(), exitDone <-chan struct{}) (signalled, finished bool) {
+func (r *containerRunner) settleReadiness(task *ctrd.Task, cn *network.ContainerNet, ready <-chan error, closeReady func(), exitDone <-chan struct{}, exitCode *apigen.Maybe[int32]) (signalled, finished bool) {
 	outcome, taskExited, readyErr := r.waitForReadiness(ready, closeReady, exitDone)
 	if outcome == readinessSignalled {
 		r.readinessPending.Store(false)
@@ -1138,12 +1146,15 @@ func (r *containerRunner) settleReadiness(task *ctrd.Task, cn *network.Container
 	slog.WarnContext(r.ctx, "rollover candidate did not report ready", "err", readyErr)
 	if !taskExited {
 		_ = task.Kill(context.Background(), syscall.SIGTERM)
+	} else if exitCode != nil {
+		r.status.ExitCode = *exitCode
 	}
 	r.deleteTask(task)
 	r.setTask(nil)
 	r.cleanupContainerNet(cn)
+	reason := r.readinessCrashReason(outcome, taskExited)
 	if outcome == readinessGiveUp {
-		r.failReadiness(readyErr)
+		r.failReadiness(readyErr, reason)
 		return false, true
 	}
 	// The deadline has not passed, so this is an ordinary crash: record it and
@@ -1153,40 +1164,53 @@ func (r *containerRunner) settleReadiness(task *ctrd.Task, cn *network.Container
 		r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 		return false, true
 	}
-	r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
+	r.crashed(reason)
 	return false, false
+}
+
+func (r *containerRunner) readinessCrashReason(outcome readinessOutcome, taskExited bool) apigen.CrashReason {
+	switch {
+	case taskExited, r.ctx.Err() != nil:
+		return apigen.CrashReason_CRASH_REASON_UNSPECIFIED
+	case outcome == readinessGiveUp:
+		return apigen.CrashReason_CRASH_REASON_READINESS_TIMED_OUT
+	default:
+		return apigen.CrashReason_CRASH_REASON_READINESS_LISTENER_FAILED
+	}
 }
 
 // resumeReadiness is settleReadiness for a candidate adopted after an agent
 // restart. A signal sent while no agent was listening is lost; a container that
 // treats the failed send as fatal exits and is respawned like any other.
-func (r *containerRunner) resumeReadiness(task *ctrd.Task, exitDone <-chan struct{}) (signalled, finished bool) {
+func (r *containerRunner) resumeReadiness(task *ctrd.Task, exitDone <-chan struct{}, exitCode *apigen.Maybe[int32]) (signalled, finished bool) {
 	listener, err := r.resumeReadinessListener(r.currentRunNumber())
 	if err != nil {
 		slog.ErrorContext(r.ctx, "resuming readiness listener failed", "err", err)
-		r.stopAdoptedTask(task)
+		r.status.ExitCode = r.stopAdoptedTask(task)
 		r.cleanupContainerNetState()
-		r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
+		r.crashed(apigen.CrashReason_CRASH_REASON_READINESS_LISTENER_FAILED)
 		return false, false
 	}
 	r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STARTING, int(task.Pid()))
-	return r.settleReadiness(task, r.getContainerNet(), listener.ready, listener.close, exitDone)
+	return r.settleReadiness(task, r.getContainerNet(), listener.ready, listener.close, exitDone, exitCode)
 }
 
 // failReadiness abandons a rollover candidate. It releases the operator, which
 // is waiting on WaitReady, and records the failure so the scheduled instance
 // shows a failed rollover rather than sitting at whatever it last published.
-func (r *containerRunner) failReadiness(err error) {
+func (r *containerRunner) failReadiness(err error, reason apigen.CrashReason) {
 	r.readinessPending.Store(false)
 	r.notifyReady(err)
-	want := apigen.RunningStatus_RUNNING_STATUS_CRASHED
 	if r.stopping.Load() {
-		want = apigen.RunningStatus_RUNNING_STATUS_STOPPED
-	}
-	if r.status.Status == want && !r.status.RunningPid.Present {
+		if r.status.Status != apigen.RunningStatus_RUNNING_STATUS_STOPPED || r.status.RunningPid.Present {
+			r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
+		}
 		return
 	}
-	r.updateStatus(want, 0)
+	if r.status.Status == apigen.RunningStatus_RUNNING_STATUS_CRASHED && !r.status.RunningPid.Present && r.status.CrashReason == reason {
+		return
+	}
+	r.crashed(reason)
 }
 
 func (r *containerRunner) notifyReady(err error) {
@@ -1587,6 +1611,14 @@ func (r *containerRunner) getContainerNet() *network.ContainerNet {
 func (r *containerRunner) updateStatus(status apigen.RunningStatus, pid int) {
 	r.status.Status = status
 	r.status.RunningPid = runningPid(pid)
+	r.status.CrashReason = apigen.CrashReason_CRASH_REASON_UNSPECIFIED
+	r.writeStatus()
+}
+
+func (r *containerRunner) crashed(reason apigen.CrashReason) {
+	r.status.Status = apigen.RunningStatus_RUNNING_STATUS_CRASHED
+	r.status.RunningPid = runningPid(0)
+	r.status.CrashReason = reason
 	r.writeStatus()
 }
 

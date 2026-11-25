@@ -386,7 +386,7 @@ func TestFailReadinessReleasesTheOperator(t *testing.T) {
 	store := &fakeOperatorStore{}
 	r := newTestCandidate(t, store)
 
-	r.failReadiness(errors.New("never became ready"))
+	r.failReadiness(errors.New("never became ready"), apigen.CrashReason_CRASH_REASON_READINESS_TIMED_OUT)
 
 	if r.readinessPending.Load() {
 		t.Fatal("giving up must open the readiness gate so no attempt waits on it again")
@@ -419,7 +419,7 @@ func TestReattachedCandidateStaysGatedUntilSignalled(t *testing.T) {
 
 	ready := make(chan error, 1)
 	ready <- nil
-	signalled, finished := r.settleReadiness(&ctrd.Task{}, nil, ready, func() {}, make(chan struct{}))
+	signalled, finished := r.settleReadiness(&ctrd.Task{}, nil, ready, func() {}, make(chan struct{}), nil)
 	if !signalled || finished {
 		t.Fatalf("settleReadiness() = %v, %v, want signalled and not finished", signalled, finished)
 	}
@@ -432,6 +432,105 @@ func TestReattachedCandidateStaysGatedUntilSignalled(t *testing.T) {
 	statuses := store.runnerStatuses()
 	if len(statuses) != 1 || statuses[0].Status != apigen.RunningStatus_RUNNING_STATUS_RUNNING {
 		t.Fatalf("statuses = %+v, want RUNNING published only once the signal arrived", statuses)
+	}
+}
+
+func TestCandidateThatExitsPublishesItsExitCodeAndNoReason(t *testing.T) {
+	store := &fakeOperatorStore{}
+	r := newTestCandidate(t, store)
+	exitDone := make(chan struct{})
+	close(exitDone)
+	exitCode := apigen.Some(int32(3))
+
+	signalled, finished := r.settleReadiness(nil, nil, make(chan error), func() {}, exitDone, &exitCode)
+	if signalled || finished {
+		t.Fatalf("settleReadiness() = %v, %v, want a retry", signalled, finished)
+	}
+	statuses := store.runnerStatuses()
+	last := statuses[len(statuses)-1]
+	if last.Status != apigen.RunningStatus_RUNNING_STATUS_CRASHED {
+		t.Fatalf("status = %v, want CRASHED", last.Status)
+	}
+	if !last.ExitCode.Present || last.ExitCode.Value != 3 {
+		t.Fatalf("exit code = %+v, want 3", last.ExitCode)
+	}
+	if last.CrashReason != apigen.CrashReason_CRASH_REASON_UNSPECIFIED {
+		t.Fatalf("crash reason = %v, want none for a container that exited on its own", last.CrashReason)
+	}
+}
+
+func TestReadinessCrashReason(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	dep := rolloverTestDeployment()
+	r := buildContainerRunner(ctx, cancel, &fakeOperatorStore{}, nil, opendeployTestInstanceID, 1, dep, 3)
+
+	for _, tc := range []struct {
+		name       string
+		outcome    readinessOutcome
+		taskExited bool
+		want       apigen.CrashReason
+	}{
+		{"deadline passed", readinessGiveUp, false, apigen.CrashReason_CRASH_REASON_READINESS_TIMED_OUT},
+		{"listener failed", readinessRetry, false, apigen.CrashReason_CRASH_REASON_READINESS_LISTENER_FAILED},
+		{"container exited", readinessRetry, true, apigen.CrashReason_CRASH_REASON_UNSPECIFIED},
+	} {
+		if got := r.readinessCrashReason(tc.outcome, tc.taskExited); got != tc.want {
+			t.Fatalf("%s: reason = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+
+	cancel()
+	if got := r.readinessCrashReason(readinessGiveUp, false); got != apigen.CrashReason_CRASH_REASON_UNSPECIFIED {
+		t.Fatalf("agent shutting down: reason = %v, want none", got)
+	}
+}
+
+func TestFailReadinessPublishesWhyItGaveUp(t *testing.T) {
+	store := &fakeOperatorStore{}
+	r := newTestCandidate(t, store)
+	r.status.ExitCode = apigen.Some(int32(1))
+	r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
+
+	r.failReadiness(errors.New("timed out"), apigen.CrashReason_CRASH_REASON_READINESS_TIMED_OUT)
+
+	statuses := store.runnerStatuses()
+	last := statuses[len(statuses)-1]
+	if last.Status != apigen.RunningStatus_RUNNING_STATUS_CRASHED || last.CrashReason != apigen.CrashReason_CRASH_REASON_READINESS_TIMED_OUT {
+		t.Fatalf("status = %v reason = %v, want CRASHED with READINESS_TIMED_OUT", last.Status, last.CrashReason)
+	}
+	if !last.ExitCode.Present || last.ExitCode.Value != 1 {
+		t.Fatalf("exit code = %+v, want the last attempt's 1", last.ExitCode)
+	}
+
+	r.failReadiness(errors.New("timed out"), apigen.CrashReason_CRASH_REASON_READINESS_TIMED_OUT)
+	if got := len(store.runnerStatuses()); got != len(statuses) {
+		t.Fatalf("status writes = %d, want %d: the same outcome must not be written twice", got, len(statuses))
+	}
+}
+
+func TestCrashReasonDoesNotOutliveItsStatus(t *testing.T) {
+	store := &fakeOperatorStore{}
+	r := newTestCandidate(t, store)
+
+	r.crashed(apigen.CrashReason_CRASH_REASON_NETWORK_RECOVERY_FAILED)
+	statuses := store.runnerStatuses()
+	last := statuses[len(statuses)-1]
+	if last.Status != apigen.RunningStatus_RUNNING_STATUS_CRASHED || last.RunningPid.Present || last.CrashReason != apigen.CrashReason_CRASH_REASON_NETWORK_RECOVERY_FAILED {
+		t.Fatalf("status = %+v, want CRASHED with no pid and NETWORK_RECOVERY_FAILED", last)
+	}
+
+	for _, next := range []apigen.RunningStatus{
+		apigen.RunningStatus_RUNNING_STATUS_STARTING,
+		apigen.RunningStatus_RUNNING_STATUS_CRASHED,
+		apigen.RunningStatus_RUNNING_STATUS_STOPPED,
+	} {
+		r.crashed(apigen.CrashReason_CRASH_REASON_NETWORK_PUBLISH_FAILED)
+		r.updateStatus(next, 0)
+		statuses = store.runnerStatuses()
+		if got := statuses[len(statuses)-1].CrashReason; got != apigen.CrashReason_CRASH_REASON_UNSPECIFIED {
+			t.Fatalf("reason after %v = %v, want none", next, got)
+		}
 	}
 }
 

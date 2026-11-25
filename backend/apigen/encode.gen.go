@@ -4501,6 +4501,7 @@ func (m *RunnerStatus) encodeUnchecked() []byte {
 			b = AppendInt32FieldOpt(b, value, 8)
 		}
 	}
+	b = AppendInt32Field(b, int32(m.CrashReason), 9)
 	return append(b, m.unknownFields...)
 }
 
@@ -4571,6 +4572,12 @@ func mergeRunnerStatus(b []byte, m *RunnerStatus) (*RunnerStatus, error) {
 			b, value, err = ConsumeVarInt32Opt(b, typ)
 			if err == nil {
 				m.ExitCode = Maybe[int32]{Value: *value, Present: true}
+			}
+		case 9:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.CrashReason = CrashReason(raw)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -7350,6 +7357,7 @@ func (m *DeploymentRunReport) encodeUnchecked() []byte {
 	b = AppendRepeated(b, m.LogLines, AppendFieldDecorator(AppendStringElem, 11))
 	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 12))
 	b = AppendInt32Field(b, int32(m.Status), 13)
+	b = AppendInt32Field(b, int32(m.CrashReason), 14)
 	return append(b, m.unknownFields...)
 }
 
@@ -7426,6 +7434,12 @@ func mergeDeploymentRunReport(b []byte, m *DeploymentRunReport) (*DeploymentRunR
 			b, raw, err = ConsumeVarInt32(b, typ)
 			if err == nil {
 				m.Status = RunningStatus(raw)
+			}
+		case 14:
+			var raw int32
+			b, raw, err = ConsumeVarInt32(b, typ)
+			if err == nil {
+				m.CrashReason = CrashReason(raw)
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

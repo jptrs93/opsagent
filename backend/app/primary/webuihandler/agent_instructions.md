@@ -360,6 +360,11 @@ returns the newest matches in a single round trip — no pagination, no tailing:
 summarises one run of one instance: start and stop times, exit code, and the
 last 20 log lines in `log_lines`. The instance id comes from
 `/v1/deployments/get`; runs count from 1 and go up by one on every restart.
+`crash_reason` is non-zero when the agent ended the container itself, and the
+same field is on `runner` in the instance status: `1` its network could not
+be recovered after an agent restart, `2` its address could not be published,
+`3` its readiness listener failed, `4` it did not report ready before the
+readiness timeout. A container that exited on its own has `0`.
 
 `POST /v1/metrics/latest` (empty body) is the live overview: the newest
 sample of every running container you can see, in `entries`. Each carries the

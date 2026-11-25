@@ -6,6 +6,7 @@ import {nodeDisplayName} from "../lib/machines.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {formatHistoryTime} from "../lib/date.js";
 import {caretRightIcon} from "../lib/icons.js";
+import {crashReasonText} from "../lib/crashReason.js";
 
 const {div, h2, span, pre, button, p} = van.tags;
 
@@ -166,6 +167,10 @@ export function runReportOverlay(target, onClose) {
                 : '',
             formatDuration(r.startedAt, r.stoppedAt) ? fact("Duration", formatDuration(r.startedAt, r.stoppedAt)) : '',
             exitChip(r)),
+        crashReasonText(r.crashReason)
+            ? div({class: "dep-hr flex-none border-b px-4 py-1.5"},
+                p({class: "text-[11px] text-red-300", "data-testid": "run-report-crash-reason"}, crashReasonText(r.crashReason)))
+            : '',
         (r.warnings || []).length > 0
             ? div({class: "dep-hr flex-none border-b px-4 py-1.5"},
                 ...(r.warnings || []).map((w) => p({class: "text-[11px] text-amber-400"}, w)))

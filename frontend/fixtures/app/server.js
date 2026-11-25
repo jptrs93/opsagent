@@ -876,9 +876,12 @@ export function installServer(capi, {log = console} = {}) {
             return rt("DeploymentRunReport", {
                 deploymentId: dep?.id, deploymentVersion: Number(inst?.entity.deployment?.version || 1), deploymentSpecVersion: Number(dep?.meta.specVersion || 1),
                 nodeId: Number(inst?.entity.nodeId || 1), instanceOrdinal: 0, run: Number(run), running, startedAt: new Date(started),
-                ...(running ? {} : {stoppedAt: new Date(started + 5 * MIN), exitCode: crashed ? 1 : 0}),
-                status: running ? 2 : crashed ? 5 : 3,
-                logLines: crashed
+                ...(running ? {} : {stoppedAt: new Date(started + 5 * MIN), exitCode: crashed ? 1 : status.crashReason ? 143 : 0}),
+                status: running ? 2 : crashed || status.crashReason ? 5 : 3,
+                crashReason: Number(run) === current ? Number(status.crashReason || 0) : 0,
+                logLines: status.crashReason
+                    ? ["level=INFO msg=\"listening\" addr=:8080", "level=INFO msg=\"connected to database\"", "level=INFO msg=\"warming caches\" loaded=18 total=240"]
+                    : crashed
                     ? ["level=INFO msg=\"billing run starting\" period=2026-11", "level=INFO msg=\"loaded 1,284 subscriptions\"", "level=ERROR msg=\"stripe: invalid API key provided\" code=401", "panic: billing: cannot continue without payment provider", "", "goroutine 1 [running]:", "main.main()", "\t/app/cmd/billing/main.go:88 +0x1f4", "exit status 1"]
                     : ["level=INFO msg=\"listening\" addr=:8080", "level=INFO msg=\"connected to database\"", "level=INFO msg=\"ready\""],
                 warnings: [],

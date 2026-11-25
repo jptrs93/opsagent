@@ -4,6 +4,7 @@ import {formatClockTime, formatHistoryTime} from "../lib/date.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {deploymentDeleted, deploymentRestartEvent, deploymentWorkload, desiredRunning} from "../lib/deployment.js";
 import {rollupLabel, rollupOf, inputsLabel, imageLabel, InputsStatus, ImageStatus} from "../lib/preparerStatus.js";
+import {crashReasonLabel} from "../lib/crashReason.js";
 
 const {button, col, colgroup, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
@@ -70,6 +71,7 @@ function runnerChanged(cur, prev) {
         || a.runningPid !== b.runningPid
         || a.runningArtifact !== b.runningArtifact
         || a.numberOfRestarts !== b.numberOfRestarts
+        || (a.crashReason || 0) !== (b.crashReason || 0)
         || ta !== tb;
 }
 
@@ -89,6 +91,7 @@ function formatRunner(r) {
     if (r.lastRestartAt instanceof Date && r.lastRestartAt.getTime() > 0) {
         extras.push(`last_restart=${formatClockTime(r.lastRestartAt)}`);
     }
+    if (crashReasonLabel(r.crashReason)) extras.push(`reason="${crashReasonLabel(r.crashReason)}"`);
     return `run: ${label} ${extras.join(' ')}`;
 }
 

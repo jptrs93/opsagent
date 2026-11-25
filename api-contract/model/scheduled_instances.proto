@@ -17,6 +17,17 @@ enum RunningStatus {
   RUNNING_STATUS_CRASHED = 5;
 }
 
+// CrashReason is set on a CRASHED status the agent caused by ending the
+// container itself. A container that exited on its own has none: its
+// exit_code says how it ended.
+enum CrashReason {
+  CRASH_REASON_UNSPECIFIED = 0;
+  CRASH_REASON_NETWORK_RECOVERY_FAILED = 1;
+  CRASH_REASON_NETWORK_PUBLISH_FAILED = 2;
+  CRASH_REASON_READINESS_LISTENER_FAILED = 3;
+  CRASH_REASON_READINESS_TIMED_OUT = 4;
+}
+
 // PreparationStatus is the rollup across both preparation stages and gates
 // runner start. It is derived from InputsStatus and ImageStatus by
 // PreparerStatus.Rollup() and never stored or sent.
@@ -103,4 +114,5 @@ message RunnerStatus {
   optional int64 last_restart_at = 6 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];
   repeated string network_diagnostics = 7;
   optional int32 exit_code = 8;
+  CrashReason crash_reason = 9;
 }

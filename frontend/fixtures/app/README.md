@@ -51,6 +51,8 @@ Shots:
 
 - `status`, `status-inspector`, `status-history`, `status-editor`, `status-create`,
   `dialog-recently-deleted` and `dialog-run-report` are the Deployments page.
+  `status-crash-reason` and `dialog-run-report-reason` open the staging `api`,
+  whose rollover candidate the agent gave up on.
 - `secrets`, `secrets-inspector` and `dialog-secret-value` are Secrets / Configs.
 - `assets` and `assets-inspector` are Assets.
 - `logs`, `metrics`, `metrics-deployment`, `metrics-nodes` and `metrics-node` are Logs and Metrics.

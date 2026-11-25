@@ -74,6 +74,16 @@ const SHOTS = {
         await p.getByTestId("deployment-restarts-open-billing-cron").click();
         await p.getByText("panic: billing").first().waitFor();
     }},
+    "status-crash-reason": {steps: async (p) => {
+        await p.getByTestId("deployment-row-api").nth(1).locator("td").first().click();
+        await p.locator("[data-testid^='deployment-crash-reason-api-']").waitFor();
+    }},
+    "dialog-run-report-reason": {steps: async (p) => {
+        await p.getByTestId("deployment-row-api").nth(1).locator("td").first().click();
+        await p.locator("[data-testid^='deployment-crash-reason-api-']").waitFor();
+        await p.locator("[data-testid^='instance-rst-open-api-']").first().click();
+        await p.getByTestId("run-report-crash-reason").waitFor();
+    }},
     "secrets": {steps: async (p) => { await nav(p, "secrets"); await p.getByText("session_signing_key").first().waitFor(); }},
     "secrets-inspector": {steps: async (p) => {
         await nav(p, "secrets");

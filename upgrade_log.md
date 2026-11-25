@@ -4,6 +4,42 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.629 (released 2026-11-25)
+
+### What changed
+
+- **A Crashed status says why when the agent ended the container itself.**
+  The runner status has a new field, `crash_reason`, with four values: the
+  container's network could not be recovered after an agent restart, its
+  address could not be published, its readiness listener failed, or it did
+  not report ready before the readiness timeout. A container that exits on
+  its own has no reason, as before.
+- **The Deployments page shows the reason** under the instance table of the
+  inspector and as the tooltip of the Crashed status. The run report shows
+  it under the facts of the run, the history shows it on the status line,
+  and `POST /v1/deployments/run-report` returns it as `crash_reason`.
+- **More statuses carry the exit code.** A container the agent stops after
+  reattaching to it carries the exit code of that stop (143 or 137), and a
+  rollover candidate that exits before it signals readiness carries its own
+  exit code. Both were published without one.
+
+### Before upgrading
+
+- Nothing needs doing. The field is one new enum on the status message. A
+  status without a reason is encoded exactly as before.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. A primary still on
+  the older version stores and forwards the field without reading it, so a
+  reason published during the rollout is kept.
+- The Web UI shows reasons once the primary is upgraded. Reload any open tab.
+
+### After upgrading
+
+- Nothing to check on a healthy cluster: a reason appears only when an agent
+  ends a container. Statuses written before the upgrade have none.
+
 ## v0.0.628 (released 2026-11-25)
 
 ### What changed

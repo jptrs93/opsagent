@@ -74,6 +74,19 @@ const (
 	RunningStatus_RUNNING_STATUS_CRASHED       RunningStatus = 5
 )
 
+// CrashReason is set on a CRASHED status the agent caused by ending the
+// container itself. A container that exited on its own has none: its
+// exit_code says how it ended.
+type CrashReason int32
+
+const (
+	CrashReason_CRASH_REASON_UNSPECIFIED               CrashReason = 0
+	CrashReason_CRASH_REASON_NETWORK_RECOVERY_FAILED   CrashReason = 1
+	CrashReason_CRASH_REASON_NETWORK_PUBLISH_FAILED    CrashReason = 2
+	CrashReason_CRASH_REASON_READINESS_LISTENER_FAILED CrashReason = 3
+	CrashReason_CRASH_REASON_READINESS_TIMED_OUT       CrashReason = 4
+)
+
 // PreparationStatus is the rollup across both preparation stages and gates
 // runner start. It is derived from InputsStatus and ImageStatus by
 // PreparerStatus.Rollup() and never stored or sent.
@@ -652,6 +665,7 @@ type RunnerStatus struct {
 	LastRestartAt         Maybe[time.Time] `json:"last_restart_at,omitzero"`
 	NetworkDiagnostics    []string         `json:"network_diagnostics,omitempty"`
 	ExitCode              Maybe[int32]     `json:"exit_code,omitzero"`
+	CrashReason           CrashReason      `json:"crash_reason"`
 }
 
 // DeploymentUpdateRequest applies exactly one kind of change to a deployment,
@@ -896,6 +910,7 @@ type DeploymentRunReport struct {
 	LogLines              []string         `json:"log_lines,omitempty"`
 	Warnings              []string         `json:"warnings,omitempty"`
 	Status                RunningStatus    `json:"status"`
+	CrashReason           CrashReason      `json:"crash_reason"`
 }
 
 // RawLogLine is the node-local log WAL frame. Every tag is kept.
