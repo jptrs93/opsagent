@@ -4,10 +4,7 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
-## Not released yet: log and metrics archive
-
-Written on 2026-11-25 for the change that adds chunk records and the archive.
-Give this entry its version number when the change is released.
+## v0.0.632 (released 2026-11-26)
 
 ### What changed
 
@@ -32,6 +29,14 @@ Give this entry its version number when the change is released.
 - **Sealed log files are hashed.** The log catalog gains a `sha256` column. A
   file that will not be rewritten is hashed in the background, one file at a
   time, and is then left out of roll-up.
+
+- **The Metrics page explains its columns and lays charts out in a grid.**
+  Every column header of the two overview tables has an info icon that says
+  what the number is and where it is read from. A chart tab shows its charts
+  in one, two or three columns, and each chart has a button that expands it
+  to the whole tab. The column count is kept in the browser.
+- **Dashboards is no longer in the sidebar.** It was a placeholder for a
+  page that does not exist.
 
 Nothing reads from the bucket yet, and nothing deletes a local file or a
 bucket object.
