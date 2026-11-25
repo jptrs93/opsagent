@@ -302,6 +302,7 @@ export function buildDataset(now = Date.now()) {
                 status: inst.status ?? 2, numberOfRestarts: inst.restarts || 0,
                 ...(inst.restarts ? {lastRestartAt: new Date(ago(inst.lastRestart || 40 * MIN))} : {}),
                 ...(inst.exitCode != null ? {exitCode: inst.exitCode} : {}),
+                ...(inst.crashReason ? {crashReason: inst.crashReason} : {}),
                 networkDiagnostics: inst.diagnostics || [],
             };
             put(T.SCHEDULED_INSTANCE_STATUS, id, {
@@ -350,7 +351,7 @@ export function buildDataset(now = Date.now()) {
         env: {DATABASE_PASSWORD: secretEnv(6, 2), API_TOKEN: secretEnv(7, 1), LOG_LEVEL: configEnv(4, 2), PORT: literalEnv("8080")},
         ingress: [https("api.staging.example.net", 8080)]},
     [{ago: 30 * DAY, version: C("api-2")}, {ago: 5 * DAY, version: C("api-4"), actor: 3}, {ago: 50 * MIN, version: C("api-5"), actor: -3}],
-    [{status: 2}]);
+    [{status: 2, version: 2}, {status: 5, state: 3, crashReason: 4, restarts: 1, lastRestart: 49 * MIN, updated: 47 * MIN}]);
 
     addDeployment({id: 8, name: "web", spaceId: SPACE.staging, node: NODE.c, source: imageSource("ghcr.io/acme/storefront"),
         ingress: [https("staging.example.com", 3000)]},

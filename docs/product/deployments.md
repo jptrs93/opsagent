@@ -299,6 +299,23 @@ Driven by the runner. Tracks the running container task with `running_pid`,
 `running_artifact`, `status` (`NO_DEPLOYMENT`, `RUNNING`, `STOPPED`, `STARTING`,
 `CRASHED`), `deployment_spec_version`, `number_of_restarts`, and `last_restart_at`.
 
+A status that ends a run says how it ended. `exit_code` is the container's
+exit code when the runner saw it exit. `crash_reason` is set on a `CRASHED`
+status when the agent ended the container itself:
+
+| `crash_reason` | The agent ended the container because |
+|---|---|
+| `NETWORK_RECOVERY_FAILED` | its network could not be recovered after an agent restart |
+| `NETWORK_PUBLISH_FAILED` | it started but its address could not be published |
+| `READINESS_LISTENER_FAILED` | the readiness listener of a rollover candidate failed, or could not be resumed after an agent restart |
+| `READINESS_TIMED_OUT` | a rollover candidate did not report ready before the readiness timeout |
+
+A container that exits on its own has no `crash_reason`. When the agent ends
+a container and waits for it, the status carries both: the reason, and the
+exit code of the signal the agent sent (143 for `SIGTERM`, 137 for `SIGKILL`).
+The reason belongs to that one status. The next status the runner publishes
+has none.
+
 ## Deployment identification
 
 Each deployment has an integer `id` (primary key) assigned when it is created via `POST /v1/deployments/create`. Human-readable metadata lives directly on `Deployment` (`name`, `spaceId`), and application identity is `{scheduling.placement.dedicatedNodes.nodes[0], spaceId, name}`. Active-identity uniqueness is a Go-level check under the store mutex on create and space move (the identity lives inside the event snapshots, so it cannot be a SQL constraint). All API requests, storage keys, and log file paths use the integer `id`.
@@ -450,6 +467,16 @@ The container runner owns crash recovery directly: on task exit it writes
 `number_of_restarts` increments on each respawn and resets on new deployments.
 If the container runs stably for 15+ seconds before crashing, the local crash
 counter is reset.
+
+The agent can also end a container itself, for example when it cannot recover
+the container's network after its own restart. It writes the same `CRASHED`
+status, with a `crash_reason` (see RunnerStatus), and respawns the same way. A
+rollover candidate that runs out its readiness timeout is the exception: it is
+not respawned.
+
+The Deployments page shows the reason under the instance table of the
+inspector and as the tooltip of the Crashed status. The run report shows it
+under the facts of the run, and the history shows it on the status line.
 
 ## Deployment history
 

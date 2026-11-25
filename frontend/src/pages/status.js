@@ -19,6 +19,7 @@ import {containerWorkload, deploymentDeleted, deploymentId as deploymentIdOf, de
 import {deploymentUsages} from "../lib/referenceUsage.js";
 import {resolveUserDisplayName} from "../lib/users.js";
 import {preparerPhase} from "../lib/preparerStatus.js";
+import {crashReasonText} from "../lib/crashReason.js";
 import {formatDateTime} from "../lib/date.js";
 import {spaceDot, spacesFilter} from "../components/spacesFilter.js";
 
@@ -394,6 +395,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
                 existingVersion: instanceRunner.runningVersion || pinnedVersion,
                 deployedVersion: workload.version || '',
                 numberOfRestarts: instanceRunner.numberOfRestarts || 0,
+                crashReason: Number(instanceRunner.crashReason || 0),
                 lastRestartAt: instanceRunner.lastRestartAt,
                 preparer: instancePrep,
                 // The instance's own pinned config is what its preparer worked
@@ -424,6 +426,7 @@ const mapDeploymentsToView = (deployments, spaces, machines) => {
             nodeMissing,
             existingVersion: runner.runningVersion || '',
             numberOfRestarts: runner.numberOfRestarts || 0,
+            crashReason: Number(runner.crashReason || 0),
             lastRestartAt: runner.lastRestartAt,
             deployedBy: Number(meta.updatedActor || 0),
             deployedAt: new Date(Number(meta.updatedTime || 0)),
@@ -484,10 +487,13 @@ const instanceStatusView = (member, instance) => {
     else if (!hasExisting) label = 'No existing deployment';
     else if (nodeMissing && instance.existingStatus === 0) label = 'Unknown';
     else label = existingStatusNames[instance.existingStatus] || 'Unknown';
+    const note = label === 'Crashed' ? crashReasonText(instance.crashReason) : '';
     return {
         label,
+        note,
         tone: `dep-st-${STATUS_TONE[label] || STATUS_TONE.Unknown}`,
         hasRunOutput: hasExisting && instance.runnerPresent,
+        runOutputTitle: note ? `${note} Click to view the run output.` : "View run output",
     };
 };
 
@@ -806,8 +812,10 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
             };
             if (!row.isSystemGroup && total === 1) attrs["data-testid"] = `deployment-runner-status-${row.name}`;
             if (view.hasRunOutput) {
-                attrs.title = "View run output";
+                attrs.title = view.runOutputTitle;
                 attrs.onclick = (e) => { e.stopPropagation(); onShowRunOutput(g.first.member); };
+            } else if (view.note) {
+                attrs.title = view.note;
             }
             return span(attrs,
                 span({class: "dep-dot"}),
@@ -1237,9 +1245,9 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
                                 (view.hasRunOutput ? ' cursor-pointer hover:brightness-125' : ''),
                             "data-testid": `deployment-runner-status-${sub.testSuffix}`,
                             ...(view.hasRunOutput ? {
-                                title: "View run output",
+                                title: view.runOutputTitle,
                                 onclick: () => onShowRunOutput(sub.member),
-                            } : {}),
+                            } : view.note ? {title: view.note} : {}),
                         },
                             span({class: "dep-dot"}),
                             span({class: "truncate"}, view.label))),
@@ -1270,6 +1278,17 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
         );
     };
 
+    const crashNotes = (row) => {
+        const notes = subInstances(row)
+            .map((sub) => ({sub, note: instanceStatusView(sub.member, sub.instance).note}))
+            .filter((entry) => entry.note);
+        if (notes.length === 0) return '';
+        return div({class: "flex flex-col gap-1 px-1 pt-2"},
+            ...notes.map(({sub, note}) => p({class: "dep-st-err text-[11px] leading-snug", "data-testid": `deployment-crash-reason-${sub.testSuffix}`},
+                span({class: "font-mono text-gray-500"}, `#${sub.instance.instanceId || '-'} `),
+                note)));
+    };
+
     const sectionLabel = (text, first = false) => p({class: `dep-section ${first ? "" : "dep-section-break"}`}, text);
 
     const inspectorActionButton = (text, onclick, cls = "") => button({
@@ -1283,7 +1302,7 @@ export function statusPage(onOpenLogs = () => {}, hooks = {}) {
             sectionLabel("Overview", true),
             factsTable(row),
             sectionLabel(`Instances · ${subInstances(row).length}`),
-            div({class: "px-2 pb-2"}, instancesTable(row)),
+            div({class: "px-2 pb-2"}, instancesTable(row), crashNotes(row)),
             ...(row.isSystemGroup ? [] : [
                 sectionLabel("Network policies"),
                 div({class: "px-2 pb-2"}, deploymentNetworkPolicies(row.id, row.spaceId)),

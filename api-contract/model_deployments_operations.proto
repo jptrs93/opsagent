@@ -240,4 +240,5 @@ message DeploymentRunReport {
   repeated string log_lines = 11;
   repeated string warnings = 12;
   RunningStatus status = 13;
+  CrashReason crash_reason = 14;
 }
