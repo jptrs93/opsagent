@@ -121,6 +121,23 @@
         @apply transition-colors;
     }
 
+    .access-action {
+        @apply inline-flex h-[18px] flex-none cursor-pointer items-center gap-1 whitespace-nowrap rounded px-1.5 text-[11px] font-medium leading-none
+        transition-colors disabled:cursor-not-allowed disabled:opacity-40;
+    }
+
+    .access-action-primary {
+        @apply bg-brand text-white enabled:hover:bg-blue-600;
+    }
+
+    .access-copyable {
+        @apply flex max-w-full items-start gap-3 rounded-md bg-code py-1.5 pl-3 pr-1.5;
+    }
+
+    .access-copyable-text {
+        @apply min-w-0 flex-1 select-all whitespace-pre-wrap break-words py-px font-mono text-[11px] leading-4 text-gray-200;
+    }
+
     .access-code-block {
         @apply flex min-h-0 flex-col overflow-hidden rounded-md border;
         --access-code-bg: #1f2937;
@@ -252,7 +269,16 @@
         }
 
         .access-td {
-            @apply border-b border-r border-b-gray-800/50 border-r-gray-800/30 px-2 py-[3px];
+            @apply h-[25px] border-b border-r border-b-gray-800/50 border-r-gray-800/30 px-2 py-0;
+        }
+
+        .access-action-quiet,
+        .access-action-danger {
+            @apply border border-gray-600 text-gray-300 enabled:hover:bg-surface-hover enabled:hover:text-gray-100;
+        }
+
+        .access-action-danger {
+            @apply enabled:hover:border-red-500/50 enabled:hover:bg-red-500/10 enabled:hover:text-red-300;
         }
 
         .access-td:last-child {
@@ -407,7 +433,16 @@
         }
 
         .access-td {
-            @apply border-b border-[#1d2531] px-3 py-1.5;
+            @apply h-[25px] border-b border-[#1d2531] px-3 py-0;
+        }
+
+        .access-action-quiet,
+        .access-action-danger {
+            @apply bg-white/[0.06] text-gray-300 enabled:hover:bg-white/10 enabled:hover:text-gray-100;
+        }
+
+        .access-action-danger {
+            @apply enabled:hover:bg-red-500/15 enabled:hover:text-red-300;
         }
 
         .access-tr:not(.access-tr-pending) {
@@ -567,7 +602,16 @@
         }
 
         .access-td {
-            @apply px-3 py-[5px];
+            @apply h-[26px] px-3 py-0;
+        }
+
+        .access-action-quiet,
+        .access-action-danger {
+            @apply border border-gray-700 text-gray-400 enabled:hover:bg-white/[0.04] enabled:hover:text-gray-200;
+        }
+
+        .access-action-danger {
+            @apply enabled:hover:border-red-400/40 enabled:hover:bg-transparent enabled:hover:text-red-300;
         }
 
         .access-tr:not(.access-tr-pending) {

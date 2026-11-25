@@ -4,6 +4,32 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.626 (released 2026-11-25)
+
+### What changed
+
+Only the Sessions page of the Web UI changes. Nothing changes on disk or on
+the wire.
+
+- **Rows are shorter** on both tabs.
+- **The cross that ended a session is a small text button.** It reads
+  Revoke on a live session, Reject on a pending agent request, Cancel on an
+  unused sign-in link and Sign out on the row for this browser. A row that
+  can no longer be acted on has no button.
+- **Both tabs call the client address "IP address".** The Agent sessions
+  tab called it "Origin".
+- **The agent prompt has no title bar and no longer collapses.** It is one
+  sentence and the prompt with a Copy button.
+
+### Before upgrading
+
+- Nothing needs doing.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. Only the primary
+  serves the Web UI. Reload any open tab afterwards.
+
 ## v0.0.625 (released 2026-11-25)
 
 ### What changed

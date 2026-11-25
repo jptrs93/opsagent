@@ -2,8 +2,7 @@ import van from "vanjs-core";
 import {capi} from "../capi/index.js";
 import {agentSessionsS, userSessionsS} from "../state/deployments.js";
 import {clearLoginState, loginS} from "../state/login.js";
-import {codeBlock} from "../components/codeBlock.js";
-import {xIcon} from "../lib/icons.js";
+import {checkIcon, copyIcon} from "../lib/icons.js";
 import {formatHistoryTime} from "../lib/date.js";
 import {
     agentPrompt,
@@ -18,8 +17,6 @@ import {usersMapS} from "../state/deployments.js";
 import {tabButton, tabStrip} from "../components/tabs.js";
 
 const {button, div, p, span, table, tbody, td, th, thead, tr} = van.tags;
-
-const iconButtonClass = "rounded p-1 text-gray-400 transition-colors hover:bg-surface-hover slate:hover:bg-white/[0.06] graphite:hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent cursor-pointer";
 
 // Header cells stick to the top of the scrolling list, so they need an opaque
 // background and an inset shadow in place of a bottom border, which a sticky
@@ -42,12 +39,41 @@ const emptyRow = (colCount, text) => tr(
     td({class: "access-td text-gray-500", colspan: colCount},
         div({class: "flex h-8 items-center justify-center text-xs"}, text)));
 
+const rowAction = ({label, name = label, title = name, tone, disabled, onclick}) => button({
+    type: "button",
+    class: `access-action ${tone}`,
+    disabled,
+    title,
+    "aria-label": name,
+    onclick,
+}, label);
+
+function copyableText({value, testId}) {
+    const copied = van.state(false);
+    const copy = async () => {
+        try {
+            await navigator.clipboard.writeText(value());
+            copied.val = true;
+            setTimeout(() => { copied.val = false; }, 2000);
+        } catch {
+            copied.val = false;
+        }
+    };
+    return div(
+        {class: "access-copyable", "data-testid": testId},
+        span({class: "access-copyable-text"}, value),
+        button(
+            {type: "button", class: "access-action access-action-quiet", onclick: () => { void copy(); }},
+            () => copied.val ? checkIcon({class: "h-3 w-3 text-green-400"}) : copyIcon({class: "h-3 w-3"}),
+            () => copied.val ? "Copied" : "Copy"),
+    );
+}
+
 const errorLine = (error, testId) => () => error.val
     ? p({class: "px-2 pt-1.5 text-xs text-red-400 slate:px-3 graphite:px-3", "data-testid": testId}, error.val)
     : "";
 
 function agentSessionsTab() {
-    const promptOpen = van.state(true);
     const error = van.state("");
     const busyID = van.state("");
 
@@ -70,6 +96,7 @@ function agentSessionsTab() {
         const pending = sessionPending(session);
         const status = sessionStatus(session);
         const stoppable = sessionStoppable(session);
+        const busy = () => busyID.val === session.id;
         return tr(
             {class: `access-tr ${pending ? "access-tr-pending" : ""}`},
             tdCell("whitespace-nowrap text-gray-300 tabular-nums", formatHistoryTime(session.createdAt)),
@@ -81,24 +108,21 @@ function agentSessionsTab() {
                     : span({class: "text-gray-600"}, "—")),
             tdCell("whitespace-nowrap font-mono text-gray-500", session.requestingAddress || "unknown"),
             tdCell("w-px",
-                div({class: "flex items-center justify-end gap-1"},
-                    pending ? button({
-                        type: "button",
-                        class: "btn-primary text-xs py-0.5 px-2 shrink-0 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed",
-                        disabled: () => busyID.val === session.id,
+                div({class: "flex items-center justify-end gap-1.5"},
+                    pending ? rowAction({
+                        label: "Approve",
                         title: "Approve this request and let the agent collect its token",
+                        tone: "access-action-primary",
+                        disabled: busy,
                         onclick: () => { void approve(session); },
-                    }, "Approve") : "",
-                    button({
-                        type: "button",
-                        class: `${iconButtonClass} hover:text-red-400`,
-                        disabled: () => !stoppable || busyID.val === session.id,
-                        title: stoppable
-                            ? (pending ? "Reject this request" : "Revoke this session")
-                            : `Session is already ${status.label.toLowerCase()}`,
-                        "aria-label": pending ? "Reject this request" : "Revoke this session",
+                    }) : "",
+                    stoppable ? rowAction({
+                        label: pending ? "Reject" : "Revoke",
+                        name: pending ? "Reject this request" : "Revoke this session",
+                        tone: "access-action-danger",
+                        disabled: busy,
                         onclick: () => { void stop(session); },
-                    }, xIcon({size: 13})),
+                    }) : "",
                 )),
         );
     };
@@ -108,17 +132,10 @@ function agentSessionsTab() {
     return div(
         {class: "flex flex-1 min-h-0 flex-col"},
         div(
-            {class: "flex flex-none flex-col gap-1.5 p-2 slate:px-3 slate:py-3 graphite:px-3 graphite:py-2.5"},
-            p({class: "text-[11px] text-gray-500"},
+            {class: "flex flex-none flex-col items-start gap-1.5 p-2 slate:px-3 slate:py-3 graphite:px-3 graphite:py-2.5"},
+            p({class: "text-xs text-gray-400"},
                 "Give this to an agent. It will fetch its own instructions and request a session, which you can approve below."),
-            codeBlock({
-                title: "Agent prompt",
-                value: promptText,
-                open: promptOpen,
-                wrap: true,
-                lineNumbers: false,
-                testId: "agent-prompt",
-            }),
+            copyableText({value: promptText, testId: "agent-prompt"}),
         ),
         errorLine(error, "agent-session-error"),
         () => {
@@ -126,7 +143,7 @@ function agentSessionsTab() {
             return div(
                 {class: "app-scroll flex-1 min-h-0 overflow-y-auto", "data-testid": "agent-session-list"},
                 denseTable(
-                    [thCell("Started"), thCell("Status"), thCell("Approval code"), thCell("Origin"), thCell("", "w-px")],
+                    [thCell("Started"), thCell("Status"), thCell("Approval code"), thCell("IP address"), thCell("", "w-px")],
                     ordered.length ? ordered.map(row) : [emptyRow(5, "No sessions yet")],
                 ),
             );
@@ -181,16 +198,13 @@ function userSessionsTab() {
             tdCell("whitespace-nowrap text-gray-400 tabular-nums", formatHistoryTime(session.expiresAt)),
             tdCell("w-px",
                 div({class: "flex items-center justify-end"},
-                    button({
-                        type: "button",
-                        class: `${iconButtonClass} hover:text-red-400`,
-                        disabled: () => !live || busyID.val === session.id,
-                        title: !live
-                            ? `${link ? "Link" : "Session"} is already ${status.label.toLowerCase()}`
-                            : link ? "Cancel this link" : (current ? "Sign out this browser" : "Revoke this session"),
-                        "aria-label": link ? "Cancel this link" : (current ? "Sign out this browser" : "Revoke this session"),
+                    live ? rowAction({
+                        label: link ? "Cancel" : (current ? "Sign out" : "Revoke"),
+                        name: link ? "Cancel this link" : (current ? "Sign out this browser" : "Revoke this session"),
+                        tone: "access-action-danger",
+                        disabled: () => busyID.val === session.id,
                         onclick: () => { void revoke(session); },
-                    }, xIcon({size: 13})),
+                    }) : "",
                 )),
         );
     };
