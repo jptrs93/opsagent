@@ -20,4 +20,6 @@ message BackupStatus {
   bool asset_target_s3 = 9;
   string asset_error = 10;
   bool asset_keep_local = 11;
+  uint64 db_size_bytes = 12 [(cp.js_type) = "number"];
+  uint64 wal_size_bytes = 13 [(cp.js_type) = "number"];
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -167,7 +168,7 @@ func runReplication(ctx context.Context, loader systemconfig.Loader, cfg *apigen
 		if err := stopReplication(context.WithoutCancel(ctx)); err != nil {
 			slog.ErrorContext(ctx, "stop backup replication", "err", err)
 		}
-		publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: "backup replication is not running"}, assets))
+		publishBackupStatus(publisher, withLocalStatus(apigen.BackupStatus{Configured: true, Error: "backup replication is not running"}, assets))
 	}()
 
 	backoff := timeu.NewExpBackoff(time.Minute, 5*time.Minute)
@@ -175,14 +176,14 @@ func runReplication(ctx context.Context, loader systemconfig.Loader, cfg *apigen
 		backupCfg, err := resolvedBackupConfigFromDynamic(loader, cfg, secretSource)
 		if err != nil {
 			slog.ErrorContext(ctx, "backup replication config invalid", "err", err)
-			publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
+			publishBackupStatus(publisher, withLocalStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
 			backoff.WaitWithContext(ctx)
 			continue
 		}
 		proc, err := startReplication(ctx, backupCfg)
 		if err != nil {
 			slog.ErrorContext(ctx, "start backup replication", "err", err)
-			publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
+			publishBackupStatus(publisher, withLocalStatus(apigen.BackupStatus{Configured: true, Error: err.Error()}, assets))
 			if stopErr := stopReplication(context.WithoutCancel(ctx)); stopErr != nil {
 				slog.ErrorContext(ctx, "stop failed backup replication", "err", stopErr)
 			}
@@ -198,7 +199,7 @@ func runReplication(ctx context.Context, loader systemconfig.Loader, cfg *apigen
 			exitMsg = fmt.Sprintf("backup replication process exited: %v", proc.exitErr)
 		}
 		slog.ErrorContext(ctx, "backup replication process exited", "err", proc.exitErr)
-		publishBackupStatus(publisher, withAssetStatus(apigen.BackupStatus{Configured: true, Error: exitMsg}, assets))
+		publishBackupStatus(publisher, withLocalStatus(apigen.BackupStatus{Configured: true, Error: exitMsg}, assets))
 		if stopErr := stopReplication(context.WithoutCancel(ctx)); stopErr != nil {
 			slog.ErrorContext(ctx, "stop exited backup replication", "err", stopErr)
 		}
@@ -218,8 +219,7 @@ func startReplication(ctx context.Context, cfg S3Config) (*replicatorProcess, er
 		}
 	}
 
-	dbPath := filepath.Join(ainit.StaticConfig.DataDir, "primary.db")
-	proc, err := spawnReplicator(ctx, dbPath, cfg)
+	proc, err := spawnReplicator(ctx, primaryDBPath(), cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +272,7 @@ func monitorReplication(ctx context.Context, proc *replicatorProcess, publisher 
 func publishBackupStatusUntil(ctx context.Context, done <-chan struct{}, publisher statusPublisher, assets assetStatusSource) {
 	var last apigen.BackupStatus
 	publishIfChanged := func() {
-		status := withAssetStatus(CurrentStatus(ctx), assets)
+		status := withLocalStatus(CurrentStatus(ctx), assets)
 		if !backupStatusEqual(status, last) {
 			publishBackupStatus(publisher, status)
 			last = status
@@ -293,7 +293,8 @@ func publishBackupStatusUntil(ctx context.Context, done <-chan struct{}, publish
 	}
 }
 
-func withAssetStatus(status apigen.BackupStatus, assets assetStatusSource) apigen.BackupStatus {
+func withLocalStatus(status apigen.BackupStatus, assets assetStatusSource) apigen.BackupStatus {
+	status.DbSizeBytes, status.WalSizeBytes = databaseSizes(primaryDBPath())
 	if assets == nil {
 		return status
 	}
@@ -303,6 +304,22 @@ func withAssetStatus(status apigen.BackupStatus, assets assetStatusSource) apige
 	status.AssetPending = uint32(pending)
 	status.AssetError = assetErr
 	return status
+}
+
+func primaryDBPath() string {
+	return filepath.Join(ainit.StaticConfig.DataDir, "primary.db")
+}
+
+func databaseSizes(dbPath string) (db, wal uint64) {
+	return fileSize(dbPath), fileSize(dbPath + "-wal")
+}
+
+func fileSize(path string) uint64 {
+	info, err := os.Stat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return 0
+	}
+	return uint64(info.Size())
 }
 
 func publishBackupStatus(publisher statusPublisher, status apigen.BackupStatus) {

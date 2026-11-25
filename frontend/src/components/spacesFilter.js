@@ -15,6 +15,10 @@ export const spaceDot = (spaceId) => span({
     style: `background:${spaceHue(spaceId)}`,
 });
 
+export const spaceTag = (spaceId, name) => span({class: "space-tag"},
+    spaceDot(spaceId),
+    span({class: "space-name truncate"}, name));
+
 // The pages keep the set of hidden space ids, so a space created later shows
 // without anyone touching the filter. The widget works on the shown set, and a
 // preset is a shown set: applying one hides every space it does not name.

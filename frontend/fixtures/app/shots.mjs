@@ -37,6 +37,11 @@ const rowByText = async (page, text, scope = "table") => {
     await row.click();
 };
 const statusRow = (page, name) => page.getByTestId(`deployment-row-${name}`).first();
+const pickLogsDeployment = async (page, name, space) => {
+    await page.getByTestId("logs-deployment-select").click();
+    await page.getByTestId("logs-deployment-select-menu").getByRole("menuitemradio")
+        .filter({has: page.getByText(name, {exact: true})}).filter({hasText: space}).first().click();
+};
 
 // Each shot: view (app|login|enrol|landing), steps(page), optional clip.
 const SHOTS = {
@@ -88,11 +93,22 @@ const SHOTS = {
     }},
     "logs": {steps: async (p) => {
         await nav(p, "logs");
-        const select = p.getByTestId("logs-deployment-select");
-        const value = await select.locator("option", {hasText: "worker-a / api"}).first().getAttribute("value");
-        await select.selectOption(value);
+        await pickLogsDeployment(p, "api", "prod");
         await p.waitForFunction(() => window.__logsResult?.records?.length > 0, null, {timeout: 8000});
         await p.waitForTimeout(400);
+    }},
+    "deployment-select": {steps: async (p) => {
+        await nav(p, "logs");
+        await pickLogsDeployment(p, "api", "prod");
+        await p.waitForFunction(() => window.__logsResult?.records?.length > 0, null, {timeout: 8000});
+        await p.getByTestId("logs-deployment-select").click();
+        await p.getByTestId("logs-deployment-select-menu").waitFor();
+        await p.getByTestId("logs-deployment-select-menu").getByRole("menuitemradio").nth(3).hover();
+    }},
+    "deployment-select-search": {steps: async (p) => {
+        await nav(p, "logs");
+        await p.getByTestId("logs-deployment-select").click();
+        await p.getByTestId("logs-deployment-select-search").fill("web st");
     }},
     "metrics": {steps: async (p) => { await nav(p, "metrics"); await p.getByTestId("metrics-overview-table").waitFor(); }},
     "metrics-deployment": {steps: async (p) => {

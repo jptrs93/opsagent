@@ -2816,6 +2816,8 @@ type BackupStatus struct {
 	AssetTargetS3        bool             `json:"asset_target_s3"`
 	AssetError           string           `json:"asset_error,omitempty"`
 	AssetKeepLocal       bool             `json:"asset_keep_local"`
+	DbSizeBytes          uint64           `json:"db_size_bytes"`
+	WalSizeBytes         uint64           `json:"wal_size_bytes"`
 }
 
 // CoreWriteUpdate is one commit: every row it wrote, as mutations over

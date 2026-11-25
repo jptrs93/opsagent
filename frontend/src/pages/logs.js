@@ -9,16 +9,16 @@ import {
     xIcon,
 } from "../lib/icons.js";
 import {loginS} from "../state/login.js";
-import {deploymentsS, machinesS} from "../state/deployments.js";
-import {nodeDisplayName} from "../lib/machines.js";
+import {deploymentsS} from "../state/deployments.js";
 import {deploymentDeleted, placementNodeId} from "../lib/deployment.js";
 import {LOG_LEVELS as LEVELS, LOG_NAMED_LEVELS, logLevelFilters, logLevelMeta as levelMeta} from "../lib/logLevels.js";
 import {logLevelPicker} from "../components/logLevelPicker.js";
 import {logScopePicker} from "../components/logScopePicker.js";
 import {spacesFilter} from "../components/spacesFilter.js";
+import {deploymentSelect} from "../components/deploymentSelect.js";
 import {fmtShortTime as fmtShort, resolveRange as resolveRangeOf, timeRangePicker} from "../components/timeRangePicker.js";
 
-const {button, div, input, option, p, pre, select, span} = van.tags;
+const {button, div, input, p, pre, span} = van.tags;
 const {svg: svgEl, rect, line: svgLine} = van.tags("http://www.w3.org/2000/svg");
 
 const SYSTEM_SPACE_ID = 0;
@@ -104,12 +104,6 @@ function fmtNum(n) {
     if (n >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
     if (n >= 1e4) return `${Math.round(n / 1e3)}k`;
     return n.toLocaleString();
-}
-
-function deploymentLabel(item, machines) {
-    const cfg = item?.config || {};
-    const node = nodeDisplayName(placementNodeId(cfg), machines);
-    return [node, cfg.deployment?.name].filter(Boolean).join(' / ') || `#${cfg.deployment?.id}`;
 }
 
 function deploymentSpaceID(item) {
@@ -431,13 +425,17 @@ export function logsPage(selectedDeploymentId) {
         buttonClass: "logs-ctl inline-flex items-center gap-1.5 cursor-pointer",
     });
 
-    const deploymentSelect = select({
-        "data-testid": "logs-deployment-select",
-        class: "logs-ctl min-w-48 cursor-pointer",
-        onchange: (e) => {
-            deploymentId.val = Number(e.target.value || 0);
-            if (deploymentId.val) void runSearch();
+    const shownDeployments = () => liveDeployments().filter(item => !hiddenSpaces.val.has(deploymentSpaceID(item)));
+
+    const deploymentPicker = deploymentSelect({
+        deployments: shownDeployments,
+        value: () => Number(deploymentId.val || 0),
+        onChange: (id) => {
+            deploymentId.val = id;
+            void runSearch();
         },
+        buttonClass: "logs-ctl logs-deployment",
+        testid: "logs-deployment-select",
     });
 
     // rawVal: reacting to deploymentId here would snap a manual dropdown
@@ -517,16 +515,10 @@ export function logsPage(selectedDeploymentId) {
     });
 
     van.derive(() => {
-        const items = liveDeployments();
-        const filtered = items.filter(item => !hiddenSpaces.val.has(deploymentSpaceID(item)));
+        const filtered = shownDeployments();
         if (deploymentId.val && filtered.length > 0 && !selectedDeployment(filtered, Number(deploymentId.val))) {
             deploymentId.val = 0;
         }
-        deploymentSelect.replaceChildren(
-            option({value: ""}, "Select deployment"),
-            ...filtered.map(item => option({value: String(item.config.deployment.id)}, deploymentLabel(item, machinesS.val))),
-        );
-        deploymentSelect.value = String(deploymentId.val || '');
     });
 
     van.derive(() => {
@@ -570,7 +562,7 @@ export function logsPage(selectedDeploymentId) {
     const searchBar = div(
         {class: "page-strip"},
         spaceFilter,
-        deploymentSelect,
+        deploymentPicker,
         logScopePicker({
             scopeS: workloadScope,
             ordinalsS: workloadOrdinals,
