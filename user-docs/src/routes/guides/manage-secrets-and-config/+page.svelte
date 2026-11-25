@@ -31,7 +31,7 @@
 <section id="create" class="page">
 <h2>Create a value</h2>
 
-<p>Open <strong>Secrets / Configs</strong>. Every space has its own tree of folders, and a value lives at a path inside it such as <code class="inl">db/password</code>. Pick the space and folder, then click <strong>New secret</strong> or <strong>New config</strong>, give it a name and a value, and save.</p>
+<p>Open <strong>Vault</strong>. Every space has its own tree of folders, and a value lives at a path inside it such as <code class="inl">db/password</code>. Pick the space and folder, then click <strong>New secret</strong> or <strong>New config</strong>, give it a name and a value, and save.</p>
 
 <p>The two kinds differ in how they are handled, not in how they are used. A <strong>secret</strong> is encrypted before it is stored, is never sent to a browser unless you click <strong>Reveal</strong>, and reaches only the nodes that run a deployment referencing it. The editor can generate a random one for you. A <strong>config</strong> is a plain value, shown in the table, for anything that is not sensitive: a log level, a feature flag, a URL.</p>
 
@@ -68,7 +68,7 @@
 <section id="locked" class="page">
 <h2>If the store is locked</h2>
 
-<p>Secrets are sealed with a key that lives on the primary machine. When that key is missing, after a <a href="{base}/guides/back-up-and-restore/">restore onto a new machine</a>, the Secrets / Configs page shows <strong>Secrets store is locked</strong>. Configs stay readable and the cluster keeps running, but secrets cannot be listed, revealed, or written, and a deployment that references one does not start. Enter the recovery code in the banner and click <strong>Unlock</strong>; the primary re-establishes its local key and later restarts need nothing.</p>
+<p>Secrets are sealed with a key that lives on the primary machine. When that key is missing, after a <a href="{base}/guides/back-up-and-restore/">restore onto a new machine</a>, the Vault page shows <strong>Secrets store is locked</strong>. Configs stay readable and the cluster keeps running, but secrets cannot be listed, revealed, or written, and a deployment that references one does not start. Enter the recovery code in the banner and click <strong>Unlock</strong>; the primary re-establishes its local key and later restarts need nothing.</p>
 
 <p>The recovery code is generated under <strong>Settings</strong>, <strong>Secrets recovery</strong>, and is shown once. Generate it right after installing and keep it with your other credentials: without it a locked store cannot be opened again.</p>
 </section>

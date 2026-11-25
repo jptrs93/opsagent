@@ -53,7 +53,7 @@ Shots:
   `dialog-recently-deleted` and `dialog-run-report` are the Deployments page.
   `status-crash-reason` and `dialog-run-report-reason` open the staging `api`,
   whose rollover candidate the agent gave up on.
-- `secrets`, `secrets-inspector` and `dialog-secret-value` are Secrets / Configs.
+- `secrets`, `secrets-inspector` and `dialog-secret-value` are Vault.
 - `assets` and `assets-inspector` are Assets.
 - `logs`, `metrics`, `metrics-deployment`, `metrics-nodes` and `metrics-node` are Logs and Metrics.
 - `users`, `users-rules`, `users-you`, `sessions` and `sessions-user` are Users & roles and Sessions.
@@ -63,7 +63,7 @@ Shots:
 - `settings` is Settings.
 - `shell-stream-card` (bottom-left crop) and `shell-theme-menu` are the sidebar footer.
 - `space-filter`, `space-filter-presets` and `space-filter-search` are the space filter open: plain, with
-  three presets saved through the menu and the name field showing, and on Secrets / Configs with a query typed.
+  three presets saved through the menu and the name field showing, and on Vault with a query typed.
 - `deployment-select` and `deployment-select-search` are the Logs page's deployment select open: with a
   deployment selected, and with a query typed.
 - `login`, `enrol` and `landing` are the signed-out pages.

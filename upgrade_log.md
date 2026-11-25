@@ -4,6 +4,28 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.633 (released 2026-11-26)
+
+### What changed
+
+A Web UI release. Nothing changes on disk or on the wire.
+
+- **Secrets / Configs is now Vault in the sidebar.** Only the name of the
+  sidebar entry changes. The page itself is the same.
+
+### Before upgrading
+
+- Nothing needs doing.
+
+### Rollout
+
+- Only the primary serves the Web UI, so the change shows once the primary
+  is upgraded. Reload any open tab.
+
+### After upgrading
+
+- Nothing to check.
+
 ## v0.0.632 (released 2026-11-26)
 
 ### What changed

@@ -962,7 +962,7 @@ export function settingsPage() {
             "Settings changed elsewhere while you were editing. Saving overwrites those changes; Reset loads them and drops yours.")
         : div({class: "flex flex-none items-center gap-1.5 border-b border-gray-800 bg-gray-950/40 px-2 py-1 text-[11px] text-gray-500 slate:border-0 slate:bg-transparent slate:px-3 slate:pt-2.5 graphite:border-0 graphite:bg-transparent graphite:px-3 graphite:pt-2"},
             infoIcon({class: "h-3 w-3 flex-none"}),
-            "A setting holds a value typed here or follows a config from Secrets / Configs; secrets are always references. Nothing applies until saved.");
+            "A setting holds a value typed here or follows a config from Vault; secrets are always references. Nothing applies until saved.");
 
     const body = div(
         {class: "app-scroll flex-1 min-h-0 overflow-auto"},

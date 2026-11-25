@@ -13,7 +13,7 @@ export const NAV_GROUPS = [
         hint: "What the cluster should run: versioned state that changes together when you ship.",
         items: [
             {key: "status", label: "Deployments"},
-            {key: "secrets", label: "Secrets / Configs"},
+            {key: "secrets", label: "Vault"},
             {key: "assets", label: "Assets"},
             {key: "jobs", label: "Jobs", future: true},
             {key: "policies", label: "Policies"},

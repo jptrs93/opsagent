@@ -1324,7 +1324,7 @@ export async function createSecret(page, {name, value} = {}) {
 }
 
 export async function rotateSecret(page, {name, value, referencingDeployments} = {}) {
-  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
+  await byTestId(page, 'nav-secrets', page.getByText('Vault', {exact: true})).click();
   const row = page.getByRole('row', {name: new RegExp(escapeRegExp(name))});
   await expect(row).toBeVisible({timeout: LONG_UI_TIMEOUT});
   await row.getByRole('button', {name: `Edit ${name}`, exact: true}).click();
@@ -1348,7 +1348,7 @@ export async function rotateSecret(page, {name, value, referencingDeployments} =
 }
 
 async function createSecretOrConfig(page, {type, name, value}) {
-  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
+  await byTestId(page, 'nav-secrets', page.getByText('Vault', {exact: true})).click();
   await page.getByRole('button', {name: `New ${type}`, exact: true}).click();
 
   const dialog = page.getByTestId(`create-${type}-overlay`).getByRole('dialog');
@@ -1367,8 +1367,8 @@ export async function expectReferenceUsage(page, {
   machine = 'worker-1',
 } = {}) {
   const navKey = resourceType === 'asset' ? 'assets' : 'secrets';
-  const navLabel = resourceType === 'asset' ? 'Assets' : 'Secrets / Configs';
-  await byTestId(page, `nav-${navKey}`, page.getByText(navLabel)).click();
+  const navLabel = resourceType === 'asset' ? 'Assets' : 'Vault';
+  await byTestId(page, `nav-${navKey}`, page.getByText(navLabel, {exact: true})).click();
 
   const usageButton = page.getByRole('button', {name: `Show usage for ${resourceType} ${resourceName}`, exact: true});
   await expect(usageButton).toHaveText('1', {timeout: LONG_UI_TIMEOUT});
@@ -1759,7 +1759,7 @@ export async function createValueInSelection(page, {type, name, value, location}
 // and renaming a folder, and both the empty-delete and non-empty-rejection
 // paths.
 export async function verifyValueDirectoryExplorer(page) {
-  await byTestId(page, 'nav-secrets', page.getByText('Secrets / Configs')).click();
+  await byTestId(page, 'nav-secrets', page.getByText('Vault', {exact: true})).click();
   await expect(page.getByPlaceholder('Search secrets / configs')).toBeVisible();
 
   await test.step('create nested folders', async () => {
