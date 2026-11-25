@@ -1,6 +1,7 @@
 import van from "vanjs-core";
+import {collapseIcon, expandIcon} from "../lib/icons.js";
 
-const {div, span} = van.tags;
+const {button, div, span} = van.tags;
 const {svg, path, line, text: svgText, rect} = van.tags("http://www.w3.org/2000/svg");
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -72,8 +73,8 @@ function byteTicks(max, n) {
 
 const PAD_L = 60, PAD_R = 8, PAD_T = 8, PAD_B = 20;
 
-export function lineChart({title, unit, dataS, height = 160, testid, emptyText = 'No data in range'}) {
-    const plotHost = div({class: "relative w-full", style: `height:${height}px`});
+export function lineChart({title, unit, dataS, height = 160, testid, emptyText = 'No data in range', isExpanded, onToggleExpand}) {
+    const plotHost = div({class: "chart-plot relative w-full", style: `--chart-own-height:${height}px`});
     const tooltip = div({class: "chart-tooltip pointer-events-none absolute z-30 hidden"});
     const legend = div({class: "chart-legend"});
     let hidden = new Set();
@@ -85,7 +86,7 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
         const w = plotHost.clientWidth;
         const data = lastData;
         if (!w) return;
-        const h = height;
+        const h = plotHost.clientHeight || height;
         if (!data || !data.buckets || !data.series.length) {
             plotHost.replaceChildren(
                 div({class: "chart-empty"}, emptyText),
@@ -98,10 +99,11 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
         const n = data.buckets;
         let max = 0;
         for (const s of series) for (const v of s.values) if (Number.isFinite(v) && v > max) max = v;
-        const ticks = unit === 'bytes' || unit === 'bytes/s' ? byteTicks(max, 4) : niceTicks(unit === 'pct' ? Math.max(max, 1) : max, 4);
-        const yMax = ticks[ticks.length - 1] || 1;
         const plotW = Math.max(1, w - PAD_L - PAD_R);
         const plotH = h - PAD_T - PAD_B;
+        const yTickCount = Math.max(4, Math.min(8, Math.round(plotH / 60)));
+        const ticks = unit === 'bytes' || unit === 'bytes/s' ? byteTicks(max, yTickCount) : niceTicks(unit === 'pct' ? Math.max(max, 1) : max, yTickCount);
+        const yMax = ticks[ticks.length - 1] || 1;
         const xOf = (b) => PAD_L + ((b + 0.5) / n) * plotW;
         const yOf = (v) => PAD_T + plotH - (v / yMax) * plotH;
 
@@ -206,12 +208,29 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
         new ResizeObserver(() => render()).observe(plotHost);
     }
 
+    const expandButton = () => button({
+        type: "button",
+        class: "chart-expand",
+        ...(testid ? {"data-testid": `${testid}-expand`} : {}),
+        "aria-pressed": () => String(isExpanded()),
+        "aria-label": () => isExpanded() ? "Back to all charts" : `Expand the ${title} chart`,
+        title: () => isExpanded() ? "Back to all charts (Esc)" : "Expand this chart",
+        onclick: onToggleExpand,
+    }, () => isExpanded()
+        ? span({class: "inline-flex items-center gap-1"}, collapseIcon({class: "h-3 w-3"}), "All charts")
+        : span({class: "inline-flex items-center"}, expandIcon({class: "h-3 w-3"})));
+
     return div(
-        {"data-testid": testid, class: "chart-card"},
+        {
+            "data-testid": testid,
+            class: "chart-card",
+            ...(onToggleExpand ? {"data-expanded": () => String(isExpanded())} : {}),
+        },
         div({class: "chart-head"},
             span({class: "chart-title"}, title),
             span({class: "chart-unit"}, unit === 'count' ? '' : unit === 'per_s' ? 'per second' : unit),
-            span({class: "chart-rule"})),
+            span({class: "chart-rule"}),
+            onToggleExpand ? expandButton() : ""),
         plotHost,
         legend,
     );

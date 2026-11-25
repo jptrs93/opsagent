@@ -27,7 +27,6 @@ export const NAV_GROUPS = [
         items: [
             {key: "logs", label: "Logs"},
             {key: "metrics", label: "Metrics"},
-            {key: "dashboards", label: "Dashboards", future: true},
             {key: "alerts", label: "Alerts", future: true},
         ],
     },

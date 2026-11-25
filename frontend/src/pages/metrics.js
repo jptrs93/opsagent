@@ -11,8 +11,10 @@ import {CHARTS, NODE_CHARTS, NODE_QUERY_FIELDS, QUERY_FIELDS, buildChartData, bu
 import {latestByNode, nodeOverviewRow, usageTone} from "../lib/nodeMetrics.js";
 import {sortArrowIcon} from "../lib/icons.js";
 import {tabButton, tabPanel, tabStrip} from "../components/tabs.js";
+import {infoTip} from "../components/infoTip.js";
 
 const {button, div, p, span, table, tbody, td, th, thead, tr} = van.tags;
+const {svg, rect} = van.tags("http://www.w3.org/2000/svg");
 
 const OVERVIEW = 'overview';
 const NODES = 'nodes';
@@ -21,39 +23,107 @@ const STALE_MS = 10_000;
 const HIDDEN_SPACES_KEY = 'opsagent_metrics_hidden_spaces';
 const OVERVIEW_SORT_KEY = 'opsagent_metrics_overview_sort';
 const NODES_SORT_KEY = 'opsagent_metrics_nodes_sort';
+const CHART_COLUMNS_KEY = 'opsagent_metrics_chart_columns';
+const COLUMN_CHOICES = [1, 2, 3];
+const DEFAULT_CHART_COLUMNS = 2;
 
 const nodeTabId = (nodeId) => `node-${nodeId}`;
 
+const RATE_WINDOW = "between its last two samples, which are 10 seconds apart";
+const HOST_NETWORK = "A container on the host network has no figure, because its traffic cannot be told apart from the host's.";
+const AGE_HELP = "Samples are taken every 10 seconds, so a value well above 10 means the node has stopped reporting.";
+const TONES = "Amber from 80%, red from 90%.";
+
 const OVERVIEW_COLUMNS = [
-    {key: 'name', label: 'Deployment', value: r => r.name},
-    {key: 'node', label: 'Node', value: r => r.node},
-    {key: 'run', label: 'Run', value: r => r.run},
-    {key: 'cpu', label: 'CPU', num: true, value: r => r.cpu},
-    {key: 'mem', label: 'Memory', num: true, value: r => r.mem},
-    {key: 'rx', label: 'Net rx', num: true, value: r => r.rx},
-    {key: 'tx', label: 'Net tx', num: true, value: r => r.tx},
-    {key: 'read', label: 'Disk read', num: true, value: r => r.read},
-    {key: 'write', label: 'Disk write', num: true, value: r => r.write},
-    {key: 'volume', label: 'Volume', num: true, value: r => r.volume},
-    {key: 'pids', label: 'PIDs', num: true, value: r => r.pids},
-    {key: 'tcp', label: 'TCP est', num: true, value: r => r.tcp},
-    {key: 'age', label: 'Age', num: true, value: r => r.age},
+    {key: 'name', label: 'Deployment', value: r => r.name, help: [
+        "The deployment the container belongs to. The dot is the colour of its space.",
+        "There is one row per running container, so a deployment in a rollover or on several nodes has several rows. A deployment that is not running keeps a row when it has a measured volume.",
+    ]},
+    {key: 'node', label: 'Node', value: r => r.node, help: "The node the container runs on."},
+    {key: 'run', label: 'Run', value: r => r.run, help: [
+        "Which run of the deployment this container is.",
+        "v is the deployment version, i is the instance ordinal, and r is the run number, which goes up each time the container is started again.",
+    ]},
+    {key: 'cpu', label: 'CPU', num: true, value: r => r.cpu, source: "cgroup cpu.stat usage_usec", help: [
+        `CPU time the container used per second, in cores, ${RATE_WINDOW}.`,
+        "1.00 means one core was busy the whole time. User and system time both count.",
+    ]},
+    {key: 'mem', label: 'Memory', num: true, value: r => r.mem, source: "cgroup memory.current", help: [
+        "Memory charged to the container right now: the memory of its processes plus the page cache for files it has read or written.",
+        "The kernel can take the cache back, so this is usually more than the processes need.",
+    ]},
+    {key: 'rx', label: 'Net rx', num: true, value: r => r.rx, source: "/proc/<pid>/net/dev", help: [
+        `Bytes per second received on the container's network interfaces, ${RATE_WINDOW}. Loopback is left out.`,
+        HOST_NETWORK,
+    ]},
+    {key: 'tx', label: 'Net tx', num: true, value: r => r.tx, source: "/proc/<pid>/net/dev", help: [
+        `Bytes per second sent on the container's network interfaces, ${RATE_WINDOW}. Loopback is left out.`,
+        HOST_NETWORK,
+    ]},
+    {key: 'read', label: 'Disk read', num: true, value: r => r.read, source: "cgroup io.stat rbytes", help: [
+        `Bytes per second the container read from disk, ${RATE_WINDOW}.`,
+        "A read answered from the page cache does not count.",
+    ]},
+    {key: 'write', label: 'Disk write', num: true, value: r => r.write, source: "cgroup io.stat wbytes", help: [
+        `Bytes per second written to disk for the container, ${RATE_WINDOW}.`,
+        "A write counts when it reaches the disk, which can be some seconds after the process made it.",
+    ]},
+    {key: 'volume', label: 'Volume', num: true, value: r => r.volume, source: "directory walk, every 30 min", help: [
+        "Size of the deployment's volume on this node: the disk space its files hold, as du reports it.",
+        "The agent measures it by walking the directory every 30 minutes, so the figure can be that old. Hover a value for the number of files and the age of the reading.",
+    ]},
+    {key: 'pids', label: 'PIDs', num: true, value: r => r.pids, source: "cgroup pids.current", help: "Processes and threads in the container right now."},
+    {key: 'tcp', label: 'TCP est', num: true, value: r => r.tcp, source: "/proc/<pid>/net/tcp, tcp6", help: [
+        "Established TCP connections in the container's network namespace right now, IPv4 and IPv6, inbound and outbound.",
+        HOST_NETWORK,
+    ]},
+    {key: 'age', label: 'Age', num: true, value: r => r.age, help: [
+        "Seconds between the container's last sample and the last refresh of this table.",
+        AGE_HELP,
+    ]},
 ];
 
 const NODE_COLUMNS = [
-    {key: 'name', label: 'Node', value: r => r.name},
-    {key: 'cpu', label: 'CPU', num: true, value: r => r.cpu},
-    {key: 'cpuPct', label: 'CPU %', num: true, value: r => r.cpuPct},
-    {key: 'load', label: 'Load', num: true, value: r => r.load},
-    {key: 'memUsed', label: 'Memory', num: true, value: r => r.memUsed},
-    {key: 'memPct', label: 'Mem %', num: true, value: r => r.memPct},
-    {key: 'diskUsed', label: 'Disk', num: true, value: r => r.diskUsed},
-    {key: 'diskPct', label: 'Disk %', num: true, value: r => r.diskPct},
-    {key: 'rx', label: 'Net rx', num: true, value: r => r.rx},
-    {key: 'tx', label: 'Net tx', num: true, value: r => r.tx},
-    {key: 'read', label: 'Disk read', num: true, value: r => r.read},
-    {key: 'write', label: 'Disk write', num: true, value: r => r.write},
-    {key: 'age', label: 'Age', num: true, value: r => r.age},
+    {key: 'name', label: 'Node', value: r => r.name, help: "Every node that is not evicted has a row. A node that is not connected shows dashes."},
+    {key: 'cpu', label: 'CPU', num: true, value: r => r.cpu, source: "/proc/stat", help: [
+        `CPU time the whole node used per second, in cores, ${RATE_WINDOW}.`,
+        "Idle time and I/O wait are left out. Hover a value for the node's CPU count.",
+    ]},
+    {key: 'cpuPct', label: 'CPU %', num: true, value: r => r.cpuPct, help: "CPU as a share of the node's CPUs: cores used divided by the CPU count. 100% means every CPU was busy."},
+    {key: 'load', label: 'Load', num: true, value: r => r.load, source: "/proc/loadavg", help: [
+        "The 1 minute load average: the average number of tasks that were running, waiting for a CPU, or waiting on disk I/O.",
+        "Compare it with the node's CPU count. Above that, tasks are queueing.",
+    ]},
+    {key: 'memUsed', label: 'Memory', num: true, value: r => r.memUsed, source: "/proc/meminfo MemTotal − MemAvailable", help: [
+        "Memory in use: total memory minus what the kernel reports as available.",
+        "Page cache the kernel can take back does not count as used. Hover a value for the total.",
+    ]},
+    {key: 'memPct', label: 'Mem %', num: true, value: r => r.memPct, help: `Memory in use as a share of total memory. ${TONES}`},
+    {key: 'diskUsed', label: 'Disk', num: true, value: r => r.diskUsed, source: "statfs", help: [
+        "Space used on the filesystem that holds the OpenDeploy data directory: total minus free.",
+        "Hover a value for the total.",
+    ]},
+    {key: 'diskPct', label: 'Disk %', num: true, value: r => r.diskPct, help: `Used space as a share of used plus what an ordinary process can still write, the figure df prints. ${TONES}`},
+    {key: 'rx', label: 'Net rx', num: true, value: r => r.rx, source: "/proc/net/dev", help: [
+        `Bytes per second received on the node's physical network interfaces, ${RATE_WINDOW}.`,
+        "Loopback, bridges, veth pairs and tunnels are left out, so a byte counts once.",
+    ]},
+    {key: 'tx', label: 'Net tx', num: true, value: r => r.tx, source: "/proc/net/dev", help: [
+        `Bytes per second sent on the node's physical network interfaces, ${RATE_WINDOW}.`,
+        "Loopback, bridges, veth pairs and tunnels are left out, so a byte counts once.",
+    ]},
+    {key: 'read', label: 'Disk read', num: true, value: r => r.read, source: "/proc/diskstats", help: [
+        `Bytes per second read from the node's physical disks, ${RATE_WINDOW}.`,
+        "Partitions and device-mapper, md and loop devices are left out, so a byte counts once.",
+    ]},
+    {key: 'write', label: 'Disk write', num: true, value: r => r.write, source: "/proc/diskstats", help: [
+        `Bytes per second written to the node's physical disks, ${RATE_WINDOW}.`,
+        "Partitions and device-mapper, md and loop devices are left out, so a byte counts once.",
+    ]},
+    {key: 'age', label: 'Age', num: true, value: r => r.age, help: [
+        "Seconds between the node's last sample and the last refresh of this table.",
+        AGE_HELP,
+    ]},
 ];
 
 function loadSort(storageKey, columns) {
@@ -108,11 +178,16 @@ function sortableColumns({columns, storageKey, testid}) {
             class: `metrics-cell col-head group/th cursor-pointer select-none classic:text-[10px] classic:font-medium classic:tracking-wide ${column.num ? 'text-right' : 'text-left'} ${active ? 'text-gray-100' : 'hover:text-gray-300'}`,
             ...(active ? {"aria-sort": sort.dir === 'desc' ? 'descending' : 'ascending'} : {}),
             onclick: () => setSort(column),
-        }, span({class: `inline-flex items-center gap-1 ${column.num ? 'flex-row-reverse' : ''}`},
+        }, span({class: `inline-flex items-center gap-[3px] ${column.num ? 'flex-row-reverse' : ''}`},
             column.label,
-            active
-                ? sortArrowIcon({class: `h-2.5 w-2.5 text-brand ${sort.dir === 'desc' ? 'rotate-180' : ''}`})
-                : sortArrowIcon({class: "h-2.5 w-2.5 text-gray-600 opacity-0 transition-opacity group-hover/th:opacity-100"})));
+            column.help ? infoTip({
+                id: `${testid}-${column.key}`,
+                testid: `${testid}-${column.key}-info`,
+                label: column.label,
+                text: column.help,
+                note: column.source,
+            }) : '',
+            active ? sortArrowIcon({class: `h-2.5 w-2.5 flex-none text-brand ${sort.dir === 'desc' ? 'rotate-180' : ''}`}) : ''));
     };
     return {
         head: () => thead(tr({class: "border-b border-gray-800 slate:border-line graphite:border-0"}, ...columns.map(headCell))),
@@ -199,6 +274,79 @@ function loader(query) {
     };
 
     return {loading, errorMsg, load, activate};
+}
+
+function loadChartColumns() {
+    try {
+        const n = Number(localStorage.getItem(CHART_COLUMNS_KEY));
+        if (COLUMN_CHOICES.includes(n)) return n;
+    } catch {}
+    return DEFAULT_CHART_COLUMNS;
+}
+
+const chartColumns = van.state(loadChartColumns());
+
+const columnsGlyph = (n) => {
+    const gap = 2;
+    const width = (14 - gap * (n - 1)) / n;
+    return svg({width: "14", height: "11", viewBox: "0 0 14 11", "aria-hidden": "true"},
+        ...Array.from({length: n}, (_, i) => rect({x: String(i * (width + gap)), y: "0", width: String(width), height: "11", rx: "1", fill: "currentColor"})));
+};
+
+const columnsControl = (onPick) => span(
+    {class: "metrics-seg", role: "group", "aria-label": "Chart columns"},
+    ...COLUMN_CHOICES.map(n => button({
+        type: "button",
+        class: "metrics-toggle px-1.5",
+        "data-testid": `metrics-columns-${n}`,
+        title: n === 1 ? "One column" : `${n} columns`,
+        "aria-label": n === 1 ? "One column of charts" : `${n} columns of charts`,
+        "aria-pressed": () => String(chartColumns.val === n),
+        onclick: () => {
+            chartColumns.val = n;
+            try { localStorage.setItem(CHART_COLUMNS_KEY, String(n)); } catch {}
+            onPick();
+        },
+    }, columnsGlyph(n))));
+
+function chartArea({charts, states, gridTestid, chartTestid}) {
+    const expanded = van.state(null);
+    let host = null;
+    const collapse = () => {
+        const key = expanded.val;
+        if (!key) return;
+        expanded.val = null;
+        setTimeout(() => host.querySelector(`[data-testid="${chartTestid(key)}"]`)?.scrollIntoView({block: "nearest"}), 0);
+    };
+    host = div(
+        {
+            class: "metrics-charts app-scroll min-h-0 flex-1 overflow-y-auto",
+            tabindex: "-1",
+            onkeydown: (event) => {
+                if (event.key !== "Escape" || !expanded.val) return;
+                event.preventDefault();
+                collapse();
+            },
+        },
+        div(
+            {
+                "data-testid": gridTestid,
+                "data-cols": () => String(chartColumns.val),
+                "data-expanded": () => expanded.val || "",
+                class: () => `metrics-grid ${expanded.val ? "metrics-grid-solo" : ""}`,
+            },
+            ...charts.map(c => lineChart({
+                title: c.title,
+                unit: c.unit,
+                dataS: states[c.key],
+                testid: chartTestid(c.key),
+                isExpanded: () => expanded.val === c.key,
+                onToggleExpand: () => {
+                    if (expanded.val === c.key) collapse();
+                    else expanded.val = c.key;
+                },
+            }))));
+    return {host, columns: columnsControl(() => { expanded.val = null; })};
 }
 
 const refreshButton = (loading, onclick) => button({
@@ -458,16 +606,17 @@ function nodeView({nodeId, isVisible}) {
         for (const c of NODE_CHARTS) chartStates[c.key].val = res ? res.charts[c.key] : null;
     });
 
+    const area = chartArea({charts: NODE_CHARTS, states: chartStates, gridTestid: "metrics-node-charts", chartTestid: (key) => `metrics-node-chart-${key}`});
+
     const content = div(
         {"data-testid": `metrics-panel-${nodeTabId(nodeId)}`, class: "flex h-full min-h-0 flex-col"},
         div({class: "page-toolbar"},
             div({class: "flex-1"}),
+            area.columns,
             timeRangePicker({rangeS: range, testid: "metrics", onChange: refresh}),
             refreshButton(loading, refresh)),
         statusLine(status, errorMsg),
-        div({class: "app-scroll min-h-0 flex-1 overflow-y-auto"},
-            div({"data-testid": "metrics-node-charts", class: "metrics-grid"},
-                ...NODE_CHARTS.map(c => lineChart({title: c.title, unit: c.unit, dataS: chartStates[c.key], testid: `metrics-node-chart-${c.key}`})))),
+        area.host,
     );
     return {
         content,
@@ -538,17 +687,18 @@ function deploymentView({deploymentId, isVisible}) {
         for (const c of CHARTS) chartStates[c.key].val = res ? res.charts[c.key] : null;
     });
 
+    const area = chartArea({charts: CHARTS, states: chartStates, gridTestid: "metrics-charts", chartTestid: (key) => `metrics-chart-${key}`});
+
     const content = div(
         {"data-testid": `metrics-panel-${deploymentId}`, class: "flex h-full min-h-0 flex-col"},
         div({class: "page-toolbar"},
             splitToggle,
             div({class: "flex-1"}),
+            area.columns,
             timeRangePicker({rangeS: range, testid: "metrics", onChange: refresh}),
             refreshButton(loading, refresh)),
         statusLine(status, errorMsg),
-        div({class: "app-scroll min-h-0 flex-1 overflow-y-auto"},
-            div({"data-testid": "metrics-charts", class: "metrics-grid"},
-                ...CHARTS.map(c => lineChart({title: c.title, unit: c.unit, dataS: chartStates[c.key], testid: `metrics-chart-${c.key}`})))),
+        area.host,
     );
     return {
         content,

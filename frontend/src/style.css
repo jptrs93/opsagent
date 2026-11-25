@@ -341,6 +341,37 @@
         text-gray-300 transition-colors hover:bg-surface-hover hover:text-gray-100;
     }
 
+    .info-tip {
+        @apply relative inline-flex h-[11px] w-[11px] flex-none cursor-help items-center justify-center rounded-full text-gray-600 transition-colors
+        hover:text-gray-200 focus-visible:text-gray-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand;
+    }
+
+    .info-tip::before {
+        content: "";
+        @apply absolute -inset-1;
+    }
+
+    .info-tip[aria-describedby] {
+        @apply text-gray-100;
+    }
+
+    .info-tip-card {
+        @apply fixed z-[80] cursor-auto select-text whitespace-normal rounded-md border border-gray-600 bg-raised px-2.5 py-2 text-left text-xs
+        font-normal normal-case leading-[17px] tracking-normal text-gray-300 shadow-2xl;
+    }
+
+    .info-tip-title {
+        @apply mb-1 font-medium text-gray-100;
+    }
+
+    .info-tip-text + .info-tip-text {
+        @apply mt-1.5;
+    }
+
+    .info-tip-note {
+        @apply mt-1.5 border-t border-line pt-1.5 font-mono text-[10.5px] text-gray-500;
+    }
+
     .select-menu {
         @apply fixed z-[60] flex w-72 flex-col rounded-md border border-gray-600 bg-raised text-xs shadow-2xl;
     }

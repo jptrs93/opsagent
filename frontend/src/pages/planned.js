@@ -8,7 +8,7 @@ const {div, p} = van.tags;
 export const PLANNED_MESSAGE = "This is a planned future feature not yet implemented";
 
 // Page keys the dashboard routes to a planned page.
-export const PLANNED = new Set(["jobs", "charts", "dashboards", "alerts", "approvals"]);
+export const PLANNED = new Set(["jobs", "charts", "alerts", "approvals"]);
 
 // The message alone, filling its host; also used for a planned tab inside an
 // existing page.

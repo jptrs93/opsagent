@@ -121,6 +121,12 @@ const SHOTS = {
         await p.getByTestId("logs-deployment-select-search").fill("web st");
     }},
     "metrics": {steps: async (p) => { await nav(p, "metrics"); await p.getByTestId("metrics-overview-table").waitFor(); }},
+    "metrics-info-tip": {steps: async (p) => {
+        await nav(p, "metrics");
+        await p.getByTestId("metrics-overview-table").waitFor();
+        await p.getByTestId("metrics-overview-sort-mem-info").click();
+        await p.getByTestId("info-tip-card").waitFor();
+    }},
     "metrics-deployment": {steps: async (p) => {
         await nav(p, "metrics");
         await p.getByTestId("metrics-overview-table").waitFor();
@@ -128,6 +134,22 @@ const SHOTS = {
         await p.waitForFunction(() => window.__metricsResult?.runs?.length > 0, null, {timeout: 20000});
         await p.getByTestId("metrics-chart-cpu").waitFor();
         await p.waitForTimeout(400);
+    }},
+    "metrics-chart-expanded": {steps: async (p) => {
+        await nav(p, "metrics");
+        await p.getByTestId("metrics-overview-table").waitFor();
+        await p.getByTestId("metrics-overview-row-api").first().click();
+        await p.getByTestId("metrics-chart-cpu-svg").waitFor();
+        await p.getByTestId("metrics-chart-cpu-expand").click();
+        await p.waitForTimeout(300);
+    }},
+    "metrics-three-columns": {steps: async (p) => {
+        await nav(p, "metrics");
+        await p.getByTestId("metrics-overview-table").waitFor();
+        await p.getByTestId("metrics-overview-row-api").first().click();
+        await p.getByTestId("metrics-chart-cpu-svg").waitFor();
+        await p.getByTestId("metrics-columns-3").click();
+        await p.waitForTimeout(300);
     }},
     "metrics-nodes": {steps: async (p) => {
         await nav(p, "metrics");

@@ -51,6 +51,13 @@ export const expandIcon = (attrs) => svg(iconAttrs(attrs),
     line({x1: "3", y1: "21", x2: "10", y2: "14"}),
 );
 
+export const collapseIcon = (attrs) => svg(iconAttrs(attrs),
+    polyline({points: "4 14 10 14 10 20"}),
+    polyline({points: "20 10 14 10 14 4"}),
+    line({x1: "14", y1: "10", x2: "21", y2: "3"}),
+    line({x1: "3", y1: "21", x2: "10", y2: "14"}),
+);
+
 export const infoIcon = (attrs) => svg(iconAttrs(attrs),
     circle({cx: "12", cy: "12", r: "10"}),
     line({x1: "12", y1: "16", x2: "12", y2: "12"}),
