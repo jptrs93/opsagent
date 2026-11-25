@@ -332,88 +332,100 @@
         @apply font-mono text-[0.92em] slate:font-sans slate:text-[1em] graphite:font-sans graphite:text-[1em];
     }
 
-    .multiselect-trigger {
+    .space-tag {
+        @apply inline-flex min-w-0 max-w-32 items-center gap-1.5 text-[11px] font-normal text-gray-400;
+    }
+
+    .select-menu-trigger {
         @apply inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded border border-gray-600 px-2 text-xs
         text-gray-300 transition-colors hover:bg-surface-hover hover:text-gray-100;
     }
 
-    .multiselect {
+    .select-menu {
         @apply fixed z-[60] flex w-72 flex-col rounded-md border border-gray-600 bg-raised text-xs shadow-2xl;
     }
 
-    .multiselect-search {
+    .select-menu-search {
         @apply flex h-[34px] flex-none items-center gap-2 border-b border-line px-2.5 text-gray-500;
     }
 
-    .multiselect-search input {
+    .select-menu-search input {
         @apply h-full min-w-0 flex-1 bg-transparent text-xs text-gray-100 outline-none placeholder:text-gray-500;
     }
 
-    .multiselect-list {
+    .select-menu-list {
         @apply min-h-0 flex-1 overflow-y-auto p-1;
     }
 
-    .multiselect-section {
+    .select-menu-section {
         @apply mb-1 border-b border-line pb-1;
     }
 
-    .multiselect-label {
+    .select-menu-label {
         @apply px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500;
     }
 
-    .multiselect-row {
+    .select-menu-row {
         @apply w-full outline-none focus-visible:bg-surface-hover;
     }
 
-    .multiselect-row[aria-disabled="true"] {
+    .select-menu-row[aria-disabled="true"] {
         @apply cursor-default opacity-50 hover:bg-transparent;
     }
 
-    .multiselect-check {
+    .select-menu-check {
         @apply flex h-3.5 w-3.5 flex-none items-center justify-center text-brand;
     }
 
-    .multiselect-tail {
+    .select-menu-tail {
         @apply flex-none pl-2 text-[10px] tabular-nums text-gray-500;
     }
 
-    .multiselect-act {
+    .select-menu-act {
         @apply invisible flex h-4 flex-none cursor-pointer items-center rounded px-1 text-[10px] text-gray-400
         hover:bg-white/10 hover:text-gray-100;
     }
 
-    .multiselect-row:hover .multiselect-act,
-    .multiselect-row:focus-visible .multiselect-act {
+    .select-menu-row:hover .select-menu-act,
+    .select-menu-row:focus-visible .select-menu-act {
         @apply visible;
     }
 
-    .multiselect-empty {
+    .select-menu-detail {
+        @apply ml-1 text-gray-500;
+    }
+
+    .select-menu-placeholder {
+        @apply min-w-0 flex-1 truncate text-left text-gray-500;
+    }
+
+    .select-menu-empty {
         @apply px-2 py-3 text-center text-gray-500;
     }
 
-    .multiselect-foot {
+    .select-menu-foot {
         @apply flex flex-none flex-col border-t border-line p-1;
     }
 
-    .multiselect-actions {
+    .select-menu-actions {
         @apply flex items-center gap-0.5;
     }
 
-    .multiselect-link {
+    .select-menu-link {
         @apply cursor-pointer rounded px-2 py-1 text-[11px] text-gray-400 outline-none hover:bg-surface-hover
         hover:text-gray-100 focus-visible:bg-surface-hover focus-visible:text-gray-100;
     }
 
-    .multiselect-save {
+    .select-menu-save {
         @apply flex items-center gap-1.5 p-1;
     }
 
-    .multiselect-name {
+    .select-menu-name {
         @apply h-7 min-w-0 flex-1 rounded border border-gray-600 bg-field px-2 text-xs text-gray-100 outline-none
         placeholder:text-gray-500 focus:border-brand;
     }
 
-    .multiselect-primary {
+    .select-menu-primary {
         @apply h-7 flex-none cursor-pointer rounded bg-brand px-2.5 text-xs font-medium text-white hover:bg-blue-600
         disabled:cursor-not-allowed disabled:opacity-50;
     }

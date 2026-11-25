@@ -12,6 +12,7 @@ import {tabButton, tabPanel, tabStrip} from "../components/tabs.js";
 import {backupStatusS, deploymentsS, deploymentsStreamS, enrollmentsS, machinesS, nodeAccessPoliciesS, systemConfigS, spacesS, userConfigRefsS} from "../state/deployments.js";
 import {deploymentWorkload, isSelfDeployment, placementNodeId} from "../lib/deployment.js";
 import {allowedSpaceNames, runsEverySpace} from "../lib/nodeSpaces.js";
+import {databaseSizeHint, databaseSizeText} from "../lib/backupStatus.js";
 import {nodeAccessPoliciesPage} from "./nodeAccessPolicies.js";
 import {formatDateTime} from "../lib/date.js";
 import {checkIcon, closeIcon, copyIcon, searchIcon} from "../lib/icons.js";
@@ -554,10 +555,14 @@ export function clusterPage() {
     const replicationBody = () => {
         const status = backupStatusS.val;
         const configured = Boolean(status?.configured);
+        const sizeTile = () => tile("Database size", databaseSizeText(status),
+            {tone: status?.dbSizeBytes ? "" : "off", testId: "backup-replication-db-size", hint: databaseSizeHint(status)});
         if (!configured && !assetsSyncing(status) && !status?.assetError) {
-            return div({class: "flex flex-col gap-2 px-3 py-4"},
-                p({class: "text-sm text-gray-300"}, "Backups are not configured."),
-                p({class: "text-xs text-gray-500"}, "Set a backup target under Settings to replicate the primary database and assets off this node."));
+            return div({class: "flex flex-col gap-3 px-3 py-3", "data-testid": "backup-replication-unconfigured"},
+                div({class: "flex flex-col gap-2 py-1"},
+                    p({class: "text-sm text-gray-300"}, "Backups are not configured."),
+                    p({class: "text-xs text-gray-500"}, "Set a backup target under Settings to replicate the primary database and assets off this node.")),
+                div({class: "grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5"}, sizeTile()));
         }
         const lag = Math.max(0, Number(status.localTxid || 0) - Number(status.remoteTxid || 0));
         const lastSync = asDate(status.lastSuccessfulSyncAt);
@@ -565,12 +570,13 @@ export function clusterPage() {
             div({class: "flex flex-wrap items-center gap-2"},
                 backupStatusBadge(status),
                 span({class: "text-xs text-gray-400"}, backupStatusSentence(status))),
-            div({class: "grid grid-cols-2 gap-2 md:grid-cols-4"},
+            div({class: "grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-5"},
                 tile("Local TXID", String(status.localTxid || 0), {testId: "backup-replication-local-txid"}),
                 tile("Remote TXID", String(status.remoteTxid || 0), {testId: "backup-replication-remote-txid"}),
                 tile("Lag", lag === 0 ? "0" : `${lag} tx`, {tone: lag === 0 ? "ok" : "warn", hint: "Transactions the remote copy is behind the primary"}),
                 tile("Last successful sync", lastSync ? `${formatDateTime(lastSync)} · ${relativeTime(lastSync)}` : "never",
-                    {tone: lastSync ? "" : "off", testId: "backup-replication-last-sync", hint: absoluteTime(lastSync)})),
+                    {tone: lastSync ? "" : "off", testId: "backup-replication-last-sync", hint: absoluteTime(lastSync)}),
+                sizeTile()),
             assetsSyncing(status)
                 ? div({class: "rounded border border-amber-900/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200 slate:rounded-md slate:border-amber-500/25 slate:bg-amber-500/[0.07] graphite:border-[#d8b36a]/30 graphite:bg-[#d8b36a]/[0.06] graphite:text-[#d8b36a]"},
                     `${status.assetPending || 0} asset(s) ${assetPendingDescription(status)}.`)

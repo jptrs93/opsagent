@@ -30380,6 +30380,8 @@ func (m *BackupStatus) encodeUnchecked() []byte {
 	b = AppendBoolField(b, m.AssetTargetS3, 9)
 	b = AppendStringField(b, m.AssetError, 10)
 	b = AppendBoolField(b, m.AssetKeepLocal, 11)
+	b = AppendUint64Field(b, m.DbSizeBytes, 12)
+	b = AppendUint64Field(b, m.WalSizeBytes, 13)
 	return append(b, m.unknownFields...)
 }
 
@@ -30433,6 +30435,10 @@ func mergeBackupStatus(b []byte, m *BackupStatus) (*BackupStatus, error) {
 			b, m.AssetError, err = ConsumeString(b, typ)
 		case 11:
 			b, m.AssetKeepLocal, err = ConsumeBool(b, typ)
+		case 12:
+			b, m.DbSizeBytes, err = ConsumeVarUint64(b, typ)
+		case 13:
+			b, m.WalSizeBytes, err = ConsumeVarUint64(b, typ)
 		default:
 			b, err = SkipFieldValue(b, num, typ)
 			if err == nil {

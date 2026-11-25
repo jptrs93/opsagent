@@ -144,6 +144,7 @@ export const DATASETS = {
             localTxid: 184223, remoteTxid: 184223,
             lastSuccessfulSyncAt: ago(42e3),
             assetPending: 0, assetKeepLocal: false, assetTargetS3: true,
+            dbSizeBytes: 5877760, walSizeBytes: 1870512,
         },
     }),
 
@@ -183,6 +184,7 @@ export const DATASETS = {
             localTxid: 991204, remoteTxid: 990877,
             lastSuccessfulSyncAt: ago(7 * MIN),
             assetPending: 14, assetKeepLocal: false, assetTargetS3: true,
+            dbSizeBytes: 3200000000, walSizeBytes: 41200000,
         },
     }),
 
@@ -191,7 +193,7 @@ export const DATASETS = {
         machines: [primary(1, "primary", "7c1f0a6e-primary-0001")],
         enrollments: [],
         deployments: [selfDeployment(1, "v0.0.617")],
-        backup: null,
+        backup: {dbSizeBytes: 421888, walSizeBytes: 0},
     }),
 
     trouble: () => ({
@@ -211,6 +213,7 @@ export const DATASETS = {
             localTxid: 184223, remoteTxid: 181900,
             lastSuccessfulSyncAt: ago(2 * DAY),
             assetPending: 3, assetKeepLocal: true, assetTargetS3: true,
+            dbSizeBytes: 5877760, walSizeBytes: 1870512,
             error: "dial tcp 10.7.20.100:5432: connect: connection refused",
             assetError: "s3 put backups/assets/9f3b7d1e: RequestTimeout after 30s",
         },

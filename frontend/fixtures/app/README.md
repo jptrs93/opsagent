@@ -62,6 +62,8 @@ Shots:
 - `shell-stream-card` (bottom-left crop) and `shell-theme-menu` are the sidebar footer.
 - `space-filter`, `space-filter-presets` and `space-filter-search` are the space filter open: plain, with
   three presets saved through the menu and the name field showing, and on Secrets / Configs with a query typed.
+- `deployment-select` and `deployment-select-search` are the Logs page's deployment select open: with a
+  deployment selected, and with a query typed.
 - `login`, `enrol` and `landing` are the signed-out pages.
 
 ## Add a shot

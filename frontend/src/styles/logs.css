@@ -63,6 +63,10 @@
         @apply bg-gray-700;
     }
 
+    .logs-deployment {
+        @apply inline-flex w-60 cursor-pointer items-center;
+    }
+
     .logs-run {
         @apply inline-flex h-[30px] cursor-pointer items-center rounded-[0.3rem] border border-brand bg-brand px-3 text-xs
         font-medium text-white transition-colors hover:bg-blue-600 disabled:cursor-default disabled:opacity-50;
@@ -198,8 +202,7 @@
             @apply h-7 rounded-md border-transparent bg-white/[0.06] px-2.5 text-gray-200;
         }
 
-        button.logs-ctl:hover:not(:disabled),
-        select.logs-ctl:hover {
+        button.logs-ctl:hover:not(:disabled) {
             @apply bg-white/10;
         }
 
@@ -334,8 +337,7 @@
             @apply h-6 rounded border-[#33373f] bg-surface text-gray-200;
         }
 
-        button.logs-ctl:hover:not(:disabled),
-        select.logs-ctl:hover {
+        button.logs-ctl:hover:not(:disabled) {
             @apply bg-white/[0.04];
         }
 

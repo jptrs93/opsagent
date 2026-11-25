@@ -25,7 +25,8 @@ export const fmtSize = (n) => {
     if (!n) return "0 B";
     if (n < 1000) return `${n} B`;
     if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} KB`;
-    return `${(n / 1000 / 1000).toFixed(2)} MB`;
+    if (n < 1000 * 1000 * 1000) return `${(n / 1000 / 1000).toFixed(2)} MB`;
+    return `${(n / 1000 / 1000 / 1000).toFixed(2)} GB`;
 };
 
 // makeAssetItems flattens asset view models into the one row shape the

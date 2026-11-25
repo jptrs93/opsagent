@@ -472,6 +472,7 @@ export function buildDataset(now = Date.now()) {
         backupStatus: {
             configured: true, running: true, inSync: false, localTxid: 184231, remoteTxid: 184229,
             lastSuccessfulSyncAt: new Date(ago(40e3)), assetPending: 2, assetTargetS3: true, assetKeepLocal: true,
+            dbSizeBytes: 5877760, walSizeBytes: 1870512,
         },
         secretsStatus: {unlocked: true, recoveryConfigured: true},
         ingressDiagnostics: {items: [{deploymentId: 8, message: "hostname staging.example.com is refused for space staging by space domain policy example_com_is_prod"}]},

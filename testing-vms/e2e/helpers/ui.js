@@ -166,18 +166,7 @@ export async function expectOpenDeployLogs(page) {
   await page.mouse.click(2, 2);
   await expect(systemRow).toBeHidden();
 
-  const deploymentSelect = page.getByTestId('logs-deployment-select');
-  await expect.poll(async () => {
-    const options = await deploymentSelect.locator('option').evaluateAll(optionNodes =>
-      optionNodes.map(o => ({value: o.value, text: o.textContent || ''})),
-    );
-    return options.find(o => o.value && o.text.trim().endsWith(' / opendeploy'))?.value || '';
-  }, {message: 'expected opendeploy deployment option', timeout: LONG_UI_TIMEOUT}).not.toBe('');
-  const deploymentValue = await deploymentSelect.locator('option').evaluateAll(options => {
-    const match = options.find(o => o.value && (o.textContent || '').trim().endsWith(' / opendeploy'));
-    return match?.value || '';
-  });
-  await deploymentSelect.selectOption(deploymentValue);
+  await selectPrimaryNodeLogsDeployment(page, 'opendeploy');
   await expectOutputText(page, 'opendeploy starting primary');
 
   // Filtered search: every matching record must carry the search phrase.
@@ -188,13 +177,24 @@ export async function expectOpenDeployLogs(page) {
   await expectFilteredLogSearch(page, 'starting primary');
   await resetLogSearchFilters(page);
 
-  const netproxyValue = await deploymentSelect.locator('option').evaluateAll(options => {
-    const match = options.find(o => o.value && (o.textContent || '').trim().endsWith(' / opendeploy-net'));
-    return match?.value || '';
-  });
-  expect(netproxyValue, 'expected opendeploy-net deployment option').not.toBe('');
-  await deploymentSelect.selectOption(netproxyValue);
+  await selectPrimaryNodeLogsDeployment(page, 'opendeploy-net');
   await expectOutputText(page, 'starting opendeploy-net');
+}
+
+// Every node has its own opendeploy and opendeploy-net deployment, and the menu
+// names the node only once two of them share a name. Searching by node name
+// narrows to the primary's in both states.
+async function selectPrimaryNodeLogsDeployment(page, name) {
+  const select = page.getByTestId('logs-deployment-select');
+  await select.click();
+  await page.getByTestId('logs-deployment-select-search').fill(`${name} primary`);
+  const option = page.getByTestId('logs-deployment-select-menu')
+    .getByRole('menuitemradio')
+    .filter({has: page.getByText(name, {exact: true})});
+  await expect(option, `expected the primary node's ${name} deployment option`).toHaveCount(1, {timeout: LONG_UI_TIMEOUT});
+  const before = await select.getAttribute('data-value');
+  await option.click();
+  await expect(select).not.toHaveAttribute('data-value', before || '');
 }
 
 // The results table is virtualised, so full-result assertions read the page's
@@ -2107,7 +2107,7 @@ async function openDeploymentLogsSearch(page, row) {
   await row.getByTitle('View run output').last().click();
   await expect(byTestId(page, 'nav-logs', page.getByText('Logs'))).toBeVisible();
   await expect(page.getByTestId('logs-space-filter')).toBeVisible();
-  await expect(page.getByTestId('logs-deployment-select')).not.toHaveValue('');
+  await expect(page.getByTestId('logs-deployment-select')).not.toHaveAttribute('data-value', '');
   await expect(page.getByTestId('logs-results')).toBeVisible();
   // Opening the pane does not replace the hook, so a read taken straight after
   // switching deployments can still observe the previous deployment's records —

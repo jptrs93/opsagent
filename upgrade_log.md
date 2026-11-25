@@ -4,6 +4,43 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.627 (released 2026-11-25)
+
+### What changed
+
+Two Web UI changes and one addition to the backup status. Nothing changes on
+disk.
+
+- **The Replication tab on the Nodes page shows the size of the primary
+  database.** The tile reads as the total with the write-ahead log in
+  brackets, for example `7.75 MB (1.87 MB WAL)`. It is shown whether or not
+  backups are configured.
+- **`BackupStatus` carries two new fields**, `db_size_bytes` (the size of
+  `primary.db`) and `wal_size_bytes` (the size of `primary.db-wal`). The
+  primary reads both with a file stat every two seconds and sends the status
+  only when a value changed. A missing file reads as zero.
+- **The deployment select on the Logs page is a searchable menu.** Each row
+  is the deployment's name with its space on the right. It lists the
+  deployments of the spaces shown, and hiding the selected deployment's
+  space clears the selection.
+- **Sizes of 1 GB and over are shown in GB**, on the Assets page too.
+
+### Before upgrading
+
+- Nothing needs doing.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. Only the primary
+  serves the Web UI and builds the backup status, so nothing is visible
+  until it restarts.
+
+### After upgrading
+
+- Open Nodes, then Replication, and check the Database size tile shows a
+  size. A viewer without `view` on the cluster sees "unknown", as they see
+  no backup status at all.
+
 ## v0.0.626 (released 2026-11-25)
 
 ### What changed

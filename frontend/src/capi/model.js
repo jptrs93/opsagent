@@ -2180,6 +2180,8 @@
  * @property {boolean} assetTargetS3
  * @property {string} assetError
  * @property {boolean} assetKeepLocal
+ * @property {number} dbSizeBytes
+ * @property {number} walSizeBytes
  */
 /**
  * @typedef {Object} CoreWriteUpdate
@@ -27582,6 +27584,12 @@ export function writeBackupStatus(message, writer) {
     if (message.assetKeepLocal === true) {
         writer.uint32(tag(11, WIRE.VARINT)).bool(message.assetKeepLocal);
     }
+    if (message.dbSizeBytes !== undefined && message.dbSizeBytes !== null && message.dbSizeBytes !== 0) {
+        writer.uint32(tag(12, WIRE.VARINT)).uint64(Math.trunc(message.dbSizeBytes));
+    }
+    if (message.walSizeBytes !== undefined && message.walSizeBytes !== null && message.walSizeBytes !== 0) {
+        writer.uint32(tag(13, WIRE.VARINT)).uint64(Math.trunc(message.walSizeBytes));
+    }
 }
 
 
@@ -27603,7 +27611,7 @@ export function encodeBackupStatus(message) {
  */
 function decodeBackupStatusMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: undefined, error: "", assetPending: 0, assetTargetS3: false, assetError: "", assetKeepLocal: false };
+    const message = {configured: false, running: false, inSync: false, localTxid: 0, remoteTxid: 0, lastSuccessfulSyncAt: undefined, error: "", assetPending: 0, assetTargetS3: false, assetError: "", assetKeepLocal: false, dbSizeBytes: 0, walSizeBytes: 0 };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -27649,6 +27657,14 @@ function decodeBackupStatusMessage(reader, length) {
             }
             case 11: {
                 message.assetKeepLocal = reader.bool();
+                break;
+            }
+            case 12: {
+                message.dbSizeBytes = readInt64(reader, "uint64");
+                break;
+            }
+            case 13: {
+                message.walSizeBytes = readInt64(reader, "uint64");
                 break;
             }
             default:

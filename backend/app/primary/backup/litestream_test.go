@@ -1,9 +1,12 @@
 package backup
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/jptrs93/opsagent/backend/ainit"
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/secrets"
 	"github.com/jptrs93/opsagent/backend/app/primary/domain/systemconfig"
@@ -101,5 +104,40 @@ func TestBackupConfigFilterIgnoresBackupSettingsWhileDisabled(t *testing.T) {
 	enabled.Backup.Enabled = systemconfig.BoolLiteral(true)
 	if !filter.Filter(configWithSettings(changedWhileDisabled), configWithSettings(enabled)) {
 		t.Fatal("backup enable did not pass backup filter")
+	}
+}
+
+func TestDatabaseSizesReadTheDatabaseAndItsWAL(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "primary.db")
+	if db, wal := databaseSizes(dbPath); db != 0 || wal != 0 {
+		t.Fatalf("missing files: got db=%d wal=%d, want 0 and 0", db, wal)
+	}
+	if err := os.WriteFile(dbPath, make([]byte, 8192), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if db, wal := databaseSizes(dbPath); db != 8192 || wal != 0 {
+		t.Fatalf("no WAL: got db=%d wal=%d, want 8192 and 0", db, wal)
+	}
+	if err := os.WriteFile(dbPath+"-wal", make([]byte, 4120), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if db, wal := databaseSizes(dbPath); db != 8192 || wal != 4120 {
+		t.Fatalf("got db=%d wal=%d, want 8192 and 4120", db, wal)
+	}
+}
+
+func TestStatusCarriesTheDatabaseSizeWhenBackupsAreNotConfigured(t *testing.T) {
+	previous := ainit.StaticConfig.DataDir
+	ainit.StaticConfig.DataDir = t.TempDir()
+	t.Cleanup(func() { ainit.StaticConfig.DataDir = previous })
+	if err := os.WriteFile(primaryDBPath(), make([]byte, 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(primaryDBPath()+"-wal", make([]byte, 1024), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	status := withLocalStatus(apigen.BackupStatus{}, nil)
+	if status.Configured || status.DbSizeBytes != 4096 || status.WalSizeBytes != 1024 {
+		t.Fatalf("got configured=%v db=%d wal=%d, want false, 4096 and 1024", status.Configured, status.DbSizeBytes, status.WalSizeBytes)
 	}
 }

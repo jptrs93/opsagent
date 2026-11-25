@@ -3,23 +3,12 @@ import {checkIcon, chevronDownIcon, closeIcon, plusIcon, searchIcon} from "../li
 import {
     cleanPresetName, findPresetByName, matchItems, matchingPreset, presetSelection, sameSelection,
 } from "../lib/selectionPresets.js";
+import {activateOnKey, anchoredMenu, capitalised, menuSearch, menuTrigger, roveFocus, tailOf} from "./selectMenu.js";
 
 const {button, div, form, input, span} = van.tags;
 
 const POPOVER_WIDTH = 288;
-const EDGE = 8;
-const GAP = 6;
-const MIN_HEIGHT_BELOW = 260;
 const MAX_LEADS = 6;
-
-const capitalised = (text) => text.charAt(0).toUpperCase() + text.slice(1);
-
-const activateOnKey = (run) => (event) => {
-    if (event.target !== event.currentTarget) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    run();
-};
 
 // Rows are divs, not buttons: Firefox does not deliver a click to a button
 // nested inside a button, and each row carries one ("only", delete).
@@ -35,12 +24,11 @@ export function multiSelect({
     defaultValue,
     onReset,
     presets,
-    buttonClass = "multiselect-trigger",
+    buttonClass = "select-menu-trigger",
     labelClass = "",
     testid = "multiselect",
 }) {
     const [singular, plural] = noun;
-    const anchor = van.state(null);
     const query = van.state("");
     const naming = van.state(false);
     const draftName = van.state("");
@@ -105,40 +93,14 @@ export function multiSelect({
         searchEl?.focus();
     };
 
-    const onOutsidePointer = (event) => {
-        if (!root.contains(event.target)) close();
-    };
-    const onResize = () => close();
-
-    const open = () => {
-        const rect = trigger.getBoundingClientRect();
-        const left = Math.max(EDGE, Math.min(rect.left, window.innerWidth - POPOVER_WIDTH - EDGE));
-        const below = window.innerHeight - rect.bottom - GAP - EDGE;
-        const above = rect.top - GAP - EDGE;
-        anchor.val = below >= MIN_HEIGHT_BELOW || below >= above
-            ? {left, top: rect.bottom + GAP, maxHeight: below}
-            : {left, bottom: window.innerHeight - rect.top + GAP, maxHeight: above};
-        document.addEventListener("pointerdown", onOutsidePointer, true);
-        window.addEventListener("resize", onResize);
-        setTimeout(() => searchEl?.focus(), 0);
-    };
-
-    function close({refocus = false} = {}) {
-        if (!anchor.val) return;
-        anchor.val = null;
-        query.val = "";
-        stopNaming();
-        document.removeEventListener("pointerdown", onOutsidePointer, true);
-        window.removeEventListener("resize", onResize);
-        if (refocus) trigger.focus();
-    }
-
-    const moveFocus = (delta) => {
-        const targets = [...(popoverEl?.querySelectorAll("[data-nav]") || [])];
-        if (targets.length === 0) return;
-        const at = targets.indexOf(document.activeElement);
-        targets[at < 0 ? 0 : Math.max(0, Math.min(targets.length - 1, at + delta))].focus();
-    };
+    const menu = anchoredMenu({
+        width: POPOVER_WIDTH,
+        onOpen: () => setTimeout(() => searchEl?.focus(), 0),
+        onClose: () => {
+            query.val = "";
+            stopNaming();
+        },
+    });
 
     const onPopoverKey = (event) => {
         if (event.key === "Escape") {
@@ -148,16 +110,16 @@ export function multiSelect({
                 stopNaming();
                 searchEl?.focus();
             } else {
-                close({refocus: true});
+                menu.close({refocus: true});
             }
             return;
         }
         if (event.target.dataset?.naming !== undefined) return;
-        if (event.key === "ArrowDown") { event.preventDefault(); moveFocus(1); }
-        if (event.key === "ArrowUp") { event.preventDefault(); moveFocus(-1); }
+        if (event.key === "ArrowDown") { event.preventDefault(); roveFocus(popoverEl, 1); }
+        if (event.key === "ArrowUp") { event.preventDefault(); roveFocus(popoverEl, -1); }
     };
 
-    const tick = (on) => span({class: () => `multiselect-check ${on() ? "" : "invisible"}`}, checkIcon({class: "h-3.5 w-3.5"}));
+    const tick = (on) => span({class: () => `select-menu-check ${on() ? "" : "invisible"}`}, checkIcon({class: "h-3.5 w-3.5"}));
 
     const itemRow = (item) => div(
         {
@@ -166,18 +128,18 @@ export function multiSelect({
             tabindex: 0,
             "data-nav": "",
             "data-testid": `${testid}-row-${item.id}`,
-            class: "menu-item multiselect-row",
+            class: "menu-item select-menu-row",
             onclick: () => toggle(item.id),
             onkeydown: activateOnKey(() => toggle(item.id)),
         },
         tick(() => isSelected(item.id)),
         item.lead ? item.lead() : "",
         span({class: `min-w-0 flex-1 truncate ${labelClass}`}, item.label),
-        item.tail ? span({class: "multiselect-tail"}, item.tail) : "",
+        item.tail ? span({class: "select-menu-tail"}, tailOf(item)) : "",
         button({
             type: "button",
             tabindex: -1,
-            class: "multiselect-act",
+            class: "select-menu-act",
             title: `Select only ${item.label}`,
             "data-testid": `${testid}-only-${item.id}`,
             onclick: (event) => {
@@ -203,7 +165,7 @@ export function multiSelect({
                 "data-nav": "",
                 "data-testid": `${testid}-preset`,
                 "data-preset": preset.name,
-                class: "menu-item multiselect-row",
+                class: "menu-item select-menu-row",
                 title: size === 0 ? `None of its ${plural} exist any more` : "",
                 onclick: () => applyPreset(preset),
                 onkeydown: (event) => {
@@ -218,11 +180,11 @@ export function multiSelect({
             },
             tick(isActive),
             span({class: "min-w-0 flex-1 truncate"}, preset.name),
-            span({class: "multiselect-tail"}, String(size)),
+            span({class: "select-menu-tail"}, String(size)),
             button({
                 type: "button",
                 tabindex: -1,
-                class: "multiselect-act",
+                class: "select-menu-act",
                 title: `Delete preset ${preset.name}`,
                 "aria-label": `Delete preset ${preset.name}`,
                 "data-testid": `${testid}-preset-delete`,
@@ -237,18 +199,18 @@ export function multiSelect({
     const presetsSection = () => {
         const rows = shownPresets();
         if (rows.length === 0) return "";
-        return div({role: "menu", "aria-label": "Presets", class: "multiselect-section"},
-            div({class: "multiselect-label"}, "Presets"),
+        return div({role: "menu", "aria-label": "Presets", class: "select-menu-section"},
+            div({class: "select-menu-label"}, "Presets"),
             ...rows.map(presetRow));
     };
 
     const itemsSection = () => {
         const rows = shownItems();
         return div({role: "menu", "aria-label": capitalised(plural)},
-            presetList().length > 0 ? div({class: "multiselect-label"}, capitalised(plural)) : "",
+            presetList().length > 0 ? div({class: "select-menu-label"}, capitalised(plural)) : "",
             ...rows.map(itemRow),
             rows.length === 0
-                ? div({class: "multiselect-empty"}, items().length === 0 ? `No ${plural}` : `No ${plural} match`)
+                ? div({class: "select-menu-empty"}, items().length === 0 ? `No ${plural}` : `No ${plural} match`)
                 : "");
     };
 
@@ -256,11 +218,11 @@ export function multiSelect({
         type: "button",
         "data-nav": "",
         "data-testid": `${testid}-${key}`,
-        class: "multiselect-link",
+        class: "select-menu-link",
         onclick,
     }, label);
 
-    const actions = () => div({class: "multiselect-actions"},
+    const actions = () => div({class: "select-menu-actions"},
         link(() => searching() ? "Select matching" : "Select all", selectShown, "all"),
         link(() => searching() ? "Clear matching" : "Clear", clearShown, "clear"),
         span({class: "flex-1"}),
@@ -271,7 +233,7 @@ export function multiSelect({
         if (naming.val) {
             return form(
                 {
-                    class: "multiselect-save",
+                    class: "select-menu-save",
                     onsubmit: (event) => {
                         event.preventDefault();
                         savePreset();
@@ -279,7 +241,7 @@ export function multiSelect({
                 },
                 input({
                     type: "text",
-                    class: "multiselect-name",
+                    class: "select-menu-name",
                     placeholder: "Preset name",
                     maxLength: 40,
                     autocomplete: "off",
@@ -291,7 +253,7 @@ export function multiSelect({
                 }),
                 button({
                     type: "submit",
-                    class: "multiselect-primary",
+                    class: "select-menu-primary",
                     "data-testid": `${testid}-preset-save`,
                     disabled: () => !cleanPresetName(draftName.val),
                 }, () => findPresetByName(presetList(), draftName.val) ? "Replace" : "Save"),
@@ -302,7 +264,7 @@ export function multiSelect({
             type: "button",
             "data-nav": "",
             "data-testid": `${testid}-preset-add`,
-            class: "menu-item multiselect-row",
+            class: "menu-item select-menu-row",
             onclick: () => {
                 naming.val = true;
                 setTimeout(() => popoverEl?.querySelector("[data-naming]")?.focus(), 0);
@@ -311,37 +273,27 @@ export function multiSelect({
     };
 
     const popover = () => {
-        const at = anchor.val;
+        const at = menu.anchor.val;
         if (!at) return "";
-        searchEl = input({
-            type: "text",
-            role: "searchbox",
-            inputMode: "search",
-            autocomplete: "off",
-            spellcheck: false,
-            "data-nav": "",
-            "data-testid": `${testid}-search`,
-            placeholder: `Search ${plural}`,
-            "aria-label": `Search ${plural}`,
-            oninput: (event) => { query.val = event.target.value; },
-            onkeydown: (event) => {
-                if (event.key !== "Enter") return;
-                event.preventDefault();
+        searchEl = menuSearch({
+            testid,
+            plural,
+            query,
+            onEnter: () => {
                 const first = shownItems()[0];
                 if (first) toggle(first.id);
             },
         });
-        const vertical = at.top !== undefined ? `top:${at.top}px` : `bottom:${at.bottom}px`;
         popoverEl = div(
             {
-                class: "multiselect",
+                class: "select-menu",
                 "data-testid": `${testid}-menu`,
-                style: `left:${at.left}px;${vertical};max-height:${at.maxHeight}px`,
+                style: menu.style(at),
                 onkeydown: onPopoverKey,
             },
-            div({class: "multiselect-search"}, searchIcon({class: "h-3.5 w-3.5 flex-none"}), searchEl),
-            div({class: "multiselect-list app-scroll"}, presetsSection, itemsSection),
-            div({class: "multiselect-foot"}, actions(), saveRow),
+            div({class: "select-menu-search"}, searchIcon({class: "h-3.5 w-3.5 flex-none"}), searchEl),
+            div({class: "select-menu-list app-scroll"}, presetsSection, itemsSection),
+            div({class: "select-menu-foot"}, actions(), saveRow),
         );
         return popoverEl;
     };
@@ -359,21 +311,13 @@ export function multiSelect({
             chevronDownIcon({class: "h-3 w-3 opacity-60"}));
     };
 
-    const trigger = button({
-        type: "button",
+    const trigger = menuTrigger(menu, {
         "data-testid": testid,
-        "aria-haspopup": "true",
-        "aria-expanded": () => String(anchor.val !== null),
         "aria-label": ariaLabel || `Select ${plural}`,
         class: buttonClass,
-        onclick: () => { anchor.val ? close() : open(); },
-        onkeydown: (event) => {
-            if (event.key !== "ArrowDown" || anchor.val) return;
-            event.preventDefault();
-            open();
-        },
     }, summary);
 
     const root = span({class: "relative inline-flex"}, trigger, popover);
+    menu.attach(root, trigger);
     return root;
 }
