@@ -146,7 +146,7 @@ function spacesTab() {
     const spaceNameEditor = (space) => {
         const id = Number(space.id);
         if (isDefaultSpace(space)) {
-            return div({class: "flex items-center gap-2 px-2 py-1 min-w-0"},
+            return div({class: "flex h-6 min-w-0 items-center gap-2 px-2"},
                 span({class: "truncate text-gray-200"}, space.name || `space ${id}`),
                 span({class: "shrink-0 rounded bg-gray-800 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-500"},
                     "built in"),
@@ -178,7 +178,8 @@ function spacesTab() {
                 await renameSpace(space, next, draft);
             },
             onDiscard: () => { name.val = originalName.val; },
-            inputClass: "w-full bg-transparent px-2 py-1 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none text-gray-200",
+            inputClass: "h-6 w-full bg-transparent px-2 py-0 rounded border border-transparent hover:border-gray-700 focus:border-brand focus:outline-none text-gray-200",
+            actionClass: "h-6 w-6",
             placeholder: "space name",
             ariaLabel: `Space name ${space.name || id}`,
             saveAriaLabel: `Save space name ${space.name || id}`,
@@ -187,7 +188,7 @@ function spacesTab() {
     };
 
     const countCell = (value) => td(
-        {class: "py-1 pr-3 text-gray-400 whitespace-nowrap tabular-nums"},
+        {class: "py-px pr-3 text-gray-400 whitespace-nowrap tabular-nums"},
         String(value),
     );
 
@@ -196,19 +197,19 @@ function spacesTab() {
         const deletable = !isDefaultSpace(space);
         return tr(
             {class: "data-row align-middle classic:border-gray-800 classic:last:border-0 classic:hover:bg-transparent", "data-testid": `space-row-${id}`},
-            td({class: "py-1 pr-3 min-w-0"}, spaceNameEditor(space)),
+            td({class: "py-px pr-3 min-w-0"}, spaceNameEditor(space)),
             countCell(countDeployments(deploymentsS.val, id)),
             countCell(countDistinct(secretMetasS.val, id, (item) => item.key)),
             countCell(countDistinct(userConfigsS.val, id, (item) => item.key)),
             countCell(countDistinct(assetMetasS.val, id, (item) => item.key)),
-            td({class: "py-1 pl-2 text-right whitespace-nowrap w-px"},
+            td({class: "py-px pl-2 text-right whitespace-nowrap w-px"},
                 div({class: "flex items-center justify-end gap-1"},
                     button({
                         type: "button",
                         title: deletable ? `Delete space ${space.name || id}` : "Built-in spaces cannot be deleted",
                         "aria-label": deletable ? `Delete space ${space.name || id}` : "Built-in spaces cannot be deleted",
                         disabled: () => !deletable || Boolean(mutatingID.val),
-                        class: () => `inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 ` +
+                        class: () => `inline-flex h-6 w-6 items-center justify-center rounded text-gray-400 ` +
                             `hover:bg-surface hover:text-red-400 slate:hover:bg-white/5 graphite:hover:bg-white/5 transition-colors ${!deletable || mutatingID.val
                                 ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
                         onclick: () => requestDelete(space),

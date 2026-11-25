@@ -8,7 +8,6 @@ import {
     MODE_EXCEPT,
     alwaysEnabled,
     createPayload,
-    decide,
     describeNodes,
     describeSpaces,
     draftFromPolicy,
@@ -24,7 +23,7 @@ import {
     userSpaces,
 } from "../lib/nodeAccessPolicies.js";
 
-const {button, div, h2, input, label, option, p, select, span} = van.tags;
+const {button, div, h2, input, label, p, span} = van.tags;
 
 const ROW_COLS = "grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 " +
     "@3xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1.25fr)_minmax(0,1.25fr)_7.5rem]";
@@ -69,8 +68,6 @@ export function nodeAccessPoliciesPage() {
     const deleteTarget = van.state(null);
     const deleteSaving = van.state(false);
     const deleteError = van.state(null);
-    const checkNode = van.state(0);
-    const checkSpace = van.state(0);
 
     const policies = () => [...(nodeAccessPoliciesS.val || [])].sort((a, b) => a.id - b.id);
     const liveNodes = () => (machinesS.val || []).filter((m) => !m.evicted);
@@ -91,48 +88,17 @@ export function nodeAccessPoliciesPage() {
         }
     };
 
-    const pick = (state, ids) => ids.includes(state.val) ? state.val : ids[0];
-    const checkNodeId = () => pick(checkNode, liveNodes().map((m) => Number(m.id)));
-    const checkSpaceId = () => pick(checkSpace, userSpaces(spacesS.val).map((s) => Number(s.id)));
-
-    const checkResult = () => {
-        const nodeId = checkNodeId();
-        const spaceId = checkSpaceId();
-        if (!policies().length || nodeId === undefined || spaceId === undefined) return "";
-        const result = (cls, text) => span({class: `text-xs ${cls}`, "data-testid": "node-access-policy-check-result"}, text);
-        const decision = decide(policies(), nodeId, spaceId);
-        if (decision.allowed) return result("text-green-300", "Allowed");
-        return result("text-red-300", decision.policy ? `Refused by ${decision.policy}` : "Refused: no enabled allow covers it");
-    };
-
-    const checkSelect = (ariaLabel, testId, state, options, selected) => () => select({
-        class: "input h-[30px] max-w-40 text-xs",
-        "aria-label": ariaLabel,
-        "data-testid": testId,
-        onchange: (e) => { state.val = Number(e.target.value); },
-    }, ...options().map(([id, text]) => option({value: id, selected: id === selected()}, text)));
-
     const toolbar = () => div(
-        {class: "page-toolbar cluster-toolbar gap-2 classic:py-2"},
-        span({class: "text-xs text-gray-400"}, "Check a placement"),
-        checkSelect("Node to check", "node-access-policy-check-node", checkNode,
-            () => liveNodes().map((m) => [Number(m.id), nodeLabel(m)]), checkNodeId),
-        checkSelect("Space to check", "node-access-policy-check-space", checkSpace,
-            () => userSpaces(spacesS.val).map((s) => [Number(s.id), s.name || `space ${s.id}`]), checkSpaceId),
-        checkResult,
-        div({class: "flex-1"}),
+        {class: "page-toolbar cluster-toolbar gap-3 classic:py-2"},
+        p({class: "min-w-0 flex-1 text-xs text-gray-500"},
+            "Denies are checked first, then allows; a node runs a space's deployments only when an enabled allow covers it. ",
+            "A change that would leave a deployment on a node that may no longer run it is refused."),
         button({
             type: "button",
-            class: "toolbar-button",
+            class: "toolbar-button flex-none",
             "data-testid": "node-access-policy-add",
             onclick: () => openEditor(null),
         }, "Add policy"),
-    );
-
-    const explainer = () => p(
-        {class: "flex-none border-b border-gray-800 px-3 py-1.5 text-xs text-gray-500 slate:border-0 slate:pb-2 slate:pt-0 graphite:border-0 graphite:pt-2"},
-        "Denies are checked first, then allows; a node runs a space's deployments only when an enabled allow covers it. ",
-        "A change that would leave a deployment on a node that may no longer run it is refused.",
     );
 
     const enableSwitch = (policy) => {
@@ -146,7 +112,7 @@ export function nodeAccessPoliciesPage() {
             title: locked ? "Always enabled" : on ? "Enabled" : "Disabled",
             "data-testid": `node-access-policy-toggle-${policy.id}`,
             disabled: () => locked || Boolean(busyId.val),
-            class: () => "inline-flex h-7 items-center rounded px-1 " +
+            class: () => "inline-flex h-6 items-center rounded px-1 " +
                 (locked ? "cursor-not-allowed opacity-50" : busyId.val === policy.id ? "cursor-wait opacity-60" : busyId.val ? "cursor-not-allowed" : "cursor-pointer"),
             onclick: () => toggle(policy),
         }, span(
@@ -166,7 +132,7 @@ export function nodeAccessPoliciesPage() {
         const tone = off ? "text-gray-500" : "text-gray-300";
         const builtin = isBuiltin(policy);
         return div(
-            {class: `data-row grid ${ROW_COLS} items-center py-2 @3xl:py-1 classic:border-gray-800 classic:last:border-0 classic:hover:bg-transparent classic:@3xl:py-1.5`, "data-testid": `node-access-policy-row-${policy.id}`},
+            {class: `data-row grid ${ROW_COLS} items-center py-1.5 @3xl:py-px classic:border-gray-800 classic:last:border-0 classic:hover:bg-transparent`, "data-testid": `node-access-policy-row-${policy.id}`},
             div({class: "flex min-w-0 items-center gap-2"},
                 effectBadge(isDeny(policy.rule), off),
                 span({class: `truncate ${off ? "text-gray-500" : "text-gray-200"}`, title: policy.name}, policy.name),
@@ -179,7 +145,7 @@ export function nodeAccessPoliciesPage() {
                     title: `Edit policy ${policy.name}`,
                     "aria-label": `Edit policy ${policy.name}`,
                     "data-testid": `node-access-policy-edit-${policy.id}`,
-                    class: "inline-flex h-7 items-center justify-center rounded px-2 text-xs text-gray-400 hover:bg-surface-hover hover:text-gray-100 transition-colors cursor-pointer",
+                    class: "inline-flex h-6 items-center justify-center rounded px-2 text-xs text-gray-400 hover:bg-surface-hover hover:text-gray-100 transition-colors cursor-pointer",
                     onclick: () => openEditor(policy),
                 }, "Edit"),
                 builtin ? "" : button({
@@ -187,7 +153,7 @@ export function nodeAccessPoliciesPage() {
                     title: `Delete policy ${policy.name}`,
                     "aria-label": `Delete policy ${policy.name}`,
                     "data-testid": `node-access-policy-delete-${policy.id}`,
-                    class: "inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-surface-hover hover:text-red-400 transition-colors cursor-pointer",
+                    class: "inline-flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-surface-hover hover:text-red-400 transition-colors cursor-pointer",
                     onclick: () => { deleteError.val = null; deleteTarget.val = policy; },
                 }, trashIcon())),
             summary("Nodes", describeNodes(policy.nodes, names.nodes), `font-mono ${tone}`),
@@ -384,7 +350,6 @@ export function nodeAccessPoliciesPage() {
     return div(
         {class: "h-full min-h-0 flex flex-col overflow-hidden"},
         toolbar(),
-        explainer(),
         listArea(),
         () => editor.val ? editorOverlay(editor.val) : "",
         deleteOverlay,

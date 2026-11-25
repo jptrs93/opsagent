@@ -900,6 +900,18 @@ textarea::-webkit-scrollbar-thumb:hover {
     outline: none;
 }
 
+.fit-col {
+    width: var(--w, auto);
+    min-width: var(--w, 0px);
+    max-width: var(--w, 14rem);
+}
+
+.fit-col-flex {
+    width: 100%;
+    min-width: 6rem;
+    max-width: 0;
+}
+
 .vgrip {
     position: absolute;
     left: -5px;

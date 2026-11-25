@@ -17,6 +17,7 @@ export function inlineEditableInput({
     inputAttrs = {},
     inputClass = "",
     containerClass = "",
+    actionClass = "h-7 w-7",
     inputRef,
     placeholder = "",
     ariaLabel = "Editable name",
@@ -87,7 +88,7 @@ export function inlineEditableInput({
                 title: saveAriaLabel,
                 "aria-label": saveAriaLabel,
                 disabled: saveActionDisabled,
-                class: () => `inline-flex h-7 w-7 items-center justify-center rounded border border-blue-500/40 ` +
+                class: () => `inline-flex ${actionClass} items-center justify-center rounded border border-blue-500/40 ` +
                     `bg-blue-500/15 text-blue-300 transition-colors hover:bg-blue-500/25 ${
                         saveActionDisabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
                 onclick: event => {
@@ -100,7 +101,7 @@ export function inlineEditableInput({
                 title: discardAriaLabel,
                 "aria-label": discardAriaLabel,
                 disabled: discardActionDisabled,
-                class: () => `inline-flex h-7 w-7 items-center justify-center rounded border border-gray-600 ` +
+                class: () => `inline-flex ${actionClass} items-center justify-center rounded border border-gray-600 ` +
                     `bg-gray-800 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-100 ${
                         discardActionDisabled() ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`,
                 onclick: event => {
