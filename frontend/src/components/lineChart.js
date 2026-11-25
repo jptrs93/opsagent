@@ -210,7 +210,7 @@ export function lineChart({title, unit, dataS, height = 160, testid, emptyText =
         {"data-testid": testid, class: "chart-card"},
         div({class: "chart-head"},
             span({class: "chart-title"}, title),
-            span({class: "chart-unit"}, unit === 'count' ? '' : unit),
+            span({class: "chart-unit"}, unit === 'count' ? '' : unit === 'per_s' ? 'per second' : unit),
             span({class: "chart-rule"})),
         plotHost,
         legend,

@@ -60,3 +60,43 @@ message MetricsLatestResponse {
   repeated MetricsLatestEntry entries = 1;
   repeated string warnings = 2;
 }
+
+message NodeMetricsQueryRequest {
+  uint64 node_id = 1 [(cp.js_type) = "number"];
+  optional int64 time_start = 2 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Inclusive; absent = time_end - 1h.
+  optional int64 time_end = 3 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];    // Exclusive; absent = now.
+  int64 step_ms = 4 [(cp.js_type) = "number"];                // Bucket width; 0 = server picks for ~300 points.
+  repeated string fields = 5;       // Metric names to return; empty = all.
+  string request_id = 6;            // Internal: correlates cluster round trips.
+}
+
+message NodeMetricsSeries {
+  uint64 node_id = 1 [(cp.js_type) = "number"];
+  string field = 2;
+  int32 kind = 3;                   // 0 = counter (values are per-second rates), 1 = gauge (bucket mean), 2 = kernel average (bucket mean).
+  repeated double values = 4;       // One per bucket, oldest first; NaN = no data in the bucket.
+}
+
+message NodeMetricsQueryResponse {
+  int64 time_start = 1 [(cp.go_type) = "time.Time", (cp.js_type) = "Date"];  // Left edge of the first bucket.
+  int64 step_ms = 2 [(cp.js_type) = "number"];
+  int32 buckets = 3;
+  repeated NodeMetricsSeries series = 4;
+  int64 scanned_rows = 5 [(cp.js_type) = "number"];
+  int32 took_ms = 6;
+  repeated string warnings = 7;
+}
+
+message NodeMetricsLatestRequest {
+  string request_id = 1;            // Internal: correlates cluster round trips.
+}
+
+message NodeMetricsLatestEntry {
+  NodeMetricsSample sample = 1 [(cp.go_value) = true];
+  repeated MetricsRate rates = 2;   // Counter fields differenced against the node's previous sample.
+}
+
+message NodeMetricsLatestResponse {
+  repeated NodeMetricsLatestEntry entries = 1;  // One per node that answered.
+  repeated string warnings = 2;
+}

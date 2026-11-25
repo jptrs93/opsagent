@@ -10,6 +10,10 @@ measurement layer (`lib/metrics`) and its node-local storage
 [api.md](api.md) and the Metrics page in [frontend.md](frontend.md). The
 Status section at the end records what is wired in and what is not.
 
+Each agent also samples its own host: CPU, load, memory, pressure, network,
+disk IO and filesystem usage. [Node metrics](#node-metrics) covers that
+second table; everything before it is about the per-container table.
+
 ## Direction
 
 - **Node-level sampler, not per-runner collectors.** One sampler per agent
@@ -367,6 +371,98 @@ averages last. The query planner picks the coarsest resolution that
 satisfies the requested range and step. This falls out of storing raw
 counters; it would not with pre-differenced deltas.
 
+## Node metrics
+
+Each agent samples its own host on the same tick as the containers. The node
+sample is a second table beside the run table: one row per node per tick,
+stored and queried by the same code.
+
+### Sampler
+
+`metrics.RunNode` reads the host once at start and then on every aligned
+10 s tick. Every read is a file under `/proc` or one `statfs` call. Nothing
+is spawned and no directory is walked. A part that cannot be read is absent
+from that sample and the rest is still written.
+
+| Part | Source | Fields |
+|------|--------|--------|
+| CPU | `/proc/stat`: the `cpu` line, and a count of the `cpuN` lines | `cpu_usage_usec` (user, nice, system, irq, softirq, steal), `cpu_user_usec` (user, nice), `cpu_system_usec` (system, irq, softirq), `cpu_iowait_usec`, `cpu_steal_usec`, `cpu_count` |
+| Load | `/proc/loadavg` | `load1`, `load5`, `load15` |
+| Memory | `/proc/meminfo` | `mem_total`, `mem_available`, `mem_free`, `mem_cached` (Buffers plus Cached), `swap_total`, `swap_free` |
+| Pressure | `/proc/pressure/{cpu,memory,io}` | the `psi_*` names of the run table |
+| Network | `/proc/net/dev` | `net_{rx,tx}_{bytes,packets,dropped}` |
+| Disk IO | `/proc/diskstats` | `io_{read,write}_{bytes,ops}` |
+| Filesystems | `statfs` | `fs_data_*`, `extra_filesystems` |
+
+CPU ticks are converted to microseconds at the fixed `USER_HZ` of 100, so the
+CPU counters have the unit of the run table and a rate divided by 1e6 is
+cores. Idle time is not stored; `cpu_count` gives the capacity.
+
+Network and disk IO count physical devices only: an interface with a
+`/sys/class/net/<if>/device` link and a block device with a
+`/sys/block/<dev>/device` link. That leaves out loopback, veth pairs, bridges
+and tunnels, and partitions, device-mapper, md and loop devices, so a byte is
+counted once however many virtual layers it crosses.
+
+### Filesystems
+
+The supported layout keeps every OpenDeploy directory on one filesystem, the
+one that holds the data directory. That filesystem is five flat columns:
+`fs_data_total_bytes`, `fs_data_free_bytes`, `fs_data_avail_bytes`,
+`fs_data_inodes_total` and `fs_data_inodes_free`. Flat columns chart, roll up
+and sort like any other gauge.
+
+`extra_filesystems` is a map from mount point to the same five numbers. It
+holds every other filesystem an OpenDeploy root sits on (volumes, containerd,
+nix stores, assets, releases, logs, metrics, build logs), found by comparing
+device ids, so a root on the data filesystem adds nothing and the map is
+empty on the supported layout. The key is the mount point, found by walking
+up from the root while the parent directory is on the same device.
+
+The map is part of the format from the first file because a map column
+cannot be added later: parquet-go reads a file written without the column
+back with one entry under an empty key. The reader drops empty keys, and a
+test pins that for a hand-written older file. A scalar column added later
+reads as absent from older files, which is the normal way to extend the row.
+
+`free` is every free block and `avail` is what an unprivileged writer can
+still use (`f_bavail`), which is lower when the filesystem reserves blocks
+for root. Used is total minus free. The percentage the UI shows is used over
+used plus available, the figure `df` prints.
+
+### Storage and query
+
+```
+<data>-metrics/node/<YYYYMMDD>.wal                     live file for the day
+<data>-metrics/node/<YYYYMMDD>/n<node>_<seq>.parquet   sealed day
+```
+
+`metricstore` is generic over the sample type. A `table[S, R]` holds what
+differs between the two tables (decode and encode of the proto, the time
+accessor, the mapping to the parquet row, the sort order), and the WAL
+writer, compaction, retention, scan routing and the rollup accumulator are
+written once over it. `Store` is the run table and `NodeStore` the node
+table; both run the same write and maintenance loops. Node rows sort by time.
+The frame format, the commit protocol and the 90 day retention are those
+described above.
+
+The run store lists `<data>-metrics` and skips every name that is not a day,
+so the `node` directory is invisible to it, and to an older agent after a
+rollback.
+
+- `NodeFields` lists the stored columns with their kind plus four gauges
+  derived at read time: `mem_used` (total minus available), `swap_used`,
+  `fs_data_used_bytes` (total minus free) and `fs_data_inodes_used`.
+- `NodeRollup` is the rollup of the run table with one accumulator: counters
+  become per-second rates, gauges and averages become bucket means, an empty
+  bucket is `NaN`.
+- `NodeStore.LatestResponse` is the last sample with the per-second rate of
+  every counter against the sample before it, both kept in memory.
+
+`extra_filesystems` is stored and returned with the latest sample but is not
+a rollup field: the rollup works on named scalar fields, and charting a map
+entry needs a field that carries a label.
+
 ## Status
 
 Wired in: the `lib/metrics` package (registry, fast-tier cgroup and procfs
@@ -391,6 +487,19 @@ session like the log query, with the Metrics page in the web UI on top
 flow deploys `testexamples/loadgen` on a worker and on the primary and
 checks the overview, the charts, the scope controls, and that adopted
 containers are sampled again after an agent upgrade.
+
+Node metrics are wired in the same way: primary and secondary start
+`metricstore.DefaultNode` on `<metrics>/node` and run `metrics.RunNode` into
+it with the roots from `metrics.OpenDeployRoots()`. They are served by
+`POST /v1/metrics/nodes/query` and `POST /v1/metrics/nodes/latest`, shown on
+the Metrics page (Nodes overview and one tab per node) and in the Disk column
+of the Nodes page. The e2e metrics flow checks both nodes report CPU, memory
+and filesystem figures, that a node's charts carry data, and that the Disk
+column fills in.
+
+Not yet for node metrics: charts of `extra_filesystems` entries, host-mount
+paths of deployments as a source for that map, and volume usage per
+deployment.
 
 Not yet: the slow disk tier, the self-deployment target, stored rollup (the
 rollup engine runs at query time), and bucket upload. A leaked-cgroup sweep is no longer needed: a cgroup belongs to a

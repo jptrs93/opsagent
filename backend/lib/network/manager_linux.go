@@ -258,7 +258,6 @@ func (m *Manager) RecoverContainerNet(containerID string, deploymentID int32, in
 		Slot:          slot,
 	}
 	m.containerNets[cn.ContainerID] = cn
-	m.cleanupContainerNets(deploymentID, []*ContainerNet{cn})
 	if err := m.syncFilterNets(); err != nil {
 		delete(m.containerNets, containerID)
 		return nil, fmt.Errorf("applying container filter rules: %w", err)
@@ -346,18 +345,28 @@ func (m *Manager) teardownContainerNet(containerID string, deploymentID int32, h
 	}
 }
 
-// CleanupContainerNets removes stale netns and veth state for a deployment,
-// keeping only the explicitly supplied networks. A failed container can leave
-// a host veth after its named netns has disappeared, so inspect both sources of
-// kernel state.
-func (m *Manager) CleanupContainerNets(deploymentID int32, keep []*ContainerNet) {
+// CleanupContainerNets removes stale netns and veth state for a deployment. A
+// failed container can leave a host veth after its named netns has disappeared,
+// so inspect both sources of kernel state.
+//
+// Networks this process tracks are kept. inUse names containers that still
+// exist but are not tracked yet: after an agent restart a placement's network
+// is unknown here until its own runner recovers it, and a rollover has two
+// placements of one deployment recovering at once.
+func (m *Manager) CleanupContainerNets(deploymentID int32, inUse []string) {
 	m.containerMu.Lock()
 	defer m.containerMu.Unlock()
-	m.cleanupContainerNets(deploymentID, keep)
-}
-
-func (m *Manager) cleanupContainerNets(deploymentID int32, keep []*ContainerNet) {
-	retained := m.retainedContainerNetsForDeployment(deploymentID, keep)
+	retained := m.retainedContainerNetsForDeployment(deploymentID)
+	for _, containerID := range inUse {
+		if retained.keepsContainer(containerID) {
+			continue
+		}
+		hostVeth := ""
+		if link, _, err := findContainerVeth(containerID, deploymentID); err == nil {
+			hostVeth = link.Attrs().Name
+		}
+		retained.keep(containerID, hostVeth)
+	}
 	prefix := fmt.Sprintf("opendeploy-%d-", deploymentID)
 	entries, err := os.ReadDir(netnsRunDir)
 	if err == nil {

@@ -230,6 +230,10 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		msgType = "metrics_query_request"
 	case msg.MetricsLatestRequest.Present:
 		msgType = "metrics_latest_request"
+	case msg.NodeMetricsQueryRequest.Present:
+		msgType = "node_metrics_query_request"
+	case msg.NodeMetricsLatestRequest.Present:
+		msgType = "node_metrics_latest_request"
 	case msg.StopLogRequestID.Present:
 		msgType = "stop_log_request"
 	case msg.NixStoreResets.Present:
@@ -271,6 +275,15 @@ func dispatchFromPrimary(ctx context.Context, out *outbox, store *state.Service,
 		}()
 	case msg.MetricsLatestRequest.Present:
 		runMetricsLatest(ctx, out, &msg.MetricsLatestRequest.Value)
+	case msg.NodeMetricsQueryRequest.Present:
+		req := msg.NodeMetricsQueryRequest.Value
+		queryCtx := tracker.start(ctx, req.RequestID)
+		go func() {
+			defer tracker.remove(req.RequestID)
+			runNodeMetricsQuery(queryCtx, out, &req)
+		}()
+	case msg.NodeMetricsLatestRequest.Present:
+		runNodeMetricsLatest(out, &msg.NodeMetricsLatestRequest.Value)
 	}
 }
 

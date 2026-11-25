@@ -105,6 +105,16 @@ func ReAttachRunning(store storage.OperatorStore, inputs *runtimeinputs.RuntimeI
 	return reAttachContainerRunner(store, inputs, instanceID, nodeID, dep, prev.Value, containerStartupReattachRunning)
 }
 
+// ReAttachRolloverCandidate resumes a rollover candidate that was still waiting
+// for its readiness signal when the agent stopped. It adopts the container if
+// one survived and starts one if not, and in both cases stays gated on the
+// signal exactly as a candidate from CreateRolloverCandidate is.
+func ReAttachRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID uint64, dep *apigen.DeploymentRecord, prev apigen.RunnerStatus) RolloverCandidate {
+	slog.InfoContext(deploymentLogContext(instanceID, dep), fmt.Sprintf(
+		"runner.ReAttachRolloverCandidate: reattaching prev=[%s]", fmtRunnerStatus(apigen.Some(prev))))
+	return reAttachRolloverCandidate(store, inputs, instanceID, nodeID, dep, prev)
+}
+
 // ReAttachStopped reconciles runtime leftovers for a deployment whose desired
 // state is stopped. Container runners may adopt an existing task only to stop
 // and delete it; they never start a fresh task from this path.

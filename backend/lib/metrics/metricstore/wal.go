@@ -21,16 +21,22 @@ func appendFrame(buf, payload []byte) []byte {
 	return binary.BigEndian.AppendUint32(buf, logv2.PayloadCRC(payload))
 }
 
-type walWriter struct {
-	dir  string
-	day  time.Time
-	file *os.File
+type walWriter[S any] struct {
+	dir    string
+	encode func(*S) []byte
+	timeOf func(*S) int64
+	day    time.Time
+	file   *os.File
 }
 
-func (w *walWriter) append(samples []*apigen.MetricsSample) error {
+func newWALWriter[S any, R any](t *table[S, R], dir string) *walWriter[S] {
+	return &walWriter[S]{dir: dir, encode: t.encode, timeOf: t.timeOf}
+}
+
+func (w *walWriter[S]) append(samples []*S) error {
 	var buf []byte
 	for _, s := range samples {
-		day := utcDay(time.UnixMilli(s.Time))
+		day := utcDay(time.UnixMilli(w.timeOf(s)))
 		if w.file == nil || !day.Equal(w.day) {
 			if err := w.flush(buf); err != nil {
 				return err
@@ -40,12 +46,12 @@ func (w *walWriter) append(samples []*apigen.MetricsSample) error {
 				return err
 			}
 		}
-		buf = appendFrame(buf, s.Encode())
+		buf = appendFrame(buf, w.encode(s))
 	}
 	return w.flush(buf)
 }
 
-func (w *walWriter) flush(buf []byte) error {
+func (w *walWriter[S]) flush(buf []byte) error {
 	if len(buf) == 0 {
 		return nil
 	}
@@ -53,7 +59,7 @@ func (w *walWriter) flush(buf []byte) error {
 	return err
 }
 
-func (w *walWriter) open(day time.Time) error {
+func (w *walWriter[S]) open(day time.Time) error {
 	if err := w.close(); err != nil {
 		return err
 	}
@@ -69,7 +75,7 @@ func (w *walWriter) open(day time.Time) error {
 	return nil
 }
 
-func (w *walWriter) close() error {
+func (w *walWriter[S]) close() error {
 	if w.file == nil {
 		return nil
 	}
@@ -78,7 +84,7 @@ func (w *walWriter) close() error {
 	return err
 }
 
-func readWAL(path string, accept func(payload []byte) bool, yield func(*apigen.MetricsSample) bool) (records int, clean bool, err error) {
+func readWAL[S any](path string, decode func([]byte) (*S, error), accept func(payload []byte) bool, yield func(*S) bool) (records int, clean bool, err error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return 0, false, err
@@ -99,7 +105,7 @@ func readWAL(path string, accept func(payload []byte) bool, yield func(*apigen.M
 		if accept != nil && !accept(payload) {
 			continue
 		}
-		s, err := apigen.DecodeMetricsSample(payload)
+		s, err := decode(payload)
 		if err != nil {
 			continue
 		}

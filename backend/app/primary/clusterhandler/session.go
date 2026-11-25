@@ -61,6 +61,8 @@ type logChunk struct {
 	queryResp   *apigen.LogQueryResponse
 	metricsResp *apigen.MetricsQueryResponse
 	latestResp  *apigen.MetricsLatestResponse
+	nodeResp    *apigen.NodeMetricsQueryResponse
+	nodeLatest  *apigen.NodeMetricsLatestResponse
 	errMsg      string
 	end         bool
 }
@@ -214,6 +216,10 @@ func (s *Session) handleIncoming(msg *apigen.MsgToPrimary) {
 		s.routeLogChunk(requestID, logChunk{metricsResp: &msg.MetricsQueryResponse.Value})
 	case msg.MetricsLatestResponse.Present:
 		s.routeLogChunk(requestID, logChunk{latestResp: &msg.MetricsLatestResponse.Value})
+	case msg.NodeMetricsQueryResponse.Present:
+		s.routeLogChunk(requestID, logChunk{nodeResp: &msg.NodeMetricsQueryResponse.Value})
+	case msg.NodeMetricsLatestResponse.Present:
+		s.routeLogChunk(requestID, logChunk{nodeLatest: &msg.NodeMetricsLatestResponse.Value})
 	case msg.LogEnd.Present && msg.LogEnd.Value:
 		s.routeLogChunk(requestID, logChunk{end: true})
 	}
@@ -414,6 +420,39 @@ func (s *Session) requestMetricsLatest(ctx context.Context) (*apigen.MetricsLate
 		return nil, fmt.Errorf("secondary %s sent an unexpected metrics reply", s.identifier)
 	}
 	return chunk.latestResp, nil
+}
+
+func (s *Session) requestNodeMetricsQuery(ctx context.Context, req *apigen.NodeMetricsQueryRequest) (*apigen.NodeMetricsQueryResponse, error) {
+	chunk, err := s.requestOneShot(ctx, func(id string) *apigen.MsgToSecondary {
+		req.RequestID = id
+		return &apigen.MsgToSecondary{NodeMetricsQueryRequest: apigen.Some(*req)}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if chunk.errMsg != "" {
+		return nil, fmt.Errorf("%s", chunk.errMsg)
+	}
+	if chunk.nodeResp == nil {
+		return nil, fmt.Errorf("secondary %s sent an unexpected node metrics query reply", s.identifier)
+	}
+	return chunk.nodeResp, nil
+}
+
+func (s *Session) requestNodeMetricsLatest(ctx context.Context) (*apigen.NodeMetricsLatestResponse, error) {
+	chunk, err := s.requestOneShot(ctx, func(id string) *apigen.MsgToSecondary {
+		return &apigen.MsgToSecondary{NodeMetricsLatestRequest: apigen.Some(apigen.NodeMetricsLatestRequest{RequestID: id})}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if chunk.errMsg != "" {
+		return nil, fmt.Errorf("%s", chunk.errMsg)
+	}
+	if chunk.nodeLatest == nil {
+		return nil, fmt.Errorf("secondary %s sent an unexpected node metrics reply", s.identifier)
+	}
+	return chunk.nodeLatest, nil
 }
 
 type logReader struct {

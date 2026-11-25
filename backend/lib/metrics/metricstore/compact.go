@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/compress/zstd"
 )
@@ -25,6 +24,10 @@ const (
 )
 
 func Compact(ctx context.Context, dir string, nodeID int32, now time.Time) error {
+	return compact(ctx, runTable, dir, nodeID, now)
+}
+
+func compact[S any, R any](ctx context.Context, t *table[S, R], dir string, nodeID int32, now time.Time) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -48,8 +51,8 @@ func Compact(ctx context.Context, dir string, nodeID int32, now time.Time) error
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if err := compactDay(ctx, dir, nodeID, day); err != nil {
-			slog.WarnContext(ctx, fmt.Sprintf("compacting metrics wal for %s failed", day.Format(dayLayout)), "err", err)
+		if err := compactDay(ctx, t, dir, nodeID, day); err != nil {
+			slog.WarnContext(ctx, fmt.Sprintf("compacting %s wal for %s failed", t.name, day.Format(dayLayout)), "err", err)
 			if firstErr == nil {
 				firstErr = err
 			}
@@ -58,7 +61,7 @@ func Compact(ctx context.Context, dir string, nodeID int32, now time.Time) error
 	return firstErr
 }
 
-func compactDay(ctx context.Context, dir string, nodeID int32, day time.Time) error {
+func compactDay[S any, R any](ctx context.Context, t *table[S, R], dir string, nodeID int32, day time.Time) error {
 	wal := walPath(dir, day)
 	dd := dayDir(dir, day)
 	if err := os.MkdirAll(dd, 0o750); err != nil {
@@ -89,15 +92,15 @@ func compactDay(ctx context.Context, dir string, nodeID int32, day time.Time) er
 		_ = os.Remove(tmp)
 		return err
 	}
-	w := parquet.NewSortingWriter[row](f, sortBufferRows,
+	w := parquet.NewSortingWriter[R](f, sortBufferRows,
 		parquet.Compression(&zstd.Codec{}),
 		parquet.MaxRowsPerRowGroup(rowGroupRows),
 		parquet.SortingWriterConfig(
-			parquet.SortingColumns(sortingColumns()...),
+			parquet.SortingColumns(t.sorting...),
 			parquet.SortingBuffers(parquet.NewFileBufferPool(dd, "sortbuf-*"+tmpExt)),
 		),
 	)
-	batch := make([]row, 0, batchRows)
+	batch := make([]R, 0, batchRows)
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
@@ -107,8 +110,8 @@ func compactDay(ctx context.Context, dir string, nodeID int32, day time.Time) er
 		return err
 	}
 	var writeErr error
-	records, clean, err := readWAL(wal, nil, func(s *apigen.MetricsSample) bool {
-		batch = append(batch, rowFromSample(s))
+	records, clean, err := readWAL(wal, t.decode, nil, func(s *S) bool {
+		batch = append(batch, t.toRow(s))
 		if len(batch) >= batchRows {
 			if writeErr = flush(); writeErr != nil {
 				return false
@@ -123,7 +126,7 @@ func compactDay(ctx context.Context, dir string, nodeID int32, day time.Time) er
 		return fail(writeErr)
 	}
 	if !clean {
-		slog.WarnContext(ctx, fmt.Sprintf("metrics wal %s has a damaged tail; kept %d records", filepath.Base(wal), records))
+		slog.WarnContext(ctx, fmt.Sprintf("%s wal %s has a damaged tail; kept %d records", t.name, filepath.Base(wal), records))
 	}
 	if records == 0 {
 		_ = f.Close()

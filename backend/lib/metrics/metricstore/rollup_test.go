@@ -45,7 +45,7 @@ func TestChooseStepAndAlign(t *testing.T) {
 func TestRollupRatesAndMeans(t *testing.T) {
 	dir := t.TempDir()
 	start := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-	w := &walWriter{dir: dir}
+	w := newWALWriter(runTable, dir)
 	var samples []*apigen.MetricsSample
 	for i := range 21 {
 		mem := int64(100)
@@ -157,7 +157,7 @@ func TestPeekSample(t *testing.T) {
 func TestRollupBeforeStartUsesLookback(t *testing.T) {
 	dir := t.TempDir()
 	start := time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
-	w := &walWriter{dir: dir}
+	w := newWALWriter(runTable, dir)
 	if err := w.append([]*apigen.MetricsSample{
 		rollupSample(start.Add(-30*time.Second), 1, 0, 1),
 		rollupSample(start.Add(30*time.Second), 1, 60_000_000, 1),
@@ -183,7 +183,7 @@ func TestQueryResponseAndLatestEntry(t *testing.T) {
 	dir := t.TempDir()
 	s := &Store{dir: dir, nodeID: 3}
 	base := time.Now().Add(-10 * time.Minute)
-	w := &walWriter{dir: dir}
+	w := newWALWriter(runTable, dir)
 	_ = w.append([]*apigen.MetricsSample{rollupSample(base, 1, 0, 5), rollupSample(base.Add(30*time.Second), 1, 30_000_000, 5)})
 	_ = w.close()
 	resp, err := s.QueryResponse(context.Background(), &apigen.MetricsQueryRequest{

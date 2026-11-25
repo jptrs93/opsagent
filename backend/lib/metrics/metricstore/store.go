@@ -20,16 +20,114 @@ const (
 
 var Default *Store
 
-type Store struct {
+type sink[S any, R any] struct {
+	t      *table[S, R]
 	dir    string
 	nodeID int32
-	ch     chan []*apigen.MetricsSample
+	ch     chan []*S
 	done   chan struct{}
 
 	mu      sync.Mutex
-	latest  map[metrics.TargetKey]*apigen.MetricsSample
-	prev    map[metrics.TargetKey]*apigen.MetricsSample
 	dropped int
+}
+
+func startSink[S any, R any](ctx context.Context, t *table[S, R], dir string, nodeID int32) *sink[S, R] {
+	k := &sink[S, R]{
+		t:      t,
+		dir:    dir,
+		nodeID: nodeID,
+		ch:     make(chan []*S, queueDepth),
+		done:   make(chan struct{}),
+	}
+	go k.writeLoop(ctx)
+	go k.maintainLoop(ctx)
+	return k
+}
+
+func (k *sink[S, R]) enqueue(ctx context.Context, batch []*S) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	select {
+	case k.ch <- batch:
+		if k.dropped > 0 {
+			slog.WarnContext(ctx, fmt.Sprintf("%s wal queue drained; %d batches were dropped", k.t.name, k.dropped))
+			k.dropped = 0
+		}
+	default:
+		k.dropped++
+		if k.dropped == 1 {
+			slog.WarnContext(ctx, fmt.Sprintf("%s wal queue full; dropping batches", k.t.name))
+		}
+	}
+}
+
+func (k *sink[S, R]) writeLoop(ctx context.Context) {
+	defer close(k.done)
+	w := newWALWriter(k.t, k.dir)
+	failing := false
+	write := func(batch []*S) {
+		err := w.append(batch)
+		switch {
+		case err != nil && !failing:
+			failing = true
+			slog.WarnContext(ctx, fmt.Sprintf("appending %s wal failed", k.t.name), "err", err)
+		case err == nil && failing:
+			failing = false
+			slog.InfoContext(ctx, fmt.Sprintf("appending %s wal resumed", k.t.name))
+		}
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			for {
+				select {
+				case batch := <-k.ch:
+					write(batch)
+				default:
+					if err := w.close(); err != nil {
+						slog.WarnContext(ctx, fmt.Sprintf("closing %s wal failed", k.t.name), "err", err)
+					}
+					return
+				}
+			}
+		case batch := <-k.ch:
+			write(batch)
+		}
+	}
+}
+
+func (k *sink[S, R]) maintainLoop(ctx context.Context) {
+	ticker := time.NewTicker(maintenanceInterval)
+	defer ticker.Stop()
+	for {
+		k.maintain(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (k *sink[S, R]) maintain(ctx context.Context) {
+	now := time.Now()
+	if err := compact(ctx, k.t, k.dir, k.nodeID, now); err != nil {
+		slog.WarnContext(ctx, fmt.Sprintf("compacting %s wal failed", k.t.name), "err", err)
+	}
+	if err := Retain(k.dir, now, DefaultRetention); err != nil {
+		slog.WarnContext(ctx, fmt.Sprintf("applying %s retention failed", k.t.name), "err", err)
+	}
+}
+
+type Store struct {
+	dir    string
+	nodeID int32
+	sink   *sink[apigen.MetricsSample, row]
+	done   chan struct{}
+
+	mu     sync.Mutex
+	latest map[metrics.TargetKey]*apigen.MetricsSample
+	prev   map[metrics.TargetKey]*apigen.MetricsSample
 }
 
 type LatestPair struct {
@@ -39,17 +137,15 @@ type LatestPair struct {
 
 func Start(ctx context.Context, dir string, nodeID int32) *Store {
 	ctx = logu.AddTag(ctx, "Metrics")
-	s := &Store{
+	k := startSink(ctx, runTable, dir, nodeID)
+	return &Store{
 		dir:    dir,
 		nodeID: nodeID,
-		ch:     make(chan []*apigen.MetricsSample, queueDepth),
-		done:   make(chan struct{}),
+		sink:   k,
+		done:   k.done,
 		latest: make(map[metrics.TargetKey]*apigen.MetricsSample),
 		prev:   make(map[metrics.TargetKey]*apigen.MetricsSample),
 	}
-	go s.writeLoop(ctx)
-	go s.maintainLoop(ctx)
-	return s
 }
 
 func (s *Store) Consume(ctx context.Context, samples []metrics.Sample) {
@@ -58,7 +154,6 @@ func (s *Store) Consume(ctx context.Context, samples []metrics.Sample) {
 		batch[i] = toSample(&samples[i], s.nodeID)
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, b := range batch {
 		k := Key(b)
 		if b.Terminal {
@@ -71,18 +166,8 @@ func (s *Store) Consume(ctx context.Context, samples []metrics.Sample) {
 		}
 		s.latest[k] = b
 	}
-	select {
-	case s.ch <- batch:
-		if s.dropped > 0 {
-			slog.WarnContext(ctx, fmt.Sprintf("metrics wal queue drained; %d batches were dropped", s.dropped))
-			s.dropped = 0
-		}
-	default:
-		s.dropped++
-		if s.dropped == 1 {
-			slog.WarnContext(ctx, "metrics wal queue full; dropping batches")
-		}
-	}
+	s.mu.Unlock()
+	s.sink.enqueue(ctx, batch)
 }
 
 func (s *Store) Latest() []*apigen.MetricsSample {
@@ -111,62 +196,4 @@ func (s *Store) Scan(ctx context.Context, q Query, yield func(*apigen.MetricsSam
 
 func (s *Store) Collect(ctx context.Context, q Query) ([]*apigen.MetricsSample, error) {
 	return Collect(ctx, s.dir, s.nodeID, q)
-}
-
-func (s *Store) writeLoop(ctx context.Context) {
-	defer close(s.done)
-	w := &walWriter{dir: s.dir}
-	failing := false
-	write := func(batch []*apigen.MetricsSample) {
-		err := w.append(batch)
-		switch {
-		case err != nil && !failing:
-			failing = true
-			slog.WarnContext(ctx, "appending metrics wal failed", "err", err)
-		case err == nil && failing:
-			failing = false
-			slog.InfoContext(ctx, "appending metrics wal resumed")
-		}
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			for {
-				select {
-				case batch := <-s.ch:
-					write(batch)
-				default:
-					if err := w.close(); err != nil {
-						slog.WarnContext(ctx, "closing metrics wal failed", "err", err)
-					}
-					return
-				}
-			}
-		case batch := <-s.ch:
-			write(batch)
-		}
-	}
-}
-
-func (s *Store) maintainLoop(ctx context.Context) {
-	ticker := time.NewTicker(maintenanceInterval)
-	defer ticker.Stop()
-	for {
-		s.maintain(ctx)
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
-}
-
-func (s *Store) maintain(ctx context.Context) {
-	now := time.Now()
-	if err := Compact(ctx, s.dir, s.nodeID, now); err != nil {
-		slog.WarnContext(ctx, "compacting metrics wal failed", "err", err)
-	}
-	if err := Retain(s.dir, now, DefaultRetention); err != nil {
-		slog.WarnContext(ctx, "applying metrics retention failed", "err", err)
-	}
 }

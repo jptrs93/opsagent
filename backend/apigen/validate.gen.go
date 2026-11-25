@@ -2993,6 +2993,472 @@ func (m *MetricsSample) validate(seen map[any]bool) error {
 	return nil
 }
 
+func (m *FilesystemUsage) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *FilesystemUsage) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *NodeMetricsSample) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsSample) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.CpuUsageUsec.Value, m.CpuUsageUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.CpuUserUsec.Value, m.CpuUserUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.CpuSystemUsec.Value, m.CpuSystemUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.CpuIowaitUsec.Value, m.CpuIowaitUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.CpuStealUsec.Value, m.CpuStealUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.CpuCount.Value, m.CpuCount.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.Load1.Value, m.Load1.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.Load5.Value, m.Load5.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.Load15.Value, m.Load15.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.MemTotal.Value, m.MemTotal.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.MemAvailable.Value, m.MemAvailable.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.MemFree.Value, m.MemFree.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.MemCached.Value, m.MemCached.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.SwapTotal.Value, m.SwapTotal.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.SwapFree.Value, m.SwapFree.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiCpuSomeAvg10.Value, m.PsiCpuSomeAvg10.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiCpuSomeAvg60.Value, m.PsiCpuSomeAvg60.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiCpuSomeAvg300.Value, m.PsiCpuSomeAvg300.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiCpuSomeTotalUsec.Value, m.PsiCpuSomeTotalUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiCpuFullAvg10.Value, m.PsiCpuFullAvg10.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiCpuFullAvg60.Value, m.PsiCpuFullAvg60.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiCpuFullAvg300.Value, m.PsiCpuFullAvg300.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiCpuFullTotalUsec.Value, m.PsiCpuFullTotalUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiMemSomeAvg10.Value, m.PsiMemSomeAvg10.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiMemSomeAvg60.Value, m.PsiMemSomeAvg60.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiMemSomeAvg300.Value, m.PsiMemSomeAvg300.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiMemSomeTotalUsec.Value, m.PsiMemSomeTotalUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiMemFullAvg10.Value, m.PsiMemFullAvg10.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiMemFullAvg60.Value, m.PsiMemFullAvg60.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiMemFullAvg300.Value, m.PsiMemFullAvg300.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiMemFullTotalUsec.Value, m.PsiMemFullTotalUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiIoSomeAvg10.Value, m.PsiIoSomeAvg10.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiIoSomeAvg60.Value, m.PsiIoSomeAvg60.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiIoSomeAvg300.Value, m.PsiIoSomeAvg300.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiIoSomeTotalUsec.Value, m.PsiIoSomeTotalUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiIoFullAvg10.Value, m.PsiIoFullAvg10.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiIoFullAvg60.Value, m.PsiIoFullAvg60.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiIoFullAvg300.Value, m.PsiIoFullAvg300.Present
+		var value *float64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.PsiIoFullTotalUsec.Value, m.PsiIoFullTotalUsec.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.NetRxBytes.Value, m.NetRxBytes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.NetRxPackets.Value, m.NetRxPackets.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.NetRxDropped.Value, m.NetRxDropped.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.NetTxBytes.Value, m.NetTxBytes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.NetTxPackets.Value, m.NetTxPackets.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.NetTxDropped.Value, m.NetTxDropped.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.IoReadBytes.Value, m.IoReadBytes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.IoWriteBytes.Value, m.IoWriteBytes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.IoReadOps.Value, m.IoReadOps.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.IoWriteOps.Value, m.IoWriteOps.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.FsDataTotalBytes.Value, m.FsDataTotalBytes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.FsDataFreeBytes.Value, m.FsDataFreeBytes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.FsDataAvailBytes.Value, m.FsDataAvailBytes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.FsDataInodesTotal.Value, m.FsDataInodesTotal.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.FsDataInodesFree.Value, m.FsDataInodesFree.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	for k, v := range m.ExtraFilesystems {
+		_ = k
+		{
+			if err := v.validate(seen); err != nil {
+				return wrapValidationError(err, fmt.Sprintf("extra_filesystems[%v]", k))
+			}
+		}
+	}
+	return nil
+}
+
 func (m *MetricsQueryRequest) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *MetricsQueryRequest) validate(seen map[any]bool) error {
 	if m == nil {
@@ -3110,6 +3576,127 @@ func (m *MetricsLatestEntry) validate(seen map[any]bool) error {
 
 func (m *MetricsLatestResponse) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *MetricsLatestResponse) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Entries {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("entries[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *NodeMetricsQueryRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsQueryRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		v, present := m.TimeStart.Value, m.TimeStart.Present
+		var value *time.Time
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.TimeEnd.Value, m.TimeEnd.Present
+		var value *time.Time
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	return nil
+}
+
+func (m *NodeMetricsSeries) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsSeries) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *NodeMetricsQueryResponse) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsQueryResponse) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	for i, item := range m.Series {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("series[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *NodeMetricsLatestRequest) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsLatestRequest) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
+func (m *NodeMetricsLatestEntry) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsLatestEntry) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	{
+		value := &m.Sample
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "sample")
+			}
+		}
+		_ = value
+	}
+	for i, item := range m.Rates {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("rates[%d]", i))
+		}
+	}
+	return nil
+}
+
+func (m *NodeMetricsLatestResponse) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *NodeMetricsLatestResponse) validate(seen map[any]bool) error {
 	if m == nil {
 		return newValidationError(nil, "message is nil")
 	}
@@ -7837,6 +8424,32 @@ func (m *MsgToSecondary) validate(seen map[any]bool) error {
 		}
 		_ = value
 	}
+	{
+		v, present := m.NodeMetricsQueryRequest.Value, m.NodeMetricsQueryRequest.Present
+		var value *NodeMetricsQueryRequest
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_metrics_query_request")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.NodeMetricsLatestRequest.Value, m.NodeMetricsLatestRequest.Present
+		var value *NodeMetricsLatestRequest
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_metrics_latest_request")
+			}
+		}
+		_ = value
+	}
 	return nil
 }
 
@@ -8010,6 +8623,32 @@ func (m *MsgToPrimary) validate(seen map[any]bool) error {
 		if value != nil {
 			if err := value.validate(seen); err != nil {
 				return wrapValidationError(err, "metrics_latest_response")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.NodeMetricsQueryResponse.Value, m.NodeMetricsQueryResponse.Present
+		var value *NodeMetricsQueryResponse
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_metrics_query_response")
+			}
+		}
+		_ = value
+	}
+	{
+		v, present := m.NodeMetricsLatestResponse.Value, m.NodeMetricsLatestResponse.Present
+		var value *NodeMetricsLatestResponse
+		if present {
+			value = &v
+		}
+		if value != nil {
+			if err := value.validate(seen); err != nil {
+				return wrapValidationError(err, "node_metrics_latest_response")
 			}
 		}
 		_ = value

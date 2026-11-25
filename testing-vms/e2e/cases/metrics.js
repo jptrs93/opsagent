@@ -1,5 +1,12 @@
 import {createNixDockerDeployment, NETWORKING_VIRTUAL} from '../helpers/ui.js';
-import {expectMetricsCharts, expectMetricsControls, expectMetricsOverviewRow} from '../helpers/metrics.js';
+import {
+  expectMetricsCharts,
+  expectMetricsControls,
+  expectMetricsOverviewRow,
+  expectNodeDiskColumn,
+  expectNodeMetricsCharts,
+  expectNodeMetricsOverviewRow,
+} from '../helpers/metrics.js';
 
 const MIB = 1024 * 1024;
 const LOADGEN_FLAKE = 'testexamples/loadgen/flake.nix';
@@ -65,6 +72,19 @@ export const metricsVerifyCases = [
       await expectMetricsControls(ctx.page, {name: 'loadgen-worker'});
     },
   },
+  {
+    id: 'metrics-nodes-verified',
+    title: 'verify node metrics',
+    description: 'Checks the nodes overview lists the primary and the worker with CPU, memory and filesystem figures across the local and proxied paths, that a node tab charts them, and that the Nodes page fills in its Disk column.',
+    requires: ['metrics-charts-verified'],
+    async run(ctx) {
+      await expectNodeMetricsOverviewRow(ctx.page, {name: 'worker-1', minCpuCores: 0.25, minMemBytes: 100 * MIB});
+      await expectNodeMetricsOverviewRow(ctx.page, {name: 'primary', minCpuCores: 0.1, minMemBytes: 100 * MIB});
+      await expectNodeMetricsCharts(ctx.page, {name: 'worker-1', minCpuCores: 0.25});
+      await expectNodeMetricsCharts(ctx.page, {name: 'primary', minCpuCores: 0.1});
+      await expectNodeDiskColumn(ctx.page, {names: ['primary', 'worker-1']});
+    },
+  },
 ];
 
 export const metricsAfterUpgradeCases = [
@@ -76,6 +96,8 @@ export const metricsAfterUpgradeCases = [
     async run(ctx) {
       await expectMetricsOverviewRow(ctx.page, {name: 'loadgen-worker', minCpuCores: 0.25, minMemBytes: 60 * MIB});
       await expectMetricsOverviewRow(ctx.page, {name: 'loadgen-primary', minCpuCores: 0.1, minMemBytes: 30 * MIB});
+      await expectNodeMetricsOverviewRow(ctx.page, {name: 'worker-1', minCpuCores: 0.25, minMemBytes: 100 * MIB});
+      await expectNodeMetricsOverviewRow(ctx.page, {name: 'primary', minCpuCores: 0.1, minMemBytes: 100 * MIB});
     },
   },
 ];

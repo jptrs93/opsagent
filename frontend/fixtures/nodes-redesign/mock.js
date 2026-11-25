@@ -284,6 +284,16 @@ export function installMockApi(capi, {delayMs = 300} = {}) {
             await delay(delayMs);
             return {enrollmentTlsSpkiSha256: "sha256:4f2a9c1e7b3d5a8f0c6e2b9d1a7f3c5e8b0d2f4a6c8e0b1d3f5a7c9e1b3d5f7a"};
         },
+        async postV1MetricsNodesLatest() {
+            await delay(delayMs);
+            const gib = 1024 ** 3;
+            const entries = machinesS.val.filter((m) => !m.evicted && (m.connected || m.isPrimary)).map((m, i) => {
+                const total = [196, 492, 98][i % 3] * gib;
+                const used = [0.47, 0.84, 0.93][i % 3];
+                return {sample: {time: Date.now() - 4000, nodeId: m.id, fsDataTotalBytes: total, fsDataFreeBytes: Math.round(total * (1 - used)), fsDataAvailBytes: Math.round(total * (1 - used) * 0.95), extraFilesystems: {}}, rates: []};
+            });
+            return {entries, warnings: []};
+        },
         async postV1NodesRename({identifier, name}) {
             await delay(delayMs);
             if (!name?.trim()) throw fail(400, "invalid_name", "a node needs a name");

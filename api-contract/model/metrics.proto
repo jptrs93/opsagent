@@ -82,3 +82,81 @@ message MetricsSample {
 
   optional int64 open_fds = 100 [(cp.js_type) = "number"];
 }
+
+message FilesystemUsage {
+  int64 total_bytes = 1 [(cp.js_type) = "number"];
+  int64 free_bytes = 2 [(cp.js_type) = "number"];
+  int64 avail_bytes = 3 [(cp.js_type) = "number"];
+  int64 inodes_total = 4 [(cp.js_type) = "number"];
+  int64 inodes_free = 5 [(cp.js_type) = "number"];
+}
+
+// NodeMetricsSample is the node-local node metrics WAL payload and parquet
+// row: one per node per tick. Every tag and type is kept.
+message NodeMetricsSample {
+  int64 time = 1;
+  int32 node_id = 2;
+
+  optional int64 cpu_usage_usec = 10 [(cp.js_type) = "number"];
+  optional int64 cpu_user_usec = 11 [(cp.js_type) = "number"];
+  optional int64 cpu_system_usec = 12 [(cp.js_type) = "number"];
+  optional int64 cpu_iowait_usec = 13 [(cp.js_type) = "number"];
+  optional int64 cpu_steal_usec = 14 [(cp.js_type) = "number"];
+  optional int64 cpu_count = 15 [(cp.js_type) = "number"];
+
+  optional double load1 = 20;
+  optional double load5 = 21;
+  optional double load15 = 22;
+
+  optional int64 mem_total = 30 [(cp.js_type) = "number"];
+  optional int64 mem_available = 31 [(cp.js_type) = "number"];
+  optional int64 mem_free = 32 [(cp.js_type) = "number"];
+  optional int64 mem_cached = 33 [(cp.js_type) = "number"];
+  optional int64 swap_total = 34 [(cp.js_type) = "number"];
+  optional int64 swap_free = 35 [(cp.js_type) = "number"];
+
+  optional double psi_cpu_some_avg10 = 50;
+  optional double psi_cpu_some_avg60 = 51;
+  optional double psi_cpu_some_avg300 = 52;
+  optional int64 psi_cpu_some_total_usec = 53 [(cp.js_type) = "number"];
+  optional double psi_cpu_full_avg10 = 54;
+  optional double psi_cpu_full_avg60 = 55;
+  optional double psi_cpu_full_avg300 = 56;
+  optional int64 psi_cpu_full_total_usec = 57 [(cp.js_type) = "number"];
+  optional double psi_mem_some_avg10 = 60;
+  optional double psi_mem_some_avg60 = 61;
+  optional double psi_mem_some_avg300 = 62;
+  optional int64 psi_mem_some_total_usec = 63 [(cp.js_type) = "number"];
+  optional double psi_mem_full_avg10 = 64;
+  optional double psi_mem_full_avg60 = 65;
+  optional double psi_mem_full_avg300 = 66;
+  optional int64 psi_mem_full_total_usec = 67 [(cp.js_type) = "number"];
+  optional double psi_io_some_avg10 = 70;
+  optional double psi_io_some_avg60 = 71;
+  optional double psi_io_some_avg300 = 72;
+  optional int64 psi_io_some_total_usec = 73 [(cp.js_type) = "number"];
+  optional double psi_io_full_avg10 = 74;
+  optional double psi_io_full_avg60 = 75;
+  optional double psi_io_full_avg300 = 76;
+  optional int64 psi_io_full_total_usec = 77 [(cp.js_type) = "number"];
+
+  optional int64 net_rx_bytes = 80 [(cp.js_type) = "number"];
+  optional int64 net_rx_packets = 81 [(cp.js_type) = "number"];
+  optional int64 net_rx_dropped = 82 [(cp.js_type) = "number"];
+  optional int64 net_tx_bytes = 83 [(cp.js_type) = "number"];
+  optional int64 net_tx_packets = 84 [(cp.js_type) = "number"];
+  optional int64 net_tx_dropped = 85 [(cp.js_type) = "number"];
+
+  optional int64 io_read_bytes = 90 [(cp.js_type) = "number"];
+  optional int64 io_write_bytes = 91 [(cp.js_type) = "number"];
+  optional int64 io_read_ops = 92 [(cp.js_type) = "number"];
+  optional int64 io_write_ops = 93 [(cp.js_type) = "number"];
+
+  optional int64 fs_data_total_bytes = 100 [(cp.js_type) = "number"];
+  optional int64 fs_data_free_bytes = 101 [(cp.js_type) = "number"];
+  optional int64 fs_data_avail_bytes = 102 [(cp.js_type) = "number"];
+  optional int64 fs_data_inodes_total = 103 [(cp.js_type) = "number"];
+  optional int64 fs_data_inodes_free = 104 [(cp.js_type) = "number"];
+
+  map<string, FilesystemUsage> extra_filesystems = 120;  // Keyed by mount point; never holds the data filesystem.
+}

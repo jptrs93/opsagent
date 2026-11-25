@@ -1098,6 +1098,78 @@ type MetricsSample struct {
 	OpenFds             Maybe[int64]   `json:"open_fds,omitzero"`
 }
 
+type FilesystemUsage struct {
+	unknownFields []byte
+	TotalBytes    int64 `json:"total_bytes"`
+	FreeBytes     int64 `json:"free_bytes"`
+	AvailBytes    int64 `json:"avail_bytes"`
+	InodesTotal   int64 `json:"inodes_total"`
+	InodesFree    int64 `json:"inodes_free"`
+}
+
+// NodeMetricsSample is the node-local node metrics WAL payload and parquet
+// row: one per node per tick. Every tag and type is kept.
+type NodeMetricsSample struct {
+	unknownFields       []byte
+	Time                int64                      `json:"time"`
+	NodeID              int32                      `json:"node_id"`
+	CpuUsageUsec        Maybe[int64]               `json:"cpu_usage_usec,omitzero"`
+	CpuUserUsec         Maybe[int64]               `json:"cpu_user_usec,omitzero"`
+	CpuSystemUsec       Maybe[int64]               `json:"cpu_system_usec,omitzero"`
+	CpuIowaitUsec       Maybe[int64]               `json:"cpu_iowait_usec,omitzero"`
+	CpuStealUsec        Maybe[int64]               `json:"cpu_steal_usec,omitzero"`
+	CpuCount            Maybe[int64]               `json:"cpu_count,omitzero"`
+	Load1               Maybe[float64]             `json:"load1,omitzero"`
+	Load5               Maybe[float64]             `json:"load5,omitzero"`
+	Load15              Maybe[float64]             `json:"load15,omitzero"`
+	MemTotal            Maybe[int64]               `json:"mem_total,omitzero"`
+	MemAvailable        Maybe[int64]               `json:"mem_available,omitzero"`
+	MemFree             Maybe[int64]               `json:"mem_free,omitzero"`
+	MemCached           Maybe[int64]               `json:"mem_cached,omitzero"`
+	SwapTotal           Maybe[int64]               `json:"swap_total,omitzero"`
+	SwapFree            Maybe[int64]               `json:"swap_free,omitzero"`
+	PsiCpuSomeAvg10     Maybe[float64]             `json:"psi_cpu_some_avg10,omitzero"`
+	PsiCpuSomeAvg60     Maybe[float64]             `json:"psi_cpu_some_avg60,omitzero"`
+	PsiCpuSomeAvg300    Maybe[float64]             `json:"psi_cpu_some_avg300,omitzero"`
+	PsiCpuSomeTotalUsec Maybe[int64]               `json:"psi_cpu_some_total_usec,omitzero"`
+	PsiCpuFullAvg10     Maybe[float64]             `json:"psi_cpu_full_avg10,omitzero"`
+	PsiCpuFullAvg60     Maybe[float64]             `json:"psi_cpu_full_avg60,omitzero"`
+	PsiCpuFullAvg300    Maybe[float64]             `json:"psi_cpu_full_avg300,omitzero"`
+	PsiCpuFullTotalUsec Maybe[int64]               `json:"psi_cpu_full_total_usec,omitzero"`
+	PsiMemSomeAvg10     Maybe[float64]             `json:"psi_mem_some_avg10,omitzero"`
+	PsiMemSomeAvg60     Maybe[float64]             `json:"psi_mem_some_avg60,omitzero"`
+	PsiMemSomeAvg300    Maybe[float64]             `json:"psi_mem_some_avg300,omitzero"`
+	PsiMemSomeTotalUsec Maybe[int64]               `json:"psi_mem_some_total_usec,omitzero"`
+	PsiMemFullAvg10     Maybe[float64]             `json:"psi_mem_full_avg10,omitzero"`
+	PsiMemFullAvg60     Maybe[float64]             `json:"psi_mem_full_avg60,omitzero"`
+	PsiMemFullAvg300    Maybe[float64]             `json:"psi_mem_full_avg300,omitzero"`
+	PsiMemFullTotalUsec Maybe[int64]               `json:"psi_mem_full_total_usec,omitzero"`
+	PsiIoSomeAvg10      Maybe[float64]             `json:"psi_io_some_avg10,omitzero"`
+	PsiIoSomeAvg60      Maybe[float64]             `json:"psi_io_some_avg60,omitzero"`
+	PsiIoSomeAvg300     Maybe[float64]             `json:"psi_io_some_avg300,omitzero"`
+	PsiIoSomeTotalUsec  Maybe[int64]               `json:"psi_io_some_total_usec,omitzero"`
+	PsiIoFullAvg10      Maybe[float64]             `json:"psi_io_full_avg10,omitzero"`
+	PsiIoFullAvg60      Maybe[float64]             `json:"psi_io_full_avg60,omitzero"`
+	PsiIoFullAvg300     Maybe[float64]             `json:"psi_io_full_avg300,omitzero"`
+	PsiIoFullTotalUsec  Maybe[int64]               `json:"psi_io_full_total_usec,omitzero"`
+	NetRxBytes          Maybe[int64]               `json:"net_rx_bytes,omitzero"`
+	NetRxPackets        Maybe[int64]               `json:"net_rx_packets,omitzero"`
+	NetRxDropped        Maybe[int64]               `json:"net_rx_dropped,omitzero"`
+	NetTxBytes          Maybe[int64]               `json:"net_tx_bytes,omitzero"`
+	NetTxPackets        Maybe[int64]               `json:"net_tx_packets,omitzero"`
+	NetTxDropped        Maybe[int64]               `json:"net_tx_dropped,omitzero"`
+	IoReadBytes         Maybe[int64]               `json:"io_read_bytes,omitzero"`
+	IoWriteBytes        Maybe[int64]               `json:"io_write_bytes,omitzero"`
+	IoReadOps           Maybe[int64]               `json:"io_read_ops,omitzero"`
+	IoWriteOps          Maybe[int64]               `json:"io_write_ops,omitzero"`
+	FsDataTotalBytes    Maybe[int64]               `json:"fs_data_total_bytes,omitzero"`
+	FsDataFreeBytes     Maybe[int64]               `json:"fs_data_free_bytes,omitzero"`
+	FsDataAvailBytes    Maybe[int64]               `json:"fs_data_avail_bytes,omitzero"`
+	FsDataInodesTotal   Maybe[int64]               `json:"fs_data_inodes_total,omitzero"`
+	FsDataInodesFree    Maybe[int64]               `json:"fs_data_inodes_free,omitzero"`
+	ExtraFilesystems    map[string]FilesystemUsage `json:"extra_filesystems,omitempty"`
+}
+
 type MetricsQueryRequest struct {
 	unknownFields       []byte
 	DeploymentID        uint64           `json:"deployment_id"`
@@ -1156,6 +1228,52 @@ type MetricsLatestResponse struct {
 	unknownFields []byte
 	Entries       []MetricsLatestEntry `json:"entries,omitempty"`
 	Warnings      []string             `json:"warnings,omitempty"`
+}
+
+type NodeMetricsQueryRequest struct {
+	unknownFields []byte
+	NodeID        uint64           `json:"node_id"`
+	TimeStart     Maybe[time.Time] `json:"time_start,omitzero"`
+	TimeEnd       Maybe[time.Time] `json:"time_end,omitzero"`
+	StepMs        int64            `json:"step_ms"`
+	Fields        []string         `json:"fields,omitempty"`
+	RequestID     string           `json:"request_id,omitempty"`
+}
+
+type NodeMetricsSeries struct {
+	unknownFields []byte
+	NodeID        uint64    `json:"node_id"`
+	Field         string    `json:"field,omitempty"`
+	Kind          int32     `json:"kind"`
+	Values        []float64 `json:"values,omitempty"`
+}
+
+type NodeMetricsQueryResponse struct {
+	unknownFields []byte
+	TimeStart     time.Time           `json:"time_start"`
+	StepMs        int64               `json:"step_ms"`
+	Buckets       int32               `json:"buckets"`
+	Series        []NodeMetricsSeries `json:"series,omitempty"`
+	ScannedRows   int64               `json:"scanned_rows"`
+	TookMs        int32               `json:"took_ms"`
+	Warnings      []string            `json:"warnings,omitempty"`
+}
+
+type NodeMetricsLatestRequest struct {
+	unknownFields []byte
+	RequestID     string `json:"request_id,omitempty"`
+}
+
+type NodeMetricsLatestEntry struct {
+	unknownFields []byte
+	Sample        NodeMetricsSample `json:"sample"`
+	Rates         []MetricsRate     `json:"rates,omitempty"`
+}
+
+type NodeMetricsLatestResponse struct {
+	unknownFields []byte
+	Entries       []NodeMetricsLatestEntry `json:"entries,omitempty"`
+	Warnings      []string                 `json:"warnings,omitempty"`
 }
 
 // Secret is one stored version. sealed reaches only the replica class of the
@@ -2511,17 +2629,19 @@ type GithubCredentials struct {
 // afterwards one NodeProjection as node_update per write event that touched
 // the node.
 type MsgToSecondary struct {
-	unknownFields          []byte
-	DeploymentLogRequest   Maybe[DeploymentLogRequest] `json:"deployment_log_request,omitzero"`
-	StopLogRequestID       Maybe[string]               `json:"stop_log_request_id,omitzero"`
-	LogQueryRequest        Maybe[LogQueryRequest]      `json:"log_query_request,omitzero"`
-	ClusterProtocolVersion uint32                      `json:"cluster_protocol_version"`
-	MetricsQueryRequest    Maybe[MetricsQueryRequest]  `json:"metrics_query_request,omitzero"`
-	MetricsLatestRequest   Maybe[MetricsLatestRequest] `json:"metrics_latest_request,omitzero"`
-	NixStoreResets         Maybe[NixStoreResets]       `json:"nix_store_resets,omitzero"`
-	Evicted                Maybe[bool]                 `json:"evicted,omitzero"`
-	NodeSnapshot           Maybe[NodeProjection]       `json:"node_snapshot,omitzero"`
-	NodeUpdate             Maybe[NodeProjection]       `json:"node_update,omitzero"`
+	unknownFields            []byte
+	DeploymentLogRequest     Maybe[DeploymentLogRequest]     `json:"deployment_log_request,omitzero"`
+	StopLogRequestID         Maybe[string]                   `json:"stop_log_request_id,omitzero"`
+	LogQueryRequest          Maybe[LogQueryRequest]          `json:"log_query_request,omitzero"`
+	ClusterProtocolVersion   uint32                          `json:"cluster_protocol_version"`
+	MetricsQueryRequest      Maybe[MetricsQueryRequest]      `json:"metrics_query_request,omitzero"`
+	MetricsLatestRequest     Maybe[MetricsLatestRequest]     `json:"metrics_latest_request,omitzero"`
+	NixStoreResets           Maybe[NixStoreResets]           `json:"nix_store_resets,omitzero"`
+	Evicted                  Maybe[bool]                     `json:"evicted,omitzero"`
+	NodeSnapshot             Maybe[NodeProjection]           `json:"node_snapshot,omitzero"`
+	NodeUpdate               Maybe[NodeProjection]           `json:"node_update,omitzero"`
+	NodeMetricsQueryRequest  Maybe[NodeMetricsQueryRequest]  `json:"node_metrics_query_request,omitzero"`
+	NodeMetricsLatestRequest Maybe[NodeMetricsLatestRequest] `json:"node_metrics_latest_request,omitzero"`
 }
 
 type NixStoreResetItem struct {
@@ -2547,17 +2667,19 @@ type ClusterHello struct {
 
 // MsgToPrimary frames carry one field each. cluster_hello keeps tag 6.
 type MsgToPrimary struct {
-	unknownFields         []byte
-	StatusWrite           Maybe[ScheduledInstanceStatus] `json:"status_write,omitzero"`
-	LogData               Maybe[[]byte]                  `json:"log_data,omitzero"`
-	LogEnd                Maybe[bool]                    `json:"log_end,omitzero"`
-	LogRequestID          Maybe[string]                  `json:"log_request_id,omitzero"`
-	NetMapStatus          Maybe[NetMapStatus]            `json:"net_map_status,omitzero"`
-	ClusterHello          Maybe[ClusterHello]            `json:"cluster_hello,omitzero"`
-	LogQueryResponse      Maybe[LogQueryResponse]        `json:"log_query_response,omitzero"`
-	LogQueryError         Maybe[string]                  `json:"log_query_error,omitzero"`
-	MetricsQueryResponse  Maybe[MetricsQueryResponse]    `json:"metrics_query_response,omitzero"`
-	MetricsLatestResponse Maybe[MetricsLatestResponse]   `json:"metrics_latest_response,omitzero"`
+	unknownFields             []byte
+	StatusWrite               Maybe[ScheduledInstanceStatus]   `json:"status_write,omitzero"`
+	LogData                   Maybe[[]byte]                    `json:"log_data,omitzero"`
+	LogEnd                    Maybe[bool]                      `json:"log_end,omitzero"`
+	LogRequestID              Maybe[string]                    `json:"log_request_id,omitzero"`
+	NetMapStatus              Maybe[NetMapStatus]              `json:"net_map_status,omitzero"`
+	ClusterHello              Maybe[ClusterHello]              `json:"cluster_hello,omitzero"`
+	LogQueryResponse          Maybe[LogQueryResponse]          `json:"log_query_response,omitzero"`
+	LogQueryError             Maybe[string]                    `json:"log_query_error,omitzero"`
+	MetricsQueryResponse      Maybe[MetricsQueryResponse]      `json:"metrics_query_response,omitzero"`
+	MetricsLatestResponse     Maybe[MetricsLatestResponse]     `json:"metrics_latest_response,omitzero"`
+	NodeMetricsQueryResponse  Maybe[NodeMetricsQueryResponse]  `json:"node_metrics_query_response,omitzero"`
+	NodeMetricsLatestResponse Maybe[NodeMetricsLatestResponse] `json:"node_metrics_latest_response,omitzero"`
 }
 
 // ScheduledInstanceState is the authoritative runtime assignment view: the

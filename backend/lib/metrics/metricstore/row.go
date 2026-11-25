@@ -2,7 +2,6 @@ package metricstore
 
 import (
 	"cmp"
-	"reflect"
 
 	"github.com/jptrs93/opsagent/backend/apigen"
 	"github.com/jptrs93/opsagent/backend/lib/metrics"
@@ -85,78 +84,16 @@ func sortingColumns() []parquet.SortingColumn {
 	}
 }
 
-type rowFieldPair struct {
-	row, sample int
-	optional    bool
-}
+var runRows = newRowMapper[apigen.MetricsSample, row]()
 
-var rowFieldPairs []rowFieldPair
-
-func init() {
-	rt := reflect.TypeFor[row]()
-	st := reflect.TypeFor[apigen.MetricsSample]()
-	for i := range rt.NumField() {
-		f := rt.Field(i)
-		sf, ok := st.FieldByName(f.Name)
-		if !ok {
-			continue
-		}
-		switch {
-		case sf.Type == f.Type:
-			rowFieldPairs = append(rowFieldPairs, rowFieldPair{row: i, sample: sf.Index[0]})
-		case f.Type.Kind() == reflect.Pointer && isMaybeOf(sf.Type, f.Type.Elem()):
-			rowFieldPairs = append(rowFieldPairs, rowFieldPair{row: i, sample: sf.Index[0], optional: true})
-		}
-	}
-}
-
-func isMaybeOf(t, elem reflect.Type) bool {
-	if t.Kind() != reflect.Struct || t.NumField() != 2 {
-		return false
-	}
-	v, ok := t.FieldByName("Value")
-	if !ok || v.Type != elem {
-		return false
-	}
-	p, ok := t.FieldByName("Present")
-	return ok && p.Type.Kind() == reflect.Bool
-}
-
-func rowFromSample(s *apigen.MetricsSample) row {
-	var r row
-	rv := reflect.ValueOf(&r).Elem()
-	sv := reflect.ValueOf(s).Elem()
-	for _, p := range rowFieldPairs {
-		dst, src := rv.Field(p.row), sv.Field(p.sample)
-		if !p.optional {
-			dst.Set(src)
-			continue
-		}
-		if src.FieldByName("Present").Bool() {
-			ptr := reflect.New(dst.Type().Elem())
-			ptr.Elem().Set(src.FieldByName("Value"))
-			dst.Set(ptr)
-		}
-	}
-	return r
-}
-
-func sampleFromRow(r *row) *apigen.MetricsSample {
-	s := &apigen.MetricsSample{}
-	rv := reflect.ValueOf(r).Elem()
-	sv := reflect.ValueOf(s).Elem()
-	for _, p := range rowFieldPairs {
-		dst, src := sv.Field(p.sample), rv.Field(p.row)
-		if !p.optional {
-			dst.Set(src)
-			continue
-		}
-		if !src.IsNil() {
-			dst.FieldByName("Value").Set(src.Elem())
-			dst.FieldByName("Present").SetBool(true)
-		}
-	}
-	return s
+var runTable = &table[apigen.MetricsSample, row]{
+	name:    "metrics",
+	decode:  apigen.DecodeMetricsSample,
+	encode:  func(s *apigen.MetricsSample) []byte { return s.Encode() },
+	timeOf:  func(s *apigen.MetricsSample) int64 { return s.Time },
+	toRow:   runRows.toRow,
+	fromRow: runRows.fromRow,
+	sorting: sortingColumns(),
 }
 
 func Key(s *apigen.MetricsSample) metrics.TargetKey {

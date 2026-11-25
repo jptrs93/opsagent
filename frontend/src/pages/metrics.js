@@ -7,17 +7,22 @@ import {deploymentDeleted} from "../lib/deployment.js";
 import {spacesFilter, spaceDot} from "../components/spacesFilter.js";
 import {resolveRange, timeRangePicker} from "../components/timeRangePicker.js";
 import {formatValue, lineChart} from "../components/lineChart.js";
-import {CHARTS, QUERY_FIELDS, buildChartData, runLabel} from "../lib/metricsData.js";
+import {CHARTS, NODE_CHARTS, NODE_QUERY_FIELDS, QUERY_FIELDS, buildChartData, buildNodeChartData, runLabel} from "../lib/metricsData.js";
+import {latestByNode, nodeOverviewRow, usageTone} from "../lib/nodeMetrics.js";
 import {sortArrowIcon} from "../lib/icons.js";
 import {tabButton, tabPanel, tabStrip} from "../components/tabs.js";
 
 const {button, div, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const OVERVIEW = 'overview';
+const NODES = 'nodes';
 const DEFAULT_PRESET = '1h';
 const STALE_MS = 10_000;
 const HIDDEN_SPACES_KEY = 'opsagent_metrics_hidden_spaces';
 const OVERVIEW_SORT_KEY = 'opsagent_metrics_overview_sort';
+const NODES_SORT_KEY = 'opsagent_metrics_nodes_sort';
+
+const nodeTabId = (nodeId) => `node-${nodeId}`;
 
 const OVERVIEW_COLUMNS = [
     {key: 'name', label: 'Deployment', value: r => r.name},
@@ -34,24 +39,40 @@ const OVERVIEW_COLUMNS = [
     {key: 'age', label: 'Age', num: true, value: r => r.age},
 ];
 
-function loadOverviewSort() {
+const NODE_COLUMNS = [
+    {key: 'name', label: 'Node', value: r => r.name},
+    {key: 'cpu', label: 'CPU', num: true, value: r => r.cpu},
+    {key: 'cpuPct', label: 'CPU %', num: true, value: r => r.cpuPct},
+    {key: 'load', label: 'Load', num: true, value: r => r.load},
+    {key: 'memUsed', label: 'Memory', num: true, value: r => r.memUsed},
+    {key: 'memPct', label: 'Mem %', num: true, value: r => r.memPct},
+    {key: 'diskUsed', label: 'Disk', num: true, value: r => r.diskUsed},
+    {key: 'diskPct', label: 'Disk %', num: true, value: r => r.diskPct},
+    {key: 'rx', label: 'Net rx', num: true, value: r => r.rx},
+    {key: 'tx', label: 'Net tx', num: true, value: r => r.tx},
+    {key: 'read', label: 'Disk read', num: true, value: r => r.read},
+    {key: 'write', label: 'Disk write', num: true, value: r => r.write},
+    {key: 'age', label: 'Age', num: true, value: r => r.age},
+];
+
+function loadSort(storageKey, columns) {
     try {
-        const raw = localStorage.getItem(OVERVIEW_SORT_KEY);
+        const raw = localStorage.getItem(storageKey);
         if (raw) {
             const parsed = JSON.parse(raw);
-            if (OVERVIEW_COLUMNS.some(c => c.key === parsed?.key) && (parsed.dir === 'asc' || parsed.dir === 'desc')) return parsed;
+            if (columns.some(c => c.key === parsed?.key) && (parsed.dir === 'asc' || parsed.dir === 'desc')) return parsed;
         }
     } catch {}
     return {key: 'name', dir: 'asc'};
 }
 
-function saveOverviewSort(sort) {
-    try { localStorage.setItem(OVERVIEW_SORT_KEY, JSON.stringify(sort)); } catch {}
+function saveSort(storageKey, sort) {
+    try { localStorage.setItem(storageKey, JSON.stringify(sort)); } catch {}
 }
 
-const byName = (a, b) => a.name.localeCompare(b.name) || a.runNumber - b.runNumber;
+const byName = (a, b) => a.name.localeCompare(b.name) || (a.runNumber || 0) - (b.runNumber || 0);
 
-function compareOverviewRows(column, dir) {
+function compareRows(column, dir) {
     const sign = dir === 'desc' ? -1 : 1;
     return (a, b) => {
         const va = column.value(a);
@@ -67,6 +88,42 @@ function compareOverviewRows(column, dir) {
         return byName(a, b);
     };
 }
+
+function sortableColumns({columns, storageKey, testid}) {
+    const sortS = van.state(loadSort(storageKey, columns));
+    const setSort = (column) => {
+        const cur = sortS.val;
+        const next = cur.key === column.key
+            ? {key: column.key, dir: cur.dir === 'asc' ? 'desc' : 'asc'}
+            : {key: column.key, dir: column.num ? 'desc' : 'asc'};
+        sortS.val = next;
+        saveSort(storageKey, next);
+    };
+    const headCell = (column) => {
+        const sort = sortS.val;
+        const active = sort.key === column.key;
+        return th({
+            "data-testid": `${testid}-${column.key}`,
+            class: `metrics-cell col-head group/th cursor-pointer select-none classic:text-[10px] classic:font-medium classic:tracking-wide ${column.num ? 'text-right' : 'text-left'} ${active ? 'text-gray-100' : 'hover:text-gray-300'}`,
+            ...(active ? {"aria-sort": sort.dir === 'desc' ? 'descending' : 'ascending'} : {}),
+            onclick: () => setSort(column),
+        }, span({class: `inline-flex items-center gap-1 ${column.num ? 'flex-row-reverse' : ''}`},
+            column.label,
+            active
+                ? sortArrowIcon({class: `h-2.5 w-2.5 text-brand ${sort.dir === 'desc' ? 'rotate-180' : ''}`})
+                : sortArrowIcon({class: "h-2.5 w-2.5 text-gray-600 opacity-0 transition-opacity group-hover/th:opacity-100"})));
+    };
+    return {
+        head: () => thead(tr({class: "border-b border-gray-800 slate:border-line graphite:border-0"}, ...columns.map(headCell))),
+        sort: (rows) => {
+            const sort = sortS.val;
+            const column = columns.find(c => c.key === sort.key) || columns[0];
+            return rows.sort(compareRows(column, sort.dir));
+        },
+    };
+}
+
+const numCell = (v, unit, extra = '') => td({class: `metrics-cell text-right tabular-nums ${extra}`}, formatValue(v, unit));
 
 function loadHiddenSpaces() {
     try {
@@ -169,32 +226,7 @@ function overviewView({hiddenSpaces, openDeployment}) {
         return text;
     };
 
-    const overviewSort = van.state(loadOverviewSort());
-    const setOverviewSort = (column) => {
-        const cur = overviewSort.val;
-        const next = cur.key === column.key
-            ? {key: column.key, dir: cur.dir === 'asc' ? 'desc' : 'asc'}
-            : {key: column.key, dir: column.num ? 'desc' : 'asc'};
-        overviewSort.val = next;
-        saveOverviewSort(next);
-    };
-
-    const headCell = (column) => {
-        const sort = overviewSort.val;
-        const active = sort.key === column.key;
-        return th({
-            "data-testid": `metrics-overview-sort-${column.key}`,
-            class: `metrics-cell col-head group/th cursor-pointer select-none classic:text-[10px] classic:font-medium classic:tracking-wide ${column.num ? 'text-right' : 'text-left'} ${active ? 'text-gray-100' : 'hover:text-gray-300'}`,
-            ...(active ? {"aria-sort": sort.dir === 'desc' ? 'descending' : 'ascending'} : {}),
-            onclick: () => setOverviewSort(column),
-        }, span({class: `inline-flex items-center gap-1 ${column.num ? 'flex-row-reverse' : ''}`},
-            column.label,
-            active
-                ? sortArrowIcon({class: `h-2.5 w-2.5 text-brand ${sort.dir === 'desc' ? 'rotate-180' : ''}`})
-                : sortArrowIcon({class: "h-2.5 w-2.5 text-gray-600 opacity-0 transition-opacity group-hover/th:opacity-100"})));
-    };
-
-    const numCell = (v, unit, extra = '') => td({class: `metrics-cell text-right tabular-nums ${extra}`}, formatValue(v, unit));
+    const columns = sortableColumns({columns: OVERVIEW_COLUMNS, storageKey: OVERVIEW_SORT_KEY, testid: "metrics-overview-sort"});
 
     const overviewTable = () => {
         const l = latest.val;
@@ -227,13 +259,10 @@ function overviewView({hiddenSpaces, openDeployment}) {
         if (rows.length === 0) {
             return div({"data-testid": "metrics-overview-empty", class: "p-6 text-center text-xs text-gray-500"}, "No running containers are reporting metrics.");
         }
-        const sort = overviewSort.val;
-        const column = OVERVIEW_COLUMNS.find(c => c.key === sort.key) || OVERVIEW_COLUMNS[0];
-        rows.sort(compareOverviewRows(column, sort.dir));
         return table(
             {"data-testid": "metrics-overview-table", class: "w-full border-collapse text-xs"},
-            thead(tr({class: "border-b border-gray-800 slate:border-line graphite:border-0"}, ...OVERVIEW_COLUMNS.map(headCell))),
-            tbody(...rows.map(r => tr({
+            columns.head(),
+            tbody(...columns.sort(rows).map(r => tr({
                 "data-testid": `metrics-overview-row-${r.name}`,
                 "data-deployment-id": String(r.deploymentId),
                 class: "data-row cursor-pointer",
@@ -267,6 +296,147 @@ function overviewView({hiddenSpaces, openDeployment}) {
         div({class: "app-scroll min-h-0 flex-1 overflow-y-auto classic:p-2"}, overviewTable),
     );
     return {content, activate};
+}
+
+function nodesOverviewView({openNode}) {
+    const latest = van.state(null);
+    const {loading, errorMsg, load, activate} = loader(async () => {
+        const resp = await capi.postV1MetricsNodesLatest({});
+        return () => {
+            latest.val = {entries: resp.entries || [], byNode: latestByNode(resp), warnings: resp.warnings || [], fetchedAt: Date.now()};
+            window.__metricsNodesLatest = latest.val;
+        };
+    });
+    const refresh = () => { void load(); };
+
+    const status = () => {
+        const l = latest.val;
+        if (!l) return loading.val ? 'Loading…' : 'No data yet.';
+        let text = `${l.byNode.size} node${l.byNode.size === 1 ? '' : 's'} reporting · sampled every 10 s`;
+        if (l.warnings.length) text += ` · ${l.warnings[0]}`;
+        return text;
+    };
+
+    const columns = sortableColumns({columns: NODE_COLUMNS, storageKey: NODES_SORT_KEY, testid: "metrics-nodes-sort"});
+
+    const pctCell = (v, toned) => td({class: "metrics-cell text-right tabular-nums"},
+        span({class: "cluster-tone", "data-tone": toned ? usageTone(v) : ''}, formatValue(v, 'pct')));
+    const ofTotal = (total) => Number.isFinite(total) ? `of ${formatValue(total, 'bytes')}` : '';
+
+    const nodesTable = () => {
+        const l = latest.val;
+        if (!l) return '';
+        const machines = (machinesS.val || []).filter(m => !m.evicted);
+        const known = new Set(machines.map(m => Number(m.id)));
+        const rows = machines.map(m => ({
+            nodeId: Number(m.id),
+            name: m.name || `node ${m.id}`,
+            disconnected: !m.connected && !m.isPrimary,
+            ...nodeOverviewRow(l.byNode.get(Number(m.id)), l.fetchedAt),
+        }));
+        for (const [nodeId, entry] of l.byNode) {
+            if (!known.has(nodeId)) rows.push({nodeId, name: nodeDisplayName(nodeId, []), disconnected: false, ...nodeOverviewRow(entry, l.fetchedAt)});
+        }
+        if (rows.length === 0) {
+            return div({"data-testid": "metrics-nodes-empty", class: "p-6 text-center text-xs text-gray-500"}, "No nodes are reporting metrics.");
+        }
+        return table(
+            {"data-testid": "metrics-nodes-table", class: "w-full border-collapse text-xs"},
+            columns.head(),
+            tbody(...columns.sort(rows).map(r => tr({
+                "data-testid": `metrics-nodes-row-${r.name}`,
+                "data-node-id": String(r.nodeId),
+                class: "data-row cursor-pointer",
+                onclick: () => openNode({nodeId: r.nodeId, name: r.name}),
+            },
+                td({class: "metrics-cell"}, span({class: "flex items-center gap-1.5"},
+                    span({class: "font-mono text-gray-200"}, r.name),
+                    r.disconnected ? span({class: "cluster-tone", "data-tone": "error"}, "disconnected") : "")),
+                td({class: "metrics-cell text-right tabular-nums text-gray-200", title: Number.isFinite(r.cpuCount) ? `of ${r.cpuCount} CPUs` : ''}, formatValue(r.cpu, 'cores')),
+                pctCell(r.cpuPct, false),
+                td({class: "metrics-cell text-right tabular-nums"}, Number.isFinite(r.load) ? r.load.toFixed(2) : '–'),
+                td({class: "metrics-cell text-right tabular-nums text-gray-200", title: ofTotal(r.memTotal)}, formatValue(r.memUsed, 'bytes')),
+                pctCell(r.memPct, true),
+                td({class: "metrics-cell text-right tabular-nums text-gray-200", title: ofTotal(r.disk?.total)}, formatValue(r.diskUsed, 'bytes')),
+                pctCell(r.diskPct, true),
+                numCell(r.rx, 'bytes/s'),
+                numCell(r.tx, 'bytes/s'),
+                numCell(r.read, 'bytes/s'),
+                numCell(r.write, 'bytes/s'),
+                td({class: "metrics-cell text-right tabular-nums text-gray-500"}, Number.isFinite(r.age) ? `${r.age}s` : '–'),
+            ))),
+        );
+    };
+
+    const content = div(
+        {"data-testid": "metrics-panel-nodes", class: "flex h-full min-h-0 flex-col"},
+        div({class: "page-toolbar"},
+            div({class: "flex-1"}),
+            refreshButton(loading, refresh)),
+        statusLine(status, errorMsg),
+        div({class: "app-scroll min-h-0 flex-1 overflow-y-auto classic:p-2"}, nodesTable),
+    );
+    return {content, activate};
+}
+
+function nodeView({nodeId, isVisible}) {
+    const range = van.state({kind: 'preset', key: DEFAULT_PRESET});
+    const result = van.state(null);
+    const publish = () => { if (isVisible() && result.rawVal) window.__metricsNodeResult = result.rawVal; };
+
+    const {loading, errorMsg, load, activate} = loader(async () => {
+        const {startTs, endTs} = resolveRange(range.rawVal);
+        const t0 = performance.now();
+        const resp = await capi.postV1MetricsNodesQuery({
+            nodeId,
+            timeStart: new Date(startTs),
+            timeEnd: new Date(endTs),
+            fields: NODE_QUERY_FIELDS,
+        });
+        const feMs = Math.round(performance.now() - t0);
+        return () => {
+            result.val = {
+                nodeId,
+                scanned: Number(resp.scannedRows || 0),
+                tookMs: Number(resp.tookMs || 0),
+                feMs,
+                warnings: resp.warnings || [],
+                ...buildNodeChartData(resp),
+            };
+            publish();
+        };
+    });
+    const refresh = () => { void load(); };
+
+    const status = () => {
+        const res = result.val;
+        if (!res) return loading.val ? 'Loading…' : 'No data yet.';
+        let text = `${res.scanned.toLocaleString()} samples in ${res.tookMs} ms (fe ${res.feMs} ms) · step ${fmtStep(res.stepMs)}`;
+        if (res.warnings.length) text += ` · ${res.warnings[0]}`;
+        return text;
+    };
+
+    const chartStates = Object.fromEntries(NODE_CHARTS.map(c => [c.key, van.state(null)]));
+    van.derive(() => {
+        const res = result.val;
+        for (const c of NODE_CHARTS) chartStates[c.key].val = res ? res.charts[c.key] : null;
+    });
+
+    const content = div(
+        {"data-testid": `metrics-panel-${nodeTabId(nodeId)}`, class: "flex h-full min-h-0 flex-col"},
+        div({class: "page-toolbar"},
+            div({class: "flex-1"}),
+            timeRangePicker({rangeS: range, testid: "metrics", onChange: refresh}),
+            refreshButton(loading, refresh)),
+        statusLine(status, errorMsg),
+        div({class: "app-scroll min-h-0 flex-1 overflow-y-auto"},
+            div({"data-testid": "metrics-node-charts", class: "metrics-grid"},
+                ...NODE_CHARTS.map(c => lineChart({title: c.title, unit: c.unit, dataS: chartStates[c.key], testid: `metrics-node-chart-${c.key}`})))),
+    );
+    return {
+        content,
+        activate: () => { publish(); activate(); },
+    };
 }
 
 function deploymentView({deploymentId, isVisible}) {
@@ -372,7 +542,7 @@ export function metricsPage({active = () => true} = {}) {
         tabs.val = tabs.val.filter(item => item.id !== id);
         if (activeTab.val === id) {
             const neighbour = tabs.val[index] || tabs.val[index - 1];
-            activeTab.val = neighbour ? neighbour.id : OVERVIEW;
+            activeTab.val = neighbour ? neighbour.id : id.startsWith('node-') ? NODES : OVERVIEW;
         }
     };
 
@@ -385,7 +555,17 @@ export function metricsPage({active = () => true} = {}) {
         activeTab.val = id;
     };
 
+    const openNode = ({nodeId, name}) => {
+        const id = nodeTabId(nodeId);
+        if (!views.has(id)) {
+            mountPanel(id, nodeView({nodeId, isVisible: () => shown === id}));
+            tabs.val = [...tabs.val, {id, title: name, spaceId: null}];
+        }
+        activeTab.val = id;
+    };
+
     mountPanel(OVERVIEW, overviewView({hiddenSpaces, openDeployment}));
+    mountPanel(NODES, nodesOverviewView({openNode}));
 
     van.derive(() => {
         void loginS.val;
@@ -398,7 +578,8 @@ export function metricsPage({active = () => true} = {}) {
     });
 
     const strip = tabStrip({label: "Metrics"},
-        tabButton({id: OVERVIEW, activeTab, title: "Overview", testid: `metrics-tab-${OVERVIEW}`}),
+        tabButton({id: OVERVIEW, activeTab, title: "Deployments overview", testid: `metrics-tab-${OVERVIEW}`}),
+        tabButton({id: NODES, activeTab, title: "Nodes overview", testid: `metrics-tab-${NODES}`}),
         () => div({class: "contents"}, ...tabs.val.map(item => tabButton({
             id: item.id,
             activeTab,

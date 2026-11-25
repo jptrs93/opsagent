@@ -587,6 +587,30 @@ func (p *Handler) RequestMetricsLatest(ctx context.Context, nodeID uint64) (*api
 	return sess.requestMetricsLatest(ctx)
 }
 
+// RequestNodeMetricsQuery runs a one-shot rollup of a secondary's own host
+// and filesystem metrics.
+func (p *Handler) RequestNodeMetricsQuery(ctx context.Context, nodeID uint64, req *apigen.NodeMetricsQueryRequest) (*apigen.NodeMetricsQueryResponse, error) {
+	p.mu.RLock()
+	sess, ok := p.sessions[nodeID]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, &NodeNotConnectedError{NodeID: nodeID}
+	}
+	return sess.requestNodeMetricsQuery(ctx, req)
+}
+
+// RequestNodeMetricsLatest fetches a secondary's latest host and filesystem
+// sample.
+func (p *Handler) RequestNodeMetricsLatest(ctx context.Context, nodeID uint64) (*apigen.NodeMetricsLatestResponse, error) {
+	p.mu.RLock()
+	sess, ok := p.sessions[nodeID]
+	p.mu.RUnlock()
+	if !ok {
+		return nil, &NodeNotConnectedError{NodeID: nodeID}
+	}
+	return sess.requestNodeMetricsLatest(ctx)
+}
+
 func (p *Handler) ConnectedNodes() map[uint64]time.Time {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

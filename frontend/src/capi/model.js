@@ -719,6 +719,74 @@
  * @property {number} openFds
  */
 /**
+ * @typedef {Object} FilesystemUsage
+ * @property {number} totalBytes
+ * @property {number} freeBytes
+ * @property {number} availBytes
+ * @property {number} inodesTotal
+ * @property {number} inodesFree
+ */
+/**
+ * @typedef {Object} NodeMetricsSample
+ * @property {bigint} time
+ * @property {number} nodeId
+ * @property {number} cpuUsageUsec
+ * @property {number} cpuUserUsec
+ * @property {number} cpuSystemUsec
+ * @property {number} cpuIowaitUsec
+ * @property {number} cpuStealUsec
+ * @property {number} cpuCount
+ * @property {number} load1
+ * @property {number} load5
+ * @property {number} load15
+ * @property {number} memTotal
+ * @property {number} memAvailable
+ * @property {number} memFree
+ * @property {number} memCached
+ * @property {number} swapTotal
+ * @property {number} swapFree
+ * @property {number} psiCpuSomeAvg10
+ * @property {number} psiCpuSomeAvg60
+ * @property {number} psiCpuSomeAvg300
+ * @property {number} psiCpuSomeTotalUsec
+ * @property {number} psiCpuFullAvg10
+ * @property {number} psiCpuFullAvg60
+ * @property {number} psiCpuFullAvg300
+ * @property {number} psiCpuFullTotalUsec
+ * @property {number} psiMemSomeAvg10
+ * @property {number} psiMemSomeAvg60
+ * @property {number} psiMemSomeAvg300
+ * @property {number} psiMemSomeTotalUsec
+ * @property {number} psiMemFullAvg10
+ * @property {number} psiMemFullAvg60
+ * @property {number} psiMemFullAvg300
+ * @property {number} psiMemFullTotalUsec
+ * @property {number} psiIoSomeAvg10
+ * @property {number} psiIoSomeAvg60
+ * @property {number} psiIoSomeAvg300
+ * @property {number} psiIoSomeTotalUsec
+ * @property {number} psiIoFullAvg10
+ * @property {number} psiIoFullAvg60
+ * @property {number} psiIoFullAvg300
+ * @property {number} psiIoFullTotalUsec
+ * @property {number} netRxBytes
+ * @property {number} netRxPackets
+ * @property {number} netRxDropped
+ * @property {number} netTxBytes
+ * @property {number} netTxPackets
+ * @property {number} netTxDropped
+ * @property {number} ioReadBytes
+ * @property {number} ioWriteBytes
+ * @property {number} ioReadOps
+ * @property {number} ioWriteOps
+ * @property {number} fsDataTotalBytes
+ * @property {number} fsDataFreeBytes
+ * @property {number} fsDataAvailBytes
+ * @property {number} fsDataInodesTotal
+ * @property {number} fsDataInodesFree
+ * @property {Object.<string, FilesystemUsage>} extraFilesystems
+ */
+/**
  * @typedef {Object} MetricsQueryRequest
  * @property {number} deploymentId
  * @property {number} targetNodeId
@@ -769,6 +837,46 @@
 /**
  * @typedef {Object} MetricsLatestResponse
  * @property {MetricsLatestEntry[]} entries
+ * @property {string[]} warnings
+ */
+/**
+ * @typedef {Object} NodeMetricsQueryRequest
+ * @property {number} nodeId
+ * @property {Date} timeStart
+ * @property {Date} timeEnd
+ * @property {number} stepMs
+ * @property {string[]} fields
+ * @property {string} requestId
+ */
+/**
+ * @typedef {Object} NodeMetricsSeries
+ * @property {number} nodeId
+ * @property {string} field
+ * @property {number} kind
+ * @property {number[]} values
+ */
+/**
+ * @typedef {Object} NodeMetricsQueryResponse
+ * @property {Date} timeStart
+ * @property {number} stepMs
+ * @property {number} buckets
+ * @property {NodeMetricsSeries[]} series
+ * @property {number} scannedRows
+ * @property {number} tookMs
+ * @property {string[]} warnings
+ */
+/**
+ * @typedef {Object} NodeMetricsLatestRequest
+ * @property {string} requestId
+ */
+/**
+ * @typedef {Object} NodeMetricsLatestEntry
+ * @property {NodeMetricsSample} sample
+ * @property {MetricsRate[]} rates
+ */
+/**
+ * @typedef {Object} NodeMetricsLatestResponse
+ * @property {NodeMetricsLatestEntry[]} entries
  * @property {string[]} warnings
  */
 /**
@@ -1933,6 +2041,8 @@
  * @property {boolean} evicted
  * @property {NodeProjection} nodeSnapshot
  * @property {NodeProjection} nodeUpdate
+ * @property {NodeMetricsQueryRequest} nodeMetricsQueryRequest
+ * @property {NodeMetricsLatestRequest} nodeMetricsLatestRequest
  */
 /**
  * @typedef {Object} NixStoreResetItem
@@ -1962,6 +2072,8 @@
  * @property {string} logQueryError
  * @property {MetricsQueryResponse} metricsQueryResponse
  * @property {MetricsLatestResponse} metricsLatestResponse
+ * @property {NodeMetricsQueryResponse} nodeMetricsQueryResponse
+ * @property {NodeMetricsLatestResponse} nodeMetricsLatestResponse
  */
 /**
  * @typedef {Object} ScheduledInstanceState
@@ -10192,6 +10304,565 @@ export function decodeMetricsSample(buffer) {
 
 
 /**
+ * @param {FilesystemUsage} message
+ * @param {Writer} writer
+ */
+export function writeFilesystemUsage(message, writer) {
+    if (message.totalBytes !== undefined && message.totalBytes !== null && message.totalBytes !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(Math.trunc(message.totalBytes));
+    }
+    if (message.freeBytes !== undefined && message.freeBytes !== null && message.freeBytes !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.freeBytes));
+    }
+    if (message.availBytes !== undefined && message.availBytes !== null && message.availBytes !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.availBytes));
+    }
+    if (message.inodesTotal !== undefined && message.inodesTotal !== null && message.inodesTotal !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.inodesTotal));
+    }
+    if (message.inodesFree !== undefined && message.inodesFree !== null && message.inodesFree !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.inodesFree));
+    }
+}
+
+
+/**
+ * @param {FilesystemUsage} message
+ * @returns {Uint8Array}
+ */
+export function encodeFilesystemUsage(message) {
+    const writer = Writer.create();
+    writeFilesystemUsage(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {FilesystemUsage}
+ */
+function decodeFilesystemUsageMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {totalBytes: 0, freeBytes: 0, availBytes: 0, inodesTotal: 0, inodesFree: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.totalBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.freeBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.availBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.inodesTotal = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.inodesFree = readInt64(reader, "int64");
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {FilesystemUsage}
+ */
+export function decodeFilesystemUsage(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeFilesystemUsageMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsSample} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsSample(message, writer) {
+    if (message.time !== undefined && message.time !== null && message.time !== 0n) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(message.time.toString());
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int32(message.nodeId);
+    }
+    if (message.cpuUsageUsec !== undefined && message.cpuUsageUsec !== null) {
+        writer.uint32(tag(10, WIRE.VARINT)).int64(Math.trunc(message.cpuUsageUsec));
+    }
+    if (message.cpuUserUsec !== undefined && message.cpuUserUsec !== null) {
+        writer.uint32(tag(11, WIRE.VARINT)).int64(Math.trunc(message.cpuUserUsec));
+    }
+    if (message.cpuSystemUsec !== undefined && message.cpuSystemUsec !== null) {
+        writer.uint32(tag(12, WIRE.VARINT)).int64(Math.trunc(message.cpuSystemUsec));
+    }
+    if (message.cpuIowaitUsec !== undefined && message.cpuIowaitUsec !== null) {
+        writer.uint32(tag(13, WIRE.VARINT)).int64(Math.trunc(message.cpuIowaitUsec));
+    }
+    if (message.cpuStealUsec !== undefined && message.cpuStealUsec !== null) {
+        writer.uint32(tag(14, WIRE.VARINT)).int64(Math.trunc(message.cpuStealUsec));
+    }
+    if (message.cpuCount !== undefined && message.cpuCount !== null) {
+        writer.uint32(tag(15, WIRE.VARINT)).int64(Math.trunc(message.cpuCount));
+    }
+    if (message.load1 !== undefined && message.load1 !== null) {
+        writer.uint32(tag(20, WIRE.FIXED64)).double(message.load1);
+    }
+    if (message.load5 !== undefined && message.load5 !== null) {
+        writer.uint32(tag(21, WIRE.FIXED64)).double(message.load5);
+    }
+    if (message.load15 !== undefined && message.load15 !== null) {
+        writer.uint32(tag(22, WIRE.FIXED64)).double(message.load15);
+    }
+    if (message.memTotal !== undefined && message.memTotal !== null) {
+        writer.uint32(tag(30, WIRE.VARINT)).int64(Math.trunc(message.memTotal));
+    }
+    if (message.memAvailable !== undefined && message.memAvailable !== null) {
+        writer.uint32(tag(31, WIRE.VARINT)).int64(Math.trunc(message.memAvailable));
+    }
+    if (message.memFree !== undefined && message.memFree !== null) {
+        writer.uint32(tag(32, WIRE.VARINT)).int64(Math.trunc(message.memFree));
+    }
+    if (message.memCached !== undefined && message.memCached !== null) {
+        writer.uint32(tag(33, WIRE.VARINT)).int64(Math.trunc(message.memCached));
+    }
+    if (message.swapTotal !== undefined && message.swapTotal !== null) {
+        writer.uint32(tag(34, WIRE.VARINT)).int64(Math.trunc(message.swapTotal));
+    }
+    if (message.swapFree !== undefined && message.swapFree !== null) {
+        writer.uint32(tag(35, WIRE.VARINT)).int64(Math.trunc(message.swapFree));
+    }
+    if (message.psiCpuSomeAvg10 !== undefined && message.psiCpuSomeAvg10 !== null) {
+        writer.uint32(tag(50, WIRE.FIXED64)).double(message.psiCpuSomeAvg10);
+    }
+    if (message.psiCpuSomeAvg60 !== undefined && message.psiCpuSomeAvg60 !== null) {
+        writer.uint32(tag(51, WIRE.FIXED64)).double(message.psiCpuSomeAvg60);
+    }
+    if (message.psiCpuSomeAvg300 !== undefined && message.psiCpuSomeAvg300 !== null) {
+        writer.uint32(tag(52, WIRE.FIXED64)).double(message.psiCpuSomeAvg300);
+    }
+    if (message.psiCpuSomeTotalUsec !== undefined && message.psiCpuSomeTotalUsec !== null) {
+        writer.uint32(tag(53, WIRE.VARINT)).int64(Math.trunc(message.psiCpuSomeTotalUsec));
+    }
+    if (message.psiCpuFullAvg10 !== undefined && message.psiCpuFullAvg10 !== null) {
+        writer.uint32(tag(54, WIRE.FIXED64)).double(message.psiCpuFullAvg10);
+    }
+    if (message.psiCpuFullAvg60 !== undefined && message.psiCpuFullAvg60 !== null) {
+        writer.uint32(tag(55, WIRE.FIXED64)).double(message.psiCpuFullAvg60);
+    }
+    if (message.psiCpuFullAvg300 !== undefined && message.psiCpuFullAvg300 !== null) {
+        writer.uint32(tag(56, WIRE.FIXED64)).double(message.psiCpuFullAvg300);
+    }
+    if (message.psiCpuFullTotalUsec !== undefined && message.psiCpuFullTotalUsec !== null) {
+        writer.uint32(tag(57, WIRE.VARINT)).int64(Math.trunc(message.psiCpuFullTotalUsec));
+    }
+    if (message.psiMemSomeAvg10 !== undefined && message.psiMemSomeAvg10 !== null) {
+        writer.uint32(tag(60, WIRE.FIXED64)).double(message.psiMemSomeAvg10);
+    }
+    if (message.psiMemSomeAvg60 !== undefined && message.psiMemSomeAvg60 !== null) {
+        writer.uint32(tag(61, WIRE.FIXED64)).double(message.psiMemSomeAvg60);
+    }
+    if (message.psiMemSomeAvg300 !== undefined && message.psiMemSomeAvg300 !== null) {
+        writer.uint32(tag(62, WIRE.FIXED64)).double(message.psiMemSomeAvg300);
+    }
+    if (message.psiMemSomeTotalUsec !== undefined && message.psiMemSomeTotalUsec !== null) {
+        writer.uint32(tag(63, WIRE.VARINT)).int64(Math.trunc(message.psiMemSomeTotalUsec));
+    }
+    if (message.psiMemFullAvg10 !== undefined && message.psiMemFullAvg10 !== null) {
+        writer.uint32(tag(64, WIRE.FIXED64)).double(message.psiMemFullAvg10);
+    }
+    if (message.psiMemFullAvg60 !== undefined && message.psiMemFullAvg60 !== null) {
+        writer.uint32(tag(65, WIRE.FIXED64)).double(message.psiMemFullAvg60);
+    }
+    if (message.psiMemFullAvg300 !== undefined && message.psiMemFullAvg300 !== null) {
+        writer.uint32(tag(66, WIRE.FIXED64)).double(message.psiMemFullAvg300);
+    }
+    if (message.psiMemFullTotalUsec !== undefined && message.psiMemFullTotalUsec !== null) {
+        writer.uint32(tag(67, WIRE.VARINT)).int64(Math.trunc(message.psiMemFullTotalUsec));
+    }
+    if (message.psiIoSomeAvg10 !== undefined && message.psiIoSomeAvg10 !== null) {
+        writer.uint32(tag(70, WIRE.FIXED64)).double(message.psiIoSomeAvg10);
+    }
+    if (message.psiIoSomeAvg60 !== undefined && message.psiIoSomeAvg60 !== null) {
+        writer.uint32(tag(71, WIRE.FIXED64)).double(message.psiIoSomeAvg60);
+    }
+    if (message.psiIoSomeAvg300 !== undefined && message.psiIoSomeAvg300 !== null) {
+        writer.uint32(tag(72, WIRE.FIXED64)).double(message.psiIoSomeAvg300);
+    }
+    if (message.psiIoSomeTotalUsec !== undefined && message.psiIoSomeTotalUsec !== null) {
+        writer.uint32(tag(73, WIRE.VARINT)).int64(Math.trunc(message.psiIoSomeTotalUsec));
+    }
+    if (message.psiIoFullAvg10 !== undefined && message.psiIoFullAvg10 !== null) {
+        writer.uint32(tag(74, WIRE.FIXED64)).double(message.psiIoFullAvg10);
+    }
+    if (message.psiIoFullAvg60 !== undefined && message.psiIoFullAvg60 !== null) {
+        writer.uint32(tag(75, WIRE.FIXED64)).double(message.psiIoFullAvg60);
+    }
+    if (message.psiIoFullAvg300 !== undefined && message.psiIoFullAvg300 !== null) {
+        writer.uint32(tag(76, WIRE.FIXED64)).double(message.psiIoFullAvg300);
+    }
+    if (message.psiIoFullTotalUsec !== undefined && message.psiIoFullTotalUsec !== null) {
+        writer.uint32(tag(77, WIRE.VARINT)).int64(Math.trunc(message.psiIoFullTotalUsec));
+    }
+    if (message.netRxBytes !== undefined && message.netRxBytes !== null) {
+        writer.uint32(tag(80, WIRE.VARINT)).int64(Math.trunc(message.netRxBytes));
+    }
+    if (message.netRxPackets !== undefined && message.netRxPackets !== null) {
+        writer.uint32(tag(81, WIRE.VARINT)).int64(Math.trunc(message.netRxPackets));
+    }
+    if (message.netRxDropped !== undefined && message.netRxDropped !== null) {
+        writer.uint32(tag(82, WIRE.VARINT)).int64(Math.trunc(message.netRxDropped));
+    }
+    if (message.netTxBytes !== undefined && message.netTxBytes !== null) {
+        writer.uint32(tag(83, WIRE.VARINT)).int64(Math.trunc(message.netTxBytes));
+    }
+    if (message.netTxPackets !== undefined && message.netTxPackets !== null) {
+        writer.uint32(tag(84, WIRE.VARINT)).int64(Math.trunc(message.netTxPackets));
+    }
+    if (message.netTxDropped !== undefined && message.netTxDropped !== null) {
+        writer.uint32(tag(85, WIRE.VARINT)).int64(Math.trunc(message.netTxDropped));
+    }
+    if (message.ioReadBytes !== undefined && message.ioReadBytes !== null) {
+        writer.uint32(tag(90, WIRE.VARINT)).int64(Math.trunc(message.ioReadBytes));
+    }
+    if (message.ioWriteBytes !== undefined && message.ioWriteBytes !== null) {
+        writer.uint32(tag(91, WIRE.VARINT)).int64(Math.trunc(message.ioWriteBytes));
+    }
+    if (message.ioReadOps !== undefined && message.ioReadOps !== null) {
+        writer.uint32(tag(92, WIRE.VARINT)).int64(Math.trunc(message.ioReadOps));
+    }
+    if (message.ioWriteOps !== undefined && message.ioWriteOps !== null) {
+        writer.uint32(tag(93, WIRE.VARINT)).int64(Math.trunc(message.ioWriteOps));
+    }
+    if (message.fsDataTotalBytes !== undefined && message.fsDataTotalBytes !== null) {
+        writer.uint32(tag(100, WIRE.VARINT)).int64(Math.trunc(message.fsDataTotalBytes));
+    }
+    if (message.fsDataFreeBytes !== undefined && message.fsDataFreeBytes !== null) {
+        writer.uint32(tag(101, WIRE.VARINT)).int64(Math.trunc(message.fsDataFreeBytes));
+    }
+    if (message.fsDataAvailBytes !== undefined && message.fsDataAvailBytes !== null) {
+        writer.uint32(tag(102, WIRE.VARINT)).int64(Math.trunc(message.fsDataAvailBytes));
+    }
+    if (message.fsDataInodesTotal !== undefined && message.fsDataInodesTotal !== null) {
+        writer.uint32(tag(103, WIRE.VARINT)).int64(Math.trunc(message.fsDataInodesTotal));
+    }
+    if (message.fsDataInodesFree !== undefined && message.fsDataInodesFree !== null) {
+        writer.uint32(tag(104, WIRE.VARINT)).int64(Math.trunc(message.fsDataInodesFree));
+    }
+    if (message.extraFilesystems && Object.keys(message.extraFilesystems).length > 0) {
+        for (const [rawKey, value] of Object.entries(message.extraFilesystems).sort(compareMapEntriesString)) {
+            const key = rawKey;
+            writer.uint32(tag(120, WIRE.LDELIM)).fork();
+            writer.uint32(tag(1, WIRE.LDELIM)).string(key);
+            if (value) {
+                writer.uint32(tag(2, WIRE.LDELIM)).fork();
+                writeFilesystemUsage(value, writer);
+                writer.ldelim();
+            }
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NodeMetricsSample} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsSample(message) {
+    const writer = Writer.create();
+    writeNodeMetricsSample(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsSample}
+ */
+function decodeNodeMetricsSampleMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {time: 0n, nodeId: 0, cpuUsageUsec: undefined, cpuUserUsec: undefined, cpuSystemUsec: undefined, cpuIowaitUsec: undefined, cpuStealUsec: undefined, cpuCount: undefined, load1: undefined, load5: undefined, load15: undefined, memTotal: undefined, memAvailable: undefined, memFree: undefined, memCached: undefined, swapTotal: undefined, swapFree: undefined, psiCpuSomeAvg10: undefined, psiCpuSomeAvg60: undefined, psiCpuSomeAvg300: undefined, psiCpuSomeTotalUsec: undefined, psiCpuFullAvg10: undefined, psiCpuFullAvg60: undefined, psiCpuFullAvg300: undefined, psiCpuFullTotalUsec: undefined, psiMemSomeAvg10: undefined, psiMemSomeAvg60: undefined, psiMemSomeAvg300: undefined, psiMemSomeTotalUsec: undefined, psiMemFullAvg10: undefined, psiMemFullAvg60: undefined, psiMemFullAvg300: undefined, psiMemFullTotalUsec: undefined, psiIoSomeAvg10: undefined, psiIoSomeAvg60: undefined, psiIoSomeAvg300: undefined, psiIoSomeTotalUsec: undefined, psiIoFullAvg10: undefined, psiIoFullAvg60: undefined, psiIoFullAvg300: undefined, psiIoFullTotalUsec: undefined, netRxBytes: undefined, netRxPackets: undefined, netRxDropped: undefined, netTxBytes: undefined, netTxPackets: undefined, netTxDropped: undefined, ioReadBytes: undefined, ioWriteBytes: undefined, ioReadOps: undefined, ioWriteOps: undefined, fsDataTotalBytes: undefined, fsDataFreeBytes: undefined, fsDataAvailBytes: undefined, fsDataInodesTotal: undefined, fsDataInodesFree: undefined, extraFilesystems: {} };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.time = readInt64BigInt(reader, "int64");
+                break;
+            }
+            case 2: {
+                message.nodeId = reader.int32();
+                break;
+            }
+            case 10: {
+                message.cpuUsageUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 11: {
+                message.cpuUserUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 12: {
+                message.cpuSystemUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 13: {
+                message.cpuIowaitUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 14: {
+                message.cpuStealUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 15: {
+                message.cpuCount = readInt64(reader, "int64");
+                break;
+            }
+            case 20: {
+                message.load1 = reader.double();
+                break;
+            }
+            case 21: {
+                message.load5 = reader.double();
+                break;
+            }
+            case 22: {
+                message.load15 = reader.double();
+                break;
+            }
+            case 30: {
+                message.memTotal = readInt64(reader, "int64");
+                break;
+            }
+            case 31: {
+                message.memAvailable = readInt64(reader, "int64");
+                break;
+            }
+            case 32: {
+                message.memFree = readInt64(reader, "int64");
+                break;
+            }
+            case 33: {
+                message.memCached = readInt64(reader, "int64");
+                break;
+            }
+            case 34: {
+                message.swapTotal = readInt64(reader, "int64");
+                break;
+            }
+            case 35: {
+                message.swapFree = readInt64(reader, "int64");
+                break;
+            }
+            case 50: {
+                message.psiCpuSomeAvg10 = reader.double();
+                break;
+            }
+            case 51: {
+                message.psiCpuSomeAvg60 = reader.double();
+                break;
+            }
+            case 52: {
+                message.psiCpuSomeAvg300 = reader.double();
+                break;
+            }
+            case 53: {
+                message.psiCpuSomeTotalUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 54: {
+                message.psiCpuFullAvg10 = reader.double();
+                break;
+            }
+            case 55: {
+                message.psiCpuFullAvg60 = reader.double();
+                break;
+            }
+            case 56: {
+                message.psiCpuFullAvg300 = reader.double();
+                break;
+            }
+            case 57: {
+                message.psiCpuFullTotalUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 60: {
+                message.psiMemSomeAvg10 = reader.double();
+                break;
+            }
+            case 61: {
+                message.psiMemSomeAvg60 = reader.double();
+                break;
+            }
+            case 62: {
+                message.psiMemSomeAvg300 = reader.double();
+                break;
+            }
+            case 63: {
+                message.psiMemSomeTotalUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 64: {
+                message.psiMemFullAvg10 = reader.double();
+                break;
+            }
+            case 65: {
+                message.psiMemFullAvg60 = reader.double();
+                break;
+            }
+            case 66: {
+                message.psiMemFullAvg300 = reader.double();
+                break;
+            }
+            case 67: {
+                message.psiMemFullTotalUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 70: {
+                message.psiIoSomeAvg10 = reader.double();
+                break;
+            }
+            case 71: {
+                message.psiIoSomeAvg60 = reader.double();
+                break;
+            }
+            case 72: {
+                message.psiIoSomeAvg300 = reader.double();
+                break;
+            }
+            case 73: {
+                message.psiIoSomeTotalUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 74: {
+                message.psiIoFullAvg10 = reader.double();
+                break;
+            }
+            case 75: {
+                message.psiIoFullAvg60 = reader.double();
+                break;
+            }
+            case 76: {
+                message.psiIoFullAvg300 = reader.double();
+                break;
+            }
+            case 77: {
+                message.psiIoFullTotalUsec = readInt64(reader, "int64");
+                break;
+            }
+            case 80: {
+                message.netRxBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 81: {
+                message.netRxPackets = readInt64(reader, "int64");
+                break;
+            }
+            case 82: {
+                message.netRxDropped = readInt64(reader, "int64");
+                break;
+            }
+            case 83: {
+                message.netTxBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 84: {
+                message.netTxPackets = readInt64(reader, "int64");
+                break;
+            }
+            case 85: {
+                message.netTxDropped = readInt64(reader, "int64");
+                break;
+            }
+            case 90: {
+                message.ioReadBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 91: {
+                message.ioWriteBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 92: {
+                message.ioReadOps = readInt64(reader, "int64");
+                break;
+            }
+            case 93: {
+                message.ioWriteOps = readInt64(reader, "int64");
+                break;
+            }
+            case 100: {
+                message.fsDataTotalBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 101: {
+                message.fsDataFreeBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 102: {
+                message.fsDataAvailBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 103: {
+                message.fsDataInodesTotal = readInt64(reader, "int64");
+                break;
+            }
+            case 104: {
+                message.fsDataInodesFree = readInt64(reader, "int64");
+                break;
+            }
+            case 120: {
+                const end2 = reader.uint32() + reader.pos;
+                let key = "";
+                let value = undefined;
+                while (reader.pos < end2) {
+                    const tag2 = reader.uint32();
+                    switch (tag2 >>> 3) {
+                        case 1:
+                            key = reader.string();
+                            break;
+                        case 2:
+                            value = decodeFilesystemUsageMessage(reader, reader.uint32());
+                            break;
+                        default:
+                            reader.skipType(tag2 & 7);
+                    }
+                }
+                if (!message.extraFilesystems) { message.extraFilesystems = {}; }
+                message.extraFilesystems[String(key)] = value;
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsSample}
+ */
+export function decodeNodeMetricsSample(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsSampleMessage(reader);
+}
+
+
+
+/**
  * @param {MetricsQueryRequest} message
  * @param {Writer} writer
  */
@@ -10783,6 +11454,483 @@ function decodeMetricsLatestResponseMessage(reader, length) {
 export function decodeMetricsLatestResponse(buffer) {
     const reader = Reader.create(new Uint8Array(buffer));
     return decodeMetricsLatestResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsQueryRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsQueryRequest(message, writer) {
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.nodeId));
+    }
+    if (message.timeStart !== undefined && message.timeStart !== null) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.timeStart.getTime()));
+    }
+    if (message.timeEnd !== undefined && message.timeEnd !== null) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.timeEnd.getTime()));
+    }
+    if (message.stepMs !== undefined && message.stepMs !== null && message.stepMs !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.stepMs));
+    }
+    if (message.fields && message.fields.length > 0) {
+        for (const item of message.fields) {
+            writer.uint32(tag(5, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.requestId !== undefined && message.requestId !== null && message.requestId !== "") {
+        writer.uint32(tag(6, WIRE.LDELIM)).string(message.requestId);
+    }
+}
+
+
+/**
+ * @param {NodeMetricsQueryRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsQueryRequest(message) {
+    const writer = Writer.create();
+    writeNodeMetricsQueryRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsQueryRequest}
+ */
+function decodeNodeMetricsQueryRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {nodeId: 0, timeStart: undefined, timeEnd: undefined, stepMs: 0, fields: [], requestId: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.nodeId = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.timeStart = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 3: {
+                message.timeEnd = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 4: {
+                message.stepMs = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.fields.push(reader.string());
+                break;
+            }
+            case 6: {
+                message.requestId = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsQueryRequest}
+ */
+export function decodeNodeMetricsQueryRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsQueryRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsSeries} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsSeries(message, writer) {
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.nodeId));
+    }
+    if (message.field !== undefined && message.field !== null && message.field !== "") {
+        writer.uint32(tag(2, WIRE.LDELIM)).string(message.field);
+    }
+    if (message.kind !== undefined && message.kind !== null && message.kind !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.kind);
+    }
+    if (message.values) {
+        const packedWriter = Writer.create();
+        for (const item of message.values) {
+            packedWriter.double(item);
+        }
+        if (packedWriter.len > 0) {
+            writer.uint32(tag(4, WIRE.LDELIM)).bytes(packedWriter.finish());
+        }
+    }
+}
+
+
+/**
+ * @param {NodeMetricsSeries} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsSeries(message) {
+    const writer = Writer.create();
+    writeNodeMetricsSeries(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsSeries}
+ */
+function decodeNodeMetricsSeriesMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {nodeId: 0, field: "", kind: 0, values: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.nodeId = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.field = reader.string();
+                break;
+            }
+            case 3: {
+                message.kind = reader.int32();
+                break;
+            }
+            case 4: {
+                const end2 = reader.uint32() + reader.pos;
+                while (reader.pos < end2) {
+                    message.values.push(reader.double());
+                }
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsSeries}
+ */
+export function decodeNodeMetricsSeries(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsSeriesMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsQueryResponse} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsQueryResponse(message, writer) {
+    if (message.timeStart instanceof Date && message.timeStart.getTime() !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).int64(Math.trunc(message.timeStart.getTime()));
+    }
+    if (message.stepMs !== undefined && message.stepMs !== null && message.stepMs !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).int64(Math.trunc(message.stepMs));
+    }
+    if (message.buckets !== undefined && message.buckets !== null && message.buckets !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int32(message.buckets);
+    }
+    if (message.series && message.series.length > 0) {
+        for (const item of message.series) {
+            writer.uint32(tag(4, WIRE.LDELIM)).fork();
+            writeNodeMetricsSeries(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.scannedRows !== undefined && message.scannedRows !== null && message.scannedRows !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.scannedRows));
+    }
+    if (message.tookMs !== undefined && message.tookMs !== null && message.tookMs !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.tookMs);
+    }
+    if (message.warnings && message.warnings.length > 0) {
+        for (const item of message.warnings) {
+            writer.uint32(tag(7, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {NodeMetricsQueryResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsQueryResponse(message) {
+    const writer = Writer.create();
+    writeNodeMetricsQueryResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsQueryResponse}
+ */
+function decodeNodeMetricsQueryResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {timeStart: new Date(0), stepMs: 0, buckets: 0, series: [], scannedRows: 0, tookMs: 0, warnings: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.timeStart = new Date(readInt64(reader, "int64"));
+                break;
+            }
+            case 2: {
+                message.stepMs = readInt64(reader, "int64");
+                break;
+            }
+            case 3: {
+                message.buckets = reader.int32();
+                break;
+            }
+            case 4: {
+                message.series.push(decodeNodeMetricsSeriesMessage(reader, reader.uint32()));
+                break;
+            }
+            case 5: {
+                message.scannedRows = readInt64(reader, "int64");
+                break;
+            }
+            case 6: {
+                message.tookMs = reader.int32();
+                break;
+            }
+            case 7: {
+                message.warnings.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsQueryResponse}
+ */
+export function decodeNodeMetricsQueryResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsQueryResponseMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsLatestRequest} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsLatestRequest(message, writer) {
+    if (message.requestId !== undefined && message.requestId !== null && message.requestId !== "") {
+        writer.uint32(tag(1, WIRE.LDELIM)).string(message.requestId);
+    }
+}
+
+
+/**
+ * @param {NodeMetricsLatestRequest} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsLatestRequest(message) {
+    const writer = Writer.create();
+    writeNodeMetricsLatestRequest(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsLatestRequest}
+ */
+function decodeNodeMetricsLatestRequestMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {requestId: "" };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.requestId = reader.string();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsLatestRequest}
+ */
+export function decodeNodeMetricsLatestRequest(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsLatestRequestMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsLatestEntry} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsLatestEntry(message, writer) {
+    if (message.sample !== undefined && message.sample !== null) {
+        writer.uint32(tag(1, WIRE.LDELIM)).fork();
+        writeNodeMetricsSample(message.sample, writer);
+        writer.ldelim();
+    }
+    if (message.rates && message.rates.length > 0) {
+        for (const item of message.rates) {
+            writer.uint32(tag(2, WIRE.LDELIM)).fork();
+            writeMetricsRate(item, writer);
+            writer.ldelim();
+        }
+    }
+}
+
+
+/**
+ * @param {NodeMetricsLatestEntry} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsLatestEntry(message) {
+    const writer = Writer.create();
+    writeNodeMetricsLatestEntry(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsLatestEntry}
+ */
+function decodeNodeMetricsLatestEntryMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {sample: undefined, rates: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.sample = decodeNodeMetricsSampleMessage(reader, reader.uint32());
+                break;
+            }
+            case 2: {
+                message.rates.push(decodeMetricsRateMessage(reader, reader.uint32()));
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsLatestEntry}
+ */
+export function decodeNodeMetricsLatestEntry(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsLatestEntryMessage(reader);
+}
+
+
+
+/**
+ * @param {NodeMetricsLatestResponse} message
+ * @param {Writer} writer
+ */
+export function writeNodeMetricsLatestResponse(message, writer) {
+    if (message.entries && message.entries.length > 0) {
+        for (const item of message.entries) {
+            writer.uint32(tag(1, WIRE.LDELIM)).fork();
+            writeNodeMetricsLatestEntry(item, writer);
+            writer.ldelim();
+        }
+    }
+    if (message.warnings && message.warnings.length > 0) {
+        for (const item of message.warnings) {
+            writer.uint32(tag(2, WIRE.LDELIM)).string(item);
+        }
+    }
+}
+
+
+/**
+ * @param {NodeMetricsLatestResponse} message
+ * @returns {Uint8Array}
+ */
+export function encodeNodeMetricsLatestResponse(message) {
+    const writer = Writer.create();
+    writeNodeMetricsLatestResponse(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {NodeMetricsLatestResponse}
+ */
+function decodeNodeMetricsLatestResponseMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {entries: [], warnings: [] };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.entries.push(decodeNodeMetricsLatestEntryMessage(reader, reader.uint32()));
+                break;
+            }
+            case 2: {
+                message.warnings.push(reader.string());
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {NodeMetricsLatestResponse}
+ */
+export function decodeNodeMetricsLatestResponse(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeNodeMetricsLatestResponseMessage(reader);
 }
 
 
@@ -24644,6 +25792,16 @@ export function writeMsgToSecondary(message, writer) {
         writeNodeProjection(message.nodeUpdate, writer);
         writer.ldelim();
     }
+    if (message.nodeMetricsQueryRequest !== undefined && message.nodeMetricsQueryRequest !== null) {
+        writer.uint32(tag(16, WIRE.LDELIM)).fork();
+        writeNodeMetricsQueryRequest(message.nodeMetricsQueryRequest, writer);
+        writer.ldelim();
+    }
+    if (message.nodeMetricsLatestRequest !== undefined && message.nodeMetricsLatestRequest !== null) {
+        writer.uint32(tag(17, WIRE.LDELIM)).fork();
+        writeNodeMetricsLatestRequest(message.nodeMetricsLatestRequest, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -24665,7 +25823,7 @@ export function encodeMsgToSecondary(message) {
  */
 function decodeMsgToSecondaryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {deploymentLogRequest: undefined, stopLogRequestId: undefined, logQueryRequest: undefined, clusterProtocolVersion: 0, metricsQueryRequest: undefined, metricsLatestRequest: undefined, nixStoreResets: undefined, evicted: undefined, nodeSnapshot: undefined, nodeUpdate: undefined };
+    const message = {deploymentLogRequest: undefined, stopLogRequestId: undefined, logQueryRequest: undefined, clusterProtocolVersion: 0, metricsQueryRequest: undefined, metricsLatestRequest: undefined, nixStoreResets: undefined, evicted: undefined, nodeSnapshot: undefined, nodeUpdate: undefined, nodeMetricsQueryRequest: undefined, nodeMetricsLatestRequest: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -24707,6 +25865,14 @@ function decodeMsgToSecondaryMessage(reader, length) {
             }
             case 15: {
                 message.nodeUpdate = decodeNodeProjectionMessage(reader, reader.uint32());
+                break;
+            }
+            case 16: {
+                message.nodeMetricsQueryRequest = decodeNodeMetricsQueryRequestMessage(reader, reader.uint32());
+                break;
+            }
+            case 17: {
+                message.nodeMetricsLatestRequest = decodeNodeMetricsLatestRequestMessage(reader, reader.uint32());
                 break;
             }
             default:
@@ -24977,6 +26143,16 @@ export function writeMsgToPrimary(message, writer) {
         writeMetricsLatestResponse(message.metricsLatestResponse, writer);
         writer.ldelim();
     }
+    if (message.nodeMetricsQueryResponse !== undefined && message.nodeMetricsQueryResponse !== null) {
+        writer.uint32(tag(11, WIRE.LDELIM)).fork();
+        writeNodeMetricsQueryResponse(message.nodeMetricsQueryResponse, writer);
+        writer.ldelim();
+    }
+    if (message.nodeMetricsLatestResponse !== undefined && message.nodeMetricsLatestResponse !== null) {
+        writer.uint32(tag(12, WIRE.LDELIM)).fork();
+        writeNodeMetricsLatestResponse(message.nodeMetricsLatestResponse, writer);
+        writer.ldelim();
+    }
 }
 
 
@@ -24998,7 +26174,7 @@ export function encodeMsgToPrimary(message) {
  */
 function decodeMsgToPrimaryMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {statusWrite: undefined, logData: undefined, logEnd: undefined, logRequestId: undefined, netMapStatus: undefined, clusterHello: undefined, logQueryResponse: undefined, logQueryError: undefined, metricsQueryResponse: undefined, metricsLatestResponse: undefined };
+    const message = {statusWrite: undefined, logData: undefined, logEnd: undefined, logRequestId: undefined, netMapStatus: undefined, clusterHello: undefined, logQueryResponse: undefined, logQueryError: undefined, metricsQueryResponse: undefined, metricsLatestResponse: undefined, nodeMetricsQueryResponse: undefined, nodeMetricsLatestResponse: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -25040,6 +26216,14 @@ function decodeMsgToPrimaryMessage(reader, length) {
             }
             case 10: {
                 message.metricsLatestResponse = decodeMetricsLatestResponseMessage(reader, reader.uint32());
+                break;
+            }
+            case 11: {
+                message.nodeMetricsQueryResponse = decodeNodeMetricsQueryResponseMessage(reader, reader.uint32());
+                break;
+            }
+            case 12: {
+                message.nodeMetricsLatestResponse = decodeNodeMetricsLatestResponseMessage(reader, reader.uint32());
                 break;
             }
             default:

@@ -129,7 +129,13 @@ const (
 // version creates on this node; containerID appends the run number, so each
 // run (and, through containerd's default cgroup path, each cgroup) is unique.
 func containerFamily(deploymentID uint64, configVersion uint32, instanceID uint64) string {
-	return fmt.Sprintf("opendeploy-%d-%d-%d", deploymentID, configVersion, instanceID)
+	return fmt.Sprintf("%s%d-%d", deploymentContainerPrefix(deploymentID), configVersion, instanceID)
+}
+
+// deploymentContainerPrefix starts the id of every container of a deployment,
+// whichever placement it belongs to.
+func deploymentContainerPrefix(deploymentID uint64) string {
+	return fmt.Sprintf("opendeploy-%d-", deploymentID)
 }
 
 func containerID(family string, runNumber uint32) string {
@@ -176,11 +182,7 @@ func newRolloverContainerRunner(store storage.OperatorStore, inputs *runtimeinpu
 // operator never woke to build a replacement and the rollout stalled in silence.
 func (r *containerRunner) initFreshRun(dep *apigen.DeploymentRecord, preparerStatus apigen.PreparerStatus, candidate bool) {
 	if candidate {
-		timeout := containerReadinessTimeout(dep.Deployment.Spec.Container().ReadinessSignal)
-		r.readiness = &readinessConfig{timeout: timeout}
-		r.readinessDeadline = time.Now().Add(timeout)
-		r.readinessPending.Store(true)
-		r.readyCh = make(chan error, 1)
+		r.gateOnReadiness(dep)
 	}
 	r.status = apigen.RunnerStatus{
 		DeploymentSpecVersion: preparerStatus.DeploymentSpecVersion,
@@ -191,12 +193,35 @@ func (r *containerRunner) initFreshRun(dep *apigen.DeploymentRecord, preparerSta
 	r.writeStatus()
 }
 
+func (r *containerRunner) gateOnReadiness(dep *apigen.DeploymentRecord) {
+	timeout := containerReadinessTimeout(dep.Deployment.Spec.Container().ReadinessSignal)
+	r.readiness = &readinessConfig{timeout: timeout}
+	r.readinessDeadline = time.Now().Add(timeout)
+	r.readinessPending.Store(true)
+	r.readyCh = make(chan error, 1)
+}
+
 func reAttachContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID uint64, dep *apigen.DeploymentRecord, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
+	r := buildReAttachedContainerRunner(store, inputs, instanceID, nodeID, dep, prev, mode)
+	go r.run()
+	return r
+}
+
+// reAttachRolloverCandidate resumes a candidate that had not reported ready
+// when the agent stopped. The readiness deadline is not persisted, so the
+// timeout starts again.
+func reAttachRolloverCandidate(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID uint64, dep *apigen.DeploymentRecord, prev apigen.RunnerStatus) *containerRunner {
+	r := buildReAttachedContainerRunner(store, inputs, instanceID, nodeID, dep, prev, containerStartupReattachRunning)
+	r.gateOnReadiness(dep)
+	go r.run()
+	return r
+}
+
+func buildReAttachedContainerRunner(store storage.OperatorStore, inputs *runtimeinputs.RuntimeInputs, instanceID, nodeID uint64, dep *apigen.DeploymentRecord, prev apigen.RunnerStatus, mode containerStartupMode) *containerRunner {
 	ctx, cancel := context.WithCancel(deploymentLogContext(instanceID, dep))
 	r := buildContainerRunner(ctx, cancel, store, inputs, instanceID, nodeID, dep, prev.DeploymentSpecVersion)
 	r.status = prev
 	r.startupMode = mode
-	go r.run()
 	return r
 }
 
@@ -426,16 +451,34 @@ func (r *containerRunner) run() {
 				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 			} else {
 				r.registerSampling(task, r.currentRunNumber())
-				if r.usesLatestNetworkConfig() {
+				var exitCode apigen.Maybe[int32]
+				exitDone := make(chan struct{})
+				go func() {
+					exitCode = r.monitorTask(task)
+					close(exitDone)
+				}()
+				running := true
+				if r.readinessPending.Load() {
+					// An agent restart does not make a warming candidate ready:
+					// it keeps STARTING and waits for the signal as before.
+					var finished bool
+					running, finished = r.resumeReadiness(task, exitDone)
+					if finished {
+						return
+					}
+				} else if r.usesLatestNetworkConfig() {
 					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, int(task.Pid()))
 				}
-				r.status.ExitCode = r.monitorTask(task)
-				r.deleteTask(task)
-				r.setTask(nil)
-				r.cleanupContainerNetState()
 				hadProcess = true
-				if !r.stopping.Load() {
-					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, int(task.Pid()))
+				if running {
+					<-exitDone
+					r.status.ExitCode = exitCode
+					r.deleteTask(task)
+					r.setTask(nil)
+					r.cleanupContainerNetState()
+					if !r.stopping.Load() {
+						r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, int(task.Pid()))
+					}
 				}
 			}
 		} else {
@@ -633,32 +676,12 @@ func (r *containerRunner) run() {
 		}()
 
 		if readinessActive {
-			outcome, taskExited, readyErr := r.waitForReadiness(ready, closeReady, exitDone)
-			if outcome == readinessSignalled {
-				r.readinessPending.Store(false)
-				r.notifyReady(nil)
-				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, int(task.Pid()))
-			} else {
-				slog.WarnContext(r.ctx, "rollover candidate did not report ready", "err", readyErr)
-				if !taskExited {
-					_ = task.Kill(context.Background(), syscall.SIGTERM)
-				}
-				r.deleteTask(task)
-				r.setTask(nil)
-				r.cleanupContainerNet(cn)
-				if outcome == readinessGiveUp {
-					r.failReadiness(readyErr)
-					return
-				}
-				// The deadline has not passed, so this is an ordinary crash: record
-				// it, back off, and try again. The operator is told nothing yet, so
-				// it keeps waiting on this candidate rather than building a second.
-				if r.stopping.Load() {
-					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
-					return
-				}
+			signalled, finished := r.settleReadiness(task, cn, ready, closeReady, exitDone)
+			if finished {
+				return
+			}
+			if !signalled {
 				crashCount++
-				r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
 				if !r.sleepBackoff(crashCount) {
 					r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
 					return
@@ -979,8 +1002,12 @@ type readinessListener struct {
 	close func()
 }
 
+func (r *containerRunner) readinessDir(runNumber uint32) string {
+	return filepath.Join(ainit.StaticConfig.ReadinessDir, strconv.FormatUint(r.deploymentID, 10), strconv.FormatUint(uint64(r.status.DeploymentSpecVersion), 10), strconv.FormatUint(uint64(runNumber), 10))
+}
+
 func (r *containerRunner) startReadinessListener(runNumber uint32) (*readinessListener, error) {
-	dir := filepath.Join(ainit.StaticConfig.ReadinessDir, strconv.FormatUint(r.deploymentID, 10), strconv.FormatUint(uint64(r.status.DeploymentSpecVersion), 10), strconv.FormatUint(uint64(runNumber), 10))
+	dir := r.readinessDir(runNumber)
 	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
@@ -990,6 +1017,24 @@ func (r *containerRunner) startReadinessListener(runNumber uint32) (*readinessLi
 	if err := os.Chmod(dir, 0o777); err != nil {
 		return nil, err
 	}
+	return r.listenForReadiness(dir)
+}
+
+// resumeReadinessListener listens again for a container that outlived the
+// agent. The directory is the container's bind mount, so it has to be the same
+// one: only the dead socket in it is replaced.
+func (r *containerRunner) resumeReadinessListener(runNumber uint32) (*readinessListener, error) {
+	dir := r.readinessDir(runNumber)
+	if _, err := os.Stat(dir); err != nil {
+		return nil, err
+	}
+	if err := os.Remove(filepath.Join(dir, containerReadinessSocketName)); err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return r.listenForReadiness(dir)
+}
+
+func (r *containerRunner) listenForReadiness(dir string) (*readinessListener, error) {
 	sockPath := filepath.Join(dir, containerReadinessSocketName)
 	listener, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -1076,6 +1121,56 @@ func (r *containerRunner) waitForReadiness(ready <-chan error, closeReady func()
 	case <-r.ctx.Done():
 		return readinessGiveUp, false, r.ctx.Err()
 	}
+}
+
+// settleReadiness waits out one startup attempt of a candidate. signalled
+// means the container reported ready and RUNNING is published. Otherwise the
+// attempt is over and its task and network are gone: finished means the runner
+// is done too, and when it is not the caller respawns.
+func (r *containerRunner) settleReadiness(task *ctrd.Task, cn *network.ContainerNet, ready <-chan error, closeReady func(), exitDone <-chan struct{}) (signalled, finished bool) {
+	outcome, taskExited, readyErr := r.waitForReadiness(ready, closeReady, exitDone)
+	if outcome == readinessSignalled {
+		r.readinessPending.Store(false)
+		r.notifyReady(nil)
+		r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_RUNNING, int(task.Pid()))
+		return true, false
+	}
+	slog.WarnContext(r.ctx, "rollover candidate did not report ready", "err", readyErr)
+	if !taskExited {
+		_ = task.Kill(context.Background(), syscall.SIGTERM)
+	}
+	r.deleteTask(task)
+	r.setTask(nil)
+	r.cleanupContainerNet(cn)
+	if outcome == readinessGiveUp {
+		r.failReadiness(readyErr)
+		return false, true
+	}
+	// The deadline has not passed, so this is an ordinary crash: record it and
+	// try again. The operator is told nothing yet, so it keeps waiting on this
+	// candidate rather than building a second.
+	if r.stopping.Load() {
+		r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STOPPED, 0)
+		return false, true
+	}
+	r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
+	return false, false
+}
+
+// resumeReadiness is settleReadiness for a candidate adopted after an agent
+// restart. A signal sent while no agent was listening is lost; a container that
+// treats the failed send as fatal exits and is respawned like any other.
+func (r *containerRunner) resumeReadiness(task *ctrd.Task, exitDone <-chan struct{}) (signalled, finished bool) {
+	listener, err := r.resumeReadinessListener(r.currentRunNumber())
+	if err != nil {
+		slog.ErrorContext(r.ctx, "resuming readiness listener failed", "err", err)
+		r.stopAdoptedTask(task)
+		r.cleanupContainerNetState()
+		r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_CRASHED, 0)
+		return false, false
+	}
+	r.updateStatus(apigen.RunningStatus_RUNNING_STATUS_STARTING, int(task.Pid()))
+	return r.settleReadiness(task, r.getContainerNet(), listener.ready, listener.close, exitDone)
 }
 
 // failReadiness abandons a rollover candidate. It releases the operator, which
@@ -1294,6 +1389,7 @@ func (r *containerRunner) recoverContainerNet() error {
 		return err
 	}
 	r.setContainerNet(cn)
+	r.sweepDeploymentNets()
 	// Reclaiming the address is left to Serve: an adopted task only owns the
 	// instance address if its placement is the serving one.
 	if err := r.claimInboundAddress(cn); err != nil {
@@ -1440,15 +1536,40 @@ func (r *containerRunner) cleanupContainerNetState() {
 func (r *containerRunner) cleanupDeploymentNetState() {
 	if cn := r.getContainerNet(); cn != nil {
 		r.cleanupContainerNet(cn)
-		network.Default.CleanupContainerNets(int32(r.deploymentID), nil)
+		r.sweepDeploymentNets()
 		return
 	}
 	if err := network.Default.ClearHostPorts(int32(r.deploymentID), r.containerID); err != nil {
 		slog.WarnContext(r.ctx, "clearing host ports failed", "err", err)
 	}
 	network.Default.DropCurrentNet(int32(r.deploymentID), r.containerID)
-	network.Default.CleanupContainerNets(int32(r.deploymentID), nil)
+	network.Default.TeardownContainerNetState(r.containerID, int32(r.deploymentID))
+	r.sweepDeploymentNets()
 	r.setContainerNet(nil)
+}
+
+// sweepDeploymentNets removes network state the deployment's earlier runs left
+// behind. It runs while runners are still reattaching, when another placement
+// of the deployment (the other side of a rollover) may not have recovered its
+// network yet, so anything that placement still has a container for is left to
+// its own runner.
+func (r *containerRunner) sweepDeploymentNets() {
+	ids, err := ctrd.Default.ListContainerIDs(r.ctx, deploymentContainerPrefix(r.deploymentID))
+	if err != nil {
+		slog.WarnContext(r.ctx, "listing containers failed, leaving stale network state in place", "err", err)
+		return
+	}
+	network.Default.CleanupContainerNets(int32(r.deploymentID), otherPlacementContainers(ids, r.containerFamily))
+}
+
+func otherPlacementContainers(ids []string, family string) []string {
+	var others []string
+	for _, id := range ids {
+		if !strings.HasPrefix(id, family+"-") {
+			others = append(others, id)
+		}
+	}
+	return others
 }
 
 func (r *containerRunner) setContainerNet(cn *network.ContainerNet) {

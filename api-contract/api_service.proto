@@ -269,6 +269,16 @@ service ApiServer {
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
   }
 
+  rpc PostV1MetricsNodesQuery(NodeMetricsQueryRequest) returns (NodeMetricsQueryResponse) {
+    option (cp.url) = "/v1/metrics/nodes/query";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
+  rpc PostV1MetricsNodesLatest(NodeMetricsLatestRequest) returns (NodeMetricsLatestResponse) {
+    option (cp.url) = "/v1/metrics/nodes/latest";
+    option (cp.policy) = { policy_type: ANY_OF scopes: "full" };
+  }
+
   rpc PostV1DeploymentsPrepareOutput(PrepareOutputRequest) returns (stream PrepareOutputChunk) {
     option (cp.url) = "/v1/deployments/prepare-output";
     option (cp.policy) = { policy_type: ANY_OF scopes: "full" };

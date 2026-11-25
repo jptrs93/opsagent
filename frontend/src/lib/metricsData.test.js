@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CHARTS, QUERY_FIELDS, buildChartData} from './metricsData.js';
+import {CHARTS, NODE_CHARTS, NODE_QUERY_FIELDS, QUERY_FIELDS, buildChartData, buildNodeChartData} from './metricsData.js';
 
 const series = (run, field, values) => ({scheduledInstanceId: run, ordinal: 0, deploymentVersion: 1, run: 1, nodeId: 2, field, kind: 0, values});
 
@@ -48,4 +48,34 @@ test('a line keeps its colour slot when the lines before it have no data', () =>
 test('query fields cover every chart line exactly once', () => {
     const fields = CHARTS.flatMap(c => c.lines.map(l => l.field));
     assert.deepEqual([...new Set(fields)], QUERY_FIELDS);
+});
+
+test('node charts plot one line per field, scaled, and leave a chart out when it has no field', () => {
+    const out = buildNodeChartData({
+        timeStart: new Date(1_700_000_000_000),
+        stepMs: 60_000,
+        buckets: 2,
+        series: [
+            {nodeId: 2, field: 'cpu_usage_usec', kind: 0, values: [1_500_000, NaN]},
+            {nodeId: 2, field: 'cpu_iowait_usec', kind: 0, values: [250_000, 500_000]},
+            {nodeId: 2, field: 'fs_data_used_bytes', kind: 1, values: [10, 20]},
+            {nodeId: 2, field: 'fs_data_total_bytes', kind: 1, values: [100, 100]},
+        ],
+    });
+    assert.equal(out.buckets, 2);
+    assert.equal(out.stepMs, 60_000);
+    assert.equal(out.startTs, 1_700_000_000_000);
+    assert.equal(out.fields, 4);
+    assert.deepEqual(out.charts.cpu.series.map(s => s.label), ['total', 'iowait']);
+    assert.deepEqual(out.charts.cpu.series[0].values.map(v => Number.isNaN(v) ? 'nan' : v), [1.5, 'nan']);
+    assert.equal(out.charts.cpu.series[1].color, 'var(--chart-series-4)');
+    assert.deepEqual(out.charts.disk.series.map(s => s.values), [[10, 20], [100, 100]]);
+    assert.equal(out.charts.mem, null);
+    assert.equal(out.charts.net, null);
+});
+
+test('node query fields cover every node chart line exactly once', () => {
+    const fields = NODE_CHARTS.flatMap(c => c.lines.map(l => l.field));
+    assert.deepEqual([...new Set(fields)], NODE_QUERY_FIELDS);
+    assert.equal(fields.length, NODE_QUERY_FIELDS.length);
 });

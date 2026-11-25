@@ -117,6 +117,7 @@ func Run(parentCtx context.Context, embeddedFS fs.FS) error {
 		return state.Instance.NodeID == primaryNode.ID
 	})
 	webUIHandler.Metrics = metricstore.Default
+	webUIHandler.NodeMetrics = metricstore.DefaultNode
 	webUIHandler.Enrollment = enrollmentHandler
 	enrollmentMiddlewares := []apigen.MiddlewareFunc{
 		ratelimit.PerIP(rate.Limit(0.2), 5, time.Minute),

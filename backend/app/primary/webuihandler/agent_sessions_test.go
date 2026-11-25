@@ -290,7 +290,7 @@ func TestAgentInstructionsRender(t *testing.T) {
 	// The page is an agent's only map of the API, so it has to name the
 	// shapes the server actually serves: the event stream's mutation envelope
 	// and the log/metrics endpoints an operator may grant.
-	for _, want := range []string{"/v1/global/events", "`snapshot`", "`meta`", "`updated_seq`", "`mutations`", "`entity_type`", "`entity_id`", "`spec_version`", "value_version", `"restart": {}`, "dedicated_nodes", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/user-sessions/*"} {
+	for _, want := range []string{"/v1/global/events", "`snapshot`", "`meta`", "`updated_seq`", "`mutations`", "`entity_type`", "`entity_id`", "`spec_version`", "value_version", `"restart": {}`, "dedicated_nodes", "/v1/deployments/log-query", "/v1/deployments/run-report", "/v1/metrics/query", "/v1/metrics/latest", "/v1/metrics/nodes/query", "/v1/metrics/nodes/latest", "/v1/user-sessions/*"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("instructions omit %s", want)
 		}

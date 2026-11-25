@@ -297,15 +297,23 @@ func newRetainedContainerNets(nets []*ContainerNet) retainedContainerNets {
 	return retained
 }
 
-func (m *Manager) retainedContainerNetsForDeployment(deploymentID int32, nets []*ContainerNet) retainedContainerNets {
-	all := make([]*ContainerNet, 0, len(nets)+len(m.containerNets))
-	all = append(all, nets...)
+func (m *Manager) retainedContainerNetsForDeployment(deploymentID int32) retainedContainerNets {
+	var tracked []*ContainerNet
 	for _, cn := range m.containerNets {
 		if cn.DeploymentID == deploymentID {
-			all = append(all, cn)
+			tracked = append(tracked, cn)
 		}
 	}
-	return newRetainedContainerNets(all)
+	return newRetainedContainerNets(tracked)
+}
+
+// keep retains a container this process does not track. hostVeth is empty when
+// the container has no network namespace to find it through.
+func (r retainedContainerNets) keep(containerID, hostVeth string) {
+	r.containerIDs[containerID] = struct{}{}
+	if hostVeth != "" {
+		r.hostVeths[hostVeth] = struct{}{}
+	}
 }
 
 func (r retainedContainerNets) keepsContainer(containerID string) bool {

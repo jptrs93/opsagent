@@ -1,6 +1,8 @@
 package metricstore
 
 import (
+	"fmt"
+
 	"github.com/jptrs93/opsagent/backend/apigen"
 )
 
@@ -12,12 +14,14 @@ const (
 	Average
 )
 
-type Field struct {
+type FieldOf[S any] struct {
 	Name  string
 	Kind  Kind
-	Int   func(*apigen.MetricsSample) apigen.Maybe[int64]
-	Float func(*apigen.MetricsSample) apigen.Maybe[float64]
+	Int   func(*S) apigen.Maybe[int64]
+	Float func(*S) apigen.Maybe[float64]
 }
+
+type Field = FieldOf[apigen.MetricsSample]
 
 type sample = apigen.MetricsSample
 
@@ -79,15 +83,34 @@ var Fields = []Field{
 }
 
 func FieldByName(name string) (Field, bool) {
-	for _, f := range Fields {
+	return fieldByName(Fields, name)
+}
+
+func fieldByName[S any](fields []FieldOf[S], name string) (FieldOf[S], bool) {
+	for _, f := range fields {
 		if f.Name == name {
 			return f, true
 		}
 	}
-	return Field{}, false
+	return FieldOf[S]{}, false
 }
 
-func (f Field) Value(s *apigen.MetricsSample) (float64, bool) {
+func requestFields[S any](all []FieldOf[S], names []string) ([]FieldOf[S], error) {
+	if len(names) == 0 {
+		return all, nil
+	}
+	out := make([]FieldOf[S], 0, len(names))
+	for _, n := range names {
+		f, ok := fieldByName(all, n)
+		if !ok {
+			return nil, fmt.Errorf("unknown metric %q", n)
+		}
+		out = append(out, f)
+	}
+	return out, nil
+}
+
+func (f FieldOf[S]) Value(s *S) (float64, bool) {
 	if f.Int != nil {
 		if v := f.Int(s); v.Present {
 			return float64(v.Value), true
@@ -101,14 +124,31 @@ func (f Field) Value(s *apigen.MetricsSample) (float64, bool) {
 }
 
 func Rate(prev, cur *apigen.MetricsSample, f Field) (float64, bool) {
-	if f.Kind != Counter || f.Int == nil || Key(prev) != Key(cur) || cur.Time <= prev.Time {
+	if Key(prev) != Key(cur) {
+		return 0, false
+	}
+	return counterRate(prev, cur, prev.Time, cur.Time, f)
+}
+
+func counterRate[S any](prev, cur *S, prevTime, curTime int64, f FieldOf[S]) (float64, bool) {
+	if f.Kind != Counter || f.Int == nil || curTime <= prevTime {
 		return 0, false
 	}
 	a, b := f.Int(prev), f.Int(cur)
 	if !a.Present || !b.Present || b.Value < a.Value {
 		return 0, false
 	}
-	return float64(b.Value-a.Value) / (float64(cur.Time-prev.Time) / 1000), true
+	return float64(b.Value-a.Value) / (float64(curTime-prevTime) / 1000), true
+}
+
+func counterRates[S any](prev, cur *S, prevTime, curTime int64, fields []FieldOf[S]) []apigen.MetricsRate {
+	var rates []apigen.MetricsRate
+	for _, f := range fields {
+		if r, ok := counterRate(prev, cur, prevTime, curTime, f); ok {
+			rates = append(rates, apigen.MetricsRate{Field: f.Name, PerSecond: r})
+		}
+	}
+	return rates
 }
 
 func GroupByKey(sorted []*apigen.MetricsSample) [][]*apigen.MetricsSample {

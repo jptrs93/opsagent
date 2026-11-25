@@ -3,6 +3,9 @@ package runner
 import (
 	"context"
 	"errors"
+	"net"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -394,6 +397,127 @@ func TestFailReadinessReleasesTheOperator(t *testing.T) {
 	statuses := store.runnerStatuses()
 	if got := statuses[len(statuses)-1].Status; got != apigen.RunningStatus_RUNNING_STATUS_CRASHED {
 		t.Fatalf("final status = %v, want CRASHED", got)
+	}
+}
+
+// A candidate that was warming when the agent restarted is still a candidate.
+// Publishing RUNNING on reattach is what let the scheduler promote a placement
+// that had not reported ready and stop the one that was serving.
+func TestReattachedCandidateStaysGatedUntilSignalled(t *testing.T) {
+	store := &fakeOperatorStore{}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	dep := rolloverTestDeployment()
+	prev := apigen.RunnerStatus{DeploymentSpecVersion: 3, RunningArtifact: "example/app:v3", Status: apigen.RunningStatus_RUNNING_STATUS_STARTING}
+	r := buildContainerRunner(ctx, cancel, store, nil, opendeployTestInstanceID, 1, dep, prev.DeploymentSpecVersion)
+	r.status = prev
+	r.gateOnReadiness(dep)
+
+	if !r.readinessPending.Load() || time.Until(r.readinessDeadline) <= 0 {
+		t.Fatal("a reattached candidate must wait for its readiness signal")
+	}
+
+	ready := make(chan error, 1)
+	ready <- nil
+	signalled, finished := r.settleReadiness(&ctrd.Task{}, nil, ready, func() {}, make(chan struct{}))
+	if !signalled || finished {
+		t.Fatalf("settleReadiness() = %v, %v, want signalled and not finished", signalled, finished)
+	}
+	if r.readinessPending.Load() {
+		t.Fatal("the signal must open the readiness gate")
+	}
+	if err := r.WaitReady(); err != nil {
+		t.Fatalf("WaitReady() = %v, want nil", err)
+	}
+	statuses := store.runnerStatuses()
+	if len(statuses) != 1 || statuses[0].Status != apigen.RunningStatus_RUNNING_STATUS_RUNNING {
+		t.Fatalf("statuses = %+v, want RUNNING published only once the signal arrived", statuses)
+	}
+}
+
+// The readiness directory is bind-mounted into the running container, so
+// listening again must reuse it: a recreated directory would not be the one
+// the container sees.
+func TestResumeReadinessListenerReusesTheMountedDirectory(t *testing.T) {
+	// Unix socket paths are short; t.TempDir() is too long on macOS.
+	root, err := os.MkdirTemp("/tmp", "odready")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	previous := ainit.StaticConfig.ReadinessDir
+	ainit.StaticConfig.ReadinessDir = root
+	t.Cleanup(func() { ainit.StaticConfig.ReadinessDir = previous })
+
+	r := newTestCandidate(t, &fakeOperatorStore{})
+	if _, err := r.resumeReadinessListener(1); err == nil {
+		t.Fatal("resuming without the run's directory must fail so the candidate is restarted")
+	}
+
+	first, err := r.startReadinessListener(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mounted, err := os.Stat(first.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.close()
+	// A killed agent leaves its socket file behind.
+	sockPath := filepath.Join(first.dir, containerReadinessSocketName)
+	if err := os.WriteFile(sockPath, nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed, err := r.resumeReadinessListener(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(resumed.close)
+	after, err := os.Stat(resumed.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(mounted, after) {
+		t.Fatal("the readiness directory was recreated")
+	}
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Write([]byte("ready\n")); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
+	select {
+	case err := <-resumed.ready:
+		if err != nil {
+			t.Fatalf("readiness signal = %v, want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the resumed listener did not receive the signal")
+	}
+}
+
+// During a rollover two placements of one deployment reattach at once. The
+// sweep each runs must leave the other's container alone and still clear its
+// own earlier runs.
+func TestOtherPlacementContainers(t *testing.T) {
+	family := containerFamily(24, 149, 1180)
+	ids := []string{
+		"opendeploy-24-149-1180-1",
+		"opendeploy-24-149-1180-2",
+		"opendeploy-24-150-1200-1",
+		"opendeploy-24-149-11800-1",
+	}
+	got := otherPlacementContainers(ids, family)
+	want := []string{"opendeploy-24-150-1200-1", "opendeploy-24-149-11800-1"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("otherPlacementContainers() = %v, want %v", got, want)
+	}
+	if prefix := deploymentContainerPrefix(24); prefix != "opendeploy-24-" {
+		t.Fatalf("deploymentContainerPrefix(24) = %q", prefix)
 	}
 }
 

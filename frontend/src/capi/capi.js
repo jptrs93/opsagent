@@ -36,6 +36,8 @@ import {
   decodeMsgToSecondary,
   decodeNodeEnrollmentInfo,
   decodeNodeExposure,
+  decodeNodeMetricsLatestResponse,
+  decodeNodeMetricsQueryResponse,
   decodePrepareOutputChunk,
   decodeRecentlyDeletedDeployments,
   decodeRepoValidateResponse,
@@ -106,6 +108,8 @@ import {
   encodeNodeDrainRequest,
   encodeNodeEvictRequest,
   encodeNodeExposureRequest,
+  encodeNodeMetricsLatestRequest,
+  encodeNodeMetricsQueryRequest,
   encodeNodeRenameRequest,
   encodeOpenSessionRequest,
   encodePasswordLoginRequest,
@@ -944,6 +948,32 @@ export class Capi {
       return this.errorHandler(response);
     }
     return decodeMetricsLatestResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeMetricsQueryRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<NodeMetricsQueryResponse>}
+   */
+  async postV1MetricsNodesQuery(payload, options = {}) {
+    const response = await this.#request("/v1/metrics/nodes/query", { method: 'POST', body: encodeNodeMetricsQueryRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNodeMetricsQueryResponse(await response.arrayBuffer());
+  }
+
+  /**
+   * @param {NodeMetricsLatestRequest} payload
+   * @param {{ signal?: AbortSignal }} [options={}]
+   * @returns {Promise<NodeMetricsLatestResponse>}
+   */
+  async postV1MetricsNodesLatest(payload, options = {}) {
+    const response = await this.#request("/v1/metrics/nodes/latest", { method: 'POST', body: encodeNodeMetricsLatestRequest(payload), signal: options.signal });
+    if (!response.ok) {
+      return this.errorHandler(response);
+    }
+    return decodeNodeMetricsLatestResponse(await response.arrayBuffer());
   }
 
   /**
