@@ -469,3 +469,8 @@
         }
     }
 }
+
+/* Un-layered: .colgrip is un-layered, so a rule inside the layer cannot restyle it. */
+:root:not([data-theme="slate"], [data-theme="graphite"]) .dep-mini-th .colgrip:not(:hover, :focus-visible)::after {
+    background: transparent;
+}

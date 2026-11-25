@@ -4,6 +4,36 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.630 (released 2026-11-25)
+
+### What changed
+
+A Web UI release. Nothing changes on disk or on the wire.
+
+- **The history table's columns fit their content and can be dragged.** Time,
+  Type, V and By are as wide as their content and Change takes the rest, so a
+  long user name is shown in full. Drag the edge between two columns to set
+  a width; double-click the edge to fit the content again. The widths are
+  kept in the browser and shared by every deployment.
+- **Denser rows on the Spaces, Domain policies and Access policies pages.**
+  The controls in a row are 24px tall.
+- **The "Check a hostname" and "Check a placement" helpers are removed** from
+  the Domain policies and Access policies toolbars. The line on evaluation
+  order takes their place beside Add policy. The server decides as before.
+
+### Before upgrading
+
+- Nothing needs doing.
+
+### Rollout
+
+- Only the primary serves the Web UI, so the change shows once the primary
+  is upgraded. Reload any open tab.
+
+### After upgrading
+
+- Nothing to check.
+
 ## v0.0.629 (released 2026-11-25)
 
 ### What changed

@@ -5,8 +5,9 @@ import {resolveUserDisplayName} from "../lib/users.js";
 import {deploymentDeleted, deploymentRestartEvent, deploymentWorkload, desiredRunning} from "../lib/deployment.js";
 import {rollupLabel, rollupOf, inputsLabel, imageLabel, InputsStatus, ImageStatus} from "../lib/preparerStatus.js";
 import {crashReasonLabel} from "../lib/crashReason.js";
+import {fitColumns} from "./columnGrip.js";
 
-const {button, col, colgroup, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;
+const {button, div, input, label, p, span, table, tbody, td, th, thead, tr} = van.tags;
 
 const runnerStatusLabels = {
     0: 'unknown',
@@ -115,8 +116,24 @@ const tsMs = (t) => (t instanceof Date ? t.getTime() : 0);
 // inspector.
 const showStatusRows = van.state(false);
 
-const miniTh = (text, extra = "") => th({class: `dep-mini-th ${extra}`}, text);
-const miniTd = (extra, ...children) => td({class: `dep-mini-td ${extra}`}, ...children);
+const COLUMNS = [
+    {key: "time", label: "Time"},
+    {key: "type", label: "Type"},
+    {key: "version", label: "V"},
+    {key: "by", label: "By"},
+    {key: "change", label: "Change", flex: true},
+];
+
+const columns = fitColumns({storageKey: "opsagent_history_col_widths", prefix: "hist", columns: COLUMNS});
+
+const miniTh = (column) => th(
+    {class: `dep-mini-th relative px-1.5 ${columns.cellClass(column.key)}`, style: columns.cellStyle(column.key)},
+    span({class: "block truncate"}, column.label),
+    columns.grip(column.key));
+
+const miniTd = (key, extra, ...children) => td(
+    {class: `dep-mini-td truncate px-1.5 ${columns.cellClass(key)} ${extra}`, style: columns.cellStyle(key), "data-col": key},
+    ...children);
 
 // deploymentHistoryPanel renders one deployment's audit trail as the inspector
 // History tab: a dense Time | Type | V | By | Change table with an inline
@@ -204,20 +221,13 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
             return p({class: "p-4 text-sm text-gray-500"}, showStatusRows.val ? "No history." : "No config changes.");
         }
         return table(
-            {class: "w-full table-fixed border-collapse text-xs"},
-            colgroup(
-                col({style: "width:7.2rem"}),
-                col({style: "width:3.2rem"}),
-                col({style: "width:5.4rem"}),
-                col({style: "width:3rem"}),
-                col(),
-            ),
-            thead(tr(miniTh("Time"), miniTh("Type"), miniTh("V"), miniTh("By"), miniTh("Change"))),
+            {class: "w-full table-auto border-collapse text-xs", style: columns.tableStyle, "data-testid": "deployment-history-table"},
+            thead(tr(...COLUMNS.map(miniTh))),
             tbody(...rows.map((entry) => tr(
                 {class: "dep-mini-row"},
-                miniTd("font-mono text-gray-500 tabular-nums", formatHistoryTime(entry.at)),
-                miniTd(entry.kind === 'config' ? "text-orange-300 graphite:text-gray-300" : "text-gray-500", entry.kind),
-                miniTd("font-mono text-gray-500 tabular-nums",
+                miniTd("time", "font-mono text-gray-500 tabular-nums", formatHistoryTime(entry.at)),
+                miniTd("type", entry.kind === 'config' ? "text-orange-300 graphite:text-gray-300" : "text-gray-500", entry.kind),
+                miniTd("version", "font-mono text-gray-500 tabular-nums",
                     entry.v === null ? "" : span(`v${entry.v}`),
                     entry.canRevert
                         ? span(" ",
@@ -228,8 +238,8 @@ export function deploymentHistoryPanel(deploymentId, onRevertTargetVersion = () 
                                 onclick: () => onRevertTargetVersion(deploymentId, entry.config),
                             }, "revert"))
                         : ""),
-                miniTd("truncate text-gray-500", entry.by),
-                miniTd(`font-mono truncate ${entry.kind === 'config' ? 'text-orange-300 graphite:text-gray-200' : 'text-gray-400'}`,
+                miniTd("by", "text-gray-500", span({title: entry.by}, entry.by)),
+                miniTd("change", `font-mono ${entry.kind === 'config' ? 'text-orange-300 graphite:text-gray-200' : 'text-gray-400'}`,
                     span({title: entry.change}, entry.change)),
             ))),
         );

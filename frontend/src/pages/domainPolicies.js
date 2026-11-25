@@ -9,9 +9,7 @@ import {spaceDomainPoliciesS, spacesS} from "../state/deployments.js";
 import {
     MODE_EXACT,
     MODE_EXCEPT,
-    canonicalDomain,
     createPayload,
-    decide,
     describeDomains,
     describeSpaces,
     draftFromPolicy,
@@ -23,10 +21,9 @@ import {
     ruleSentence,
     togglePayload,
     updatePayload,
-    userSpaces,
 } from "../lib/domainPolicies.js";
 
-const {button, div, h2, input, label, option, p, select, span, textarea} = van.tags;
+const {button, div, h2, input, label, p, span, textarea} = van.tags;
 
 // One row is a grid: stacked while the pane is narrow, a table line once it
 // is wide. The controls sit second in the markup so they share the first
@@ -74,8 +71,6 @@ export function domainPoliciesPage() {
     const deleteTarget = van.state(null);
     const deleteSaving = van.state(false);
     const deleteError = van.state(null);
-    const checkSpace = van.state(0);
-    const checkHost = van.state("");
 
     const policies = () => [...(spaceDomainPoliciesS.val || [])].sort((a, b) => a.id - b.id);
     const spaceNames = () => new Map((spacesS.val || []).map((s) => [Number(s.id), s.name || `space ${s.id}`]));
@@ -95,55 +90,17 @@ export function domainPoliciesPage() {
         }
     };
 
-    // --- hostname check ---------------------------------------------------------
-
-    const checkSpaceId = () => {
-        const ids = userSpaces(spacesS.val).map((s) => Number(s.id));
-        return ids.includes(checkSpace.val) ? checkSpace.val : ids[0];
-    };
-
-    const checkResult = () => {
-        if (!checkHost.val.trim() || !policies().length) return "";
-        const hostname = canonicalDomain(checkHost.val);
-        const result = (cls, text) => span({class: `text-xs ${cls}`, "data-testid": "domain-policy-check-result"}, text);
-        if (!hostname || hostname.startsWith("*.")) return result("text-gray-500", "Not a hostname");
-        const decision = decide(policies(), checkSpaceId(), hostname);
-        if (decision.allowed) return result("text-green-300", "Allowed");
-        return result("text-red-300", decision.policy ? `Refused by ${decision.policy}` : "Refused: no enabled allow covers it");
-    };
-
     const toolbar = () => div(
-        {class: "page-toolbar cluster-toolbar gap-2 classic:py-2"},
-        span({class: "text-xs text-gray-400"}, "Check a hostname"),
-        () => select({
-            class: "input h-[30px] max-w-40 text-xs",
-            "aria-label": "Space to check",
-            "data-testid": "domain-policy-check-space",
-            onchange: (e) => { checkSpace.val = Number(e.target.value); },
-        }, ...userSpaces(spacesS.val).map((s) => option({value: s.id, selected: Number(s.id) === checkSpaceId()}, s.name || `space ${s.id}`))),
-        input({
-            class: "text-input search-input toolbar-input",
-            placeholder: "shop.example.com",
-            "aria-label": "Hostname to check",
-            "data-testid": "domain-policy-check-hostname",
-            spellcheck: false,
-            value: checkHost,
-            oninput: (e) => { checkHost.val = e.target.value; },
-        }),
-        checkResult,
-        div({class: "flex-1"}),
+        {class: "page-toolbar cluster-toolbar gap-3 classic:py-2"},
+        p({class: "min-w-0 flex-1 text-xs text-gray-500"},
+            "Denies are checked first, then allows; a hostname no enabled allow covers is refused. ",
+            mono("*.example.com"), " covers every name below ", mono("example.com"), ", not ", mono("example.com"), " itself."),
         button({
             type: "button",
-            class: "toolbar-button",
+            class: "toolbar-button flex-none",
             "data-testid": "domain-policy-add",
             onclick: () => openEditor(null),
         }, "Add policy"),
-    );
-
-    const explainer = () => p(
-        {class: "flex-none border-b border-gray-800 px-3 py-1.5 text-xs text-gray-500 slate:border-0 slate:pb-2 slate:pt-0 graphite:border-0 graphite:pt-2"},
-        "Denies are checked first, then allows; a hostname no enabled allow covers is refused. ",
-        mono("*.example.com"), " covers every name below ", mono("example.com"), ", not ", mono("example.com"), " itself.",
     );
 
     const openNotice = () => openToEverySpace(spaceDomainPoliciesS.val, spacesS.val) ? div(
@@ -165,7 +122,7 @@ export function domainPoliciesPage() {
             title: on ? "Enabled" : "Disabled",
             "data-testid": `domain-policy-toggle-${policy.id}`,
             disabled: () => Boolean(busyId.val),
-            class: () => "inline-flex h-7 items-center rounded px-1 " +
+            class: () => "inline-flex h-6 items-center rounded px-1 " +
                 (busyId.val === policy.id ? "cursor-wait opacity-60" : busyId.val ? "cursor-not-allowed" : "cursor-pointer"),
             onclick: () => toggle(policy),
         }, span(
@@ -184,7 +141,7 @@ export function domainPoliciesPage() {
         const off = policy.disabled;
         const tone = off ? "text-gray-500" : "text-gray-300";
         return div(
-            {class: `data-row grid ${ROW_COLS} items-center py-2 @3xl:py-1 classic:border-gray-800 classic:last:border-0 classic:hover:bg-transparent classic:@3xl:py-1.5`, "data-testid": `domain-policy-row-${policy.id}`},
+            {class: `data-row grid ${ROW_COLS} items-center py-1.5 @3xl:py-px classic:border-gray-800 classic:last:border-0 classic:hover:bg-transparent`, "data-testid": `domain-policy-row-${policy.id}`},
             div({class: "flex min-w-0 items-center gap-2"},
                 effectBadge(isDeny(policy.rule), off),
                 span({class: `truncate ${off ? "text-gray-500" : "text-gray-200"}`, title: policy.name}, policy.name),
@@ -196,7 +153,7 @@ export function domainPoliciesPage() {
                     title: `Edit policy ${policy.name}`,
                     "aria-label": `Edit policy ${policy.name}`,
                     "data-testid": `domain-policy-edit-${policy.id}`,
-                    class: "inline-flex h-7 items-center justify-center rounded px-2 text-xs text-gray-400 hover:bg-surface-hover hover:text-gray-100 transition-colors cursor-pointer",
+                    class: "inline-flex h-6 items-center justify-center rounded px-2 text-xs text-gray-400 hover:bg-surface-hover hover:text-gray-100 transition-colors cursor-pointer",
                     onclick: () => openEditor(policy),
                 }, "Edit"),
                 button({
@@ -204,7 +161,7 @@ export function domainPoliciesPage() {
                     title: `Delete policy ${policy.name}`,
                     "aria-label": `Delete policy ${policy.name}`,
                     "data-testid": `domain-policy-delete-${policy.id}`,
-                    class: "inline-flex h-7 w-7 items-center justify-center rounded text-gray-400 hover:bg-surface-hover hover:text-red-400 transition-colors cursor-pointer",
+                    class: "inline-flex h-6 w-6 items-center justify-center rounded text-gray-400 hover:bg-surface-hover hover:text-red-400 transition-colors cursor-pointer",
                     onclick: () => { deleteError.val = null; deleteTarget.val = policy; },
                 }, trashIcon())),
             summary("Spaces", describeSpaces(policy.rule?.selector?.spaces, names), tone),
@@ -408,7 +365,6 @@ export function domainPoliciesPage() {
     return div(
         {class: "h-full min-h-0 flex flex-col overflow-hidden"},
         toolbar(),
-        explainer(),
         openNotice,
         listArea(),
         () => editor.val ? editorOverlay(editor.val) : "",
