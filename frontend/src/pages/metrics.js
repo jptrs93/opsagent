@@ -7,7 +7,7 @@ import {deploymentDeleted} from "../lib/deployment.js";
 import {spacesFilter, spaceDot} from "../components/spacesFilter.js";
 import {resolveRange, timeRangePicker} from "../components/timeRangePicker.js";
 import {formatValue, lineChart} from "../components/lineChart.js";
-import {CHARTS, NODE_CHARTS, NODE_QUERY_FIELDS, QUERY_FIELDS, buildChartData, buildNodeChartData, runLabel} from "../lib/metricsData.js";
+import {CHARTS, NODE_CHARTS, NODE_QUERY_FIELDS, QUERY_FIELDS, buildChartData, buildNodeChartData, idleVolumes, placementKey, runLabel, volumesByPlacement} from "../lib/metricsData.js";
 import {latestByNode, nodeOverviewRow, usageTone} from "../lib/nodeMetrics.js";
 import {sortArrowIcon} from "../lib/icons.js";
 import {tabButton, tabPanel, tabStrip} from "../components/tabs.js";
@@ -34,6 +34,7 @@ const OVERVIEW_COLUMNS = [
     {key: 'tx', label: 'Net tx', num: true, value: r => r.tx},
     {key: 'read', label: 'Disk read', num: true, value: r => r.read},
     {key: 'write', label: 'Disk write', num: true, value: r => r.write},
+    {key: 'volume', label: 'Volume', num: true, value: r => r.volume},
     {key: 'pids', label: 'PIDs', num: true, value: r => r.pids},
     {key: 'tcp', label: 'TCP est', num: true, value: r => r.tcp},
     {key: 'age', label: 'Age', num: true, value: r => r.age},
@@ -151,6 +152,21 @@ const gaugeOf = (entry, field) => {
 
 const fmtStep = (ms) => ms >= 60_000 ? `${ms / 60_000} min` : `${ms / 1000} s`;
 
+const fmtAgo = (ms) => {
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 90) return `${s} s ago`;
+    if (s < 90 * 60) return `${Math.round(s / 60)} min ago`;
+    return `${Math.round(s / 3600)} h ago`;
+};
+
+const volumeTitle = (v, fetchedAt) => v
+    ? `${Number(v.inodes || 0).toLocaleString()} files and directories · measured ${fmtAgo(fetchedAt - Number(v.time))} in ${Number(v.walkMs || 0)} ms`
+    : "No volume measured for this deployment on this node";
+
+const volumeCell = (r, fetchedAt) => td(
+    {class: "metrics-cell text-right tabular-nums", title: volumeTitle(r.volumeInfo, fetchedAt), "data-testid": `metrics-overview-volume-${r.name}`},
+    formatValue(r.volume, 'bytes'));
+
 function loader(query) {
     const loading = van.state(false);
     const errorMsg = van.state('');
@@ -204,7 +220,7 @@ function overviewView({hiddenSpaces, openDeployment}) {
     const {loading, errorMsg, load, activate} = loader(async () => {
         const resp = await capi.postV1MetricsLatest({});
         return () => {
-            latest.val = {entries: resp.entries || [], warnings: resp.warnings || [], fetchedAt: Date.now()};
+            latest.val = {entries: resp.entries || [], volumes: resp.volumes || [], warnings: resp.warnings || [], fetchedAt: Date.now()};
             window.__metricsLatest = latest.val;
         };
     });
@@ -222,6 +238,7 @@ function overviewView({hiddenSpaces, openDeployment}) {
         const l = latest.val;
         if (!l) return loading.val ? 'Loading…' : 'No data yet.';
         let text = `${l.entries.length} running container${l.entries.length === 1 ? '' : 's'} · sampled every 10 s`;
+        if (l.volumes.length) text += ` · ${l.volumes.length} volume${l.volumes.length === 1 ? '' : 's'} measured every 30 min`;
         if (l.warnings.length) text += ` · ${l.warnings[0]}`;
         return text;
     };
@@ -234,11 +251,15 @@ function overviewView({hiddenSpaces, openDeployment}) {
         const items = liveDeployments();
         const hidden = hiddenSpaces.val;
         const machines = machinesS.val;
+        const volumes = volumesByPlacement(l.volumes);
         const rows = l.entries.map(e => {
             const s = e.sample;
             const deploymentId = Number(s?.deploymentId || 0);
             const item = selectedDeployment(items, deploymentId);
+            const volumeInfo = volumes.get(placementKey(deploymentId, s?.nodeId));
             return {
+                volumeInfo,
+                volume: volumeInfo ? Number(volumeInfo.bytes) : NaN,
                 entry: e, item, deploymentId,
                 name: item?.config?.deployment?.name || `#${s?.deploymentId}`,
                 spaceId: deploymentSpaceID(item),
@@ -255,15 +276,29 @@ function overviewView({hiddenSpaces, openDeployment}) {
                 tcp: gaugeOf(e, 'tcpEstablished'),
                 age: Math.max(0, Math.round((l.fetchedAt - Number(s.time)) / 1000)),
             };
-        }).filter(r => !r.item || !hidden.has(r.spaceId));
-        if (rows.length === 0) {
+        });
+        for (const v of idleVolumes(l.volumes, l.entries)) {
+            const deploymentId = Number(v.deploymentId);
+            const item = selectedDeployment(items, deploymentId);
+            rows.push({
+                idle: true, item, deploymentId,
+                name: item?.config?.deployment?.name || `#${deploymentId}`,
+                spaceId: deploymentSpaceID(item),
+                node: nodeDisplayName(v.nodeId, machines) || '',
+                run: 'not running', runNumber: 0,
+                cpu: NaN, mem: NaN, rx: NaN, tx: NaN, read: NaN, write: NaN, pids: NaN, tcp: NaN, age: NaN,
+                volumeInfo: v, volume: Number(v.bytes),
+            });
+        }
+        const shown = rows.filter(r => !r.item || !hidden.has(r.spaceId));
+        if (shown.length === 0) {
             return div({"data-testid": "metrics-overview-empty", class: "p-6 text-center text-xs text-gray-500"}, "No running containers are reporting metrics.");
         }
         return table(
             {"data-testid": "metrics-overview-table", class: "w-full border-collapse text-xs"},
             columns.head(),
-            tbody(...columns.sort(rows).map(r => tr({
-                "data-testid": `metrics-overview-row-${r.name}`,
+            tbody(...columns.sort(shown).map(r => tr({
+                "data-testid": r.idle ? `metrics-overview-idle-row-${r.name}` : `metrics-overview-row-${r.name}`,
                 "data-deployment-id": String(r.deploymentId),
                 class: "data-row cursor-pointer",
                 onclick: () => {
@@ -272,16 +307,17 @@ function overviewView({hiddenSpaces, openDeployment}) {
             },
                 td({class: "metrics-cell"}, span({class: "flex items-center gap-1.5"}, spaceDot(r.spaceId), span({class: "text-gray-200"}, r.name))),
                 td({class: "metrics-cell text-gray-400"}, r.node),
-                td({class: "metrics-cell font-mono text-gray-500"}, r.run),
+                td({class: `metrics-cell text-gray-500 ${r.idle ? '' : 'font-mono'}`}, r.run),
                 numCell(r.cpu, 'cores', 'text-gray-200'),
                 numCell(r.mem, 'bytes', 'text-gray-200'),
                 numCell(r.rx, 'bytes/s'),
                 numCell(r.tx, 'bytes/s'),
                 numCell(r.read, 'bytes/s'),
                 numCell(r.write, 'bytes/s'),
+                volumeCell(r, l.fetchedAt),
                 numCell(r.pids, 'count'),
                 numCell(r.tcp, 'count'),
-                td({class: "metrics-cell text-right tabular-nums text-gray-500"}, `${r.age}s`),
+                td({class: "metrics-cell text-right tabular-nums text-gray-500"}, r.idle ? '–' : `${r.age}s`),
             ))),
         );
     };

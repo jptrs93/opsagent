@@ -81,6 +81,12 @@ message MetricsSample {
   optional int64 tcp_other = 94 [(cp.js_type) = "number"];
 
   optional int64 open_fds = 100 [(cp.js_type) = "number"];
+
+  // Usage of the deployment's volume directory on this node. A reading is
+  // taken every 30 minutes and written on one row of one run, so these are
+  // absent on almost every row.
+  optional int64 volume_bytes = 110 [(cp.js_type) = "number"];
+  optional int64 volume_inodes = 111 [(cp.js_type) = "number"];
 }
 
 message FilesystemUsage {

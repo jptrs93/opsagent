@@ -139,7 +139,9 @@ func run(ctx context.Context, cfg runtimeConfig) {
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
 	go nixDockerPreparer.RunMaintenance(ctx)
 	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, int32(cfg.NodeID))
+	metricstore.Default.Volumes = metrics.Default.Volumes
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
+	go metrics.Default.RunVolumes(ctx, ainit.StaticConfig.VolumesDir)
 	metricstore.DefaultNode = metricstore.StartNode(ctx, metricstore.NodeDir(ainit.StaticConfig.MetricsDir), int32(cfg.NodeID))
 	go metrics.RunNode(ctx, metrics.DefaultInterval, metrics.OpenDeployRoots(), metricstore.DefaultNode)
 	logManager = logmanager.StartManager(ctx, store, scheduledInstancePredicateForNode(cfg.NodeID))

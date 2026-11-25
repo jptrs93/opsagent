@@ -12,6 +12,7 @@ const (
 	Counter Kind = iota
 	Gauge
 	Average
+	Held
 )
 
 type FieldOf[S any] struct {
@@ -80,6 +81,8 @@ var Fields = []Field{
 	{Name: "tcp_close_wait", Kind: Gauge, Int: func(s *sample) apigen.Maybe[int64] { return s.TcpCloseWait }},
 	{Name: "tcp_other", Kind: Gauge, Int: func(s *sample) apigen.Maybe[int64] { return s.TcpOther }},
 	{Name: "open_fds", Kind: Gauge, Int: func(s *sample) apigen.Maybe[int64] { return s.OpenFds }},
+	{Name: "volume_bytes", Kind: Held, Int: func(s *sample) apigen.Maybe[int64] { return s.VolumeBytes }},
+	{Name: "volume_inodes", Kind: Held, Int: func(s *sample) apigen.Maybe[int64] { return s.VolumeInodes }},
 }
 
 func FieldByName(name string) (Field, bool) {

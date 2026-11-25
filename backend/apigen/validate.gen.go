@@ -2990,6 +2990,22 @@ func (m *MetricsSample) validate(seen map[any]bool) error {
 		}
 		_ = value
 	}
+	{
+		v, present := m.VolumeBytes.Value, m.VolumeBytes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
+	{
+		v, present := m.VolumeInodes.Value, m.VolumeInodes.Present
+		var value *int64
+		if present {
+			value = &v
+		}
+		_ = value
+	}
 	return nil
 }
 
@@ -3574,6 +3590,19 @@ func (m *MetricsLatestEntry) validate(seen map[any]bool) error {
 	return nil
 }
 
+func (m *MetricsVolumeUsage) Validate() error { return m.validate(make(map[any]bool)) }
+func (m *MetricsVolumeUsage) validate(seen map[any]bool) error {
+	if m == nil {
+		return newValidationError(nil, "message is nil")
+	}
+	if seen[m] {
+		return newValidationError(nil, "cyclic message graph cannot be encoded")
+	}
+	seen[m] = true
+	defer delete(seen, m)
+	return nil
+}
+
 func (m *MetricsLatestResponse) Validate() error { return m.validate(make(map[any]bool)) }
 func (m *MetricsLatestResponse) validate(seen map[any]bool) error {
 	if m == nil {
@@ -3588,6 +3617,12 @@ func (m *MetricsLatestResponse) validate(seen map[any]bool) error {
 		_ = i
 		if err := item.validate(seen); err != nil {
 			return wrapValidationError(err, fmt.Sprintf("entries[%d]", i))
+		}
+	}
+	for i, item := range m.Volumes {
+		_ = i
+		if err := item.validate(seen); err != nil {
+			return wrapValidationError(err, fmt.Sprintf("volumes[%d]", i))
 		}
 	}
 	return nil

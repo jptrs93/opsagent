@@ -317,6 +317,13 @@ const METRIC_SHAPES = {
 const GAUGES = new Set(["mem_current", "mem_anon", "mem_file", "pids", "open_fds", "tcp_established", "tcp_time_wait", "tcp_close_wait"]);
 const KERNEL = new Set(["psi_cpu_some_avg10", "psi_mem_some_avg10", "psi_io_some_avg10"]);
 
+function volumeBytes(dep, id) {
+    if (!dep || Number(dep.entity.spaceId) === SPACE.system) return 0;
+    if (dep.entity.spec?.workload?.value?.runtime?.defaultVolume?.disabled) return 0;
+    const r = rng(id * 53 + 7);
+    return Math.round(2 ** (20 + r.next() * 15));
+}
+
 function buildMetrics(store, req) {
     const end = req.timeEnd instanceof Date ? req.timeEnd.getTime() : Date.now();
     const start = req.timeStart instanceof Date ? req.timeStart.getTime() : end - HOUR;
@@ -350,6 +357,15 @@ function buildMetrics(store, req) {
             series.push({scheduledInstanceId: instanceId, ordinal: 0, deploymentVersion: run.deploymentVersion, run: run.run, nodeId, field, kind: GAUGES.has(field) ? 1 : KERNEL.has(field) ? 2 : 0, values});
         }
     }
+    const volumeNow = volumeBytes(latest, id);
+    if (volumeNow && fields.includes("volume_bytes")) {
+        const perReading = Math.max(1, Math.round(30 * 60e3 / stepMs));
+        const values = Array.from({length: buckets}, (_, b) => {
+            const readingsAgo = Math.floor((buckets - 1 - b) / perReading);
+            return Math.round(volumeNow * (1 - Math.min(0.4, readingsAgo * 0.012)));
+        });
+        series.push({scheduledInstanceId: 0, ordinal: 0, deploymentVersion: 0, run: 0, nodeId, field: "volume_bytes", kind: 3, values});
+    }
     return rt("MetricsQueryResponse", {timeStart: new Date(start - (start % stepMs)), stepMs, buckets, series, scannedRows: buckets * runs.length * 6, tookMs: 18});
 }
 
@@ -382,7 +398,16 @@ function buildLatest(store) {
             ],
         });
     }
-    return rt("MetricsLatestResponse", {entries, warnings: ["edge-1: no samples for 9m (node disconnected)"]});
+    const volumes = [];
+    for (const dep of store.all(T.DEPLOYMENT)) {
+        if (dep.meta?.deleted) continue;
+        const bytes = volumeBytes(dep, Number(dep.id));
+        const nodeId = Number(dep.entity.scheduling?.placement?.value?.dedicatedNodes?.nodes?.[0] || 0);
+        if (!bytes || !nodeId) continue;
+        const r = rng(Number(dep.id) * 29);
+        volumes.push({deploymentId: Number(dep.id), nodeId, time: now - r.int(1, 29) * 60e3, bytes, inodes: Math.round(bytes / (20e3 + r.next() * 400e3)) + 2, walkMs: r.int(1, 240)});
+    }
+    return rt("MetricsLatestResponse", {entries, volumes, warnings: ["edge-1: no samples for 9m (node disconnected)"]});
 }
 
 const GIB = 1024 ** 3;

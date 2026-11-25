@@ -372,7 +372,10 @@ raw `sample` (cgroup counters and gauges such as `cpu_usage_usec`,
 `mem_current`, `pids`, and the `psi_*` pressure values) and `rates`, the
 per-second rate of every counter against the previous sample. CPU rates are
 in microseconds per second, so `cpu_usage_usec` divided by 1e6 is the number
-of CPUs in use.
+of CPUs in use. `volumes` lists the size of every deployment volume on every
+node, running or not: `deployment_id`, `node_id`, `bytes` (allocated, as `du`
+reports), `inodes`, and `time`, when it was measured in Unix milliseconds.
+Each volume is measured every 30 minutes.
 
 `POST /v1/metrics/query` returns one deployment's history on a time grid:
 
@@ -391,6 +394,10 @@ of CPUs in use.
   first. A counter series (`kind` `0`) is already a per-second rate; gauges
   (`kind` `1`) and kernel averages (`kind` `2`) are bucket means. A bucket
   with no data is `null`.
+- `volume_bytes` and `volume_inodes` (`kind` `3`) are the size of the
+  deployment's volume. They come back as one series per node for the whole
+  deployment, with `run` `0`, holding the last 30-minute reading; the
+  instance, version and run filters do not apply to them.
 - Prefer one wide window at a coarse step over many narrow ones; each call
   fans out to every node holding the deployment.
 

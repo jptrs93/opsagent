@@ -205,7 +205,9 @@ func (r *runtime) start(ctx context.Context, nodeID uint64, nodeIdentifier strin
 	go netaudit.Run(ctx, network.Default, netaudit.DefaultInterval)
 	go r.nixDocker.RunMaintenance(ctx)
 	metricstore.Default = metricstore.Start(ctx, ainit.StaticConfig.MetricsDir, int32(nodeID))
+	metricstore.Default.Volumes = metrics.Default.Volumes
 	go metrics.Default.Run(ctx, metrics.DefaultInterval, metricstore.Default)
+	go metrics.Default.RunVolumes(ctx, ainit.StaticConfig.VolumesDir)
 	metricstore.DefaultNode = metricstore.StartNode(ctx, metricstore.NodeDir(ainit.StaticConfig.MetricsDir), int32(nodeID))
 	go metrics.RunNode(ctx, metrics.DefaultInterval, metrics.OpenDeployRoots(), metricstore.DefaultNode)
 	volumeSweeper := runner.NewVolumeSweeper(scheduledinstances.Store{Service: r.store}, predicate)

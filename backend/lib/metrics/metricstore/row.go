@@ -71,6 +71,8 @@ type row struct {
 	TcpCloseWait        *int64   `parquet:"tcp_close_wait"`
 	TcpOther            *int64   `parquet:"tcp_other"`
 	OpenFds             *int64   `parquet:"open_fds"`
+	VolumeBytes         *int64   `parquet:"volume_bytes"`
+	VolumeInodes        *int64   `parquet:"volume_inodes"`
 }
 
 func sortingColumns() []parquet.SortingColumn {
@@ -195,6 +197,10 @@ func toSample(s *metrics.Sample, nodeID int32) *apigen.MetricsSample {
 	}
 	if s.OpenFDs != nil {
 		out.OpenFds = i64(*s.OpenFDs)
+	}
+	if v := s.Volume; v != nil {
+		out.VolumeBytes = i64(v.Bytes)
+		out.VolumeInodes = i64(v.Inodes)
 	}
 	return out
 }

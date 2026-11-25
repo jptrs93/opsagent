@@ -100,6 +100,18 @@ func (s *Store) LatestResponse() *apigen.MetricsLatestResponse {
 	for _, pair := range s.LatestPairs() {
 		out.Entries = append(out.Entries, LatestEntry(pair.Prev, pair.Cur))
 	}
+	if s.Volumes != nil {
+		for _, r := range s.Volumes() {
+			out.Volumes = append(out.Volumes, apigen.MetricsVolumeUsage{
+				DeploymentID: uint64(r.DeploymentID),
+				NodeID:       uint64(s.nodeID),
+				Time:         r.Time.UnixMilli(),
+				Bytes:        int64(r.Usage.Bytes),
+				Inodes:       int64(r.Usage.Inodes),
+				WalkMs:       int32(r.Walk.Milliseconds()),
+			})
+		}
+	}
 	return out
 }
 

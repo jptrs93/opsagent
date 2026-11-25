@@ -719,6 +719,8 @@
  * @property {number} tcpCloseWait
  * @property {number} tcpOther
  * @property {number} openFds
+ * @property {number} volumeBytes
+ * @property {number} volumeInodes
  */
 /**
  * @typedef {Object} FilesystemUsage
@@ -837,9 +839,19 @@
  * @property {MetricsRate[]} rates
  */
 /**
+ * @typedef {Object} MetricsVolumeUsage
+ * @property {number} deploymentId
+ * @property {number} nodeId
+ * @property {number} time
+ * @property {number} bytes
+ * @property {number} inodes
+ * @property {number} walkMs
+ */
+/**
  * @typedef {Object} MetricsLatestResponse
  * @property {MetricsLatestEntry[]} entries
  * @property {string[]} warnings
+ * @property {MetricsVolumeUsage[]} volumes
  */
 /**
  * @typedef {Object} NodeMetricsQueryRequest
@@ -10027,6 +10039,12 @@ export function writeMetricsSample(message, writer) {
     if (message.openFds !== undefined && message.openFds !== null) {
         writer.uint32(tag(100, WIRE.VARINT)).int64(Math.trunc(message.openFds));
     }
+    if (message.volumeBytes !== undefined && message.volumeBytes !== null) {
+        writer.uint32(tag(110, WIRE.VARINT)).int64(Math.trunc(message.volumeBytes));
+    }
+    if (message.volumeInodes !== undefined && message.volumeInodes !== null) {
+        writer.uint32(tag(111, WIRE.VARINT)).int64(Math.trunc(message.volumeInodes));
+    }
 }
 
 
@@ -10048,7 +10066,7 @@ export function encodeMetricsSample(message) {
  */
 function decodeMetricsSampleMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {time: 0n, deploymentId: 0, scheduledInstanceId: 0, ordinal: 0, deploymentVersion: 0, run: 0, nodeId: 0, terminal: false, cpuUsageUsec: undefined, cpuUserUsec: undefined, cpuSystemUsec: undefined, cpuThrottledUsec: undefined, cpuNrThrottled: undefined, memCurrent: undefined, memPeak: undefined, memAnon: undefined, memFile: undefined, memKernel: undefined, memShmem: undefined, memOom: undefined, memOomKill: undefined, ioReadBytes: undefined, ioWriteBytes: undefined, ioReadOps: undefined, ioWriteOps: undefined, pids: undefined, psiCpuSomeAvg10: undefined, psiCpuSomeAvg60: undefined, psiCpuSomeAvg300: undefined, psiCpuSomeTotalUsec: undefined, psiCpuFullAvg10: undefined, psiCpuFullAvg60: undefined, psiCpuFullAvg300: undefined, psiCpuFullTotalUsec: undefined, psiMemSomeAvg10: undefined, psiMemSomeAvg60: undefined, psiMemSomeAvg300: undefined, psiMemSomeTotalUsec: undefined, psiMemFullAvg10: undefined, psiMemFullAvg60: undefined, psiMemFullAvg300: undefined, psiMemFullTotalUsec: undefined, psiIoSomeAvg10: undefined, psiIoSomeAvg60: undefined, psiIoSomeAvg300: undefined, psiIoSomeTotalUsec: undefined, psiIoFullAvg10: undefined, psiIoFullAvg60: undefined, psiIoFullAvg300: undefined, psiIoFullTotalUsec: undefined, netRxBytes: undefined, netRxPackets: undefined, netRxDropped: undefined, netTxBytes: undefined, netTxPackets: undefined, netTxDropped: undefined, tcpEstablished: undefined, tcpListen: undefined, tcpTimeWait: undefined, tcpCloseWait: undefined, tcpOther: undefined, openFds: undefined };
+    const message = {time: 0n, deploymentId: 0, scheduledInstanceId: 0, ordinal: 0, deploymentVersion: 0, run: 0, nodeId: 0, terminal: false, cpuUsageUsec: undefined, cpuUserUsec: undefined, cpuSystemUsec: undefined, cpuThrottledUsec: undefined, cpuNrThrottled: undefined, memCurrent: undefined, memPeak: undefined, memAnon: undefined, memFile: undefined, memKernel: undefined, memShmem: undefined, memOom: undefined, memOomKill: undefined, ioReadBytes: undefined, ioWriteBytes: undefined, ioReadOps: undefined, ioWriteOps: undefined, pids: undefined, psiCpuSomeAvg10: undefined, psiCpuSomeAvg60: undefined, psiCpuSomeAvg300: undefined, psiCpuSomeTotalUsec: undefined, psiCpuFullAvg10: undefined, psiCpuFullAvg60: undefined, psiCpuFullAvg300: undefined, psiCpuFullTotalUsec: undefined, psiMemSomeAvg10: undefined, psiMemSomeAvg60: undefined, psiMemSomeAvg300: undefined, psiMemSomeTotalUsec: undefined, psiMemFullAvg10: undefined, psiMemFullAvg60: undefined, psiMemFullAvg300: undefined, psiMemFullTotalUsec: undefined, psiIoSomeAvg10: undefined, psiIoSomeAvg60: undefined, psiIoSomeAvg300: undefined, psiIoSomeTotalUsec: undefined, psiIoFullAvg10: undefined, psiIoFullAvg60: undefined, psiIoFullAvg300: undefined, psiIoFullTotalUsec: undefined, netRxBytes: undefined, netRxPackets: undefined, netRxDropped: undefined, netTxBytes: undefined, netTxPackets: undefined, netTxDropped: undefined, tcpEstablished: undefined, tcpListen: undefined, tcpTimeWait: undefined, tcpCloseWait: undefined, tcpOther: undefined, openFds: undefined, volumeBytes: undefined, volumeInodes: undefined };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -10298,6 +10316,14 @@ function decodeMetricsSampleMessage(reader, length) {
             }
             case 100: {
                 message.openFds = readInt64(reader, "int64");
+                break;
+            }
+            case 110: {
+                message.volumeBytes = readInt64(reader, "int64");
+                break;
+            }
+            case 111: {
+                message.volumeInodes = readInt64(reader, "int64");
                 break;
             }
             default:
@@ -11406,6 +11432,97 @@ export function decodeMetricsLatestEntry(buffer) {
 
 
 /**
+ * @param {MetricsVolumeUsage} message
+ * @param {Writer} writer
+ */
+export function writeMetricsVolumeUsage(message, writer) {
+    if (message.deploymentId !== undefined && message.deploymentId !== null && message.deploymentId !== 0) {
+        writer.uint32(tag(1, WIRE.VARINT)).uint64(Math.trunc(message.deploymentId));
+    }
+    if (message.nodeId !== undefined && message.nodeId !== null && message.nodeId !== 0) {
+        writer.uint32(tag(2, WIRE.VARINT)).uint64(Math.trunc(message.nodeId));
+    }
+    if (message.time !== undefined && message.time !== null && message.time !== 0) {
+        writer.uint32(tag(3, WIRE.VARINT)).int64(Math.trunc(message.time));
+    }
+    if (message.bytes !== undefined && message.bytes !== null && message.bytes !== 0) {
+        writer.uint32(tag(4, WIRE.VARINT)).int64(Math.trunc(message.bytes));
+    }
+    if (message.inodes !== undefined && message.inodes !== null && message.inodes !== 0) {
+        writer.uint32(tag(5, WIRE.VARINT)).int64(Math.trunc(message.inodes));
+    }
+    if (message.walkMs !== undefined && message.walkMs !== null && message.walkMs !== 0) {
+        writer.uint32(tag(6, WIRE.VARINT)).int32(message.walkMs);
+    }
+}
+
+
+/**
+ * @param {MetricsVolumeUsage} message
+ * @returns {Uint8Array}
+ */
+export function encodeMetricsVolumeUsage(message) {
+    const writer = Writer.create();
+    writeMetricsVolumeUsage(message, writer);
+    return writer.finish();
+}
+
+
+/**
+ * @param {Reader} reader
+ * @param {number} [length]
+ * @returns {MetricsVolumeUsage}
+ */
+function decodeMetricsVolumeUsageMessage(reader, length) {
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = {deploymentId: 0, nodeId: 0, time: 0, bytes: 0, inodes: 0, walkMs: 0 };
+    while (reader.pos < end) {
+        const tag = reader.uint32();
+        switch (tag >>> 3) {
+            case 1: {
+                message.deploymentId = readInt64(reader, "uint64");
+                break;
+            }
+            case 2: {
+                message.nodeId = readInt64(reader, "uint64");
+                break;
+            }
+            case 3: {
+                message.time = readInt64(reader, "int64");
+                break;
+            }
+            case 4: {
+                message.bytes = readInt64(reader, "int64");
+                break;
+            }
+            case 5: {
+                message.inodes = readInt64(reader, "int64");
+                break;
+            }
+            case 6: {
+                message.walkMs = reader.int32();
+                break;
+            }
+            default:
+                reader.skipType(tag & 7);
+        }
+    }
+    return message;
+}
+
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @returns {MetricsVolumeUsage}
+ */
+export function decodeMetricsVolumeUsage(buffer) {
+    const reader = Reader.create(new Uint8Array(buffer));
+    return decodeMetricsVolumeUsageMessage(reader);
+}
+
+
+
+/**
  * @param {MetricsLatestResponse} message
  * @param {Writer} writer
  */
@@ -11420,6 +11537,13 @@ export function writeMetricsLatestResponse(message, writer) {
     if (message.warnings && message.warnings.length > 0) {
         for (const item of message.warnings) {
             writer.uint32(tag(2, WIRE.LDELIM)).string(item);
+        }
+    }
+    if (message.volumes && message.volumes.length > 0) {
+        for (const item of message.volumes) {
+            writer.uint32(tag(3, WIRE.LDELIM)).fork();
+            writeMetricsVolumeUsage(item, writer);
+            writer.ldelim();
         }
     }
 }
@@ -11443,7 +11567,7 @@ export function encodeMetricsLatestResponse(message) {
  */
 function decodeMetricsLatestResponseMessage(reader, length) {
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = {entries: [], warnings: [] };
+    const message = {entries: [], warnings: [], volumes: [] };
     while (reader.pos < end) {
         const tag = reader.uint32();
         switch (tag >>> 3) {
@@ -11453,6 +11577,10 @@ function decodeMetricsLatestResponseMessage(reader, length) {
             }
             case 2: {
                 message.warnings.push(reader.string());
+                break;
+            }
+            case 3: {
+                message.volumes.push(decodeMetricsVolumeUsageMessage(reader, reader.uint32()));
                 break;
             }
             default:

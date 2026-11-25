@@ -1,6 +1,7 @@
 package metricstore
 
 import (
+	"cmp"
 	"context"
 	"math"
 	"slices"
@@ -15,6 +16,7 @@ const (
 	DefaultMaxPoints = 300
 	MaxBuckets       = 2000
 	rateLookback     = 3 * time.Minute
+	heldFor          = 2*metrics.VolumeInterval + 15*time.Minute
 )
 
 var stepLadder = []time.Duration{
@@ -113,15 +115,36 @@ func Rollup(ctx context.Context, dir string, nodeID int32, req RollupRequest) (R
 	if len(fields) == 0 {
 		fields = Fields
 	}
+	var held []Field
+	fields, held = splitHeld(fields)
 	q := req.Query
 	q.From, q.To = plan.scan.from, plan.scan.to
+	instance := q.ScheduledInstanceID
+	scanFromMs := plan.scan.from.UnixMilli()
+	if len(held) > 0 {
+		q.From = plan.start.Add(-heldFor)
+		q.ScheduledInstanceID = 0
+	}
 	type runAcc struct {
 		nodeID int32
 		acc    *rollupAcc[apigen.MetricsSample]
 	}
 	accs := map[metrics.TargetKey]*runAcc{}
+	heldAccs := map[heldKey]*heldAcc{}
 	scanned := 0
 	err = Scan(ctx, dir, nodeID, q, func(s *apigen.MetricsSample) bool {
+		if len(held) > 0 {
+			hk := heldKey{s.DeploymentID, s.NodeID}
+			h := heldAccs[hk]
+			if h == nil {
+				h = &heldAcc{points: make([][]heldPoint, len(held))}
+				heldAccs[hk] = h
+			}
+			h.observe(s, held)
+			if s.Time < scanFromMs || (instance != 0 && s.ScheduledInstanceID != instance) {
+				return true
+			}
+		}
 		if req.DeploymentVersion != 0 && s.DeploymentVersion != req.DeploymentVersion {
 			return true
 		}
@@ -157,7 +180,85 @@ func Rollup(ctx context.Context, dir string, nodeID int32, req RollupRequest) (R
 			}
 		}
 	}
+	heldKeys := make([]heldKey, 0, len(heldAccs))
+	for k := range heldAccs {
+		heldKeys = append(heldKeys, k)
+	}
+	slices.SortFunc(heldKeys, func(a, b heldKey) int {
+		if c := cmp.Compare(a.deploymentID, b.deploymentID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.nodeID, b.nodeID)
+	})
+	for _, k := range heldKeys {
+		for i, f := range held {
+			if values := heldAccs[k].values(i, plan.grid, heldFor.Milliseconds()); values != nil {
+				res.Series = append(res.Series, Series{Key: metrics.TargetKey{DeploymentID: k.deploymentID}, NodeID: k.nodeID, Field: f, Values: values})
+			}
+		}
+	}
 	return res, nil
+}
+
+func splitHeld(fields []Field) (plain, held []Field) {
+	for _, f := range fields {
+		if f.Kind == Held {
+			held = append(held, f)
+		} else {
+			plain = append(plain, f)
+		}
+	}
+	return plain, held
+}
+
+type heldKey struct {
+	deploymentID, nodeID int32
+}
+
+type heldPoint struct {
+	t int64
+	v float64
+}
+
+type heldAcc struct {
+	last   int64
+	points [][]heldPoint
+}
+
+func (h *heldAcc) observe(s *apigen.MetricsSample, fields []Field) {
+	h.last = max(h.last, s.Time)
+	for i, f := range fields {
+		if v, ok := f.Value(s); ok {
+			h.points[i] = append(h.points[i], heldPoint{s.Time, v})
+		}
+	}
+}
+
+func (h *heldAcc) values(field int, g bucketGrid, holdMs int64) []float64 {
+	points := h.points[field]
+	if len(points) == 0 {
+		return nil
+	}
+	slices.SortFunc(points, func(a, b heldPoint) int { return cmp.Compare(a.t, b.t) })
+	values := make([]float64, g.buckets)
+	filled := false
+	j := -1
+	for b := range values {
+		values[b] = math.NaN()
+		edge0 := g.startMs + int64(b)*g.stepMs
+		for j+1 < len(points) && points[j+1].t < edge0+g.stepMs {
+			j++
+		}
+		if j < 0 || edge0 > h.last || edge0-points[j].t >= holdMs {
+			continue
+		}
+		values[b] = points[j].v
+		filled = true
+	}
+	if !filled {
+		return nil
+	}
+	return values
 }
 
 type bucketGrid struct {

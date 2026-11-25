@@ -3,6 +3,7 @@ import {
   expectMetricsCharts,
   expectMetricsControls,
   expectMetricsOverviewRow,
+  expectMetricsVolume,
   expectNodeDiskColumn,
   expectNodeMetricsCharts,
   expectNodeMetricsOverviewRow,
@@ -70,6 +71,16 @@ export const metricsVerifyCases = [
       await expectMetricsCharts(ctx.page, {name: 'loadgen-worker', minCpuCores: 0.25, minMemBytes: 60 * MIB, expectNetwork: true});
       await expectMetricsCharts(ctx.page, {name: 'loadgen-primary', minCpuCores: 0.1, minMemBytes: 30 * MIB, expectNetwork: true});
       await expectMetricsControls(ctx.page, {name: 'loadgen-worker'});
+    },
+  },
+  {
+    id: 'metrics-volume-verified',
+    title: 'verify volume usage',
+    description: 'Checks each load generator has a measured volume in the overview, across the proxied and local paths, and that the deployment charts carry it as one series of the deployment.',
+    requires: ['metrics-charts-verified'],
+    async run(ctx) {
+      await expectMetricsVolume(ctx.page, {name: 'loadgen-worker', minBytes: 4096});
+      await expectMetricsVolume(ctx.page, {name: 'loadgen-primary', minBytes: 4096});
     },
   },
   {
