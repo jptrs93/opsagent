@@ -8591,6 +8591,8 @@ func (m MetricsSample) IsZero() bool {
 		m.TcpCloseWait.IsZero() &&
 		m.TcpOther.IsZero() &&
 		m.OpenFds.IsZero() &&
+		m.VolumeBytes.IsZero() &&
+		m.VolumeInodes.IsZero() &&
 		len(m.unknownFields) == 0
 }
 
@@ -8996,6 +8998,20 @@ func (m *MetricsSample) encodeUnchecked() []byte {
 			v := m.OpenFds.Value
 			value := &v
 			b = AppendInt64FieldOpt(b, value, 100)
+		}
+	}
+	{
+		if m.VolumeBytes.Present {
+			v := m.VolumeBytes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 110)
+		}
+	}
+	{
+		if m.VolumeInodes.Present {
+			v := m.VolumeInodes.Value
+			value := &v
+			b = AppendInt64FieldOpt(b, value, 111)
 		}
 	}
 	return append(b, m.unknownFields...)
@@ -9576,6 +9592,26 @@ func mergeMetricsSample(b []byte, m *MetricsSample) (*MetricsSample, error) {
 			b, value, err = ConsumeVarInt64Opt(b, typ)
 			if err == nil {
 				m.OpenFds = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 110:
+			var value *int64
+			if m.VolumeBytes.Present {
+				v := m.VolumeBytes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.VolumeBytes = Maybe[int64]{Value: *value, Present: true}
+			}
+		case 111:
+			var value *int64
+			if m.VolumeInodes.Present {
+				v := m.VolumeInodes.Value
+				value = &v
+			}
+			b, value, err = ConsumeVarInt64Opt(b, typ)
+			if err == nil {
+				m.VolumeInodes = Maybe[int64]{Value: *value, Present: true}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)
@@ -11213,6 +11249,78 @@ func mergeMetricsLatestEntry(b []byte, m *MetricsLatestEntry) (*MetricsLatestEnt
 }
 
 // Encode panics if validation fails. Use EncodeChecked for untrusted values.
+func (m *MetricsVolumeUsage) Encode() []byte {
+	b, err := m.EncodeChecked()
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+func (m *MetricsVolumeUsage) EncodeChecked() ([]byte, error) {
+	if err := m.Validate(); err != nil {
+		return nil, err
+	}
+	return m.encodeUnchecked(), nil
+}
+
+func (m *MetricsVolumeUsage) encodeUnchecked() []byte {
+	var b []byte
+	b = AppendUint64Field(b, m.DeploymentID, 1)
+	b = AppendUint64Field(b, m.NodeID, 2)
+	b = AppendInt64Field(b, m.Time, 3)
+	b = AppendInt64Field(b, m.Bytes, 4)
+	b = AppendInt64Field(b, m.Inodes, 5)
+	b = AppendInt32Field(b, m.WalkMs, 6)
+	return append(b, m.unknownFields...)
+}
+
+func (m *MetricsVolumeUsage) UnknownFields() []byte { return append([]byte(nil), m.unknownFields...) }
+
+func DecodeMetricsVolumeUsage(b []byte) (*MetricsVolumeUsage, error) {
+	return mergeMetricsVolumeUsage(b, nil)
+}
+
+func mergeMetricsVolumeUsage(b []byte, m *MetricsVolumeUsage) (*MetricsVolumeUsage, error) {
+	if m == nil {
+		m = new(MetricsVolumeUsage)
+	}
+	var num Number
+	var typ Type
+	var err error
+	for len(b) > 0 {
+		original := b
+		b, num, typ, err = ConsumeTag(b)
+		if err != nil {
+			return nil, err
+		}
+		switch num {
+		case 1:
+			b, m.DeploymentID, err = ConsumeVarUint64(b, typ)
+		case 2:
+			b, m.NodeID, err = ConsumeVarUint64(b, typ)
+		case 3:
+			b, m.Time, err = ConsumeVarInt64(b, typ)
+		case 4:
+			b, m.Bytes, err = ConsumeVarInt64(b, typ)
+		case 5:
+			b, m.Inodes, err = ConsumeVarInt64(b, typ)
+		case 6:
+			b, m.WalkMs, err = ConsumeVarInt32(b, typ)
+		default:
+			b, err = SkipFieldValue(b, num, typ)
+			if err == nil {
+				m.unknownFields = append(m.unknownFields, original[:len(original)-len(b)]...)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	return m, nil
+}
+
+// Encode panics if validation fails. Use EncodeChecked for untrusted values.
 func (m *MetricsLatestResponse) Encode() []byte {
 	b, err := m.EncodeChecked()
 	if err != nil {
@@ -11235,6 +11343,10 @@ func (m *MetricsLatestResponse) encodeUnchecked() []byte {
 		b = AppendBytes(b, item.encodeUnchecked())
 	}
 	b = AppendRepeated(b, m.Warnings, AppendFieldDecorator(AppendStringElem, 2))
+	for _, item := range m.Volumes {
+		b = AppendTag(b, 3, BytesType)
+		b = AppendBytes(b, item.encodeUnchecked())
+	}
 	return append(b, m.unknownFields...)
 }
 
@@ -11275,6 +11387,15 @@ func mergeMetricsLatestResponse(b []byte, m *MetricsLatestResponse) (*MetricsLat
 			b, item, err = ConsumeRepeatedElement(b, typ, ConsumeString)
 			if err == nil {
 				m.Warnings = append(m.Warnings, item)
+			}
+		case 3:
+			b, msgBytes, err = ConsumeMessage(b, typ)
+			if err == nil {
+				var item *MetricsVolumeUsage
+				item, err = DecodeMetricsVolumeUsage(msgBytes)
+				if err == nil {
+					m.Volumes = append(m.Volumes, *item)
+				}
 			}
 		default:
 			b, err = SkipFieldValue(b, num, typ)

@@ -1111,6 +1111,11 @@ type MetricsSample struct {
 	TcpCloseWait        Maybe[int64]   `json:"tcp_close_wait,omitzero"`
 	TcpOther            Maybe[int64]   `json:"tcp_other,omitzero"`
 	OpenFds             Maybe[int64]   `json:"open_fds,omitzero"`
+	// Usage of the deployment's volume directory on this node. A reading is
+	// taken every 30 minutes and written on one row of one run, so these are
+	// absent on almost every row.
+	VolumeBytes  Maybe[int64] `json:"volume_bytes,omitzero"`
+	VolumeInodes Maybe[int64] `json:"volume_inodes,omitzero"`
 }
 
 type FilesystemUsage struct {
@@ -1239,10 +1244,23 @@ type MetricsLatestEntry struct {
 	Rates         []MetricsRate `json:"rates,omitempty"`
 }
 
+// MetricsVolumeUsage is the last measured size of one deployment's volume
+// directory on one node.
+type MetricsVolumeUsage struct {
+	unknownFields []byte
+	DeploymentID  uint64 `json:"deployment_id"`
+	NodeID        uint64 `json:"node_id"`
+	Time          int64  `json:"time"`
+	Bytes         int64  `json:"bytes"`
+	Inodes        int64  `json:"inodes"`
+	WalkMs        int32  `json:"walk_ms"`
+}
+
 type MetricsLatestResponse struct {
 	unknownFields []byte
 	Entries       []MetricsLatestEntry `json:"entries,omitempty"`
 	Warnings      []string             `json:"warnings,omitempty"`
+	Volumes       []MetricsVolumeUsage `json:"volumes,omitempty"`
 }
 
 type NodeMetricsQueryRequest struct {

@@ -4,6 +4,47 @@ Notes for operators upgrading a cluster, newest release first. Each entry
 covers what changes on disk and on the wire, what to check before upgrading,
 and what to expect during and after the rollout.
 
+## v0.0.631 (released 2026-11-25)
+
+### What changed
+
+- **Each node measures the size of every deployment volume.** The agent
+  walks `{dataDir}-volumes/{deploymentID}` every 30 minutes and records the
+  allocated bytes and the number of entries. Each volume has its own slot in
+  the 30 minutes, one walk runs at a time, and a walk reads file metadata
+  only.
+- **The Metrics page shows it.** The Deployments overview has a Volume
+  column, and a volume whose deployment is not running on that node gets a
+  row of its own. A deployment's charts have a Volume chart.
+- **The API returns it.** `POST /v1/metrics/latest` has a new `volumes` list,
+  and `POST /v1/metrics/query` serves `volume_bytes` and `volume_inodes` as
+  one series per deployment and node.
+
+### Before upgrading
+
+- Nothing needs doing. The run metrics row gains two optional columns.
+  Files written before the upgrade are read as they are, with no volume.
+
+### Rollout
+
+- The usual order holds: secondaries first, primary last. A node reports
+  volumes once its own agent is upgraded, and the Web UI shows them once the
+  primary is. A primary on the newer version reads a secondary still on the
+  older one as having no volumes.
+- Do not upgrade the primary before a secondary. The newer Web UI asks for
+  the volume fields, and a secondary on the older version refuses a chart
+  query that names a field it does not know.
+- A rollback is safe: an older agent ignores the two columns in files a
+  newer one wrote.
+
+### After upgrading
+
+- The first measurement of every volume runs one minute after an agent
+  starts. Open Metrics and check the Volume column fills in.
+- A volume with tens of millions of files can take longer than the 10 minute
+  limit. The agent then logs "measuring the volume of deployment N took
+  longer than 10m0s" once and that volume has no reading.
+
 ## v0.0.630 (released 2026-11-25)
 
 ### What changed

@@ -28,7 +28,7 @@ message MetricsSeries {
   int32 run = 4;
   uint64 node_id = 5 [(cp.js_type) = "number"];
   string field = 6;
-  int32 kind = 7;                   // 0 = counter (values are per-second rates), 1 = gauge (bucket mean), 2 = kernel average (bucket mean).
+  int32 kind = 7;                   // 0 = counter (values are per-second rates), 1 = gauge (bucket mean), 2 = kernel average (bucket mean), 3 = held (the last reading, carried forward). A held series belongs to the deployment on the node: scheduled_instance_id, ordinal, deployment_version and run are 0.
   repeated double values = 8;       // One per bucket, oldest first; NaN = no data in the bucket.
 }
 
@@ -56,9 +56,21 @@ message MetricsLatestEntry {
   repeated MetricsRate rates = 2;   // Counter fields differenced against the previous sample of the same run.
 }
 
+// MetricsVolumeUsage is the last measured size of one deployment's volume
+// directory on one node.
+message MetricsVolumeUsage {
+  uint64 deployment_id = 1 [(cp.js_type) = "number"];
+  uint64 node_id = 2 [(cp.js_type) = "number"];
+  int64 time = 3 [(cp.js_type) = "number"];     // When the reading was taken, in Unix milliseconds.
+  int64 bytes = 4 [(cp.js_type) = "number"];    // Allocated bytes, as du reports them.
+  int64 inodes = 5 [(cp.js_type) = "number"];   // Files, directories and links, counting the volume directory itself.
+  int32 walk_ms = 6;                            // How long the measurement took.
+}
+
 message MetricsLatestResponse {
   repeated MetricsLatestEntry entries = 1;
   repeated string warnings = 2;
+  repeated MetricsVolumeUsage volumes = 3;      // One per volume directory on each node that answered, whether or not the deployment is running.
 }
 
 message NodeMetricsQueryRequest {

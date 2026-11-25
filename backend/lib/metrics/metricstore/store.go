@@ -128,6 +128,8 @@ type Store struct {
 	mu     sync.Mutex
 	latest map[metrics.TargetKey]*apigen.MetricsSample
 	prev   map[metrics.TargetKey]*apigen.MetricsSample
+
+	Volumes func() []metrics.VolumeReading
 }
 
 type LatestPair struct {

@@ -118,7 +118,9 @@ func (h *Handler) metricsQueryOnNode(ctx context.Context, nodeID uint64, req *ap
 func (h *Handler) PostV1MetricsLatest(ctx apigen.Context, _ *apigen.MetricsLatestRequest) (*apigen.MetricsLatestResponse, error) {
 	out := &apigen.MetricsLatestResponse{}
 	if h.Metrics != nil {
-		out.Entries = h.Metrics.LatestResponse().Entries
+		local := h.Metrics.LatestResponse()
+		out.Entries = local.Entries
+		out.Volumes = stampVolumes(local.Volumes, h.NodeID)
 	}
 	if h.Cluster != nil {
 		type reply struct {
@@ -147,26 +149,42 @@ func (h *Handler) PostV1MetricsLatest(ctx apigen.Context, _ *apigen.MetricsLates
 				continue
 			}
 			out.Entries = append(out.Entries, r.resp.Entries...)
+			out.Volumes = append(out.Volumes, stampVolumes(r.resp.Volumes, r.node)...)
 		}
 	}
 	visible := make(map[uint64]bool)
-	out.Entries = slices.DeleteFunc(out.Entries, func(e apigen.MetricsLatestEntry) bool {
-		if e.Sample.DeploymentID <= 0 {
-			return true
-		}
-		id := uint64(e.Sample.DeploymentID)
+	canSee := func(id uint64) bool {
 		ok, seen := visible[id]
 		if !seen {
 			cfg := h.findConfigByID(id)
 			ok = cfg != nil && h.canAccess(ctx, vViewLogs, eDeployment, cfg.Deployment.SpaceID, cfg.Deployment.ID)
 			visible[id] = ok
 		}
-		return !ok
+		return ok
+	}
+	out.Entries = slices.DeleteFunc(out.Entries, func(e apigen.MetricsLatestEntry) bool {
+		return e.Sample.DeploymentID <= 0 || !canSee(uint64(e.Sample.DeploymentID))
+	})
+	out.Volumes = slices.DeleteFunc(out.Volumes, func(v apigen.MetricsVolumeUsage) bool {
+		return v.DeploymentID == 0 || !canSee(v.DeploymentID)
 	})
 	slices.SortFunc(out.Entries, func(a, b apigen.MetricsLatestEntry) int {
 		return metricstore.CompareKey(metricstore.Key(&a.Sample), metricstore.Key(&b.Sample))
 	})
+	slices.SortFunc(out.Volumes, func(a, b apigen.MetricsVolumeUsage) int {
+		if c := cmp.Compare(a.DeploymentID, b.DeploymentID); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.NodeID, b.NodeID)
+	})
 	return out, nil
+}
+
+func stampVolumes(volumes []apigen.MetricsVolumeUsage, nodeID uint64) []apigen.MetricsVolumeUsage {
+	for i := range volumes {
+		volumes[i].NodeID = nodeID
+	}
+	return volumes
 }
 
 func secondaryMetricsErr(nodeID uint64, err error) error {

@@ -74,12 +74,43 @@ export async function expectMetricsOverviewRow(page, {name, minCpuCores = 0, min
     const cells = await row.locator('td').allTextContents();
     const cpu = Number(cells[3]);
     const mem = parseBytes(cells[4]);
-    const age = Number(String(cells[11]).replace(/s$/, ''));
-    if (!(age <= maxAgeSeconds)) return `sample age ${cells[11]}`;
+    const ageText = cells[cells.length - 1];
+    const age = Number(String(ageText).replace(/s$/, ''));
+    if (!(age <= maxAgeSeconds)) return `sample age ${ageText}`;
     if (!(cpu >= minCpuCores)) return `cpu ${cells[3]} < ${minCpuCores}`;
     if (!(mem >= minMemBytes)) return `memory ${cells[4]} < ${minMemBytes}`;
     return 'ok';
   }, {message: `expected metrics overview row for ${name}`, timeout: METRICS_TIMEOUT, intervals: POLL_INTERVALS}).toBe('ok');
+}
+
+export async function expectMetricsVolume(page, {name, minBytes = 1}) {
+  await openMetricsPage(page);
+  await selectMetricsDeployment(page, '');
+  await expect.poll(async () => {
+    await refreshMetrics(page);
+    const cell = overviewPanel(page).getByTestId(`metrics-overview-volume-${name}`);
+    if (await cell.count() === 0) return 'row missing';
+    const text = await cell.first().textContent();
+    const bytes = parseBytes(text);
+    if (!(bytes >= minBytes)) return `volume ${text} < ${minBytes}`;
+    return 'ok';
+  }, {message: `expected a measured volume for ${name} in the overview`, timeout: METRICS_TIMEOUT, intervals: POLL_INTERVALS}).toBe('ok');
+
+  await selectMetricsDeployment(page, name);
+  await expect.poll(async () => {
+    await refreshMetrics(page);
+    return page.evaluate((minBytes) => {
+      const r = window.__metricsResult;
+      if (!r) return 'no result';
+      const values = (r.charts.volume?.series.find(s => s.label === 'used')?.values || []).filter(Number.isFinite);
+      if (!values.length) return 'no volume series';
+      const last = values[values.length - 1];
+      if (!(last >= minBytes)) return `volume ${last} < ${minBytes}`;
+      if (r.runs.some(run => run.label === 'v0 i0 r0')) return 'the volume series was counted as a run';
+      return 'ok';
+    }, minBytes);
+  }, {message: `expected a charted volume for ${name}`, timeout: METRICS_TIMEOUT, intervals: POLL_INTERVALS}).toBe('ok');
+  await expect(visiblePanel(page).getByTestId('metrics-chart-volume-svg').locator('path')).not.toHaveCount(0);
 }
 
 export async function expectMetricsCharts(page, {name, minCpuCores = 0, minMemBytes = 0, expectNetwork = false}) {

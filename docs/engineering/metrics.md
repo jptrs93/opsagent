@@ -3,8 +3,8 @@
 ## Purpose and scope
 
 Default node-local measurement of per-container resource usage: CPU, memory,
-pressure, process count, block IO, network IO, TCP connection counts, and disk
-usage (volumes and writable snapshot layer). This document covers the
+pressure, process count, block IO, network IO, TCP connection counts, and the
+disk usage of each deployment's volume. This document covers the
 measurement layer (`lib/metrics`) and its node-local storage
 (`lib/metrics/metricstore`). The query endpoints and their fan-out are in
 [api.md](api.md) and the Metrics page in [frontend.md](frontend.md). The
@@ -132,18 +132,58 @@ Host-network runs get no network or TCP metrics: they share the host
 namespace, so per-container attribution does not exist without eBPF, which is
 out of scope. The sampler records the omission rather than host-wide numbers.
 
-### Slow tier
+### Slow tier: volume usage
 
 | Metric | Source | Kind |
 | --- | --- | --- |
-| Volume disk usage | walk of `{dataDir}-volumes/{deploymentID}` | gauge |
-| Writable snapshot layer usage | containerd snapshotter `Usage()` | gauge |
+| `volume_bytes` | walk of `{dataDir}-volumes/{deploymentID}`, the sum of allocated blocks | held |
+| `volume_inodes` | the same walk, a count of entries | held |
 
-Walks run one volume at a time with yield throttling to bound CPU and page
-cache disturbance. Filesystem project quotas (O(1) accounting) are a possible
-later optimization requiring installer/filesystem support; not in this plan.
-The snapshotter `Usage()` call is the one containerd dependency and it is
-confined to the slow tier; its failure degrades to a missing sample.
+A volume is a plain host directory bind-mounted into the container, so
+nothing keeps a running total for it: the kernel has no size for a directory
+tree, `statfs` on the mount reports the whole host filesystem, and a cgroup
+counts IO, not space held. The agent walks the directory. The walk is
+`lib/metrics/volume.go`.
+
+**What a walk counts.** One `lstat` per entry and no file contents, so the
+cost follows the number of files, not their size. Bytes are allocated blocks
+(`st_blocks` × 512, what `du` prints), so a sparse file counts what it holds.
+Directories and symbolic links count as entries; a link is not followed. A
+file with several hard links counts once. A directory on another device (a
+mount inside the volume) is skipped. An entry that vanishes during the walk
+is skipped.
+
+**Which directories.** Every directory in the volume root whose name is a
+deployment id, listed every 30 seconds. That includes a stopped deployment's
+volume and one left on a node the deployment has moved away from. A
+directory the volume sweep has removed drops out at the next listing.
+
+**When.** A new directory is measured at the listing that finds it. After
+that each volume is measured every 30 minutes (`metrics.VolumeInterval`) on
+its own slot: the 30 minutes are offset by a spread of the deployment id, so
+the walks of different volumes do not land together. The first listing runs
+one minute after the agent starts, and measures every volume once in id
+order. The slot that follows a measurement is always at least 15 minutes
+later.
+
+**Bounds.** One walk runs at a time. A walk pauses after every 2048 entries
+for as long as those entries took (at most 200 ms), which halves its share
+of a core and of the disk. A walk that runs longer than 10 minutes is
+abandoned: the volume keeps its earlier reading, a warning is logged once,
+and the next slot tries again.
+
+**How a reading is stored.** A reading is not a row of its own. On the tick
+after a walk, the sampler writes the reading on the sample of one run of
+that deployment (the lowest key when several are registered), and on no
+other row. Almost every row therefore has no volume. A deployment with no
+running container has no row to carry a reading, so its history has a gap
+while it is stopped; the live answer below still lists it.
+
+Not built: the usage of a container's writable snapshot layer, and project
+quotas. Project quotas (ext4 `project`, XFS `prjquota`) would give the same
+numbers without a walk and would also allow a size limit per volume, but
+they need the filesystem feature and a mount option that our nodes do not
+have, so a walk stays the fallback either way.
 
 ## Cadence
 
@@ -154,8 +194,9 @@ confined to the slow tier; its failure degrades to a missing sample.
   scale with the container's socket and descriptor counts but stay in the
   low milliseconds even for busy servers — well under 0.1% of a core for
   tens of containers.
-- Slow tier: 10 minutes, first walk on registration deferred behind a short
-  delay so respawn churn does not trigger walks.
+- Slow tier: each volume every 30 minutes on its own slot, the first pass
+  one minute after the agent starts. A walk belongs to a volume directory,
+  not to a run, so a respawn starts none.
 - All fast-tier reads in a tick share one sample timestamp, so per-node
   snapshots are coherent and summable.
 
@@ -164,8 +205,10 @@ confined to the slow tier; its failure degrades to a missing sample.
 Each tick produces one `metrics.Sample` per registered run:
 
 ```
-{Key, Time, Terminal, Cgroup{CPU, Memory, IO, Pids, CPUPressure, MemoryPressure, IOPressure}, Net{rx/tx counters, TCP states}, OpenFDs}
+{Key, Time, Terminal, Cgroup{CPU, Memory, IO, Pids, CPUPressure, MemoryPressure, IOPressure}, Net{rx/tx counters, TCP states}, OpenFDs, Volume{Bytes, Inodes}}
 ```
+
+`Volume` is nil except on the one sample that carries a new volume reading.
 
 `Time` is shared by every sample in the tick. Every section is a pointer that
 is nil when its file was unreadable; `Net` is nil for host-network runs. Nil
@@ -182,6 +225,9 @@ Metric kinds, which fix what the query layer does with each field:
   `mem_peak`, `mem_anon/file/kernel/shmem`, `pids`, `tcp_*`, `open_fds`.
 - Kernel-computed averages (already rates; never differenced or summed):
   `psi_*_avg10/60/300`.
+- Held readings (a value that stays true until the next reading):
+  `volume_bytes`, `volume_inodes`. The rollup carries the last reading
+  forward and returns one series per deployment and node, not per run.
 The batch goes to a `metrics.Consumer`; the consumer is the node-local store
 below (`metricstore.Store`). Sampling failures produce absent metrics, never
 synthesized values, and never feed back into runner health or operator
@@ -222,12 +268,13 @@ pids
 psi_{cpu,mem,io}_{some,full}_total_usec
 net_{rx,tx}_{bytes,packets,dropped}
 tcp_established tcp_listen tcp_time_wait tcp_close_wait tcp_other
-open_fds                                                    INT64 optional
+open_fds
+volume_bytes volume_inodes                                  INT64 optional
 
 psi_{cpu,mem,io}_{some,full}_{avg10,avg60,avg300}           DOUBLE optional
 ```
 
-About 55 columns. A wide row is chosen over narrow `(key, time, metric,
+About 57 columns. A wide row is chosen over narrow `(key, time, metric,
 value)` rows because the metric set is fixed; there is no shredding,
 threshold, or spill machinery. Rows within a file are sorted by the full
 key `(deployment_id, scheduled_instance_id, ordinal, spec_version, run)`
@@ -330,6 +377,10 @@ query primitives in `metricstore` (no endpoints yet):
   over the WAL for the live view, not a store. `LatestPairs` also keeps the
   sample before it, so `LatestEntry` can report a per-second rate for every
   counter without touching disk.
+- `Store.LatestResponse` also returns `volumes`: the last reading of every
+  volume directory on the node, with when it was taken and how long the walk
+  took. It comes from the sampler through `Store.Volumes`, not from the
+  rows, so it lists a volume whose deployment is stopped.
 - `Rollup(ctx, dir, node, RollupRequest)` is the query-time engine behind
   the API: it aligns the range to the step (`ChooseStep` picks from a 10 s
   to 24 h ladder for about 300 points when none is given; `AlignRange`
@@ -347,6 +398,17 @@ query primitives in `metricstore` (no endpoints yet):
   drops that one pair. Gauges and kernel averages are the bucket mean of
   the samples inside it. A bucket with nothing is `NaN`. Nothing is
   pre-differenced or pre-aggregated; every query runs from raw samples.
+- Held fields are rolled up apart from the rest. The readings of a
+  deployment are gathered across all of its runs on a node and sorted by
+  time. A bucket takes the last reading at or before its end, as long as
+  that reading is less than 75 minutes older than the bucket's start
+  (`heldFor`, two intervals and a margin, so one missed walk leaves no gap)
+  and the deployment has a row at or after the bucket's start. The scan
+  reaches 75 minutes before the range for these fields, so a short range
+  still shows the reading that was current. The series key carries the
+  deployment only. The `scheduled_instance_id`, `deployment_version` and
+  `run` scopes of a query do not apply: a reading sits on whichever run was
+  there to carry it.
 
 `Store` methods delegate to the package functions with the store's directory
 and node id so tests and tools run against a directory without a sampler.
@@ -497,12 +559,19 @@ of the Nodes page. The e2e metrics flow checks both nodes report CPU, memory
 and filesystem figures, that a node's charts carry data, and that the Disk
 column fills in.
 
-Not yet for node metrics: charts of `extra_filesystems` entries, host-mount
-paths of deployments as a source for that map, and volume usage per
-deployment.
+Volume usage is wired in: primary and secondary run
+`metrics.Default.RunVolumes` on `ainit.StaticConfig.VolumesDir` and hand
+`metrics.Default.Volumes` to the store. `POST /v1/metrics/latest` returns the
+last reading of every volume, `POST /v1/metrics/query` serves `volume_bytes`
+and `volume_inodes`, and the Metrics page shows a Volume column and chart.
+The e2e metrics flow checks both load generators report a measured volume in
+the overview and in their charts.
 
-Not yet: the slow disk tier, the self-deployment target, stored rollup (the
-rollup engine runs at query time), and bucket upload. A leaked-cgroup sweep is no longer needed: a cgroup belongs to a
+Not yet for node metrics: charts of `extra_filesystems` entries and
+host-mount paths of deployments as a source for that map.
+
+Not yet: the writable snapshot layer's usage, the self-deployment target,
+stored rollup (the rollup engine runs at query time), and bucket upload. A leaked-cgroup sweep is no longer needed: a cgroup belongs to a
 container, and the runner removes leftover containers of its family before
 every start.
 

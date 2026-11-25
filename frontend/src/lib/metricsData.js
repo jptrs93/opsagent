@@ -21,6 +21,9 @@ export const CHARTS = [
         {field: 'io_read_bytes', label: 'read'},
         {field: 'io_write_bytes', label: 'write'},
     ]},
+    {key: 'volume', title: 'Volume', unit: 'bytes', lines: [
+        {field: 'volume_bytes', label: 'used'},
+    ]},
     {key: 'pids', title: 'Processes & file descriptors', unit: 'count', lines: [
         {field: 'pids', label: 'pids'},
         {field: 'open_fds', label: 'open fds'},
@@ -47,11 +50,46 @@ export const QUERY_FIELDS = [...new Set(CHARTS.flatMap(c => c.lines.map(l => l.f
 export const runLabel = (s) => `v${s.deploymentVersion} i${s.ordinal} r${s.run}`;
 export const runKey = (s) => `${s.scheduledInstanceId}|${s.deploymentVersion}|${s.run}`;
 
+export const HELD_KIND = 3;
+const isHeld = (s) => Number(s.kind) === HELD_KIND;
+
+function sumSeries(list, buckets, scale) {
+    const values = new Array(buckets).fill(NaN);
+    for (const s of list) {
+        for (let b = 0; b < buckets; b++) {
+            const v = s.values[b];
+            if (!Number.isFinite(v)) continue;
+            values[b] = (Number.isFinite(values[b]) ? values[b] : 0) + v * scale;
+        }
+    }
+    return values;
+}
+
+export const placementKey = (deploymentId, nodeId) => `${Number(deploymentId || 0)}|${Number(nodeId || 0)}`;
+
+export function volumesByPlacement(volumes) {
+    const out = new Map();
+    for (const v of volumes || []) out.set(placementKey(v.deploymentId, v.nodeId), v);
+    return out;
+}
+
+export function idleVolumes(volumes, entries) {
+    const running = new Set((entries || []).map(e => placementKey(e.sample?.deploymentId, e.sample?.nodeId)));
+    return (volumes || []).filter(v => !running.has(placementKey(v.deploymentId, v.nodeId)));
+}
+
 export function buildChartData(resp, split) {
     const buckets = Number(resp.buckets || 0);
     const stepMs = Number(resp.stepMs || 0);
     const startTs = resp.timeStart instanceof Date ? resp.timeStart.getTime() : 0;
-    const series = resp.series || [];
+    const all = resp.series || [];
+    const series = all.filter(s => !isHeld(s));
+    const heldByField = new Map();
+    for (const s of all) {
+        if (!isHeld(s)) continue;
+        if (!heldByField.has(s.field)) heldByField.set(s.field, []);
+        heldByField.get(s.field).push(s);
+    }
     const runs = [];
     const runIndex = new Map();
     for (const s of series) {
@@ -66,6 +104,17 @@ export function buildChartData(resp, split) {
         const lines = [];
         for (const [lineIdx, ln] of chart.lines.entries()) {
             const scale = (ln.scale || 1) * (chart.perBucket ? stepSec : 1);
+            const held = heldByField.get(ln.field);
+            if (held) {
+                if (split && held.length > 1) {
+                    for (const [i, s] of held.entries()) {
+                        lines.push({label: `${ln.label} node ${Number(s.nodeId)}`, color: seriesColor(lineIdx * held.length + i), values: s.values.map(v => v * scale), field: ln.field});
+                    }
+                } else {
+                    lines.push({label: ln.label, color: seriesColor(lineIdx), values: sumSeries(held, buckets, scale), field: ln.field});
+                }
+                continue;
+            }
             if (split && runs.length > 1) {
                 for (const [runIdx, run] of runs.entries()) {
                     const s = byRunField.get(`${run.key}|${ln.field}`);
@@ -74,19 +123,8 @@ export function buildChartData(resp, split) {
                 }
                 continue;
             }
-            const values = new Array(buckets).fill(NaN);
-            let any = false;
-            for (const run of runs) {
-                const s = byRunField.get(`${run.key}|${ln.field}`);
-                if (!s) continue;
-                any = true;
-                for (let b = 0; b < buckets; b++) {
-                    const v = s.values[b];
-                    if (!Number.isFinite(v)) continue;
-                    values[b] = (Number.isFinite(values[b]) ? values[b] : 0) + v * scale;
-                }
-            }
-            if (any) lines.push({label: ln.label, color: seriesColor(lineIdx), values, field: ln.field});
+            const present = runs.map(run => byRunField.get(`${run.key}|${ln.field}`)).filter(Boolean);
+            if (present.length) lines.push({label: ln.label, color: seriesColor(lineIdx), values: sumSeries(present, buckets, scale), field: ln.field});
         }
         out[chart.key] = lines.length ? {startTs, stepMs, buckets, series: lines} : null;
     }

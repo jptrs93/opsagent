@@ -40,6 +40,7 @@ type Sample struct {
 	Cgroup   CgroupMetrics
 	Net      *NetMetrics
 	OpenFDs  *uint64
+	Volume   *VolumeUsage
 }
 
 type Consumer interface {
@@ -49,6 +50,7 @@ type Consumer interface {
 type Sampler struct {
 	mu      sync.Mutex
 	targets map[TargetKey]*target
+	volumes *volumes
 
 	sampleMu sync.Mutex
 	ctx      context.Context
@@ -155,11 +157,15 @@ func (s *Sampler) sampleAll(ctx context.Context, now time.Time) []Sample {
 	for _, t := range s.targets {
 		targets = append(targets, t)
 	}
+	volumes := s.volumes
 	s.mu.Unlock()
 
 	samples := make([]Sample, 0, len(targets))
 	for _, t := range targets {
 		samples = append(samples, s.read(ctx, t, now))
+	}
+	if volumes != nil {
+		volumes.attach(samples)
 	}
 	return samples
 }

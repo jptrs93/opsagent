@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CHARTS, NODE_CHARTS, NODE_QUERY_FIELDS, QUERY_FIELDS, buildChartData, buildNodeChartData} from './metricsData.js';
+import {CHARTS, NODE_CHARTS, NODE_QUERY_FIELDS, QUERY_FIELDS, buildChartData, buildNodeChartData, idleVolumes, volumesByPlacement, placementKey} from './metricsData.js';
 
 const series = (run, field, values) => ({scheduledInstanceId: run, ordinal: 0, deploymentVersion: 1, run: 1, nodeId: 2, field, kind: 0, values});
 
@@ -43,6 +43,39 @@ test('a line keeps its colour slot when the lines before it have no data', () =>
     const out = buildChartData({...resp, series: [series(10, 'cpu_system_usec', [1, 2, 3])]}, false);
     assert.equal(out.charts.cpu.series.length, 1);
     assert.equal(out.charts.cpu.series[0].color, 'var(--chart-series-3)');
+});
+
+const held = (nodeId, values) => ({scheduledInstanceId: 0, ordinal: 0, deploymentVersion: 0, run: 0, nodeId, field: 'volume_bytes', kind: 3, values});
+
+test('a volume series belongs to the deployment: it adds no run and is one line', () => {
+    const out = buildChartData({...resp, series: [...resp.series, held(2, [1000, 1000, 2000])]}, false);
+    assert.equal(out.runs.length, 2);
+    assert.deepEqual(out.charts.volume.series.map(s => s.label), ['used']);
+    assert.deepEqual(out.charts.volume.series[0].values, [1000, 1000, 2000]);
+    assert.deepEqual(buildChartData({...resp, series: [...resp.series, held(2, [1000, 1000, 2000])]}, true).charts.volume.series.map(s => s.label), ['used']);
+    assert.equal(buildChartData(resp, false).charts.volume, null);
+});
+
+test('volumes on two nodes sum when combined and split into one line per node', () => {
+    const both = {...resp, series: [held(2, [1000, 1000, NaN]), held(5, [NaN, 500, 500])]};
+    const combined = buildChartData(both, false);
+    assert.equal(combined.runs.length, 0);
+    assert.deepEqual(combined.charts.volume.series[0].values.map(v => Number.isNaN(v) ? 'nan' : v), [1000, 1500, 500]);
+    const split = buildChartData(both, true);
+    assert.deepEqual(split.charts.volume.series.map(s => s.label), ['used node 2', 'used node 5']);
+    assert.notEqual(split.charts.volume.series[0].color, split.charts.volume.series[1].color);
+});
+
+test('a volume with no running container on its node is listed as idle', () => {
+    const volumes = [
+        {deploymentId: 7, nodeId: 2, bytes: 100},
+        {deploymentId: 7, nodeId: 5, bytes: 200},
+        {deploymentId: 9, nodeId: 2, bytes: 300},
+    ];
+    const entries = [{sample: {deploymentId: 7, nodeId: 2}}, {sample: {deploymentId: 7, nodeId: 2}}];
+    assert.equal(volumesByPlacement(volumes).get(placementKey(7, 2)).bytes, 100);
+    assert.deepEqual(idleVolumes(volumes, entries).map(v => v.bytes), [200, 300]);
+    assert.deepEqual(idleVolumes(undefined, entries), []);
 });
 
 test('query fields cover every chart line exactly once', () => {
